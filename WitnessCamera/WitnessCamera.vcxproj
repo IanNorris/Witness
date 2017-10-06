@@ -57,7 +57,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalDependencies>$(SolutionDir)\ThirdParty\ffmpeg-3.3.3-win64-dev\lib\avcodec.lib;$(SolutionDir)\ThirdParty\ffmpeg-3.3.3-win64-dev\lib\avformat.lib;$(SolutionDir)\ThirdParty\ffmpeg-3.3.3-win64-dev\lib\swscale.lib;$(SolutionDir)\ThirdParty\ffmpeg-3.3.3-win64-dev\lib\avutil.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
-	<PostBuildEvent>
+    <PostBuildEvent>
       <Command>cmd /C copy /Y $(SolutionDir)\ThirdParty\ffmpeg-3.3.3-win64-shared\bin\*.dll $(OutputPath)</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
@@ -90,11 +90,14 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="Source\FFMPEG\Frame.cpp" />
     <ClCompile Include="Source\Stream.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Include\Export.h" />
     <ClInclude Include="Include\Stream.h" />
+    <ClInclude Include="Source\FFMPEG\Common.h" />
+    <ClInclude Include="Source\FFMPEG\Frame.h" />
     <ClInclude Include="Source\StreamData.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

@@ -1,18 +1,12 @@
 #pragma once
 
-extern "C"
-{
-#include <libavcodec\avcodec.h>
-#include <libavformat\avformat.h>
-#include <libavformat\avio.h>
-#include <libavutil\dict.h>
-#include <libavutil\imgutils.h>
-#include <libswscale\swscale.h>
-}
+#include "FFMPEG/Common.h"
+#include "FFMPEG/Frame.h"
+
+#include <memory>
 
 namespace Witness{
 namespace Camera{
-namespace Internal{
 
 struct StreamData
 {
@@ -21,19 +15,30 @@ struct StreamData
 	, FormatContext( nullptr )
 	, CodecContext( nullptr )
 	, StreamOptions( nullptr )
-	{
-	}
+	, StreamIndex( 0 )
+	, ChosenStreamIndex( 0 )
+	, HasInitialised( false )
+	{}
 
 	~StreamData()
-	{
-		avformat_free_context(FormatContext);
-		FormatContext = nullptr;
-	}
+	{}
 
-	SwsContext* ConversionContext;
-	AVFormatContext* FormatContext;
-	AVCodecContext* CodecContext;
-	AVDictionary* StreamOptions;
+	std::unique_ptr<FFMPEG::Frame>	Input;
+	std::unique_ptr<FFMPEG::Frame>	Output;
+
+	std::string URL;
+
+	AVPacket			Packet;
+
+	SwsContext*			ConversionContext;
+	AVFormatContext*	FormatContext;
+	AVCodecContext*		CodecContext;
+	AVDictionary*		StreamOptions;
+
+	unsigned int		StreamIndex;
+	unsigned int		ChosenStreamIndex;
+
+	bool				HasInitialised;
 };
 
-}}}
+}}

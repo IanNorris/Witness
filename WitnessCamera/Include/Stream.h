@@ -3,7 +3,6 @@
 #include "Export.h"
 
 #include <string>
-#include <memory>
 
 namespace Witness{
 namespace Camera{
@@ -18,11 +17,12 @@ enum CameraStreamError
 	CameraStreamError_FrameError,
 	CameraStreamError_PacketError,
 	CameraStreamError_DecoderReceiverError,
+
+
+	CameraStreamError_InternalError,
 };
 
-namespace Internal{
 struct StreamData;
-}
 
 class CAMERA_API Stream
 {
@@ -30,15 +30,20 @@ public:
 	Stream( const std::string& StreamURL, int StreamIndex = 0 );
 	virtual ~Stream();
 
-	inline CameraStreamError GetError() { return Error; }
+	CameraStreamError Initialize();
+	CameraStreamError ProcessFrame();
+	void Shutdown();
+
+	inline int GetErrorLine() { return m_LineNumber; }
 
 private:
 
+	void OneTimeInit();
+
 	static void LogCallback( void* Data, int Level, const char* Format, va_list vargs );
 
-	Internal::StreamData* InternalData;
-
-	CameraStreamError Error;					
+	StreamData*						m_InternalData;
+	int								m_LineNumber;
 };
 
 }}
