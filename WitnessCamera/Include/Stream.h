@@ -27,16 +27,16 @@ struct StreamData;
 class CAMERA_API Stream
 {
 public:
-	Stream( const std::string& StreamURL, int StreamIndex = 0 );
+	Stream();
 	virtual ~Stream();
 
-	CameraStreamError Initialize();
-	CameraStreamError ProcessFrame();
-	void Shutdown();
+	virtual CameraStreamError Initialize();
+	virtual CameraStreamError ProcessFrame();
+	virtual void Shutdown();
 
 	inline int GetErrorLine() { return m_LineNumber; }
 
-private:
+protected:
 
 	void OneTimeInit();
 

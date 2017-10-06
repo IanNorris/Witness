@@ -26,7 +26,7 @@ struct StreamData
 	std::unique_ptr<FFMPEG::Frame>	Input;
 	std::unique_ptr<FFMPEG::Frame>	Output;
 
-	std::string URL;
+	std::string Path;
 
 	AVPacket			Packet;
 

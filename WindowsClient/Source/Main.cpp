@@ -1,12 +1,12 @@
 #include <windows.h>
 
-#include <Stream.h>
+#include <InputStream.h>
 
 using namespace Witness::Camera;
 
 int WINAPI WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nShowCmd )
 {
-	Stream rtspStream( lpCmdLine );
+	InputStream rtspStream( lpCmdLine );
 
 	rtspStream.Initialize();
 

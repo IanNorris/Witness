@@ -91,10 +91,12 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Source\FFMPEG\Frame.cpp" />
+    <ClCompile Include="Source\InputStream.cpp" />
     <ClCompile Include="Source\Stream.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Include\Export.h" />
+    <ClInclude Include="Include\InputStream.h" />
     <ClInclude Include="Include\Stream.h" />
     <ClInclude Include="Source\FFMPEG\Common.h" />
     <ClInclude Include="Source\FFMPEG\Frame.h" />
