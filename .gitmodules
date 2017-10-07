@@ -1,0 +1,3 @@
+[submodule "ThirdParty/SubModules/bgslibrary"]
+	path = ThirdParty/SubModules/bgslibrary
+	url = https://github.com/IanNorris/bgslibrary.git

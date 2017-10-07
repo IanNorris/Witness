@@ -50,15 +50,15 @@
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
-      <AdditionalIncludeDirectories>.\Include;$(SolutionDir)\ThirdParty\ffmpeg-3.3.3-win64-dev\include\;$(SolutionDir)\ThirdParty\opencv-3.3.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.\Include;$(SolutionDir)\ThirdParty\ffmpeg-3.3.3-win64-dev\include\;$(SolutionDir)\ThirdParty\opencv-3.3.0\include;$(SolutionDir)\ThirdParty\SubModules\bgslibrary;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>$(SolutionDir)\ThirdParty\ffmpeg-3.3.3-win64-dev\lib\avcodec.lib;$(SolutionDir)\ThirdParty\ffmpeg-3.3.3-win64-dev\lib\avformat.lib;$(SolutionDir)\ThirdParty\ffmpeg-3.3.3-win64-dev\lib\swscale.lib;$(SolutionDir)\ThirdParty\opencv-3.3.0\x64\vc14\lib\opencv_world330.lib;$(SolutionDir)\ThirdParty\ffmpeg-3.3.3-win64-dev\lib\avutil.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(SolutionDir)\ThirdParty\ffmpeg-3.3.3-win64-dev\lib\avcodec.lib;$(SolutionDir)\ThirdParty\ffmpeg-3.3.3-win64-dev\lib\avformat.lib;$(SolutionDir)\ThirdParty\ffmpeg-3.3.3-win64-dev\lib\swscale.lib;$(SolutionDir)\ThirdParty\ffmpeg-3.3.3-win64-dev\lib\avutil.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
-      <Command>cmd /C copy /Y $(SolutionDir)\ThirdParty\ffmpeg-3.3.3-win64-shared\bin\*.dll $(OutputPath) &amp;&amp; copy /Y $(SolutionDir)\ThirdParty\opencv-3.3.0\x64\vc14\bin\opencv_world330.dll $(OutputPath)</Command>
+      <Command>cmd /C copy /Y $(SolutionDir)\ThirdParty\ffmpeg-3.3.3-win64-shared\bin\*.dll $(OutputPath) &amp;&amp; copy /Y $(SolutionDir)\ThirdParty\opencv-3.3.0\x64\vc14\bin\opencv_world330*.dll $(OutputPath)</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -70,6 +70,9 @@
       <PreprocessorDefinitions>_DEBUG;_WINDOWS;_USRDLL;WITNESSCAMERA_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
     </ClCompile>
+	<Link>
+      <AdditionalDependencies>$(SolutionDir)\ThirdParty\opencv-3.3.0\x64\vc14\lib\opencv_world330d.lib;%(AdditionalDependencies)</AdditionalDependencies>
+    </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -87,6 +90,7 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
+      <AdditionalDependencies>$(SolutionDir)\ThirdParty\opencv-3.3.0\x64\vc14\lib\opencv_world330.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -109,6 +113,11 @@
     <ClInclude Include="Source\FFMPEG\Frame.h" />
     <ClInclude Include="Source\FilterData.h" />
     <ClInclude Include="Source\StreamData.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\ThirdParty\BGSLibraryWrapper\BGSLibraryWrapper.vcxproj">
+      <Project>{f959afd2-fb12-4ebb-a8ee-f15dfad244cd}</Project>
+    </ProjectReference>
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

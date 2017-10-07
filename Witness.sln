@@ -7,22 +7,44 @@ Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "WitnessWindowsClient", "Win
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "WitnessCamera", "WitnessCamera\WitnessCamera.vcxproj", "{6C101E0A-32B2-4A7F-B094-0D651F9A7B15}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "ThirdParty", "ThirdParty", "{1697CDDA-CB46-40B3-BC64-8000071B93E2}"
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "BGSLibraryWrapper", "ThirdParty\BGSLibraryWrapper\BGSLibraryWrapper.vcxproj", "{F959AFD2-FB12-4EBB-A8EE-F15DFAD244CD}"
+EndProject
 Global
+	GlobalSection(Performance) = preSolution
+		HasPerformanceSessions = true
+	EndGlobalSection
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|x64 = Debug|x64
+		Debug|x86 = Debug|x86
 		Release|x64 = Release|x64
+		Release|x86 = Release|x86
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{30E4F9A2-9419-401C-88D9-1C85A4F1CA5F}.Debug|x64.ActiveCfg = Debug|x64
 		{30E4F9A2-9419-401C-88D9-1C85A4F1CA5F}.Debug|x64.Build.0 = Debug|x64
+		{30E4F9A2-9419-401C-88D9-1C85A4F1CA5F}.Debug|x86.ActiveCfg = Debug|x64
 		{30E4F9A2-9419-401C-88D9-1C85A4F1CA5F}.Release|x64.ActiveCfg = Release|x64
 		{30E4F9A2-9419-401C-88D9-1C85A4F1CA5F}.Release|x64.Build.0 = Release|x64
+		{30E4F9A2-9419-401C-88D9-1C85A4F1CA5F}.Release|x86.ActiveCfg = Release|x64
 		{6C101E0A-32B2-4A7F-B094-0D651F9A7B15}.Debug|x64.ActiveCfg = Debug|x64
 		{6C101E0A-32B2-4A7F-B094-0D651F9A7B15}.Debug|x64.Build.0 = Debug|x64
+		{6C101E0A-32B2-4A7F-B094-0D651F9A7B15}.Debug|x86.ActiveCfg = Debug|x64
 		{6C101E0A-32B2-4A7F-B094-0D651F9A7B15}.Release|x64.ActiveCfg = Release|x64
 		{6C101E0A-32B2-4A7F-B094-0D651F9A7B15}.Release|x64.Build.0 = Release|x64
+		{6C101E0A-32B2-4A7F-B094-0D651F9A7B15}.Release|x86.ActiveCfg = Release|x64
+		{F959AFD2-FB12-4EBB-A8EE-F15DFAD244CD}.Debug|x64.ActiveCfg = Debug|x64
+		{F959AFD2-FB12-4EBB-A8EE-F15DFAD244CD}.Debug|x64.Build.0 = Debug|x64
+		{F959AFD2-FB12-4EBB-A8EE-F15DFAD244CD}.Debug|x86.ActiveCfg = Debug|x64
+		{F959AFD2-FB12-4EBB-A8EE-F15DFAD244CD}.Release|x64.ActiveCfg = Release|x64
+		{F959AFD2-FB12-4EBB-A8EE-F15DFAD244CD}.Release|x64.Build.0 = Release|x64
+		{F959AFD2-FB12-4EBB-A8EE-F15DFAD244CD}.Release|x86.ActiveCfg = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{F959AFD2-FB12-4EBB-A8EE-F15DFAD244CD} = {1697CDDA-CB46-40B3-BC64-8000071B93E2}
 	EndGlobalSection
 EndGlobal

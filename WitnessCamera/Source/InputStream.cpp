@@ -32,7 +32,9 @@ CameraStreamError InputStream::Initialize()
 	
 	av_dict_set( &ID.StreamOptions, "rtsp_transport", "tcp", 0 );
 	
-	if( avformat_open_input( &ID.FormatContext, ID.Path.c_str(), nullptr, &ID.StreamOptions ) != 0 )
+	int Result = avformat_open_input( &ID.FormatContext, ID.Path.c_str(), nullptr, &ID.StreamOptions );
+
+	if( Result < 0 )
 	{
 		STREAM_ERROR( ConnectionError );
 	}
@@ -77,8 +79,8 @@ CameraStreamError InputStream::Initialize()
 	}
 
 	AVPixelFormat OutputPixelFormat = AV_PIX_FMT_BGR24;
-	unsigned int OutputWidth = ID.CodecContext->width;
-	unsigned int OutputHeight = ID.CodecContext->height;
+	unsigned int OutputWidth = ID.CodecContext->width / 4;
+	unsigned int OutputHeight = ID.CodecContext->height / 4;
 
 	AVPixelFormat InputPixelFormat = ID.CodecContext->pix_fmt;
 
@@ -153,26 +155,31 @@ CameraStreamError InputStream::ProcessFrame( IRecordFilter* Filter, Stream* Targ
 			}
 			else
 			{
-				Stream* Output = dynamic_cast<OutputStream*>(TargetStream);
-				if( Output )
+				int OutputSliceSize = sws_scale( m_InternalData->ConversionContext, ID.Input->GetFrame()->data, ID.Input->GetFrame()->linesize, 0, m_InternalData->CodecContext->height, ID.Output->GetFrame()->data, ID.Output->GetFrame()->linesize );
+
+				const char* FilterResult = Filter->CalculateRecordingClassification(  ID.Output->GetWidth(), ID.Output->GetHeight(), ID.Output->GetFrame()->data[0] );
+
+				if( FilterResult )
 				{
+					Stream* Output = dynamic_cast<OutputStream*>(TargetStream);
+					if( Output )
+					{
 					
 
-					av_packet_rescale_ts( 
-						&ID.Packet, 
-						ID.FormatContext->streams[ID.ChosenStreamIndex]->time_base,
-						Output->GetData().FormatContext->streams[ID.ChosenStreamIndex]->time_base );
+						av_packet_rescale_ts( 
+							&ID.Packet, 
+							ID.FormatContext->streams[ID.ChosenStreamIndex]->time_base,
+							Output->GetData().FormatContext->streams[ID.ChosenStreamIndex]->time_base );
 
-					Result = av_interleaved_write_frame( Output->GetData().FormatContext, &ID.Packet );
-					if( Result < 0 )
-					{
-						STREAM_ERROR( WriteFailed );
+						Result = av_interleaved_write_frame( Output->GetData().FormatContext, &ID.Packet );
+						if( Result < 0 )
+						{
+							STREAM_ERROR( WriteFailed );
+						}
 					}
 				}
 
-				int OutputSliceSize = sws_scale( m_InternalData->ConversionContext, ID.Input->GetFrame()->data, ID.Input->GetFrame()->linesize, 0, m_InternalData->CodecContext->height, ID.Output->GetFrame()->data, ID.Output->GetFrame()->linesize );
-
-				const char* Result = Filter->CalculateRecordingClassification(  ID.Output->GetWidth(), ID.Output->GetHeight(), ID.Output->GetFrame()->data[0] );
+				
 
 				ID.Input->Unref();
 			}
