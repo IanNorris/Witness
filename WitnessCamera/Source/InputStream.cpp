@@ -1,13 +1,10 @@
 #include "InputStream.h"
+#include "OutputStream.h"
 #include "StreamData.h"
 
 #include <windows.h>
 #include <vector>
 #include <iostream>
-
-#define STREAM_ERROR( X )\
-	m_LineNumber = __LINE__;\
-	return X;
 
 namespace Witness{
 namespace Camera{
@@ -125,7 +122,7 @@ CameraStreamError InputStream::Initialize()
 	return CameraStreamError_Success;
 }
 
-CameraStreamError InputStream::ProcessFrame()
+CameraStreamError InputStream::ProcessFrame( Stream* TargetStream )
 {
 	auto& ID = *m_InternalData;
 
@@ -157,6 +154,23 @@ CameraStreamError InputStream::ProcessFrame()
 			}
 			else
 			{
+				Stream* Output = dynamic_cast<OutputStream*>(TargetStream);
+				if( Output )
+				{
+					
+
+					av_packet_rescale_ts( 
+						&ID.Packet, 
+						ID.FormatContext->streams[ID.ChosenStreamIndex]->time_base,
+						Output->GetData()->FormatContext->streams[ID.ChosenStreamIndex]->time_base );
+
+					Result = av_interleaved_write_frame( Output->GetData()->FormatContext, &ID.Packet );
+					if( Result < 0 )
+					{
+						STREAM_ERROR( CameraStreamError_WriteFailed );
+					}
+				}
+
 				int OutputSliceSize = sws_scale( m_InternalData->ConversionContext, ID.Input->GetFrame()->data, ID.Input->GetFrame()->linesize, 0, m_InternalData->CodecContext->height, ID.Output->GetFrame()->data, ID.Output->GetFrame()->linesize );
 
 				unsigned char* ViewData = (unsigned char*)ID.Output->GetFrame()->data[0];

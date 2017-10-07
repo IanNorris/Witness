@@ -14,12 +14,17 @@ enum CameraStreamError
 	CameraStreamError_NoStreams,
 	CameraStreamError_NoH264Support,
 	CameraStreamError_UnsupportedStreamFormat,
+	CameraStreamError_UnsupportedStreamType,
 	CameraStreamError_FrameError,
 	CameraStreamError_PacketError,
 	CameraStreamError_DecoderReceiverError,
+	CameraStreamError_EncoderCreationError,
+	CameraStreamError_FileNotWriteable,
+	CameraStreamError_WriteFailed,
 
 
 	CameraStreamError_InternalError,
+	CameraStreamError_UnknownError,
 };
 
 struct StreamData;
@@ -31,10 +36,11 @@ public:
 	virtual ~Stream();
 
 	virtual CameraStreamError Initialize();
-	virtual CameraStreamError ProcessFrame();
+	virtual CameraStreamError ProcessFrame( Stream* TargetStream );
 	virtual void Shutdown();
 
 	inline int GetErrorLine() { return m_LineNumber; }
+	inline StreamData* GetData() const { return m_InternalData; }
 
 protected:
 

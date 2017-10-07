@@ -5,6 +5,10 @@
 
 #include <memory>
 
+#define STREAM_ERROR( X )\
+	m_LineNumber = __LINE__;\
+	return X;
+
 namespace Witness{
 namespace Camera{
 
@@ -17,7 +21,7 @@ struct StreamData
 	, StreamOptions( nullptr )
 	, StreamIndex( 0 )
 	, ChosenStreamIndex( 0 )
-	, HasInitialised( false )
+	, HasInitialized( false )
 	{}
 
 	~StreamData()
@@ -38,7 +42,8 @@ struct StreamData
 	unsigned int		StreamIndex;
 	unsigned int		ChosenStreamIndex;
 
-	bool				HasInitialised;
+	bool				HasInitialized;
+	bool				HasFinalised;
 };
 
 }}
