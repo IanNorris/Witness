@@ -2,7 +2,6 @@
 #include "OutputStream.h"
 #include "StreamData.h"
 
-#include <windows.h>
 #include <vector>
 #include <iostream>
 
@@ -22,7 +21,7 @@ InputStream::~InputStream()
 CameraStreamError InputStream::Initialize()
 {
 	CameraStreamError StreamInitResult = Stream::Initialize();
-	if( StreamInitResult != CameraStreamError_Success )
+	if( StreamInitResult != CameraStreamError::Success )
 	{
 		return StreamInitResult;
 	}
@@ -35,12 +34,12 @@ CameraStreamError InputStream::Initialize()
 	
 	if( avformat_open_input( &ID.FormatContext, ID.Path.c_str(), nullptr, &ID.StreamOptions ) != 0 )
 	{
-		STREAM_ERROR( CameraStreamError_ConnectionError );
+		STREAM_ERROR( ConnectionError );
 	}
 
 	if( avformat_find_stream_info( ID.FormatContext, nullptr ) < 0 )
 	{
-		STREAM_ERROR( CameraStreamError_NoStreams );
+		STREAM_ERROR( NoStreams );
 	}
 
 	ID.ChosenStreamIndex = 0;
@@ -65,7 +64,7 @@ CameraStreamError InputStream::Initialize()
 	AVCodec* OutputCodec = avcodec_find_decoder(AV_CODEC_ID_H264);
 	if( !OutputCodec )
 	{
-		STREAM_ERROR( CameraStreamError_NoH264Support );
+		STREAM_ERROR( NoH264Support );
 	}
 
 	ID.CodecContext = avcodec_alloc_context3( nullptr );
@@ -74,10 +73,10 @@ CameraStreamError InputStream::Initialize()
 	
 	if( avcodec_open2( ID.CodecContext, OutputCodec, nullptr ) < 0 )
 	{
-		STREAM_ERROR( CameraStreamError_UnsupportedStreamFormat );
+		STREAM_ERROR( UnsupportedStreamFormat );
 	}
 
-	AVPixelFormat OutputPixelFormat = AV_PIX_FMT_RGB24;
+	AVPixelFormat OutputPixelFormat = AV_PIX_FMT_BGR24;
 	unsigned int OutputWidth = ID.CodecContext->width;
 	unsigned int OutputHeight = ID.CodecContext->height;
 
@@ -119,17 +118,17 @@ CameraStreamError InputStream::Initialize()
 		NULL,
 		NULL );
 
-	return CameraStreamError_Success;
+	return CameraStreamError::Success;
 }
 
-CameraStreamError InputStream::ProcessFrame( Stream* TargetStream )
+CameraStreamError InputStream::ProcessFrame( IRecordFilter* Filter, Stream* TargetStream )
 {
 	auto& ID = *m_InternalData;
 
 	int Result;
 	if( (Result = av_read_frame( m_InternalData->FormatContext, &ID.Packet )) < 0 )
 	{
-		STREAM_ERROR( CameraStreamError_FrameError );
+		STREAM_ERROR( FrameError );
 	}
 
 	if( ID.Packet.stream_index == ID.ChosenStreamIndex )
@@ -137,7 +136,7 @@ CameraStreamError InputStream::ProcessFrame( Stream* TargetStream )
 		Result = avcodec_send_packet( m_InternalData->CodecContext, &ID.Packet );
 		if( Result < 0 )
 		{
-			STREAM_ERROR( CameraStreamError_PacketError );
+			STREAM_ERROR( PacketError );
 		}
 
 		Result = 0;
@@ -150,7 +149,7 @@ CameraStreamError InputStream::ProcessFrame( Stream* TargetStream )
 			}
 			else if( Result < 0 )
 			{
-				STREAM_ERROR( CameraStreamError_DecoderReceiverError );
+				STREAM_ERROR( DecoderReceiverError );
 			}
 			else
 			{
@@ -162,18 +161,18 @@ CameraStreamError InputStream::ProcessFrame( Stream* TargetStream )
 					av_packet_rescale_ts( 
 						&ID.Packet, 
 						ID.FormatContext->streams[ID.ChosenStreamIndex]->time_base,
-						Output->GetData()->FormatContext->streams[ID.ChosenStreamIndex]->time_base );
+						Output->GetData().FormatContext->streams[ID.ChosenStreamIndex]->time_base );
 
-					Result = av_interleaved_write_frame( Output->GetData()->FormatContext, &ID.Packet );
+					Result = av_interleaved_write_frame( Output->GetData().FormatContext, &ID.Packet );
 					if( Result < 0 )
 					{
-						STREAM_ERROR( CameraStreamError_WriteFailed );
+						STREAM_ERROR( WriteFailed );
 					}
 				}
 
 				int OutputSliceSize = sws_scale( m_InternalData->ConversionContext, ID.Input->GetFrame()->data, ID.Input->GetFrame()->linesize, 0, m_InternalData->CodecContext->height, ID.Output->GetFrame()->data, ID.Output->GetFrame()->linesize );
 
-				unsigned char* ViewData = (unsigned char*)ID.Output->GetFrame()->data[0];
+				const char* Result = Filter->CalculateRecordingClassification(  ID.Output->GetWidth(), ID.Output->GetHeight(), ID.Output->GetFrame()->data[0] );
 
 				ID.Input->Unref();
 			}
@@ -183,7 +182,7 @@ CameraStreamError InputStream::ProcessFrame( Stream* TargetStream )
 	av_packet_unref( &ID.Packet );
 	av_init_packet( &ID.Packet );
 
-	return CameraStreamError_Success;
+	return CameraStreamError::Success;
 }
 
 void InputStream::Shutdown()

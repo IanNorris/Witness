@@ -7,7 +7,7 @@
 
 #define STREAM_ERROR( X )\
 	m_LineNumber = __LINE__;\
-	return X;
+	return CameraStreamError::X;
 
 namespace Witness{
 namespace Camera{

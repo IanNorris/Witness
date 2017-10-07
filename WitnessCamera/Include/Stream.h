@@ -1,46 +1,47 @@
 #pragma once
 
 #include "Export.h"
+#include "Pimpl.h"
+#include "RecordFilter.h"
 
 #include <string>
 
 namespace Witness{
 namespace Camera{
 
-enum CameraStreamError
+enum class CameraStreamError
 {
-	CameraStreamError_Success,
-	CameraStreamError_ConnectionError,
-	CameraStreamError_NoStreams,
-	CameraStreamError_NoH264Support,
-	CameraStreamError_UnsupportedStreamFormat,
-	CameraStreamError_UnsupportedStreamType,
-	CameraStreamError_FrameError,
-	CameraStreamError_PacketError,
-	CameraStreamError_DecoderReceiverError,
-	CameraStreamError_EncoderCreationError,
-	CameraStreamError_FileNotWriteable,
-	CameraStreamError_WriteFailed,
+	Success,
+	ConnectionError,
+	NoStreams,
+	NoH264Support,
+	UnsupportedStreamFormat,
+	UnsupportedStreamType,
+	FrameError,
+	PacketError,
+	DecoderReceiverError,
+	EncoderCreationError,
+	FileNotWriteable,
+	WriteFailed,
 
 
-	CameraStreamError_InternalError,
-	CameraStreamError_UnknownError,
+	InternalError,
+	UnknownError,
 };
 
 struct StreamData;
 
-class CAMERA_API Stream
+class CAMERA_API Stream : public Pimpl<StreamData>
 {
 public:
 	Stream();
 	virtual ~Stream();
 
 	virtual CameraStreamError Initialize();
-	virtual CameraStreamError ProcessFrame( Stream* TargetStream );
+	virtual CameraStreamError ProcessFrame( IRecordFilter* Filter, Stream* TargetStream );
 	virtual void Shutdown();
 
 	inline int GetErrorLine() { return m_LineNumber; }
-	inline StreamData* GetData() const { return m_InternalData; }
 
 protected:
 
@@ -48,7 +49,7 @@ protected:
 
 	static void LogCallback( void* Data, int Level, const char* Format, va_list vargs );
 
-	StreamData*						m_InternalData;
+	
 	int								m_LineNumber;
 };
 

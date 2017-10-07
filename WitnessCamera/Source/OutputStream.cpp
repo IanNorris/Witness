@@ -2,14 +2,10 @@
 #include "InputStream.h"
 #include "StreamData.h"
 
-#include <windows.h>
-#include <vector>
-#include <iostream>
-
 namespace Witness{
 namespace Camera{
 
-OutputStream::OutputStream( const std::string& Path, const InputStream * InputStream )
+OutputStream::OutputStream( const std::string& Path, InputStream * InputStream )
 : Stream()
 , m_InputStream( InputStream )
 {
@@ -22,38 +18,38 @@ OutputStream::~OutputStream()
 CameraStreamError OutputStream::Initialize()
 {
 	CameraStreamError StreamInitResult = Stream::Initialize();
-	if( StreamInitResult != CameraStreamError_Success )
+	if( StreamInitResult != CameraStreamError::Success )
 	{
 		return StreamInitResult;
 	}
 
 	auto& ID = *m_InternalData;
-	const auto& InID = *m_InputStream->GetData();
+	auto& InID = m_InputStream->GetData();
 	const AVCodecContext& DecoderContext = *(InID.CodecContext);
 
 	avformat_alloc_output_context2( &ID.FormatContext, nullptr, nullptr, ID.Path.c_str() );
 	if( !ID.FormatContext )
 	{
-		STREAM_ERROR( CameraStreamError_UnknownError );
+		STREAM_ERROR( UnknownError );
 	}
 
 	AVStream* OutStream = avformat_new_stream( ID.FormatContext, nullptr );
 	if( !OutStream )
 	{
-		STREAM_ERROR( CameraStreamError_UnknownError );
+		STREAM_ERROR( UnknownError );
 	}
 
 	AVCodec* Encoder = avcodec_find_encoder( DecoderContext.codec_id );
 
 	if( !Encoder )
 	{
-		STREAM_ERROR( CameraStreamError_NoH264Support );
+		STREAM_ERROR( NoH264Support );
 	}
 
 	ID.CodecContext = avcodec_alloc_context3( Encoder );
 	if( !ID.CodecContext )
 	{
-		STREAM_ERROR( CameraStreamError_NoH264Support );
+		STREAM_ERROR( NoH264Support );
 	}
 
 	if( DecoderContext.codec_type== AVMEDIA_TYPE_VIDEO )
@@ -92,19 +88,19 @@ CameraStreamError OutputStream::Initialize()
 	}
 	else
 	{
-		STREAM_ERROR( CameraStreamError_UnsupportedStreamType );
+		STREAM_ERROR( UnsupportedStreamType );
 	}
 
 	int Result = avcodec_open2( ID.CodecContext, Encoder, nullptr );
 	if( Result < 0 )
 	{
-		STREAM_ERROR( CameraStreamError_EncoderCreationError );
+		STREAM_ERROR( EncoderCreationError );
 	}
 
 	Result = avcodec_parameters_from_context( OutStream->codecpar, ID.CodecContext );
 	if( Result < 0 )
 	{
-		STREAM_ERROR( CameraStreamError_EncoderCreationError );
+		STREAM_ERROR( EncoderCreationError );
 	}
 
 	if( ID.FormatContext->oformat->flags & AVFMT_GLOBALHEADER )
@@ -112,31 +108,31 @@ CameraStreamError OutputStream::Initialize()
 		ID.CodecContext->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
 	}
 
-	OutStream->time_base= ID.CodecContext->time_base;
+	OutStream->time_base = ID.CodecContext->time_base;
 
 	if( !( ID.FormatContext->oformat->flags & AVFMT_NOFILE ) )
 	{
 		Result = avio_open( &ID.FormatContext->pb, ID.Path.c_str(), AVIO_FLAG_WRITE );
 		if( Result < 0 )
 		{
-			STREAM_ERROR( CameraStreamError_FileNotWriteable );
+			STREAM_ERROR( FileNotWriteable );
 		}
 	}
 
 	Result = avformat_write_header( ID.FormatContext, nullptr );
 	if( Result < 0 )
 	{
-		STREAM_ERROR( CameraStreamError_WriteFailed );
+		STREAM_ERROR( WriteFailed );
 	}
 
-	return CameraStreamError_Success;
+	return CameraStreamError::Success;
 }
 
-CameraStreamError OutputStream::ProcessFrame( Stream* TargetStream )
+CameraStreamError OutputStream::ProcessFrame( IRecordFilter* Filter, Stream* TargetStream )
 {
 	auto& ID = *m_InternalData;
 
-	return CameraStreamError_Success;
+	return CameraStreamError::Success;
 }
 
 void OutputStream::Shutdown()

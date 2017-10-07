@@ -50,15 +50,15 @@
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
-      <AdditionalIncludeDirectories>.\Include;$(SolutionDir)\ThirdParty\ffmpeg-3.3.3-win64-dev\include\;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.\Include;$(SolutionDir)\ThirdParty\ffmpeg-3.3.3-win64-dev\include\;$(SolutionDir)\ThirdParty\opencv-3.3.0\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>$(SolutionDir)\ThirdParty\ffmpeg-3.3.3-win64-dev\lib\avcodec.lib;$(SolutionDir)\ThirdParty\ffmpeg-3.3.3-win64-dev\lib\avformat.lib;$(SolutionDir)\ThirdParty\ffmpeg-3.3.3-win64-dev\lib\swscale.lib;$(SolutionDir)\ThirdParty\ffmpeg-3.3.3-win64-dev\lib\avutil.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(SolutionDir)\ThirdParty\ffmpeg-3.3.3-win64-dev\lib\avcodec.lib;$(SolutionDir)\ThirdParty\ffmpeg-3.3.3-win64-dev\lib\avformat.lib;$(SolutionDir)\ThirdParty\ffmpeg-3.3.3-win64-dev\lib\swscale.lib;$(SolutionDir)\ThirdParty\opencv-3.3.0\x64\vc14\lib\opencv_world330.lib;$(SolutionDir)\ThirdParty\ffmpeg-3.3.3-win64-dev\lib\avutil.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
-      <Command>cmd /C copy /Y $(SolutionDir)\ThirdParty\ffmpeg-3.3.3-win64-shared\bin\*.dll $(OutputPath)</Command>
+      <Command>cmd /C copy /Y $(SolutionDir)\ThirdParty\ffmpeg-3.3.3-win64-shared\bin\*.dll $(OutputPath) &amp;&amp; copy /Y $(SolutionDir)\ThirdParty\opencv-3.3.0\x64\vc14\bin\opencv_world330.dll $(OutputPath)</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -92,16 +92,22 @@
   <ItemGroup>
     <ClCompile Include="Source\FFMPEG\Frame.cpp" />
     <ClCompile Include="Source\InputStream.cpp" />
+    <ClCompile Include="Source\MotionFilter.cpp" />
     <ClCompile Include="Source\OutputStream.cpp" />
     <ClCompile Include="Source\Stream.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Include\Export.h" />
     <ClInclude Include="Include\InputStream.h" />
+    <ClInclude Include="Include\MotionFilter.h" />
     <ClInclude Include="Include\OutputStream.h" />
+    <ClInclude Include="Include\Pimpl.h" />
+    <ClInclude Include="Include\RecordFilter.h" />
+    <ClInclude Include="Include\RecordFilterBase.h" />
     <ClInclude Include="Include\Stream.h" />
     <ClInclude Include="Source\FFMPEG\Common.h" />
     <ClInclude Include="Source\FFMPEG\Frame.h" />
+    <ClInclude Include="Source\FilterData.h" />
     <ClInclude Include="Source\StreamData.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

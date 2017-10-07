@@ -8,8 +8,10 @@
 namespace Witness{
 namespace Camera{
 
+PIMPL_CONSTRUCT(StreamData)
+
 Stream::Stream()
-: m_InternalData( new StreamData() )
+: Pimpl()
 {}
 
 Stream::~Stream()
@@ -21,9 +23,6 @@ Stream::~Stream()
 		sws_freeContext( m_InternalData->ConversionContext );
 		m_InternalData->ConversionContext = nullptr;
 	}
-
-	delete m_InternalData;
-	m_InternalData = nullptr;
 }
 
 CameraStreamError Stream::Initialize()
@@ -31,12 +30,12 @@ CameraStreamError Stream::Initialize()
 	OneTimeInit();
 	Shutdown();
 
-	return CameraStreamError_Success;
+	return CameraStreamError::Success;
 }
 
-CameraStreamError Stream::ProcessFrame( Stream* TargetStream )
+CameraStreamError Stream::ProcessFrame( IRecordFilter* Filter, Stream* TargetStream )
 {
-	return CameraStreamError_Success;
+	return CameraStreamError::Success;
 }
 
 void Stream::Shutdown()
