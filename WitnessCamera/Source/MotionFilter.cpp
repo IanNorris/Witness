@@ -76,6 +76,9 @@ struct MotionFilterData : public FilterDataBase
 		//BackgroundFilter = new CodeBook;
 	}
 
+	vector<vector<Point>> Contours;
+	vector<Point> ContoursPoly;
+
 	IBGS* BackgroundFilter;
 	Mat ForegroundMask;
 	Mat Background;
@@ -109,13 +112,28 @@ const char* MotionFilter::CalculateRecordingClassification( unsigned int Width, 
 	int SumResult = countNonZero( ID.ForegroundMask );
 
 	double ComparisonResult = Width * Height;
-	double Threshold = 0.1 * ComparisonResult;
+	double Threshold = 0.025 * ComparisonResult;
+	double BBThreshold = 0.025 * ComparisonResult;
 
 	if( SumResult > Threshold )
 	{
-		Mat Masked;
-		InputFrame.copyTo( Masked, ID.ForegroundMask );
+		Mat annotated;
+		InputFrame.copyTo( annotated );
 
+		ID.Contours.clear();
+		findContours( ID.ForegroundMask, ID.Contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE  );
+
+		for( auto& Contour : ID.Contours )
+		{
+			ID.ContoursPoly.clear();
+			approxPolyDP( Mat(Contour), ID.ContoursPoly, Height/20, true );
+			Rect Bounds = boundingRect( ID.ContoursPoly );
+
+			if( Bounds.area() > BBThreshold )
+			{
+				rectangle( annotated, Bounds, Scalar(0,255,0), 1 );
+			}
+		}
 		return "Motion";
 	}
 
@@ -161,43 +179,43 @@ const char* MotionFilter::CalculateRecordingClassification( unsigned int Width, 
 
 	 int r = 4;
 	for( size_t i = 0; i < ID.Corners.size(); i++ )
-     { circle( copy, ID.Corners[i], r, Scalar(0, 255,0), -1, 8, 0 ); }
+	 { circle( copy, ID.Corners[i], r, Scalar(0, 255,0), -1, 8, 0 ); }
 
 	cv::Mat out;*/
 
 	/* std::vector<cv::Rect> found, found_filtered;
 	
 	cv::HOGDescriptor hog;
-    hog.setSVMDetector(cv::HOGDescriptor::getDefaultPeopleDetector());
+	hog.setSVMDetector(cv::HOGDescriptor::getDefaultPeopleDetector());
 
 	hog.detectMultiScale(img, found, 0, cv::Size(8,8), cv::Size(32,32), 1.05, 2);
 
 	for(size_t i = 0; i < found.size(); i++ )
-    {
-        Rect r = found[i];
+	{
+		Rect r = found[i];
 
-        size_t j;
-        // Do not add small detections inside a bigger detection.
-        for ( j = 0; j < found.size(); j++ )
-            if ( j != i && (r & found[j]) == r )
-                break;
+		size_t j;
+		// Do not add small detections inside a bigger detection.
+		for ( j = 0; j < found.size(); j++ )
+			if ( j != i && (r & found[j]) == r )
+				break;
 
-        if ( j == found.size() )
-            found_filtered.push_back(r);
-    }
+		if ( j == found.size() )
+			found_filtered.push_back(r);
+	}
 
-    for (size_t i = 0; i < found_filtered.size(); i++)
-    {
-        Rect r = found_filtered[i];
+	for (size_t i = 0; i < found_filtered.size(); i++)
+	{
+		Rect r = found_filtered[i];
 
-        // The HOG detector returns slightly larger rectangles than the real objects,
-        // so we slightly shrink the rectangles to get a nicer output.
-        r.x += cvRound(r.width*0.1);
-        r.width = cvRound(r.width*0.8);
-        r.y += cvRound(r.height*0.07);
-        r.height = cvRound(r.height*0.8);
-        rectangle(img, r.tl(), r.br(), cv::Scalar(0,255,0), 3);
-    }
+		// The HOG detector returns slightly larger rectangles than the real objects,
+		// so we slightly shrink the rectangles to get a nicer output.
+		r.x += cvRound(r.width*0.1);
+		r.width = cvRound(r.width*0.8);
+		r.y += cvRound(r.height*0.07);
+		r.height = cvRound(r.height*0.8);
+		rectangle(img, r.tl(), r.br(), cv::Scalar(0,255,0), 3);
+	}
 
 
 	return found_filtered.empty() ? nullptr : "People";*/

@@ -18,11 +18,7 @@ int WINAPI WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLin
 	rtspStream.Initialize();
 	fileStream.Initialize();
 
-	int i = 500;
-	while( i-- )
-	{
-		rtspStream.ProcessFrame( Filter.get(), &fileStream );
-	}
+	while( rtspStream.ProcessFrame( Filter.get(), &fileStream ) == CameraStreamError::Success );
 
 	fileStream.CloseFile();
 
