@@ -16,6 +16,10 @@ public:
 	virtual CameraStreamError Initialize() override;
 	virtual CameraStreamError ProcessFrame( IRecordFilter* Filter, Stream* TargetStream ) override;
 	virtual void Shutdown() override;
+
+private:
+
+	StreamManager* m_StreamManager;
 };
 
 }}

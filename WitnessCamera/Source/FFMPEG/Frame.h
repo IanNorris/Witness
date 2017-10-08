@@ -13,6 +13,8 @@ public:
 	Frame( unsigned int Width, unsigned int Height, AVPixelFormat Format, unsigned int Alignment = 1 );
 	~Frame();
 
+	void Prepare();
+
 	void Unref();
 
 	inline unsigned int GetWidth() { return m_Width; }

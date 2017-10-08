@@ -1,4 +1,7 @@
 #include "MotionFilter.h"
+#include "StreamManager.h"
+#include "OutputStream.h"
+#include "FFMPEG/Frame.h"
 
 #include <opencv2/core/core.hpp>           // cv::Mat
 
@@ -78,6 +81,7 @@ struct MotionFilterData : public FilterDataBase
 
 	vector<vector<Point>> Contours;
 	vector<Point> ContoursPoly;
+	shared_ptr<FFMPEG::Frame> DiagFrame;
 
 	IBGS* BackgroundFilter;
 	Mat ForegroundMask;
@@ -95,19 +99,24 @@ MotionFilter::MotionFilter()
 MotionFilter::~MotionFilter()
 {}
 
-const char* MotionFilter::CalculateRecordingClassification( unsigned int Width, unsigned int Height, void* Data )
+const char* MotionFilter::FilterFrame( unsigned int Width, unsigned int Height, void* Data, StreamManager* StreamManager )
 {
 	auto& ID = GetData();
+
+	if( !ID.DiagFrame )
+	{
+		ID.DiagFrame = make_shared<FFMPEG::Frame>( Width, Height, AV_PIX_FMT_BGR24, 1 );
+	}
 
 	Mat InputFrame( Size( Width, Height ), CV_8UC3, Data );
 
 	ID.BackgroundFilter->process( InputFrame, ID.ForegroundMask, ID.Background );
 
-	if( ID.InitialFrameFilter > 0 )
+	/*if( ID.InitialFrameFilter > 0 )
 	{
 		ID.InitialFrameFilter--;
 		return nullptr;
-	}
+	}*/
 
 	int SumResult = countNonZero( ID.ForegroundMask );
 
@@ -115,9 +124,13 @@ const char* MotionFilter::CalculateRecordingClassification( unsigned int Width, 
 	double Threshold = 0.025 * ComparisonResult;
 	double BBThreshold = 0.025 * ComparisonResult;
 
-	if( SumResult > Threshold )
+	//if( SumResult > Threshold )
 	{
-		Mat annotated;
+		OutputStream* DiagOutput = StreamManager->GetDiagnosticStream( Width, Height );
+
+		ID.DiagFrame->Prepare();
+		
+		Mat annotated( ID.DiagFrame->GetHeight(), ID.DiagFrame->GetWidth(), CV_8UC3, ID.DiagFrame->GetFrame()->data[0] );
 		InputFrame.copyTo( annotated );
 
 		ID.Contours.clear();
@@ -134,6 +147,9 @@ const char* MotionFilter::CalculateRecordingClassification( unsigned int Width, 
 				rectangle( annotated, Bounds, Scalar(0,255,0), 1 );
 			}
 		}
+
+		DiagOutput->WriteFrame( ID.DiagFrame.get() );
+
 		return "Motion";
 	}
 
@@ -226,7 +242,7 @@ const char* MotionFilter::CalculateRecordingClassification( unsigned int Width, 
 	}
 	else*/
 	{
-		return nullptr;
+		return "Dummy";
 	}
 }
 

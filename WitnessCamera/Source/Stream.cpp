@@ -60,22 +60,22 @@ void Stream::Shutdown()
 
 void Stream::OneTimeInit()
 {
-	if( !m_InternalData->HasInitialized )
+	if( !m_InternalData->HasOneTimeInitialized )
 	{
 		av_log_set_callback( &InputStream::LogCallback );
 		av_register_all();
 		avformat_network_init();
 
-		m_InternalData->HasInitialized = true;
+		m_InternalData->HasOneTimeInitialized = true;
 	}
 }
 
 void Stream::LogCallback( void* AVData, int Level, const char* Format, va_list Args )
 {
-	if( Level > AV_LOG_WARNING )
+	/*if( Level > AV_LOG_WARNING )
 	{
 		return;
-	}
+	}*/
 
 	size_t OriginalMessageSizeNeeded = std::vsnprintf(NULL, 0, Format, Args) + 1;
 	std::vector<char> OriginalMessageBuf( OriginalMessageSizeNeeded );

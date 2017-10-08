@@ -12,13 +12,14 @@ int WINAPI WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLin
 
 	auto Filter = std::make_shared<MotionFilter>();
 
-	InputStream rtspStream( lpCmdLine );
-	OutputStream fileStream( "X:\\Output.mp4", &rtspStream );
+	InputStream inputStream( lpCmdLine );
+	OutputStream fileStream( "X:\\Output.mp4", &inputStream );
 
-	rtspStream.Initialize();
+	inputStream.Initialize();
 	fileStream.Initialize();
 
-	while( rtspStream.ProcessFrame( Filter.get(), &fileStream ) == CameraStreamError::Success );
+	int i = 9000;
+	while( inputStream.ProcessFrame( Filter.get(), &fileStream ) == CameraStreamError::Success && i-- );
 
 	fileStream.CloseFile();
 

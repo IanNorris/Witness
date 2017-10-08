@@ -1,5 +1,6 @@
 #include "InputStream.h"
 #include "OutputStream.h"
+#include "StreamManager.h"
 #include "StreamData.h"
 
 #include <vector>
@@ -10,16 +11,27 @@ namespace Camera{
 
 InputStream::InputStream( const std::string& StreamURL, int StreamIndex )
 : Stream()
+, m_StreamManager( new StreamManager() )
 {
 	m_InternalData->Path = StreamURL;
 	m_InternalData->StreamIndex = StreamIndex;
 }
 
 InputStream::~InputStream()
-{}
+{
+	delete m_StreamManager;
+	m_StreamManager = nullptr;
+}
 
 CameraStreamError InputStream::Initialize()
 {
+	if( m_InternalData->HasInitialized )
+	{
+		return CameraStreamError::Success;
+	}
+
+	m_InternalData->HasInitialized = true;
+
 	CameraStreamError StreamInitResult = Stream::Initialize();
 	if( StreamInitResult != CameraStreamError::Success )
 	{
@@ -125,10 +137,20 @@ CameraStreamError InputStream::Initialize()
 
 CameraStreamError InputStream::ProcessFrame( IRecordFilter* Filter, Stream* TargetStream )
 {
+	CameraStreamError InitError = Initialize();
+	if( InitError != CameraStreamError::Success )
+	{
+		return InitError;
+	}
+
 	auto& ID = *m_InternalData;
 
-	int Result;
-	if( (Result = av_read_frame( m_InternalData->FormatContext, &ID.Packet )) < 0 )
+	int Result = av_read_frame( m_InternalData->FormatContext, &ID.Packet );
+	if( Result == AVERROR_EOF )
+	{
+		return CameraStreamError::EndOfFile;
+	}
+	else if( Result < 0 )
 	{
 		STREAM_ERROR( FrameError );
 	}
@@ -157,24 +179,17 @@ CameraStreamError InputStream::ProcessFrame( IRecordFilter* Filter, Stream* Targ
 			{
 				int OutputSliceSize = sws_scale( m_InternalData->ConversionContext, ID.Input->GetFrame()->data, ID.Input->GetFrame()->linesize, 0, m_InternalData->CodecContext->height, ID.Output->GetFrame()->data, ID.Output->GetFrame()->linesize );
 
-				const char* FilterResult = Filter->CalculateRecordingClassification(  ID.Output->GetWidth(), ID.Output->GetHeight(), ID.Output->GetFrame()->data[0] );
+				const char* FilterResult = Filter->FilterFrame( ID.Output->GetWidth(), ID.Output->GetHeight(), ID.Output->GetFrame()->data[0], m_StreamManager );
 
 				if( FilterResult )
 				{
-					Stream* Output = dynamic_cast<OutputStream*>(TargetStream);
+					OutputStream* Output = dynamic_cast<OutputStream*>(TargetStream);
 					if( Output )
 					{
-					
-
-						av_packet_rescale_ts( 
-							&ID.Packet, 
-							ID.FormatContext->streams[ID.ChosenStreamIndex]->time_base,
-							Output->GetData().FormatContext->streams[ID.ChosenStreamIndex]->time_base );
-
-						Result = av_interleaved_write_frame( Output->GetData().FormatContext, &ID.Packet );
-						if( Result < 0 )
+						CameraStreamError WriteError = Output->WriteInterleavedPacket( &ID.FormatContext->streams[ID.ChosenStreamIndex]->time_base, &ID.Packet );
+						if( WriteError != CameraStreamError::Success )
 						{
-							STREAM_ERROR( WriteFailed );
+							return WriteError;
 						}
 					}
 				}

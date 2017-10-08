@@ -12,11 +12,13 @@ namespace Camera{
 enum class CameraStreamError
 {
 	Success,
+	EndOfFile,
 	ConnectionError,
 	NoStreams,
 	NoH264Support,
 	UnsupportedStreamFormat,
 	UnsupportedStreamType,
+	EncodeFailed,
 	FrameError,
 	PacketError,
 	DecoderReceiverError,

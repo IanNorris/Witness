@@ -70,7 +70,7 @@
       <PreprocessorDefinitions>_DEBUG;_WINDOWS;_USRDLL;WITNESSCAMERA_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
     </ClCompile>
-	<Link>
+    <Link>
       <AdditionalDependencies>$(SolutionDir)\ThirdParty\opencv-3.3.0\x64\vc14\lib\opencv_world330d.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
@@ -99,6 +99,7 @@
     <ClCompile Include="Source\MotionFilter.cpp" />
     <ClCompile Include="Source\OutputStream.cpp" />
     <ClCompile Include="Source\Stream.cpp" />
+    <ClCompile Include="Source\StreamManager.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Include\Export.h" />
@@ -113,6 +114,7 @@
     <ClInclude Include="Source\FFMPEG\Frame.h" />
     <ClInclude Include="Source\FilterData.h" />
     <ClInclude Include="Source\StreamData.h" />
+    <ClInclude Include="Source\StreamManager.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\ThirdParty\BGSLibraryWrapper\BGSLibraryWrapper.vcxproj">
