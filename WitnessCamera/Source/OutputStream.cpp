@@ -1,132 +1,3 @@
-#include "libavutil/attributes.h"
-#include "libavutil/avassert.h"
-#include "libavutil/frame.h"
-#include "libavutil/imgutils.h"
-#include "libavutil/samplefmt.h"
-
-typedef struct FramePool {
-    /**
-     * Pools for each data plane. For audio all the planes have the same size,
-     * so only pools[0] is used.
-     */
-    AVBufferPool *pools[4];
-
-    /*
-     * Pool parameters
-     */
-    int format;
-    int width, height;
-    int stride_align[AV_NUM_DATA_POINTERS];
-    int linesize[4];
-    int planes;
-    int channels;
-    int samples;
-} FramePool;
-
-typedef struct DecodeSimpleContext {
-    AVPacket *in_pkt;
-    AVFrame  *out_frame;
-} DecodeSimpleContext;
-
-typedef struct DecodeFilterContext {
-    AVBSFContext **bsfs;
-    int         nb_bsfs;
-} DecodeFilterContext;
-
-typedef struct AVCodecInternal {
-    /**
-     * Whether the parent AVCodecContext is a copy of the context which had
-     * init() called on it.
-     * This is used by multithreading - shared tables and picture pointers
-     * should be freed from the original context only.
-     */
-    int is_copy;
-
-    /**
-     * Whether to allocate progress for frame threading.
-     *
-     * The codec must set it to 1 if it uses ff_thread_await/report_progress(),
-     * then progress will be allocated in ff_thread_get_buffer(). The frames
-     * then MUST be freed with ff_thread_release_buffer().
-     *
-     * If the codec does not need to call the progress functions (there are no
-     * dependencies between the frames), it should leave this at 0. Then it can
-     * decode straight to the user-provided frames (which the user will then
-     * free with av_frame_unref()), there is no need to call
-     * ff_thread_release_buffer().
-     */
-    int allocate_progress;
-
-    /**
-     * An audio frame with less than required samples has been submitted and
-     * padded with silence. Reject all subsequent frames.
-     */
-    int last_audio_frame;
-
-    AVFrame *to_free;
-
-    FramePool *pool;
-
-    void *thread_ctx;
-
-    DecodeSimpleContext ds;
-    DecodeFilterContext filter;
-
-    /**
-     * Properties (timestamps+side data) extracted from the last packet passed
-     * for decoding.
-     */
-    AVPacket *last_pkt_props;
-
-    /**
-     * temporary buffer used for encoders to store their bitstream
-     */
-    uint8_t *byte_buffer;
-    unsigned int byte_buffer_size;
-
-    void *frame_thread_encoder;
-
-    /**
-     * Number of audio samples to skip at the start of the next decoded frame
-     */
-    int skip_samples;
-
-    /**
-     * hwaccel-specific private data
-     */
-    void *hwaccel_priv_data;
-
-    /**
-     * checks API usage: after codec draining, flush is required to resume operation
-     */
-    int draining;
-
-    /**
-     * buffers for using new encode/decode API through legacy API
-     */
-    AVPacket *buffer_pkt;
-    int buffer_pkt_valid; // encoding: packet without data can be valid
-    AVFrame *buffer_frame;
-    int draining_done;
-    /* set to 1 when the caller is using the old decoding API */
-    int compat_decode;
-    int compat_decode_warned;
-    /* this variable is set by the decoder internals to signal to the old
-     * API compat wrappers the amount of data consumed from the last packet */
-    size_t compat_decode_consumed;
-    /* when a partial packet has been consumed, this stores the remaining size
-     * of the packet (that should be submitted in the next decode call */
-    size_t compat_decode_partial_size;
-    AVFrame *compat_decode_frame;
-
-    int showed_multi_packet_warning;
-
-    int skip_samples_multiplier;
-
-    /* to prevent infinite loop on errors when draining */
-    int nb_draining_errors;
-} AVCodecInternal;
-
 #include "OutputStream.h"
 #include "InputStream.h"
 #include "StreamData.h"
@@ -413,88 +284,6 @@ CameraStreamError OutputStream::WriteInterleavedPacket( AVRational* TimeBase, AV
 	return CameraStreamError::Success;
 }
 
-int avcodec_encode_video2_hax(AVCodecContext *avctx,
-											  AVPacket *avpkt,
-											  const AVFrame *frame,
-											  int *got_packet_ptr)
-{
-	int ret;
-	AVPacket user_pkt = *avpkt;
-	int needs_realloc = !user_pkt.data;
-
-	*got_packet_ptr = 0;
-
-	if (!avctx->codec->encode2) {
-		av_log(avctx, AV_LOG_ERROR, "This encoder requires using the avcodec_send_frame() API.\n");
-		return AVERROR(ENOSYS);
-	}
-
-
-	if ((avctx->flags&AV_CODEC_FLAG_PASS1) && avctx->stats_out)
-		avctx->stats_out[0] = '\0';
-
-	if (!(avctx->codec->capabilities & AV_CODEC_CAP_DELAY) && !frame) {
-		av_packet_unref(avpkt);
-		av_init_packet(avpkt);
-		avpkt->size = 0;
-		return 0;
-	}
-
-	if (av_image_check_size2(avctx->width, avctx->height, avctx->max_pixels, AV_PIX_FMT_NONE, 0, avctx))
-		return AVERROR(EINVAL);
-
-	if (frame && frame->format == AV_PIX_FMT_NONE)
-		av_log(avctx, AV_LOG_WARNING, "AVFrame.format is not set\n");
-	if (frame && (frame->width == 0 || frame->height == 0))
-		av_log(avctx, AV_LOG_WARNING, "AVFrame.width or height is not set\n");
-	
-	ret = avctx->codec->encode2(avctx, avpkt, frame, got_packet_ptr);
-
-	while(0);
-
-	if (avpkt->data && avpkt->data == avctx->internal->byte_buffer) {
-		needs_realloc = 0;
-		if (user_pkt.data) {
-			if (user_pkt.size >= avpkt->size) {
-				memcpy(user_pkt.data, avpkt->data, avpkt->size);
-			} else {
-				av_log(avctx, AV_LOG_ERROR, "Provided packet is too small, needs to be %d\n", avpkt->size);
-				avpkt->size = user_pkt.size;
-				ret = -1;
-			}
-			avpkt->buf      = user_pkt.buf;
-			avpkt->data     = user_pkt.data;
-		} else if (!avpkt->buf) {
-			AVPacket tmp = { 0 };
-			ret = av_packet_ref(&tmp, avpkt);
-			av_packet_unref(avpkt);
-			if (ret < 0)
-				return ret;
-			*avpkt = tmp;
-		}
-	}
-
-	if (!ret) {
-		if (!*got_packet_ptr)
-			avpkt->size = 0;
-		else if (!(avctx->codec->capabilities & AV_CODEC_CAP_DELAY))
-			avpkt->pts = avpkt->dts = frame->pts;
-
-		if (needs_realloc && avpkt->data) {
-			ret = av_buffer_realloc(&avpkt->buf, avpkt->size + AV_INPUT_BUFFER_PADDING_SIZE);
-			if (ret >= 0)
-				avpkt->data = avpkt->buf->data;
-		}
-
-		avctx->frame_number++;
-	}
-
-	if (ret < 0 || !*got_packet_ptr)
-		av_packet_unref(avpkt);
-
-	return ret;
-}
-
 CameraStreamError OutputStream::WriteFrame( FFMPEG::Frame* Frame )
 {
 	CameraStreamError InitError = Initialize();
@@ -511,7 +300,7 @@ CameraStreamError OutputStream::WriteFrame( FFMPEG::Frame* Frame )
 
 	ID.Output->GetFrame()->pts = ID.CodecContext->frame_number;
 	
-	/*int Result = avcodec_send_frame( GetData().CodecContext, ID.Output->GetFrame() );
+	int Result = avcodec_send_frame( GetData().CodecContext, ID.Output->GetFrame() );
 	if( Result == AVERROR(EAGAIN) )
 	{
 		CameraStreamError ResultErr = SendAll();
@@ -529,28 +318,6 @@ CameraStreamError OutputStream::WriteFrame( FFMPEG::Frame* Frame )
 		{
 			return ResultErr;
 		}
-	}*/
-
-	AVPacket enc_pkt;
-	 enc_pkt.data = NULL;
-    enc_pkt.size = 0;
-    av_init_packet(&enc_pkt);
-
-	int got_packet = 0;
-	int Result = avcodec_encode_video2_hax( ID.CodecContext, &enc_pkt, ID.Output->GetFrame(), &got_packet );
-	if( Result < 0 )
-	{
-		STREAM_ERROR( WriteFailed );
-	}
-
-	av_packet_rescale_ts( &enc_pkt, ID.CodecContext->time_base, ID.FormatContext->streams[0]->time_base );
-
-			enc_pkt.stream_index = ID.FormatContext->streams[0]->index;
-
-			Result = av_interleaved_write_frame( ID.FormatContext, &enc_pkt );
-			if( Result < 0 )
-	{
-		STREAM_ERROR( WriteFailed );
 	}
 
 	FrameIndex++;
