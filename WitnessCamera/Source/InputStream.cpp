@@ -211,6 +211,11 @@ void InputStream::Shutdown()
 {
 	auto& ID = *m_InternalData;
 
+	if( m_StreamManager )
+	{
+		m_StreamManager->CloseDiagnosticStream();
+	}
+
 	if( ID.FormatContext )
 	{
 		avformat_close_input( &ID.FormatContext );

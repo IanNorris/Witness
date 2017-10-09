@@ -4,6 +4,16 @@
 namespace Witness{
 namespace Camera{
 
+StreamManager::StreamManager()
+: m_DiagnosticStream( nullptr )
+{
+}
+
+StreamManager::~StreamManager()
+{
+	CloseDiagnosticStream();
+}
+
 OutputStream* StreamManager::GetDiagnosticStream( int Width, int Height )
 {
 	if( !m_DiagnosticStream )

@@ -12,6 +12,9 @@ class StreamManager
 {
 public:
 
+	StreamManager();
+	~StreamManager();
+
 	OutputStream* GetDiagnosticStream( int Width, int Height );
 	void CloseDiagnosticStream();
 

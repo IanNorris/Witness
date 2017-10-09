@@ -338,27 +338,11 @@ CameraStreamError OutputStream::SendAll( void )
 		Result = avcodec_receive_packet( GetData().CodecContext, &TempPacket );
 		if( Result == 0 )
 		{
-			/*if( TempPacket.pts != AV_NOPTS_VALUE )
-			{
-				TempPacket.pts = av_rescale_q_rnd( TempPacket.pts, ID.CodecContext->time_base, ID.FormatContext->streams[0]->time_base, (AVRounding)(AV_ROUND_NEAR_INF | AV_ROUND_PASS_MINMAX) );
-			}
-
-			if( TempPacket.dts != AV_NOPTS_VALUE )
-			{
-				TempPacket.dts = av_rescale_q_rnd( TempPacket.dts, ID.CodecContext->time_base, ID.FormatContext->streams[0]->time_base, (AVRounding)(AV_ROUND_NEAR_INF | AV_ROUND_PASS_MINMAX) );
-			}
-
-			if( TempPacket.duration != AV_NOPTS_VALUE )
-			{
-				TempPacket.duration = av_rescale_q( 1, ID.CodecContext->time_base, ID.FormatContext->streams[0]->time_base );
-			}*/
-
 			av_packet_rescale_ts( &TempPacket, ID.CodecContext->time_base, ID.FormatContext->streams[0]->time_base );
 
 			TempPacket.stream_index = ID.FormatContext->streams[0]->index;
 
-			avio_write( ID.FormatContext->pb, TempPacket.data, TempPacket.size );
-			//Result = av_interleaved_write_frame( ID.FormatContext, &TempPacket );
+			Result = av_interleaved_write_frame( ID.FormatContext, &TempPacket );
 			if( Result < 0 )
 			{
 				STREAM_ERROR( WriteFailed );
