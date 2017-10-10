@@ -86,6 +86,7 @@ struct MotionFilterData : public FilterDataBase
 	IBGS* BackgroundFilter;
 	Mat ForegroundMask;
 	Mat Background;
+	Mat PreviousMask;
 
 	int InitialFrameFilter;
 };
@@ -112,41 +113,71 @@ const char* MotionFilter::FilterFrame( unsigned int Width, unsigned int Height, 
 
 	ID.BackgroundFilter->process( InputFrame, ID.ForegroundMask, ID.Background );
 
-	/*if( ID.InitialFrameFilter > 0 )
+	if( ID.InitialFrameFilter > 0 )
 	{
 		ID.InitialFrameFilter--;
 		return nullptr;
-	}*/
+	}
+
+	if( ID.PreviousMask.rows != Height && ID.PreviousMask.cols!= Width )
+	{
+		ID.PreviousMask = Mat( ID.DiagFrame->GetHeight(), ID.DiagFrame->GetWidth(), CV_8UC1 );
+		ID.PreviousMask = Scalar(0,0,0);
+	}
+
+	float PrevAlpha = 0.4f;
+	addWeighted( ID.PreviousMask, PrevAlpha, ID.ForegroundMask, 1.0f, 0, ID.PreviousMask );
 
 	int SumResult = countNonZero( ID.ForegroundMask );
 
 	double ComparisonResult = Width * Height;
-	double Threshold = 0.025 * ComparisonResult;
-	double BBThreshold = 0.025 * ComparisonResult;
+	double Threshold = 0.005 * ComparisonResult;
 
-	//if( SumResult > Threshold )
+	if( SumResult > Threshold )
 	{
 		OutputStream* DiagOutput = StreamManager->GetDiagnosticStream( Width, Height );
 
 		ID.DiagFrame->Prepare();
 		
-		Mat annotated( ID.DiagFrame->GetHeight(), ID.DiagFrame->GetWidth(), CV_8UC3, ID.DiagFrame->GetFrame()->data[0] );
-		InputFrame.copyTo( annotated );
+		Mat annotatedFinal( ID.DiagFrame->GetHeight(), ID.DiagFrame->GetWidth(), CV_8UC3, ID.DiagFrame->GetFrame()->data[0] );
+		//Mat annotated( ID.DiagFrame->GetHeight(), ID.DiagFrame->GetWidth(), CV_8UC3 );
+		InputFrame.copyTo( annotatedFinal );
+
+		
+
+		/*Mat overlayColour( ID.DiagFrame->GetHeight(), ID.DiagFrame->GetWidth(), CV_8UC3 );
+		overlayColour = Scalar(0,255,0);
+
+		Mat colouredMask;
+		overlayColour.copyTo( colouredMask, previousMaskTrail );
+
+		Mat colouredMaskBlurred;
+		GaussianBlur( colouredMask, colouredMaskBlurred, Size(9,9), 0, 0 );
+
+		float alpha = 0.05f;
+		add( InputFrame, colouredMaskBlurred, annotatedFinal );*/
+
 
 		ID.Contours.clear();
-		findContours( ID.ForegroundMask, ID.Contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE  );
+		findContours( ID.PreviousMask, ID.Contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE  );
 
 		for( auto& Contour : ID.Contours )
 		{
 			ID.ContoursPoly.clear();
-			approxPolyDP( Mat(Contour), ID.ContoursPoly, Height/20, true );
+			approxPolyDP( Mat(Contour), ID.ContoursPoly, Height/10, true );
 			Rect Bounds = boundingRect( ID.ContoursPoly );
 
-			if( Bounds.area() > BBThreshold )
+			if( Bounds.area() > Threshold )
 			{
-				rectangle( annotated, Bounds, Scalar(0,255,0), 1 );
+				rectangle( annotatedFinal, Bounds, Scalar(0,255,0), 1 );
 			}
 		}
+
+		//add( InputFrame, annotated, annotatedFinal );
+
+
+		//ID.ForegroundMask.copyTo( ID.PreviousMask );
+
 
 		DiagOutput->WriteFrame( ID.DiagFrame.get() );
 
@@ -241,8 +272,10 @@ const char* MotionFilter::FilterFrame( unsigned int Width, unsigned int Height, 
 		return "Motion";
 	}
 	else*/
+	
 	{
-		return "Dummy";
+
+		return nullptr;
 	}
 }
 

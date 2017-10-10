@@ -90,9 +90,13 @@ CameraStreamError InputStream::Initialize()
 		STREAM_ERROR( UnsupportedStreamFormat );
 	}
 
+	unsigned int OutputHeight = min( 400, ID.CodecContext->height );
+	unsigned int OutputWidth = (int)(((float)ID.CodecContext->width / (float)ID.CodecContext->height) * (float)OutputHeight);
+
+	OutputHeight &= (~15);
+	OutputWidth &= (~15);
+
 	AVPixelFormat OutputPixelFormat = AV_PIX_FMT_BGR24;
-	unsigned int OutputWidth = ID.CodecContext->width / 4;
-	unsigned int OutputHeight = ID.CodecContext->height / 4;
 
 	AVPixelFormat InputPixelFormat = ID.CodecContext->pix_fmt;
 
@@ -181,7 +185,7 @@ CameraStreamError InputStream::ProcessFrame( IRecordFilter* Filter, Stream* Targ
 
 				const char* FilterResult = Filter->FilterFrame( ID.Output->GetWidth(), ID.Output->GetHeight(), ID.Output->GetFrame()->data[0], m_StreamManager );
 
-				if( FilterResult )
+				//if( FilterResult )
 				{
 					OutputStream* Output = dynamic_cast<OutputStream*>(TargetStream);
 					if( Output )

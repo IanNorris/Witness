@@ -128,7 +128,6 @@ CameraStreamError OutputStream::Initialize()
 		CodecParams->codec_type = AVMEDIA_TYPE_VIDEO;
 		CodecParams->profile = FF_PROFILE_H264_MAIN;
 		CodecParams->level = 40;
-		CodecParams->bit_rate = 441000;
 
 		Result = avcodec_parameters_to_context( ID.CodecContext, CodecParams );
 		if( Result < 0 )

@@ -72,10 +72,10 @@ void Stream::OneTimeInit()
 
 void Stream::LogCallback( void* AVData, int Level, const char* Format, va_list Args )
 {
-	/*if( Level > AV_LOG_WARNING )
+	if( Level > AV_LOG_WARNING )
 	{
 		return;
-	}*/
+	}
 
 	size_t OriginalMessageSizeNeeded = std::vsnprintf(NULL, 0, Format, Args) + 1;
 	std::vector<char> OriginalMessageBuf( OriginalMessageSizeNeeded );
