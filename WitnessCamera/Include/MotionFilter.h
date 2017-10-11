@@ -14,7 +14,7 @@ public:
 	MotionFilter();
 	virtual ~MotionFilter();
 
-	virtual const char* FilterFrame( unsigned int Width, unsigned int Height, void* Data, StreamManager* StreamManager );
+	virtual ClassificationResult FilterFrame( unsigned int Width, unsigned int Height, void* Data, StreamManager* StreamManager );
 };
 
 }}

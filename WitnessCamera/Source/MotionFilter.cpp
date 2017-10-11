@@ -100,7 +100,7 @@ MotionFilter::MotionFilter()
 MotionFilter::~MotionFilter()
 {}
 
-const char* MotionFilter::FilterFrame( unsigned int Width, unsigned int Height, void* Data, StreamManager* StreamManager )
+ClassificationResult MotionFilter::FilterFrame( unsigned int Width, unsigned int Height, void* Data, StreamManager* StreamManager )
 {
 	auto& ID = GetData();
 
@@ -116,7 +116,7 @@ const char* MotionFilter::FilterFrame( unsigned int Width, unsigned int Height, 
 	if( ID.InitialFrameFilter > 0 )
 	{
 		ID.InitialFrameFilter--;
-		return nullptr;
+		return ClassificationResult();
 	}
 
 	if( ID.PreviousMask.rows != Height && ID.PreviousMask.cols!= Width )
@@ -141,9 +141,11 @@ const char* MotionFilter::FilterFrame( unsigned int Width, unsigned int Height, 
 		
 		Mat annotatedFinal( ID.DiagFrame->GetHeight(), ID.DiagFrame->GetWidth(), CV_8UC3, ID.DiagFrame->GetFrame()->data[0] );
 		//Mat annotated( ID.DiagFrame->GetHeight(), ID.DiagFrame->GetWidth(), CV_8UC3 );
-		InputFrame.copyTo( annotatedFinal );
 
-		
+		annotatedFinal = Scalar(0,0,0);
+		InputFrame.copyTo( annotatedFinal, ID.PreviousMask );
+
+		//ID.ForegroundMask.copyTo( annotatedFinal );
 
 		/*Mat overlayColour( ID.DiagFrame->GetHeight(), ID.DiagFrame->GetWidth(), CV_8UC3 );
 		overlayColour = Scalar(0,255,0);
@@ -158,7 +160,7 @@ const char* MotionFilter::FilterFrame( unsigned int Width, unsigned int Height, 
 		add( InputFrame, colouredMaskBlurred, annotatedFinal );*/
 
 
-		ID.Contours.clear();
+		/*ID.Contours.clear();
 		findContours( ID.PreviousMask, ID.Contours, CV_RETR_EXTERNAL, CV_CHAIN_APPROX_SIMPLE  );
 
 		for( auto& Contour : ID.Contours )
@@ -171,7 +173,7 @@ const char* MotionFilter::FilterFrame( unsigned int Width, unsigned int Height, 
 			{
 				rectangle( annotatedFinal, Bounds, Scalar(0,255,0), 1 );
 			}
-		}
+		}*/
 
 		//add( InputFrame, annotated, annotatedFinal );
 
@@ -181,7 +183,7 @@ const char* MotionFilter::FilterFrame( unsigned int Width, unsigned int Height, 
 
 		DiagOutput->WriteFrame( ID.DiagFrame.get() );
 
-		return "Motion";
+		return ClassificationResult( ClassificationImportance::Motion, "Motion" );
 	}
 
 	
@@ -275,7 +277,7 @@ const char* MotionFilter::FilterFrame( unsigned int Width, unsigned int Height, 
 	
 	{
 
-		return nullptr;
+		return ClassificationResult();
 	}
 }
 

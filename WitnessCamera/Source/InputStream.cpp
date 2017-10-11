@@ -183,10 +183,16 @@ CameraStreamError InputStream::ProcessFrame( IRecordFilter* Filter, Stream* Targ
 			{
 				int OutputSliceSize = sws_scale( m_InternalData->ConversionContext, ID.Input->GetFrame()->data, ID.Input->GetFrame()->linesize, 0, m_InternalData->CodecContext->height, ID.Output->GetFrame()->data, ID.Output->GetFrame()->linesize );
 
-				const char* FilterResult = Filter->FilterFrame( ID.Output->GetWidth(), ID.Output->GetHeight(), ID.Output->GetFrame()->data[0], m_StreamManager );
+				ClassificationResult FilterResult = Filter->FilterFrame( ID.Output->GetWidth(), ID.Output->GetHeight(), ID.Output->GetFrame()->data[0], m_StreamManager );
 
-				//if( FilterResult )
+				if( FilterResult.ResultString )
 				{
+					ClassificationResult ResultNew = Filter->PostSuccessChildVisitor( ID.Output->GetWidth(), ID.Output->GetHeight(), ID.Output->GetFrame()->data[0], m_StreamManager );
+					if( ResultNew.ResultString )
+					{
+						FilterResult = ResultNew;
+					}
+
 					OutputStream* Output = dynamic_cast<OutputStream*>(TargetStream);
 					if( Output )
 					{

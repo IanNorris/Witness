@@ -18,8 +18,7 @@ int WINAPI WinMain( HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLin
 	inputStream.Initialize();
 	fileStream.Initialize();
 
-	int i = 9000000;
-	while( inputStream.ProcessFrame( Filter.get(), &fileStream ) == CameraStreamError::Success && i-- );
+	while( inputStream.ProcessFrame( Filter.get(), &fileStream ) == CameraStreamError::Success );
 
 	fileStream.CloseFile();
 
