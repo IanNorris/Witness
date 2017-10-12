@@ -1,14 +1,16 @@
 #pragma once
 
+#define WITNESS_LISTENER_VERSION "0.0.0.1"
+
+#include <unordered_map>
+
 #include "cpprest/json.h"
 #include "cpprest/http_listener.h"
 #include "cpprest/uri.h"
 #include "cpprest/asyncrt_utils.h"
 
-using namespace std;
-using namespace web;
-using namespace http;
-using namespace utility;
+#include "ListenerCommand.h"
+
 using namespace http::experimental::listener;
 
 class WitnessListener
@@ -23,8 +25,10 @@ public:
 
 private:
 
-	void OnGET( http_request Message );
-	void OnPOST( http_request Message );
+	void OnCommand( http_request Message, bool IsPost );
 
 	unique_ptr<http_listener> m_Listener;
+	unique_ptr<GlobalContext> m_GlobalContext;
+
+	unordered_map<string_t, unique_ptr<IListenerCommand>> m_Commands;
 };

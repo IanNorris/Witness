@@ -94,6 +94,7 @@
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="Source\Commands\Authenticate.cpp" />
     <ClCompile Include="Source\Listener.cpp" />
     <ClCompile Include="Source\Main.cpp" />
   </ItemGroup>
@@ -103,7 +104,10 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Source\Commands\Authenticate.h" />
+    <ClInclude Include="Source\GlobalContext.h" />
     <ClInclude Include="Source\Listener.h" />
+    <ClInclude Include="Source\ListenerCommand.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
