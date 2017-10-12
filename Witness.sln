@@ -11,6 +11,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "ThirdParty", "ThirdParty", 
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "BGSLibraryWrapper", "ThirdParty\BGSLibraryWrapper\BGSLibraryWrapper.vcxproj", "{F959AFD2-FB12-4EBB-A8EE-F15DFAD244CD}"
 EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "WitnessServer", "WitnessServer\WitnessServer.vcxproj", "{679FA6BA-AEB9-43C0-8C92-731DC3DE43F1}"
+EndProject
 Global
 	GlobalSection(Performance) = preSolution
 		HasPerformanceSessions = true
@@ -40,6 +42,12 @@ Global
 		{F959AFD2-FB12-4EBB-A8EE-F15DFAD244CD}.Release|x64.ActiveCfg = Release|x64
 		{F959AFD2-FB12-4EBB-A8EE-F15DFAD244CD}.Release|x64.Build.0 = Release|x64
 		{F959AFD2-FB12-4EBB-A8EE-F15DFAD244CD}.Release|x86.ActiveCfg = Release|x64
+		{679FA6BA-AEB9-43C0-8C92-731DC3DE43F1}.Debug|x64.ActiveCfg = Debug|x64
+		{679FA6BA-AEB9-43C0-8C92-731DC3DE43F1}.Debug|x64.Build.0 = Debug|x64
+		{679FA6BA-AEB9-43C0-8C92-731DC3DE43F1}.Debug|x86.ActiveCfg = Debug|x64
+		{679FA6BA-AEB9-43C0-8C92-731DC3DE43F1}.Release|x64.ActiveCfg = Release|x64
+		{679FA6BA-AEB9-43C0-8C92-731DC3DE43F1}.Release|x64.Build.0 = Release|x64
+		{679FA6BA-AEB9-43C0-8C92-731DC3DE43F1}.Release|x86.ActiveCfg = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
