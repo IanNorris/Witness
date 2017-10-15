@@ -5,3 +5,16 @@ or http://www.stevestechspot.com/HttpConfigUpdate.aspx
 Add an SSL certificate for 127.0.0.1 on your chosen port.
 
 See also http://ib-krajewski.blogspot.co.uk/2015/09/https-support-for-casablanca-server-and.html
+
+
+netsh http add sslcert ipport=0.0.0.0:11238 certhash=<CertificateThumbprintWithNoSpaces> appid={790C242A-DAA6-46FF-8E04-B1EB280F3BA2}
+
+NOTE: Also watch out for the special character that the certificate manager inserts at the front of the thumbprint.
+
+To be able to run as non-admin:
+add urlacl url=https://yoururl:port/ user=DOMAIN\user listen=yes
+
+Your username is probably YourMachineName\YourUsername
+
+
+Finally: add the port via the advanced firewall tool.

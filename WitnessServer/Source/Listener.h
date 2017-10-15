@@ -16,7 +16,7 @@ using namespace http::experimental::listener;
 class WitnessListener
 {
 public:
-	WitnessListener( string_t Address );
+	WitnessListener( utility::string_t Hostname, int Port );
 	virtual ~WitnessListener();
 
 	void Start();

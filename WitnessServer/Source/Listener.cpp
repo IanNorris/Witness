@@ -3,7 +3,7 @@
 
 #include "Commands/Authenticate.h"
 
-WitnessListener::WitnessListener( utility::string_t Address )
+WitnessListener::WitnessListener( utility::string_t Hostname, int Port )
 {
 	m_GlobalContext = make_unique<GlobalContext>();
 
@@ -16,7 +16,13 @@ WitnessListener::WitnessListener( utility::string_t Address )
 		//
 	});*/
 
-	m_Listener = make_unique<http_listener>( Address, Config );
+	uri_builder Uri;
+	Uri.set_scheme( U("https") );
+	Uri.set_host( Hostname );
+	Uri.set_port( Port );
+	Uri.set_path( U("/rest/endpoint") );
+
+	m_Listener = make_unique<http_listener>( Uri.to_uri(), Config );
 
 	m_Listener->support( methods::GET, std::bind( &WitnessListener::OnCommand, this, std::placeholders::_1, false ) );
 	m_Listener->support( methods::POST, std::bind( &WitnessListener::OnCommand, this, std::placeholders::_1, true ) );

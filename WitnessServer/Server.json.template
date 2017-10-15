@@ -1,4 +1,8 @@
 {
+	"server": {
+		"hostname": "localhost",
+		"port": 443
+	},
 	"android": {
 		"fcm_server_key": "Firebase Server Key",
 		"fcm_user": "User To Send To (Temporary)",

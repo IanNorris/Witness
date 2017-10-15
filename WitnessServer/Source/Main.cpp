@@ -75,8 +75,7 @@ int wmain( int argc, wchar_t* argv[] )
 	}
 
 	auto JsonConfigAndroid = JsonConfig.at(U("android")).as_object();
-
-
+	
 	utility::string_t ServerKey = JsonConfigAndroid[U("fcm_server_key")].as_string();
 	utility::string_t User		= JsonConfigAndroid[U("fcm_user")].as_string();
 	utility::string_t Message	= U("Person at front door");
@@ -87,10 +86,23 @@ int wmain( int argc, wchar_t* argv[] )
 		wcout << Response.to_string() << endl;
 	} );
 
+	auto JsonConfigServer = JsonConfig.at(U("server")).as_object();
 
-	WitnessListener Listener( argv[1] );
+	utility::string_t Hostname = JsonConfigServer[U("hostname")].as_string();
+	int Port = JsonConfigServer[U("port")].as_integer();
+
+
+	WitnessListener Listener( Hostname, Port );
 	
-	Listener.Start();
+	try
+	{
+		Listener.Start();
+	}
+	catch( web::http::http_exception Exception)
+	{
+		std::tcerr << U("Unable to start server: ") << Exception.what() << std::endl;
+		return 1;
+	}
 
 	while( true )
 	{
