@@ -1,0 +1,7 @@
+{
+	"android": {
+		"fcm_server_key": "Firebase Server Key",
+		"fcm_user": "User To Send To (Temporary)",
+		"fcm_link": "Image To Send (Temporary)"
+	}
+}

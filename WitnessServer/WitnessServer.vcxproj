@@ -94,6 +94,7 @@
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="Source\Android\AndroidNotify.cpp" />
     <ClCompile Include="Source\Commands\Authenticate.cpp" />
     <ClCompile Include="Source\Listener.cpp" />
     <ClCompile Include="Source\Main.cpp" />
@@ -104,6 +105,7 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Source\Android\AndroidNotify.h" />
     <ClInclude Include="Source\Commands\Authenticate.h" />
     <ClInclude Include="Source\GlobalContext.h" />
     <ClInclude Include="Source\Listener.h" />

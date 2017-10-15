@@ -19,6 +19,12 @@
     <Filter Include="Header Files\Commands">
       <UniqueIdentifier>{9adab96e-e418-444c-8924-0c06272cc3f6}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\Android">
+      <UniqueIdentifier>{95a43bac-771d-4764-a5e0-309332671748}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\Android">
+      <UniqueIdentifier>{3f5407cc-e738-43bc-9a5d-01ff60c2bdaf}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Source\Main.cpp">
@@ -29,6 +35,9 @@
     </ClCompile>
     <ClCompile Include="Source\Commands\Authenticate.cpp">
       <Filter>Source Files\Commands</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Android\AndroidNotify.cpp">
+      <Filter>Source Files\Android</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -43,6 +52,9 @@
     </ClInclude>
     <ClInclude Include="Source\Commands\Authenticate.h">
       <Filter>Header Files\Commands</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Android\AndroidNotify.h">
+      <Filter>Header Files\Android</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>
