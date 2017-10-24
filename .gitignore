@@ -288,3 +288,4 @@ __pycache__/
 *.xsd.cs
 Private/
 AndroidClient/mobile/google-services.json
+WindowsClient/config/
