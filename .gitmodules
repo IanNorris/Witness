@@ -4,6 +4,3 @@
 [submodule "ThirdParty/SubModules/cpprestsdk"]
 	path = ThirdParty/SubModules/cpprestsdk
 	url = https://github.com/Microsoft/cpprestsdk.git
-[submodule "ThirdParty/SubModules/libsodium"]
-	path = ThirdParty/SubModules/libsodium
-	url = https://github.com/jedisct1/libsodium.git
