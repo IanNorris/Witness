@@ -5,7 +5,7 @@
 #include "cpprest/uri.h"
 #include "cpprest/asyncrt_utils.h"
 
-#include <iostream>;
+#include <iostream>
 
 using namespace web::json;
 using namespace web::http::client;

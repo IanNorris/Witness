@@ -107,6 +107,8 @@
   <ItemGroup>
     <ClInclude Include="Source\Android\AndroidNotify.h" />
     <ClInclude Include="Source\Commands\Authenticate.h" />
+    <ClInclude Include="Source\Commands\Static.h" />
+    <ClInclude Include="Source\Common.h" />
     <ClInclude Include="Source\GlobalContext.h" />
     <ClInclude Include="Source\Listener.h" />
     <ClInclude Include="Source\ListenerCommand.h" />

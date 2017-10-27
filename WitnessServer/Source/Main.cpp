@@ -1,27 +1,11 @@
 #include "Listener.h"
-
+#include "Common.h"
 #include "Android/AndroidNotify.h"
 
-#include <iostream>
-#include <filesystem>
-#include <tchar.h>
-#include <assert.h>
-
-#if !defined(_WINDOWS)
-#include <sys/stat.h>
-#include <sys/types.h>
-#endif
-
-#if defined(UNICODE) || defined(_UNICODE)
-#define tcout wcout
-#define tcerr wcerr
-#else
-#define tcout cout
-#define tcerr cerr
-#endif
 
 using namespace web::json;
 using namespace web::http::client;
+using namespace utility;
 
 #include <windows.h>
 
@@ -62,12 +46,12 @@ int wmain( int argc, wchar_t* argv[] )
 		return 1;
 	}
 	
-	json::value JsonConfig;
+	value JsonConfig;
 	try
 	{
-		JsonConfig = json::value::parse( ConfigFileStream );
+		JsonConfig = value::parse( ConfigFileStream );
 	}
-	catch( web::json::json_exception Exception)
+	catch( json_exception Exception)
 	{
 		std::tcerr << U("Unable to open parse config file ") << ConfigFile << U(" due to : ") << Exception.what() << std::endl;
 		return 1;
@@ -76,29 +60,31 @@ int wmain( int argc, wchar_t* argv[] )
 
 	auto JsonConfigAndroid = JsonConfig.at(U("android")).as_object();
 	
-	utility::string_t ServerKey = JsonConfigAndroid[U("fcm_server_key")].as_string();
-	utility::string_t User		= JsonConfigAndroid[U("fcm_user")].as_string();
-	utility::string_t Message	= U("Person at front door");
-	utility::string_t Camera	= U("Front Door");
-	utility::string_t Image		= JsonConfigAndroid[U("fcm_link")].as_string();
+	string_t ServerKey	= JsonConfigAndroid[U("fcm_server_key")].as_string();
+	string_t User		= JsonConfigAndroid[U("fcm_user")].as_string();
+	string_t Message	= U("Person at front door");
+	string_t Camera		= U("Front Door");
+	string_t Image		= JsonConfigAndroid[U("fcm_link")].as_string();
 
-	SendAndroidNotification( ServerKey, User, Message, Camera, Image, [](http_response Response){
+	/*SendAndroidNotification( ServerKey, User, Message, Camera, Image, [](http_response Response){
 		wcout << Response.to_string() << endl;
-	} );
+	} );*/
 
 	auto JsonConfigServer = JsonConfig.at(U("server")).as_object();
 
-	utility::string_t Hostname = JsonConfigServer[U("hostname")].as_string();
+	string_t Hostname = JsonConfigServer[U("hostname")].as_string();
 	int Port = JsonConfigServer[U("port")].as_integer();
 
 
 	WitnessListener Listener( Hostname, Port );
+
+	Listener.Initialise( JsonConfigServer );
 	
 	try
 	{
 		Listener.Start();
 	}
-	catch( web::http::http_exception Exception)
+	catch( http::http_exception Exception)
 	{
 		std::tcerr << U("Unable to start server: ") << Exception.what() << std::endl;
 		return 1;

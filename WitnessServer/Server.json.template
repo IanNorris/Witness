@@ -1,7 +1,13 @@
 {
 	"server": {
 		"hostname": "localhost",
-		"port": 443
+		"port": 443,
+		"static_path": "C:\\Full\\Path\\To\\WebRoot",
+		"mime": {
+			"css": "text/css",
+			"html": "text/html",
+			"js": "application/javascript"
+		}
 	},
 	"android": {
 		"fcm_server_key": "Firebase Server Key",

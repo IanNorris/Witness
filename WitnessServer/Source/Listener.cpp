@@ -2,6 +2,7 @@
 #include <functional>
 
 #include "Commands/Authenticate.h"
+#include "Commands/Static.h"
 
 WitnessListener::WitnessListener( utility::string_t Hostname, int Port )
 {
@@ -20,7 +21,7 @@ WitnessListener::WitnessListener( utility::string_t Hostname, int Port )
 	Uri.set_scheme( U("https") );
 	Uri.set_host( Hostname );
 	Uri.set_port( Port );
-	Uri.set_path( U("/rest/endpoint") );
+	//Uri.set_path( U("/rest/endpoint") );
 
 	m_Listener = make_unique<http_listener>( Uri.to_uri(), Config );
 
@@ -33,10 +34,14 @@ WitnessListener::~WitnessListener()
 	Stop();
 }
 
-void WitnessListener::Start()
+void WitnessListener::Initialise(json::object& Config)
 {
 	m_Commands[U("auth")] = make_unique<Command_Authenticate>();
+	m_Commands[U("static")] = make_unique<Command_Static>( Config );
+}
 
+void WitnessListener::Start()
+{
 	m_Listener->open().wait();
 }
 
@@ -59,7 +64,7 @@ void WitnessListener::OnCommand( http_request Message, bool IsPost )
 	else
 	{
 		auto CommandName = Path.front();
-		Path.erase( Path.begin() );		
+		Path.erase( Path.begin() );
 
 		auto FoundCommand = m_Commands.find( CommandName );
 		if( FoundCommand != m_Commands.end() )

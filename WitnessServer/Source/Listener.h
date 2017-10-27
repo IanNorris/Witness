@@ -19,6 +19,8 @@ public:
 	WitnessListener( utility::string_t Hostname, int Port );
 	virtual ~WitnessListener();
 
+	void Initialise( json::object& Config );
+
 	void Start();
 
 	void Stop();
