@@ -96,6 +96,7 @@
   <ItemGroup>
     <ClCompile Include="Source\Android\AndroidNotify.cpp" />
     <ClCompile Include="Source\Commands\Authenticate.cpp" />
+	<ClCompile Include="Source\Commands\Static.cpp" />
     <ClCompile Include="Source\Listener.cpp" />
     <ClCompile Include="Source\Main.cpp" />
   </ItemGroup>
