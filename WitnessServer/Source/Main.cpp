@@ -74,9 +74,10 @@ int wmain( int argc, wchar_t* argv[] )
 
 	string_t Hostname = JsonConfigServer[U("hostname")].as_string();
 	int Port = JsonConfigServer[U("port")].as_integer();
+	bool Secure = JsonConfigServer[U("secure")].as_bool();
 
 
-	WitnessListener Listener( Hostname, Port );
+	WitnessListener Listener( Hostname, Port, Secure );
 
 	Listener.Initialise( JsonConfigServer );
 	

@@ -4,3 +4,6 @@
 [submodule "ThirdParty/SubModules/cpprestsdk"]
 	path = ThirdParty/SubModules/cpprestsdk
 	url = https://github.com/Microsoft/cpprestsdk.git
+[submodule "ThirdParty/SubModules/ngx-admin"]
+	path = ThirdParty/SubModules/ngx-admin
+	url = https://github.com/akveo/ngx-admin.git

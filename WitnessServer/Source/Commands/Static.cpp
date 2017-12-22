@@ -82,28 +82,41 @@ void Command_Static::OnMessage( const unique_ptr<GlobalContext>& Context, http_r
 		}
 	);
 
+	if( Joined.empty() )
+	{
+		Joined = U("index.html");
+	}
+
 	if (IsPost)
 	{
 		Message.reply( status_codes::NotFound );
 	}
 	else
 	{
-		for (auto& acceptablePath : m_staticDataPaths)
+		for( int Pass = 0; Pass < 2; Pass++ )
 		{
-			if (std::get<0>(acceptablePath).compare(Joined) == 0)
+			for (auto& acceptablePath : m_staticDataPaths)
 			{
-				fs::path fullPath = m_root;
-				fullPath.append( std::get<0>(acceptablePath) );
+				if (std::get<0>(acceptablePath).compare(Joined) == 0)
+				{
+					fs::path fullPath = m_root;
+					fullPath.append( std::get<0>(acceptablePath) );
 
-				size64_t FileSize = fs::file_size(fullPath );
+					size64_t FileSize = fs::file_size(fullPath );
 
-				auto FileHandle = concurrency::streams::file_stream<uint8_t>::open_istream(fullPath.native());
+					auto FileHandle = concurrency::streams::file_stream<uint8_t>::open_istream(fullPath.native());
 
-				Concurrency::streams::istream& FileHandleStream = FileHandle.get(); 
+					Concurrency::streams::istream& FileHandleStream = FileHandle.get(); 
 
-				//Matching file
-				Message.reply( status_codes::OK, FileHandleStream, FileSize, std::get<1>(acceptablePath) );
-				return;
+					//Matching file
+					Message.reply( status_codes::OK, FileHandleStream, FileSize, std::get<1>(acceptablePath) );
+					return;
+				}
+			}
+
+			if( Pass == 0 )
+			{
+				Joined.append(U("/index.html"));
 			}
 		}
 

@@ -4,7 +4,7 @@
 #include "Commands/Authenticate.h"
 #include "Commands/Static.h"
 
-WitnessListener::WitnessListener( utility::string_t Hostname, int Port )
+WitnessListener::WitnessListener( utility::string_t Hostname, int Port, bool Secure )
 {
 	m_GlobalContext = make_unique<GlobalContext>();
 
@@ -18,10 +18,9 @@ WitnessListener::WitnessListener( utility::string_t Hostname, int Port )
 	});*/
 
 	uri_builder Uri;
-	Uri.set_scheme( U("https") );
+	Uri.set_scheme( Secure ? U("https") : U("http") );
 	Uri.set_host( Hostname );
 	Uri.set_port( Port );
-	//Uri.set_path( U("/rest/endpoint") );
 
 	m_Listener = make_unique<http_listener>( Uri.to_uri(), Config );
 
@@ -42,7 +41,20 @@ void WitnessListener::Initialise(json::object& Config)
 
 void WitnessListener::Start()
 {
-	m_Listener->open().wait();
+	m_Listener->open().then( 
+		[]( pplx::task<void> previousTask )
+		{
+			try
+			{
+				previousTask.get();
+			}
+			catch( http_exception e )
+			{
+				cerr << "Unable to start server: " << e.what() << endl;
+				exit(1);
+			}
+		}
+	);
 }
 
 void WitnessListener::Stop()
@@ -54,26 +66,24 @@ void WitnessListener::OnCommand( http_request Message, bool IsPost )
 {
 	auto Path = http::uri::split_path(http::uri::decode(Message.relative_uri().path()));
 
-	if( Path.empty() )
-	{
-		json::value Reply = json::value::object();
-		Reply[U("Version")] = json::value::string(U(WITNESS_LISTENER_VERSION));
-
-		Message.reply(status_codes::OK, Reply);
-	}
-	else
+	if( !Path.empty() )
 	{
 		auto CommandName = Path.front();
-		Path.erase( Path.begin() );
 
 		auto FoundCommand = m_Commands.find( CommandName );
 		if( FoundCommand != m_Commands.end() )
 		{
+			Path.erase( Path.begin() );
+
 			(*FoundCommand).second->OnMessage( m_GlobalContext, Message, CommandName, Path, IsPost );
 		}
 		else
 		{
-			Message.reply( status_codes::NotFound );
+			m_Commands[U("static")]->OnMessage( m_GlobalContext, Message, U(""), Path, IsPost );
 		}
+	}
+	else
+	{
+		m_Commands[U("static")]->OnMessage( m_GlobalContext, Message, U(""), Path, IsPost );
 	}
 }

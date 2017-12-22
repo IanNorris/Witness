@@ -65,10 +65,10 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>$(SolutionDir)\ThirdParty\SubModules\cpprestsdk\Binaries\x64\Debug\cpprest140d_2_9.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(SolutionDir)\ThirdParty\SubModules\cpprestsdk\Binaries\x64\Debug\cpprest140d_2_10.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
-      <Command>cmd /C copy /Y $(SolutionDir)\ThirdParty\SubModules\cpprestsdk\Binaries\x64\Debug\cpprest140d_2_9.dll $(OutputPath)</Command>
+      <Command>cmd /C copy /Y $(SolutionDir)\ThirdParty\SubModules\cpprestsdk\Binaries\x64\Debug\cpprest140d_2_10.* $(OutputPath)</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -87,10 +87,10 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>$(SolutionDir)\ThirdParty\SubModules\cpprestsdk\Binaries\x64\Release\cpprest140_2_9.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(SolutionDir)\ThirdParty\SubModules\cpprestsdk\Binaries\x64\Release\cpprest140_2_10.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
-      <Command>cmd /C copy /Y $(SolutionDir)\ThirdParty\SubModules\cpprestsdk\Binaries\x64\Release\cpprest140_2_9.dll $(OutputPath)</Command>
+      <Command>cmd /C copy /Y $(SolutionDir)\ThirdParty\SubModules\cpprestsdk\Binaries\x64\Release\cpprest140_2_10.* $(OutputPath)</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>

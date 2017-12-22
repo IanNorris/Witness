@@ -16,7 +16,7 @@ using namespace http::experimental::listener;
 class WitnessListener
 {
 public:
-	WitnessListener( utility::string_t Hostname, int Port );
+	WitnessListener( utility::string_t Hostname, int Port, bool Secure );
 	virtual ~WitnessListener();
 
 	void Initialise( json::object& Config );

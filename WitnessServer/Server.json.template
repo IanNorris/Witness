@@ -2,6 +2,7 @@
 	"server": {
 		"hostname": "localhost",
 		"port": 443,
+		"secure": true,
 		"static_path": "C:\\Full\\Path\\To\\WebRoot",
 		"mime": {
 			"css": "text/css",
