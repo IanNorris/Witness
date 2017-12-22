@@ -1,1 +1,0 @@
-https://akveo.github.io/nebular/#/docs/installation/based-on-starter-kit-ngxadmin
