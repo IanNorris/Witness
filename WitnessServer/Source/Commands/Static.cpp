@@ -56,7 +56,7 @@ Command_Static::Command_Static(object& Config)
 				}
 			}
 
-			m_staticDataPaths.push_back(tuple<string_t, string_t>(PathString, ContentType));
+			m_staticDataPaths[PathString] = ContentType;
 		}
 	}
 
@@ -95,23 +95,21 @@ void Command_Static::OnMessage( const unique_ptr<GlobalContext>& Context, http_r
 	{
 		for( int Pass = 0; Pass < 2; Pass++ )
 		{
-			for (auto& acceptablePath : m_staticDataPaths)
+			auto Iter = m_staticDataPaths.find(Joined);
+			if( Iter != m_staticDataPaths.end() )
 			{
-				if (std::get<0>(acceptablePath).compare(Joined) == 0)
-				{
-					fs::path fullPath = m_root;
-					fullPath.append( std::get<0>(acceptablePath) );
+				fs::path fullPath = m_root;
+				fullPath.append( Iter->first );
 
-					size64_t FileSize = fs::file_size(fullPath );
+				size64_t FileSize = fs::file_size(fullPath );
 
-					auto FileHandle = concurrency::streams::file_stream<uint8_t>::open_istream(fullPath.native());
+				auto FileHandle = concurrency::streams::file_stream<uint8_t>::open_istream(fullPath.native());
 
-					Concurrency::streams::istream& FileHandleStream = FileHandle.get(); 
+				Concurrency::streams::istream& FileHandleStream = FileHandle.get(); 
 
-					//Matching file
-					Message.reply( status_codes::OK, FileHandleStream, FileSize, std::get<1>(acceptablePath) );
-					return;
-				}
+				//Matching file
+				Message.reply( status_codes::OK, FileHandleStream, FileSize, Iter->second );
+				return;
 			}
 
 			if( Pass == 0 )

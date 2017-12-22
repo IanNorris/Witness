@@ -12,6 +12,6 @@ public:
 
 private:
 
-	vector<tuple<string_t,string_t>> m_staticDataPaths;
+	unordered_map<string_t,string_t> m_staticDataPaths;
 	string_t m_root;
 };

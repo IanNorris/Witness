@@ -4,3 +4,6 @@
 [submodule "ThirdParty/SubModules/cpprestsdk"]
 	path = ThirdParty/SubModules/cpprestsdk
 	url = https://github.com/Microsoft/cpprestsdk.git
+[submodule "ThirdParty/SubModules/miminium"]
+	path = ThirdParty/SubModules/miminium
+	url = https://github.com/akivaron/miminium.git
