@@ -1,5 +1,6 @@
 #include "Listener.h"
 #include "Common.h"
+#include "Database.h"
 #include "Android/AndroidNotify.h"
 
 
@@ -9,7 +10,7 @@ using namespace utility;
 
 #include <windows.h>
 
-std::tr2::sys::path GetConfigFilePath()
+std::tr2::sys::path GetConfigFilePath( string_t Filename )
 {
 #if defined( _WINDOWS )
 
@@ -30,14 +31,15 @@ std::tr2::sys::path GetConfigFilePath()
 	mkdir( ConfigPath.c_str(), 0600 );
 #endif
 
-	ConfigPath.append( U("server.json") );
+	ConfigPath.append( Filename );
 
 	return ConfigPath;
 }
 
 int wmain( int argc, wchar_t* argv[] )
 {
-	auto ConfigFile = GetConfigFilePath();
+	auto ConfigFile = GetConfigFilePath( U("server.json") );
+	auto DatabaseFile = GetConfigFilePath( U("server.db") );
 
 	std::ifstream ConfigFileStream(ConfigFile);
 	if( !ConfigFileStream )
@@ -78,6 +80,9 @@ int wmain( int argc, wchar_t* argv[] )
 
 
 	WitnessListener Listener( Hostname, Port, Secure );
+
+	auto& GC = Listener.GetGlobalContext();
+	GC->Database = Database::InitializeDatabase( DatabaseFile );
 
 	Listener.Initialise( JsonConfigServer );
 	

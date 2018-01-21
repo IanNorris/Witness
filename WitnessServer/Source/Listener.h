@@ -4,7 +4,6 @@
 
 #include <unordered_map>
 
-#include "cpprest/json.h"
 #include "cpprest/http_listener.h"
 #include "cpprest/uri.h"
 #include "cpprest/asyncrt_utils.h"
@@ -24,6 +23,8 @@ public:
 	void Start();
 
 	void Stop();
+
+	unique_ptr<GlobalContext>& GetGlobalContext() { return m_GlobalContext; }
 
 private:
 

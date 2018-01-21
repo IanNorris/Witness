@@ -7,12 +7,11 @@
 #include "cpprest/http_listener.h"
 #include "cpprest/uri.h"
 
+#include "Common.h"
+
 #include "GlobalContext.h"
 
-using namespace std;
-using namespace web;
 using namespace http;
-using namespace utility;
 
 class IListenerCommand
 {

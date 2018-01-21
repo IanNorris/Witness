@@ -3,7 +3,8 @@ https://docs.microsoft.com/en-us/dotnet/framework/wcf/feature-details/how-to-con
 Add a listener:
 netsh http add iplisten ipaddress=0.0.0.0:11235
 
-netsh http add sslcert ipport=0.0.0.0:11238 certhash=<CertificateThumbprintWithNoSpaces> appid={790C242A-DAA6-46FF-8E04-B1EB280F3BA2}
+netsh http delete sslcert ipport=0.0.0.0:11235
+netsh http add sslcert ipport=0.0.0.0:11235 certhash=<CertificateThumbprintWithNoSpaces> appid={790C242A-DAA6-46FF-8E04-B1EB280F3BA2}
 
 NOTE: Also watch out for the special character that the certificate manager inserts at the front of the thumbprint.
 

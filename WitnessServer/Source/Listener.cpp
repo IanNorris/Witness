@@ -8,7 +8,7 @@ WitnessListener::WitnessListener( utility::string_t Hostname, int Port, bool Sec
 {
 	m_GlobalContext = make_unique<GlobalContext>();
 
-	experimental::listener::http_listener_config Config;
+	web::http::experimental::listener::http_listener_config Config;
 
 	//TODO For Linux:
 	/*

@@ -7,7 +7,8 @@
 		"mime": {
 			"css": "text/css",
 			"html": "text/html",
-			"js": "application/javascript"
+			"js": "application/javascript",
+			"svg": "image/svg+xml"
 		}
 	},
 	"android": {

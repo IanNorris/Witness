@@ -50,7 +50,7 @@
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
-      <AdditionalIncludeDirectories>$(SolutionDir)\WitnessCamera\Include;$(SolutionDir)\ThirdParty\SubModules\cpprestsdk\Release\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)\WitnessCamera\Include;$(SolutionDir)\ThirdParty\SubModules\cpprestsdk\Release\include;$(SolutionDir)\ThirdParty\SQLite-20180118;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -94,11 +94,16 @@
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="..\ThirdParty\SQLite-20180118\sqlite3.c" />
     <ClCompile Include="Source\Android\AndroidNotify.cpp" />
     <ClCompile Include="Source\Commands\Authenticate.cpp" />
-	<ClCompile Include="Source\Commands\Static.cpp" />
+    <ClCompile Include="Source\Commands\Static.cpp" />
+    <ClCompile Include="Source\Common.cpp" />
+    <ClCompile Include="Source\Database.cpp" />
+    <ClCompile Include="Source\JsonHelpers.cpp" />
     <ClCompile Include="Source\Listener.cpp" />
     <ClCompile Include="Source\Main.cpp" />
+    <ClCompile Include="Source\SQLite.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\WitnessCamera\WitnessCamera.vcxproj">
@@ -106,13 +111,16 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\ThirdParty\SQLite-20180118\sqlite3.h" />
     <ClInclude Include="Source\Android\AndroidNotify.h" />
     <ClInclude Include="Source\Commands\Authenticate.h" />
     <ClInclude Include="Source\Commands\Static.h" />
     <ClInclude Include="Source\Common.h" />
+    <ClInclude Include="Source\Database.h" />
     <ClInclude Include="Source\GlobalContext.h" />
     <ClInclude Include="Source\Listener.h" />
     <ClInclude Include="Source\ListenerCommand.h" />
+    <ClInclude Include="Source\SQLite.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
