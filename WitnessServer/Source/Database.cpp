@@ -32,6 +32,16 @@ namespace Database
 		VALUES(@Username,@PasswordHash,@HashMethod);
 	)RAW";
 
+	string_t FindSession = LR"RAW(
+		SELECT * FROM Session 
+		WHERE SessionToken = @SessionToken
+	)RAW";
+
+	string_t CreateSession = LR"RAW(
+		INSERT INTO Session (SessionToken,CSRFToken,Username,LastUsed)
+		VALUES(@SessionToken,@CSRFToken,@Username,@LastUsed);
+	)RAW";
+
 	string_t GetUserCount = L"SELECT COUNT(*) FROM User";
 
 #define CREATE_QUERY( X ) DB->CreateQuery( _T(#X), X )
@@ -42,6 +52,10 @@ namespace Database
 
 		CREATE_QUERY( FindUser );
 		CREATE_QUERY( CreateUser );
+
+		CREATE_QUERY( FindSession );
+		CREATE_QUERY( CreateSession );
+
 		CREATE_QUERY( GetUserCount );
 
 		return DB;

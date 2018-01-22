@@ -60,6 +60,21 @@ void SQLiteDatabaseQuery::Bind( const char* paramName, int value )
 	}
 }
 
+void SQLiteDatabaseQuery::Bind( const char* paramName, int64_t value )
+{
+	Reset();
+
+	for( auto& statement : m_statements )
+	{
+		int index = sqlite3_bind_parameter_index( statement, paramName );
+		if( index )
+		{
+			int result = sqlite3_bind_int64( statement, index, value );
+			//aeAssert( result == 0, "Failed to bind parameter: %s", sqlite3_errmsg( m_database->GetDatabase() ) );
+		}
+	}
+}
+
 void SQLiteDatabaseQuery::Reset()
 {
 	if( !m_reset )

@@ -3,6 +3,7 @@ var LoginViewModel = function() {
 	
 	var self = this;
 	
+	self.errorMessage = ko.observable('');
 	self.invalidLogin = ko.observable(false);
 	self.loginInProgress = ko.observable(false);
 	self.loginVisible = ko.observable(false);
@@ -47,15 +48,21 @@ var LoginViewModel = function() {
 			contentType: 'application/json; charset=utf-8',
 		} )
 		.done( function( result ) {
-			alert( 'success: ' + result );
+			window.location.replace( "/witness/" );
 		} )
 		.fail( function( result ) {
 			self.setLoginInProgress( false );
 			if( result.status == 401 ) {
+				self.errorMessage('Invalid username or password.');
+				self.invalidLogin(true);
+			}
+			else if( result.readyState == 4 ) {
+				self.errorMessage( result.responseText );
 				self.invalidLogin(true);
 			}
 			else {
-				alert( result.responseText );
+				self.errorMessage( 'Unable to connect to server.' );
+				self.invalidLogin(true);
 			}
 		} );
 	};
@@ -63,10 +70,18 @@ var LoginViewModel = function() {
 
 var g_viewModel = null;
 
-$(document).ready(function() {
-	g_viewModel = new LoginViewModel();
-	
-	ko.applyBindings(g_viewModel);
-	
-	g_viewModel.loginVisible(true);
-});
+var sessionCookie = getCookie('SessionToken');
+if( sessionCookie )
+{
+	window.location.replace( "/witness/" );
+}
+else
+{
+	$(document).ready(function() {
+		g_viewModel = new LoginViewModel();
+		
+		ko.applyBindings(g_viewModel);
+		
+		g_viewModel.loginVisible(true);
+	});
+}

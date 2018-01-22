@@ -1,3 +1,13 @@
+function getCookie(name){
+    var pattern = RegExp(name + "=.[^;]*")
+    matched = document.cookie.match(pattern)
+    if(matched){
+        var cookie = matched[0].split('=')
+        return cookie[1]
+    }
+    return false
+}
+
 ko.bindingHandlers.fadeVisible = {
     init: function(element, valueAccessor) {
         // Initially set the element to be instantly visible/hidden depending on the value

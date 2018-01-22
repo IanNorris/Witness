@@ -43,7 +43,7 @@
 				</div>
 				  
 				<div class="alert alert-danger" data-bind="visible: invalidLogin" role="alert">
-				Invalid username or password.
+					<p data-bind="text: errorMessage"></p>
 				</div>
 				  
 				<button class="btn ripple btn-round col-md-12" role="button" data-bind="click: function(){ submitLogin(); }, enable: canSubmit"><span data-bind="html: loginButtonLabel"></button>

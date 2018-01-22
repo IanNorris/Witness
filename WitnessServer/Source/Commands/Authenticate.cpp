@@ -7,9 +7,23 @@
 #include "sodium.h"
 
 #include <iostream>
+#include <chrono>
 
 using namespace web::json;
 using namespace web::http::client;
+
+string_t GetRandomToken()
+{
+	unsigned char TokenBytes[ 32 ];
+	char TokenString[ (2*sizeof(TokenBytes))+1 ];
+
+	randombytes_buf( TokenBytes, sizeof(TokenBytes) );
+
+	sodium_bin2hex( TokenString, sizeof(TokenString), TokenBytes, sizeof(TokenBytes) );
+
+	string TokenStringASCII = TokenString;
+	return string_t( TokenStringASCII.begin(), TokenStringASCII.end() );
+}
 
 string_t GetHashedPasswordKey_Algorithm0( const string_t& Username, const string_t Password )
 {
@@ -165,5 +179,31 @@ void Command_Authenticate::OnMessage( const unique_ptr<GlobalContext>& Context, 
 		}
 	}
 
-	Message.reply( status_codes::OK );
+	{
+		string_t SessionToken = GetRandomToken();
+		string_t CSRFToken = GetRandomToken();
+
+		auto Now = chrono::system_clock::now().time_since_epoch();
+		auto UTCTimeNow = chrono::duration_cast<std::chrono::seconds>(Now).count();
+
+		SQLiteDatabaseQueryInstance CreateSession( Context->Database, _T("CreateSession") );
+		CreateSession->Bind( "@SessionToken", SessionToken.c_str() );
+		CreateSession->Bind( "@CSRFToken", CSRFToken.c_str() );
+		CreateSession->Bind( "@Username", Username.c_str() );
+		CreateSession->Bind( "@LastUsed", (int64_t)UTCTimeNow );
+		
+		CreateSession->Execute( nullptr );
+		
+		http_response Response;
+		Response.set_status_code( status_codes::OK );
+		Response.headers().add( _T("set-cookie"), _T("SessionToken=") + SessionToken + _T("CSRFToken=") + CSRFToken );
+
+		json::value ResponseBody;
+
+		Response.set_body( ResponseBody );
+
+		Message.reply( Response );
+	}
+	
+	
 }

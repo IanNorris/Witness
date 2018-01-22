@@ -26,6 +26,7 @@ public:
 	void Bind( const char* parameterName, const TCHAR* value );
 	void Bind( const char* parameterName, double value );
 	void Bind( const char* parameterName, int value );
+	void Bind( const char* parameterName, int64_t value );
 
 	void Reset();
 
