@@ -2,6 +2,8 @@
 #include "Common.h"
 #include "Database.h"
 #include "Android/AndroidNotify.h"
+#include "Commands/Authenticate.h"
+#include "sodium.h"
 
 
 using namespace web::json;
@@ -38,6 +40,12 @@ std::tr2::sys::path GetConfigFilePath( string_t Filename )
 
 int wmain( int argc, wchar_t* argv[] )
 {
+	if( sodium_init() == -1 )
+	{
+		std::tcerr << U("Unable to initialize libsodium.") << std::endl;
+        return 1;
+    }
+
 	auto ConfigFile = GetConfigFilePath( U("server.json") );
 	auto DatabaseFile = GetConfigFilePath( U("server.db") );
 
@@ -84,6 +92,8 @@ int wmain( int argc, wchar_t* argv[] )
 	auto& GC = Listener.GetGlobalContext();
 	GC->Database = Database::InitializeDatabase( DatabaseFile );
 
+	OfflineCreationForFirstUser( GC );
+
 	Listener.Initialise( JsonConfigServer );
 	
 	try
@@ -95,6 +105,8 @@ int wmain( int argc, wchar_t* argv[] )
 		std::tcerr << U("Unable to start server: ") << Exception.what() << std::endl;
 		return 1;
 	}
+
+	tcout << _T("Server boot complete...") << endl;
 
 	while( true )
 	{

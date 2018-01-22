@@ -6,14 +6,15 @@ namespace Database
 	string InitializationScript = R"RAW(
 		CREATE TABLE IF NOT EXISTS User(
 			Username		CHAR(64)							NOT NULL,
-			PasswordHash	CHAR(64)							NOT NULL,
-			Salt			CHAR(64)							NOT NULL
+			PasswordHash	CHAR(128)							NOT NULL,
+			HashMethod		INT									NOT NULL
 		);
 
 		CREATE UNIQUE INDEX IF NOT EXISTS UserIndex ON User (Username);
 
 		CREATE TABLE IF NOT EXISTS Session(
 			SessionToken	CHAR(64)							NOT NULL,
+			CSRFToken		CHAR(64)							NOT NULL,
 			Username		CHAR(64)							NOT NULL,
 			LastUsed		DATETIME							NOT NULL
 		);
@@ -26,9 +27,9 @@ namespace Database
 		WHERE Username = @Username
 	)RAW";
 
-	string_t FindUserWithPassword = LR"RAW(
-		SELECT * FROM User 
-		WHERE Username = @Username AND PasswordHash = @Password
+	string_t CreateUser = LR"RAW(
+		INSERT INTO User (Username,PasswordHash,HashMethod)
+		VALUES(@Username,@PasswordHash,@HashMethod);
 	)RAW";
 
 	string_t GetUserCount = L"SELECT COUNT(*) FROM User";
@@ -40,7 +41,7 @@ namespace Database
 		auto DB = make_shared<SQLiteDatabase>( Filename, Database::InitializationScript, true );
 
 		CREATE_QUERY( FindUser );
-		CREATE_QUERY( FindUserWithPassword );
+		CREATE_QUERY( CreateUser );
 		CREATE_QUERY( GetUserCount );
 
 		return DB;

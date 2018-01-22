@@ -31,7 +31,7 @@ public:
 
 	int Execute( const std::function< bool(const SQLiteDatabaseQuery&) >& callback );
 
-	const unsigned char* GetColumnValueText( int column ) const;
+	const wchar_t* GetColumnValueText( int column ) const;
 	sqlite3_value* GetColumnValue( int column ) const;
 	const int GetColumnValueInt( int column ) const;
 	const int64_t GetColumnValueInt64( int column ) const;

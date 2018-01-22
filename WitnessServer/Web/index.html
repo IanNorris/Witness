@@ -35,18 +35,18 @@
 						<input name="username" type="text" class="form-text" data-bind="value: username, valueUpdate: 'keyup'" required>
 						<span class="bar"></span>
 						<label>Username</label>
-					</div>
-				  <div class="form-group form-animate-text" style="margin-top:40px !important;">
+				</div>
+				<div class="form-group form-animate-text" style="margin-top:40px !important;" data-bind="css: { 'form-animate-error': invalidLogin }">
 					<input name="password" type="password" class="form-text"  data-bind="value: password, valueUpdate: 'keyup'" required>
 					<span class="bar"></span>
 					<label>Password</label>
-				  </div>
+				</div>
 				  
-				  <div class="alert alert-danger" data-bind="visible: invalidLogin" role="alert">
-					Invalid username or password.
-				  </div>
+				<div class="alert alert-danger" data-bind="visible: invalidLogin" role="alert">
+				Invalid username or password.
+				</div>
 				  
-				  <button class="btn ripple btn-round col-md-12" role="button" data-bind="click: function(){ submitLogin(); }, enable: canSubmit"><span data-bind="html: loginButtonLabel"></button>
+				<button class="btn ripple btn-round col-md-12" role="button" data-bind="click: function(){ submitLogin(); }, enable: canSubmit"><span data-bind="html: loginButtonLabel"></button>
               </div>
           </div>
         </form>

@@ -7,3 +7,6 @@
 [submodule "ThirdParty/SubModules/miminium"]
 	path = ThirdParty/SubModules/miminium
 	url = https://github.com/akivaron/miminium.git
+[submodule "ThirdParty/SubModules/libsodium"]
+	path = ThirdParty/SubModules/libsodium
+	url = https://github.com/jedisct1/libsodium.git

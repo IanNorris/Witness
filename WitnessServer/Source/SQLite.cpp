@@ -101,9 +101,9 @@ int SQLiteDatabaseQuery::Execute( const std::function< bool(const SQLiteDatabase
 	return count;
 }
 
-const unsigned char* SQLiteDatabaseQuery::GetColumnValueText( int column ) const
+const wchar_t* SQLiteDatabaseQuery::GetColumnValueText( int column ) const
 {
-	return sqlite3_column_text( m_statements.back(), column );
+	return (const wchar_t*)sqlite3_column_text16( m_statements.back(), column );
 }
 
 sqlite3_value* SQLiteDatabaseQuery::GetColumnValue( int column ) const
