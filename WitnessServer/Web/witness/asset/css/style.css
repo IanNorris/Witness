@@ -1789,9 +1789,12 @@ ul li a:focus {
   .navbar .navbar-brand {
     text-shadow: 0px 1px 5px #918C8C;
     padding: 15px;
-    margin-left: 20px;
     font-size: 2.3em;
     color: #FFFFFF !important;
+  }
+  
+  .navbar-brand-label {
+	vertical-align: middle;  
   }
 
   .navbar .active a {
@@ -2036,26 +2039,27 @@ ul li a:focus {
 }
 
 .opener-left-menu {
+  background-image: url("/witness/asset/img/logo.svg");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 200%;
   float: left;
+  height: 55px;
   padding: 20px;
   padding-top: 35px;
   background-color: #2196F3;
   padding-bottom: 11px;
   color: #C62828;
   cursor: pointer;
-  -webkit-box-shadow: 0px 9px 0px 0px #2196F3, 0 -9px 0px 0px #2196F3, 4px 0 15px -4px rgba(0, 0, 0, 0.16), -4px 0 15px -4px rgba(0, 0, 0, 0.12);
-  -moz-box-shadow: 0px 9px 0px 0px #2196F3, 0 -9px 0px 0px #2196F3, 4px 0 15px -4px rgba(0, 0, 0, 0.16), -4px 0 15px -4px rgba(0, 0, 0, 0.12);
-  -ms-box-shadow: 0px 9px 0px 0px #2196F3, 0 -9px 0px 0px #2196F3, 4px 0 15px -4px rgba(0, 0, 0, 0.16), -4px 0 15px -4px rgba(0, 0, 0, 0.12);
-  -o-box-shadow: 0px 9px 0px 0px #2196F3, 0 -9px 0px 0px #2196F3, 4px 0 15px -4px rgba(0, 0, 0, 0.16), -4px 0 15px -4px rgba(0, 0, 0, 0.12);
-  box-shadow: 0px 9px 0px 0px #2196F3, 0 -9px 0px 0px #2196F3, 4px 0 15px -4px rgba(0, 0, 0, 0.16), -4px 0 15px -4px rgba(0, 0, 0, 0.12);
 }
 
-
+/*
 .opener-left-menu.is-open {
   padding-top: 29px;
   padding-bottom: 17px;
-}
+}*/
 
+/*
 .opener-left-menu:hover,
 .opener-left-menu:focus,
 .opener-left-menu:active {
@@ -2245,7 +2249,7 @@ ul li a:focus {
   -ms-transition: all .35s ease-in-out;
   -o-transition: all .35s ease-in-out;
   transition: all .35s ease-in-out;
-}
+}*/
 
 /*----right menu-------*/
 
