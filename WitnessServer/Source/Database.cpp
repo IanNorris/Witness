@@ -37,6 +37,12 @@ namespace Database
 		WHERE SessionToken = @SessionToken
 	)RAW";
 
+	string_t VerifySessionAndCSRF = LR"RAW(
+		SELECT * FROM Session 
+		WHERE SessionToken = @SessionToken
+		AND CSRFToken = @CSRFToken
+	)RAW";
+
 	string_t CreateSession = LR"RAW(
 		INSERT INTO Session (SessionToken,CSRFToken,Username,LastUsed)
 		VALUES(@SessionToken,@CSRFToken,@Username,@LastUsed);
@@ -59,6 +65,7 @@ namespace Database
 		CREATE_QUERY( CreateUser );
 
 		CREATE_QUERY( FindSession );
+		CREATE_QUERY( VerifySessionAndCSRF );
 		CREATE_QUERY( CreateSession );
 		CREATE_QUERY( DeleteSession );
 

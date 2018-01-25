@@ -146,6 +146,8 @@ void Command_Authenticate::OnMessage( const unique_ptr<GlobalContext>& Context, 
 
 void Command_Authenticate::OnLoginMessage( const unique_ptr<GlobalContext>& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
 {
+	//DO NOT CHECK CSRF HERE
+
 	auto Packet = Message.extract_json().get();
 
 	string_t Errors;
@@ -240,16 +242,15 @@ void Command_Authenticate::OnLogoutMessage( const unique_ptr<GlobalContext>& Con
 {
 	auto Packet = Message.extract_json().get();
 
-	string_t Errors;
-	
-	bool Success = true;
-	string_t CSRF;
-
-	Success &= GetJsonField( Packet, _T("csrf"), CSRF, Errors );
+	if( !IsAuthenticated( Context, Message, Packet ) )
+	{
+		return;
+	}
 
 	string_t SessionToken = GetSessionToken( Message );
 
 	SQLiteDatabaseQueryInstance DeleteSession( Context->Database, _T("DeleteSession") );
+	DeleteSession->Bind( "@SessionToken", SessionToken.c_str() );
 	DeleteSession->Bind( "@SessionToken", SessionToken.c_str() );
 		
 	DeleteSession->Execute( nullptr );
@@ -267,6 +268,8 @@ void Command_Authenticate::OnLogoutMessage( const unique_ptr<GlobalContext>& Con
 
 void Command_Authenticate::OnGetProfileMessage( const unique_ptr<GlobalContext>& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
 {
+	//DO NOT CHECK CSRF HERE
+
 	auto Packet = Message.extract_json().get();
 
 	string_t SessionToken = GetSessionToken( Message );
@@ -330,4 +333,31 @@ string_t Command_Authenticate::GetSessionToken( const http_request& Message )
 	}
 
 	return SessionToken;
+}
+
+bool Command_Authenticate::IsAuthenticated( const unique_ptr<GlobalContext>& Context, http_request& Message, const json::value& Packet )
+{
+	string_t Errors;
+	
+	bool Success = true;
+	string_t CSRF;
+
+	Success &= GetJsonField( Packet, _T("csrf"), CSRF, Errors );
+
+	string_t SessionToken = GetSessionToken( Message );
+
+	{
+		SQLiteDatabaseQueryInstance VerifySessionAndCSRF( Context->Database, _T("VerifySessionAndCSRF") );
+		VerifySessionAndCSRF->Bind( "@SessionToken", SessionToken.c_str() );
+		VerifySessionAndCSRF->Bind( "@CSRFToken", CSRF.c_str() );
+		
+		int Count = VerifySessionAndCSRF->Execute( nullptr );
+		if( Count != 1 )
+		{
+			Message.reply( status_codes::BadRequest );
+			return false;
+		}
+	}
+
+	return true;
 }
