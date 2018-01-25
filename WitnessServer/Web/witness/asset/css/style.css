@@ -6490,3 +6490,47 @@ ul li a:focus {
   }
 
 }
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+.spinner-background {
+	z-index: 99;
+	margin: auto;
+	background: #2196f3;
+	position: fixed;
+	top:-100%;
+	right:-100%;
+	left:-100%;
+	bottom:-100%;
+	align-items: center;
+}
+
+.spinner-container {
+	background-image: url("/witness/asset/img/spinner_outer.svg");
+	background-repeat: no-repeat;
+	background-position: center;
+	background-size: 200%;
+	color: red;
+	position: absolute;
+	left: 50%;
+	top: 50%;
+	width: 100px;
+	height: 100px;
+	animation: spin 2s linear infinite;
+}
+
+.spinner-container2 {
+	background-image: url("/witness/asset/img/spinner_inner.svg");
+	background-repeat: no-repeat;
+	background-position: center;
+	background-size: 200%;
+	color: red;
+	position: absolute;
+	left: 50%;
+	top: 50%;
+	width: 100px;
+	height: 100px;
+}

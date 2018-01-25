@@ -45,3 +45,50 @@ void SetStdinEcho( bool Enable )
     (void) tcsetattr(STDIN_FILENO, TCSANOW, &tty);
 #endif
 }
+
+string_t Trim( string_t tInput )
+{
+	static const TCHAR pszWhitespace[] = _T(" \t\n\r");
+	tInput = tInput.erase( tInput.find_last_not_of( pszWhitespace )+1 );
+	tInput = tInput.erase( 0, tInput.find_first_not_of( pszWhitespace ) );
+	return tInput;
+}
+
+vector< string_t > SplitString( string_t tInput, string_t tSeparator, StringTrim eTrim, StringStrip eStrip )
+{
+	vector< string_t > tResult;
+
+	string_t::const_iterator tStart = tInput.begin();
+	string_t::const_iterator tEnd;
+
+	if( tInput.size() == 0 )
+	{
+			return tResult;
+	}
+
+	while( true )
+	{
+		tEnd = search< string_t::const_iterator, string_t::const_iterator >( tStart, tInput.end(), tSeparator.begin(), tSeparator.end() );
+
+		string_t tSubString( tStart, tEnd );
+
+		if( eTrim == StringTrim::Trim )
+		{
+			tSubString = Trim( tSubString );
+		}
+
+		if( !tSubString.empty() || eStrip == StringStrip::DoNotRemoveEmpty )
+		{
+			tResult.push_back( tSubString );
+		}
+
+		if( tEnd == tInput.end() )
+		{
+			break;
+		}
+
+		tStart = tEnd + tSeparator.size();
+	}
+
+	return tResult;
+}

@@ -33,5 +33,22 @@ using namespace utility;
 void SetStdinEcho( bool Enable );
 string ReadFileToString( string_t Filename );
 
+///Enum to determine whether a string should be trimmed when being split
+enum class StringTrim
+{
+	DoNotTrim,  //!< Do not trim the string
+	Trim,		//!< Trim whitespace from either side of a string when splitting
+};
+
+///Enum to determine if a split string that contains character should be added to the resulting list
+enum class StringStrip
+{
+	DoNotRemoveEmpty,  //!< Keep empty strings
+	RemoveEmpty,		//!< Remove empty strings
+};
+
+string_t Trim( string_t tInput );
+vector< string_t > SplitString( string_t tInput, string_t tSeparator, StringTrim eTrim = StringTrim::Trim, StringStrip eStrip = StringStrip::RemoveEmpty );
+
 template<typename T>
 bool GetJsonField( const web::json::value& Object, const TCHAR* FieldName, T& ValueOut, utility::string_t& Errors );

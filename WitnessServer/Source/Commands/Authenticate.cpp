@@ -116,7 +116,37 @@ void OfflineCreationForFirstUser( const unique_ptr<GlobalContext>& Context )
 
 void Command_Authenticate::OnMessage( const unique_ptr<GlobalContext>& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
 {
-	auto LoginPacket = Message.extract_json().get();
+	if( ChildPath.size() == 1 && IsPost )
+	{
+		auto Command = ChildPath.front();
+		if( Command.compare( _T("login") ) == 0 )
+		{
+			OnLoginMessage( Context, Message, CurrentCommand, ChildPath, IsPost );
+		}
+		else if( Command.compare( _T("logout") ) == 0 )
+		{
+			OnLogoutMessage( Context, Message, CurrentCommand, ChildPath, IsPost );
+		}
+		else if( Command.compare( _T("profile") ) == 0 )
+		{
+			OnGetProfileMessage( Context, Message, CurrentCommand, ChildPath, IsPost );
+		}
+		else
+		{
+			Message.reply( status_codes::NotFound );
+		}
+
+		return;
+	}
+	else
+	{
+		Message.reply( status_codes::NotFound );
+	}
+}
+
+void Command_Authenticate::OnLoginMessage( const unique_ptr<GlobalContext>& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
+{
+	auto Packet = Message.extract_json().get();
 
 	string_t Errors;
 	
@@ -124,8 +154,8 @@ void Command_Authenticate::OnMessage( const unique_ptr<GlobalContext>& Context, 
 	string_t Username;
 	string_t Password;
 
-	Success &= GetJsonField( LoginPacket, _T("username"), Username, Errors );
-	Success &= GetJsonField( LoginPacket, _T("password"), Password, Errors );
+	Success &= GetJsonField( Packet, _T("username"), Username, Errors );
+	Success &= GetJsonField( Packet, _T("password"), Password, Errors );
 
 	if( !Success )
 	{
@@ -196,14 +226,108 @@ void Command_Authenticate::OnMessage( const unique_ptr<GlobalContext>& Context, 
 		
 		http_response Response;
 		Response.set_status_code( status_codes::OK );
-		Response.headers().add( _T("set-cookie"), _T("SessionToken=") + SessionToken + _T("CSRFToken=") + CSRFToken );
+		Response.headers().add( _T("Set-Cookie"), _T("SessionToken=") + SessionToken );
 
 		json::value ResponseBody;
 
 		Response.set_body( ResponseBody );
 
 		Message.reply( Response );
+	}	
+}
+
+void Command_Authenticate::OnLogoutMessage( const unique_ptr<GlobalContext>& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
+{
+	auto Packet = Message.extract_json().get();
+
+	string_t Errors;
+	
+	bool Success = true;
+	string_t CSRF;
+
+	Success &= GetJsonField( Packet, _T("csrf"), CSRF, Errors );
+
+	string_t SessionToken = GetSessionToken( Message );
+
+	SQLiteDatabaseQueryInstance DeleteSession( Context->Database, _T("DeleteSession") );
+	DeleteSession->Bind( "@SessionToken", SessionToken.c_str() );
+		
+	DeleteSession->Execute( nullptr );
+
+	http_response Response;
+	Response.set_status_code( status_codes::OK );
+	Response.headers().add( _T("Set-Cookie"), _T("SessionToken=; Max-Age=0") );
+
+	json::value ResponseBody;
+
+	Response.set_body( ResponseBody );
+
+	Message.reply( Response );
+}
+
+void Command_Authenticate::OnGetProfileMessage( const unique_ptr<GlobalContext>& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
+{
+	auto Packet = Message.extract_json().get();
+
+	string_t SessionToken = GetSessionToken( Message );
+
+	SQLiteDatabaseQueryInstance FindSession( Context->Database, _T("FindSession") );
+	FindSession->Bind( "@SessionToken", SessionToken.c_str() );
+
+	string_t Username;
+	string_t CSRFToken;
+
+	bool Success = false;
+	int Result = FindSession->Execute( 
+		[&Success,&Username,&CSRFToken]( const SQLiteDatabaseQuery& query )
+		{
+			CSRFToken = query.GetColumnValueText( 1 );
+			Username = query.GetColumnValueText( 2 );
+			Success = true;
+				
+			return true;
+		} 
+	);
+
+	if( Success )
+	{
+		json::value ResponseBody;
+		ResponseBody[_T("csrf")] = json::value(CSRFToken);
+		ResponseBody[_T("username")] = json::value(Username);
+
+		Message.reply( status_codes::OK, ResponseBody );
 	}
+	else
+	{
+		http_response Response;
+		Response.set_status_code( status_codes::Unauthorized );
+		Response.headers().add( _T("Set-Cookie"), _T("SessionToken=; Max-Age=0") );
+
+		json::value ResponseBody;
+
+		Response.set_body( ResponseBody );
+
+		Message.reply( Response );
+
+	}
+}
+
+string_t Command_Authenticate::GetSessionToken( const http_request& Message )
+{
+	string_t SessionToken;
+	const http_headers& Headers = Message.headers();
 	
-	
+	for ( auto CookiesIter = Headers.find(_T("Cookie")); CookiesIter != Headers.end(); ++CookiesIter )
+	{
+		auto CookieSplit = SplitString( CookiesIter->second, _T("=") );
+		if( CookieSplit.size() == 2 )
+		{
+			if( CookieSplit[0].compare(_T("SessionToken")) == 0 )
+			{
+				SessionToken = CookieSplit[1];
+			}
+		}
+	}
+
+	return SessionToken;
 }

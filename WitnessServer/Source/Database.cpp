@@ -42,6 +42,11 @@ namespace Database
 		VALUES(@SessionToken,@CSRFToken,@Username,@LastUsed);
 	)RAW";
 
+	string_t DeleteSession = LR"RAW(
+		DELETE FROM Session
+		WHERE SessionToken = @SessionToken;
+	)RAW";
+
 	string_t GetUserCount = L"SELECT COUNT(*) FROM User";
 
 #define CREATE_QUERY( X ) DB->CreateQuery( _T(#X), X )
@@ -55,6 +60,7 @@ namespace Database
 
 		CREATE_QUERY( FindSession );
 		CREATE_QUERY( CreateSession );
+		CREATE_QUERY( DeleteSession );
 
 		CREATE_QUERY( GetUserCount );
 

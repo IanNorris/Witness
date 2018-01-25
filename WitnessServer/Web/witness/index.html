@@ -11,6 +11,7 @@
 	<link rel="stylesheet" type="text/css" href="asset/css/plugins/simple-line-icons.css"/>
 	<link rel="stylesheet" type="text/css" href="asset/css/plugins/animate.min.css"/>
 	<link rel="stylesheet" type="text/css" href="asset/css/plugins/fullcalendar.min.css"/>
+	<link rel="stylesheet" type="text/css" href="asset/css/jquery.toast.min.css"/>
 	
 	<link href="asset/css/style.css" rel="stylesheet">
 
@@ -23,122 +24,130 @@
 </head>
 
 <body id="mimin" class="dashboard">
-	<nav class="navbar navbar-default header navbar-fixed-top">
-		<div class="col-md-12 nav-wrapper">
-			<div class="navbar-header">
-			  <div class="opener-left-menu">
-			  </div>
-				<a href="/witness/" class="navbar-brand"> 
-					<b class="navbar-brand-label">Witness</b>
-				</a>
-			</div>
-		
-			<ul class="nav navbar-nav search-nav">
-				<li>
-					<div class="search">
-						<span class="fa fa-search icon-search" style="font-size:23px;"></span>
-						<div class="form-group form-animate-text">
-							<input type="text" class="form-text" required>
-							<span class="bar"></span>
-							<label class="label-search">Type anywhere to <b>Search</b> </label>
-						</div>
-					</div>
-				</li>
-			</ul>
-
-			<ul class="nav navbar-nav navbar-right user-nav">
-				<li class="user-name"><span>ian</span></li>
-					<li class="dropdown avatar-dropdown">
-					<img src="asset/img/avatar.jpg" class="img-circle avatar" alt="user name" data-toggle="dropdown" aria-haspopup="true" aria-expanded="true"/>
-					<ul class="dropdown-menu user-dropdown">
-						<li><a href="#"><span class="fa fa-cogs"></span> Settings</a></li>
-						<li><a href="#"><span class="fa fa-power-off"></span> Log out</a></li>
-				  </ul>
-				</li>
-				<!--<li><a href="#" class="opener-right-menu"><span class="fa fa-coffee"></span></a></li>-->
-			</ul>
-	  </div>
-	</nav>
-	<!-- end: Header -->
-
-	<div class="container-fluid mimin-wrapper">
-
-	  <!-- start:Left Menu -->
-		<div id="left-menu">
-		  <div class="sub-left-menu scroll">
-			<ul class="nav nav-list">
-				<li class="time">
-				  <h1 class="animated fadeInLeft">21:00</h1>
-				  <p class="animated fadeInRight">Sat,October 1st 2029</p>
-				</li>
-				<li class="active ripple">
-				  <a class="tree-toggle nav-header"><span class="fa-home fa"></span> Cameras 
-					<span class="fa-angle-right fa right-arrow text-right"></span>
-				  </a>
-				  <ul class="nav nav-list tree">
-					  <li><a href="">Front Door</a></li>
-					  <li><a href="">Back Door</a></li>
-				  </ul>
-				</li>
-				<li class="ripple">
-				  <a class="tree-toggle nav-header">
-					<span class="fa-diamond fa"></span> Clips
-					<span class="fa-angle-right fa right-arrow text-right"></span>
-				  </a>
-				  <ul class="nav nav-list tree">
-					<li><a href="">Front Door</a></li>
-					<li><a href="">Back Door</a></li>
-				  </ul>
-				</li>
-			  </ul>
-			</div>
-		</div>
-		
-		<div id="content">
-			<div class="panel">
-			  <div class="panel-body">
-				  <div class="col-md-6 col-sm-12">
-					<h3 class="animated fadeInLeft">Cameras</h3>
-					
+	<div data-bind="visible: ready" style="display:none">
+		<nav class="navbar navbar-default header navbar-fixed-top">
+			<div class="col-md-12 nav-wrapper">
+				<div class="navbar-header">
+				  <div class="opener-left-menu">
+				  </div>
+					<a href="/witness/" class="navbar-brand"> 
+						<b class="navbar-brand-label">Witness</b>
+					</a>
 				</div>
-				<div class="col-md-6 col-sm-12">
-					<div class="col-md-6 col-sm-6 text-right" style="padding-left:10px;">
-					  <h3 style="color:#DDDDDE;"><span class="fa  fa-map-marker"></span> Leamington Spa</h3>
-					  <h1 style="margin-top: -10px;color: #ddd;">3<sup>o</sup></h1>
-					</div>
-					<div class="col-md-6 col-sm-6">
-					   <div class="wheather">
-						<div class="stormy rainy animated pulse infinite">
-						  <div class="shadow">
-							
-						  </div>
-						</div>
-						<div class="sub-wheather">
-						  <div class="thunder">
-							
-						  </div>
-						  <div class="rain">
-							  <div class="droplet droplet1"></div>
-							  <div class="droplet droplet2"></div>
-							  <div class="droplet droplet3"></div>
-							  <div class="droplet droplet4"></div>
-							  <div class="droplet droplet5"></div>
-							  <div class="droplet droplet6"></div>
+			
+				<ul class="nav navbar-nav search-nav">
+					<li>
+						<div class="search">
+							<span class="fa fa-search icon-search" style="font-size:23px;"></span>
+							<div class="form-group form-animate-text">
+								<input type="text" class="form-text" required>
+								<span class="bar"></span>
+								<label class="label-search">Type anywhere to <b>Search</b> </label>
 							</div>
 						</div>
-					  </div>
-					</div>                   
-				</div>
-			  </div>                    
-			</div>
+					</li>
+				</ul>
 
-			<div class="col-md-12" style="padding:20px;">
+				<ul class="nav navbar-nav navbar-right user-nav" data-bind="with: authentication">
+					<li class="user-name"><span data-bind="text: username"></span></li>
+						<li class="dropdown avatar-dropdown">
+						<img src="asset/img/avatar.jpg" class="img-circle avatar" alt="user name" data-toggle="dropdown" aria-haspopup="true" aria-expanded="true"/>
+						<ul class="dropdown-menu user-dropdown">
+							<li><a href="#"><span class="fa fa-cogs"></span> Settings</a></li>
+							<li><a data-bind="click: logoutAction"><span class="fa fa-power-off"></span> Log out</a></li>
+					  </ul>
+					</li>
+					<!--<li><a href="#" class="opener-right-menu"><span class="fa fa-coffee"></span></a></li>-->
+				</ul>
+		  </div>
+		</nav>
+		<!-- end: Header -->
+
+		<div class="container-fluid mimin-wrapper">
+
+		  <!-- start:Left Menu -->
+			<div id="left-menu">
+			  <div class="sub-left-menu scroll">
+				<ul class="nav nav-list">
+					<li class="time">
+					  <h1 class="animated fadeInLeft">21:00</h1>
+					  <p class="animated fadeInRight">Sat,October 1st 2029</p>
+					</li>
+					<li class="active ripple">
+					  <a class="tree-toggle nav-header"><span class="fa-home fa"></span> Cameras 
+						<span class="fa-angle-right fa right-arrow text-right"></span>
+					  </a>
+					  <ul class="nav nav-list tree">
+						  <li><a href="">Front Door</a></li>
+						  <li><a href="">Back Door</a></li>
+					  </ul>
+					</li>
+					<li class="ripple">
+					  <a class="tree-toggle nav-header">
+						<span class="fa-diamond fa"></span> Clips
+						<span class="fa-angle-right fa right-arrow text-right"></span>
+					  </a>
+					  <ul class="nav nav-list tree">
+						<li><a href="">Front Door</a></li>
+						<li><a href="">Back Door</a></li>
+					  </ul>
+					</li>
+				  </ul>
+				</div>
 			</div>
-		</div>	  
+			
+			<div id="content">
+				<div class="panel">
+				  <div class="panel-body">
+					  <div class="col-md-6 col-sm-12">
+						<h3 class="animated fadeInLeft">Cameras</h3>
+						
+					</div>
+					<div class="col-md-6 col-sm-12">
+						<div class="col-md-6 col-sm-6 text-right" style="padding-left:10px;">
+						  <h3 style="color:#DDDDDE;"><span class="fa  fa-map-marker"></span> Leamington Spa</h3>
+						  <h1 style="margin-top: -10px;color: #ddd;">3<sup>o</sup></h1>
+						</div>
+						<div class="col-md-6 col-sm-6">
+						   <div class="wheather">
+							<div class="stormy rainy animated pulse infinite">
+							  <div class="shadow">
+								
+							  </div>
+							</div>
+							<div class="sub-wheather">
+							  <div class="thunder">
+								
+							  </div>
+							  <div class="rain">
+								  <div class="droplet droplet1"></div>
+								  <div class="droplet droplet2"></div>
+								  <div class="droplet droplet3"></div>
+								  <div class="droplet droplet4"></div>
+								  <div class="droplet droplet5"></div>
+								  <div class="droplet droplet6"></div>
+								</div>
+							</div>
+						  </div>
+						</div>                   
+					</div>
+				  </div>                    
+				</div>
+
+				<div class="col-md-12" style="padding:20px;">
+				</div>
+			</div>	  
+		</div>
+	</div>
+	
+	<div class="spinner-background" data-bind="fadeVisible: notReady" style="display:none">
+		<div class="spinner-container"></div>
+		<div class="spinner-container2"></div>
 	</div>
 	
 	<script src="asset/js/jquery.min.js"></script>
 	<script src="asset/js/jquery.ui.min.js"></script>
+	<script src="asset/js/jquery.toast.min.js"></script>
 	<script src="asset/js/bootstrap.min.js"></script>
 	
 	<script src="asset/js/knockout-3.4.2.js"></script>

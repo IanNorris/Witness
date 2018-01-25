@@ -42,7 +42,7 @@ var LoginViewModel = function() {
 		
 		$.ajax({
 			method: 'POST',
-			url: '/auth',
+			url: '/auth/login',
 			dataType: 'json',
 			data: loginData,
 			contentType: 'application/json; charset=utf-8',
@@ -57,8 +57,16 @@ var LoginViewModel = function() {
 				self.invalidLogin(true);
 			}
 			else if( result.readyState == 4 ) {
-				self.errorMessage( result.responseText );
-				self.invalidLogin(true);
+				if( result.responseText && result.responseText.length > 0 )
+				{
+					self.errorMessage( result.responseText );
+					self.invalidLogin(true);
+				}
+				else
+				{
+					self.errorMessage( 'Unable to communicate with server.' );
+					self.invalidLogin(true);
+				}
 			}
 			else {
 				self.errorMessage( 'Unable to connect to server.' );
