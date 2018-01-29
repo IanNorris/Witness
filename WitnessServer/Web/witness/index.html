@@ -73,23 +73,21 @@
 					  <h1 class="animated fadeInLeft">21:00</h1>
 					  <p class="animated fadeInRight">Sat,October 1st 2029</p>
 					</li>
-					<li class="active ripple">
+					<li class="ripple" data-bind="css: { active: isViewingStream }">
 					  <a class="tree-toggle nav-header"><span class="fa-home fa"></span> Cameras 
 						<span class="fa-angle-right fa right-arrow text-right"></span>
 					  </a>
-					  <ul class="nav nav-list tree">
-						  <li><a href="">Front Door</a></li>
-						  <li><a href="">Back Door</a></li>
+					  <ul class="nav nav-list tree" data-bind="foreach: cameras">
+						  <li data-bind="css: { active: isSelectedStream }, click: selectCameraStream"><a href="" data-bind="text: cameraName"></a></li>
 					  </ul>
 					</li>
-					<li class="ripple">
+					<li class="ripple" data-bind="css: { active: isViewingClips }">
 					  <a class="tree-toggle nav-header">
 						<span class="fa-diamond fa"></span> Clips
 						<span class="fa-angle-right fa right-arrow text-right"></span>
 					  </a>
-					  <ul class="nav nav-list tree">
-						<li><a href="">Front Door</a></li>
-						<li><a href="">Back Door</a></li>
+					  <ul class="nav nav-list tree" data-bind="foreach: cameras">
+						<li data-bind="css: { active: isSelectedClip }, click: selectCameraClips"><a href="" data-bind="text: cameraName"></a></li>
 					  </ul>
 					</li>
 				  </ul>

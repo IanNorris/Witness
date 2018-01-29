@@ -70,6 +70,7 @@ namespace Database
 
 	string_t GetCameras = LR"RAW(
 		SELECT * FROM Camera 
+		ORDER BY CameraUID
 	)RAW";
 
 #define CREATE_QUERY( X ) DB->CreateQuery( _T(#X), X )

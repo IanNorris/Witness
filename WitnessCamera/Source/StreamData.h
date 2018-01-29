@@ -9,7 +9,7 @@
 #include <windows.h>
 #define STREAM_ERROR( X )\
 	m_LineNumber = __LINE__;\
-	if( IsDebuggerPresent() ) __debugbreak();\
+	/*if( IsDebuggerPresent() ) __debugbreak();*/\
 	return CameraStreamError::X;
 #else
 #define STREAM_ERROR( X )\

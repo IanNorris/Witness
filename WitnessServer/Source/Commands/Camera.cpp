@@ -31,6 +31,20 @@ void Command_Camera::OnMessage( const unique_ptr<GlobalContext>& Context, http_r
 
 		return;
 	}
+	if( ChildPath.size() == 1 && !IsPost )
+	{
+		auto Command = ChildPath.front();
+		if( Command.compare( _T("enum") ) == 0 )
+		{
+			OnEnumMessage( Context, Message, ChildPath[1], Packet );
+		}
+		else
+		{
+			Message.reply( status_codes::NotFound );
+		}
+
+		return;
+	}
 	else
 	{
 		Message.reply( status_codes::NotFound );
@@ -65,4 +79,35 @@ void Command_Camera::OnPreviewMessage( const unique_ptr<GlobalContext>& Context,
 	{
 		Message.reply( status_codes::NotFound );
 	}
+}
+
+void Command_Camera::OnEnumMessage( const unique_ptr<GlobalContext>& Context, http_request& Message, const string_t& TargetCamera, const json::value& Packet )
+{
+	//NO CSRF!
+	if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, false ) )
+	{
+		return;
+	}
+
+	vector<json::value> Array;
+	
+	SQLiteDatabaseQueryInstance GetCameras( Context->Database, _T("GetCameras") );
+
+	GetCameras->Execute( 
+		[&Array]( const SQLiteDatabaseQuery& query )
+		{
+			int ID = query.GetColumnValueInt(0);
+			string_t Name = query.GetColumnValueText(1);
+			
+			json::value Camera;
+			Camera[ _T("id") ] = json::value(ID);
+			Camera[ _T("name") ] = json::value(Name);
+
+			Array.push_back( Camera );
+				
+			return true;
+		} 
+	);
+
+	Message.reply( status_codes::OK, json::value::array(Array) );
 }
