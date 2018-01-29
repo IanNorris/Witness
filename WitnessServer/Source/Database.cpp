@@ -20,6 +20,14 @@ namespace Database
 		);
 
 		CREATE UNIQUE INDEX IF NOT EXISTS SessionIndex ON Session (SessionToken);
+
+		CREATE TABLE IF NOT EXISTS Camera(
+			CameraUID		INT									NOT NULL,
+			CameraName		CHAR(64)							NOT NULL,
+			CameraString	TEXT								NOT NULL
+		);
+
+		CREATE UNIQUE INDEX IF NOT EXISTS CameraIndex ON Camera (CameraUID);
 	)RAW";
 
 	string_t FindUser = LR"RAW(
@@ -43,6 +51,11 @@ namespace Database
 		AND CSRFToken = @CSRFToken
 	)RAW";
 
+	string_t VerifySession = LR"RAW(
+		SELECT * FROM Session 
+		WHERE SessionToken = @SessionToken
+	)RAW";
+
 	string_t CreateSession = LR"RAW(
 		INSERT INTO Session (SessionToken,CSRFToken,Username,LastUsed)
 		VALUES(@SessionToken,@CSRFToken,@Username,@LastUsed);
@@ -55,6 +68,10 @@ namespace Database
 
 	string_t GetUserCount = L"SELECT COUNT(*) FROM User";
 
+	string_t GetCameras = LR"RAW(
+		SELECT * FROM Camera 
+	)RAW";
+
 #define CREATE_QUERY( X ) DB->CreateQuery( _T(#X), X )
 
 	shared_ptr<SQLiteDatabase> InitializeDatabase( string_t Filename )
@@ -65,11 +82,14 @@ namespace Database
 		CREATE_QUERY( CreateUser );
 
 		CREATE_QUERY( FindSession );
+		CREATE_QUERY( VerifySession );
 		CREATE_QUERY( VerifySessionAndCSRF );
 		CREATE_QUERY( CreateSession );
 		CREATE_QUERY( DeleteSession );
 
 		CREATE_QUERY( GetUserCount );
+
+		CREATE_QUERY( GetCameras );
 
 		return DB;
 	}

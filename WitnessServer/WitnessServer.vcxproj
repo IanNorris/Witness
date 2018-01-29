@@ -50,7 +50,7 @@
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
-      <AdditionalIncludeDirectories>$(SolutionDir)\WitnessCamera\Include;$(SolutionDir)\ThirdParty\SubModules\cpprestsdk\Release\include;$(SolutionDir)\ThirdParty\SQLite-20180118;X:\Programming\Witness\ThirdParty\SubModules\libsodium\src\libsodium\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)\WitnessCamera\Include;$(SolutionDir)\ThirdParty\SubModules\cpprestsdk\Release\include;$(SolutionDir)\ThirdParty\SQLite-20180118;$(SolutionDir)\ThirdParty\opencv-3.3.0\include;$(SolutionDir)\ThirdParty\SubModules\libsodium\src\libsodium\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -65,10 +65,10 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>$(SolutionDir)\ThirdParty\SubModules\cpprestsdk\Binaries\x64\Debug\cpprest140d_2_10.lib;$(SolutionDir)\ThirdParty\SubModules\libsodium\Build\DebugDLL\x64\libsodium.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(SolutionDir)\ThirdParty\SubModules\cpprestsdk\Binaries\x64\Debug\cpprest140d_2_10.lib;$(SolutionDir)\ThirdParty\SubModules\libsodium\Build\DebugDLL\x64\libsodium.lib;$(SolutionDir)\ThirdParty\opencv-3.3.0\x64\vc14\lib\opencv_world330d.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
-      <Command>cmd /C copy /Y $(SolutionDir)\ThirdParty\SubModules\cpprestsdk\Binaries\x64\Debug\cpprest140d_2_10.* $(OutputPath) &amp;&amp; copy /Y $(SolutionDir)\ThirdParty\SubModules\libsodium\Build\DebugDLL\x64\libsodium.* $(OutputPath)</Command>
+      <Command>cmd /C copy /Y $(SolutionDir)\ThirdParty\SubModules\cpprestsdk\Binaries\x64\Debug\cpprest140d_2_10.* $(OutputPath) &amp;&amp; copy /Y $(SolutionDir)\ThirdParty\SubModules\libsodium\Build\DebugDLL\x64\libsodium.* $(OutputPath) &amp;&amp; copy /Y $(SolutionDir)\ThirdParty\opencv-3.3.0\x64\vc14\bin\opencv_world330*.dll $(OutputPath)</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -87,22 +87,26 @@
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
       <OptimizeReferences>true</OptimizeReferences>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>$(SolutionDir)\ThirdParty\SubModules\cpprestsdk\Binaries\x64\Release\cpprest140_2_10.lib;$(SolutionDir)\ThirdParty\SubModules\libsodium\Build\ReleaseDLL\x64\libsodium.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(SolutionDir)\ThirdParty\SubModules\cpprestsdk\Binaries\x64\Release\cpprest140_2_10.lib;$(SolutionDir)\ThirdParty\SubModules\libsodium\Build\ReleaseDLL\x64\libsodium.lib;$(SolutionDir)\ThirdParty\opencv-3.3.0\x64\vc14\lib\opencv_world330.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
-      <Command>cmd /C copy /Y $(SolutionDir)\ThirdParty\SubModules\cpprestsdk\Binaries\x64\Release\cpprest140_2_10.* $(OutputPath) &amp;&amp; copy /Y $(SolutionDir)\ThirdParty\SubModules\libsodium\Build\ReleaseDLL\x64\libsodium.* $(OutputPath)</Command>
+      <Command>cmd /C copy /Y $(SolutionDir)\ThirdParty\SubModules\cpprestsdk\Binaries\x64\Release\cpprest140_2_10.* $(OutputPath) &amp;&amp; copy /Y $(SolutionDir)\ThirdParty\SubModules\libsodium\Build\ReleaseDLL\x64\libsodium.* $(OutputPath) &amp;&amp; copy /Y $(SolutionDir)\ThirdParty\opencv-3.3.0\x64\vc14\bin\opencv_world330*.dll $(OutputPath)</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\ThirdParty\SQLite-20180118\sqlite3.c" />
     <ClCompile Include="Source\Android\AndroidNotify.cpp" />
+    <ClCompile Include="Source\CameraWorker.cpp" />
     <ClCompile Include="Source\Commands\Authenticate.cpp" />
+    <ClCompile Include="Source\Commands\Camera.cpp" />
     <ClCompile Include="Source\Commands\Static.cpp" />
     <ClCompile Include="Source\Common.cpp" />
     <ClCompile Include="Source\Database.cpp" />
     <ClCompile Include="Source\JsonHelpers.cpp" />
     <ClCompile Include="Source\Listener.cpp" />
     <ClCompile Include="Source\Main.cpp" />
+    <ClCompile Include="Source\MessageBus.cpp" />
+    <ClCompile Include="Source\ObservingMotionFilter.cpp" />
     <ClCompile Include="Source\SQLite.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -113,13 +117,17 @@
   <ItemGroup>
     <ClInclude Include="..\ThirdParty\SQLite-20180118\sqlite3.h" />
     <ClInclude Include="Source\Android\AndroidNotify.h" />
+    <ClInclude Include="Source\CameraWorker.h" />
     <ClInclude Include="Source\Commands\Authenticate.h" />
+    <ClInclude Include="Source\Commands\Camera.h" />
     <ClInclude Include="Source\Commands\Static.h" />
     <ClInclude Include="Source\Common.h" />
     <ClInclude Include="Source\Database.h" />
     <ClInclude Include="Source\GlobalContext.h" />
     <ClInclude Include="Source\Listener.h" />
     <ClInclude Include="Source\ListenerCommand.h" />
+    <ClInclude Include="Source\MessageBus.h" />
+    <ClInclude Include="Source\ObservingMotionFilter.h" />
     <ClInclude Include="Source\SQLite.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

@@ -289,3 +289,4 @@ __pycache__/
 Private/
 AndroidClient/mobile/google-services.json
 WindowsClient/config/
+WitnessServer/config/VuMeter.xml

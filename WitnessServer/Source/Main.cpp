@@ -4,7 +4,7 @@
 #include "Android/AndroidNotify.h"
 #include "Commands/Authenticate.h"
 #include "sodium.h"
-
+#include "ObservingMotionFilter.h"
 
 using namespace web::json;
 using namespace web::http::client;
@@ -72,13 +72,13 @@ int wmain( int argc, wchar_t* argv[] )
 	
 	string_t ServerKey	= JsonConfigAndroid[U("fcm_server_key")].as_string();
 	string_t User		= JsonConfigAndroid[U("fcm_user")].as_string();
-	string_t Message	= U("Person at front door");
+	string_t MessageStr	= U("Person at front door");
 	string_t Camera		= U("Front Door");
 	string_t Image		= JsonConfigAndroid[U("fcm_link")].as_string();
 
-	/*SendAndroidNotification( ServerKey, User, Message, Camera, Image, [](http_response Response){
+	SendAndroidNotification( ServerKey, User, MessageStr, Camera, Image, [](http_response Response){
 		wcout << Response.to_string() << endl;
-	} );*/
+	} );
 
 	auto JsonConfigServer = JsonConfig.at(U("server")).as_object();
 
@@ -90,9 +90,12 @@ int wmain( int argc, wchar_t* argv[] )
 	WitnessListener Listener( Hostname, Port, Secure );
 
 	auto& GC = Listener.GetGlobalContext();
+	GC->MessageBus = make_shared<MessageBus>();
 	GC->Database = Database::InitializeDatabase( DatabaseFile );
 
 	OfflineCreationForFirstUser( GC );
+
+	tcout << _T("Starting web server...") << endl;
 
 	Listener.Initialise( JsonConfigServer );
 	
@@ -106,12 +109,83 @@ int wmain( int argc, wchar_t* argv[] )
 		return 1;
 	}
 
+	tcout << _T("Starting camera workers...") << endl;
+
+	void* ServerMessageClient = nullptr;
+	auto MessageClient = GC->MessageBus->AddClient( ServerMessageClient );
+
+	{
+		lock_guard<mutex> Lock( GC->Mutex );
+
+		SQLiteDatabaseQueryInstance GetCameras( GC->Database, _T("GetCameras") );
+		GetCameras->Execute( 
+			[&GC]( const SQLiteDatabaseQuery& query )
+			{
+				int CameraID = query.GetColumnValueInt( 0 );
+				string_t CameraName = query.GetColumnValueText( 1 );
+				string_t CameraPath = query.GetColumnValueText( 2 );
+
+				tcout << _T("Starting ") << CameraName << _T(" camera...") << endl;
+
+				auto Worker = make_shared<CameraWorker>( CameraID, CameraPath, GC->MessageBus );
+				GC->CameraWorkers[ CameraID ] = Worker;
+				GC->CameraNames[ CameraID ] = CameraName;
+
+				return true;
+			}
+		);
+	}
+
 	tcout << _T("Server boot complete...") << endl;
+
+	string_t Errors;
 
 	while( true )
 	{
-		Sleep(100);
+		shared_ptr<Message> Msg;
+		MessageClient->Pop( Msg );
+
+		auto StatusMessage = [&GC]( int Camera, string_t Reason )
+		{
+			string_t CameraName;
+
+			{
+				lock_guard<mutex> Lock( GC->Mutex );
+			
+				CameraName = GC->CameraNames[ Camera ];
+			}
+
+			tcout << CameraName << _T(": ") << Reason << endl;
+		};
+
+		Msg->Handle<CameraStartupMessage>([&](const CameraStartupMessage& Data)
+		{
+			StatusMessage( Data.Camera, _T("Online") );
+		});
+
+		Msg->Handle<CameraShutdownMessage>([&](const CameraShutdownMessage& Data)
+		{
+			StatusMessage( Data.Camera, _T("Offline") );
+		});
+
+		Msg->Handle<CameraReconnectMessage>([&](const CameraReconnectMessage& Data)
+		{
+			StatusMessage( Data.Camera, Data.Error );
+		});
+
+		Msg->Handle<CameraSnapshotMessage>([&](const CameraSnapshotMessage& Data)
+		{
+			{
+				lock_guard<mutex> Lock( GC->Mutex );
+			
+				GC->CameraPreviews[ Data.Camera ] = Data.Jpeg;
+			}
+		});
+
+		
 	}
+
+	GC->MessageBus->RemoveClient( ServerMessageClient );
 
 	Listener.Stop();
 

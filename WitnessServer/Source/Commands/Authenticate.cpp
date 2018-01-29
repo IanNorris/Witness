@@ -103,7 +103,11 @@ void OfflineCreationForFirstUser( const unique_ptr<GlobalContext>& Context )
 		{
 			SQLiteDatabaseQueryInstance CreateUser( Context->Database, _T("CreateUser") );
 
-			CreateUser->Bind( "@Username", Username.c_str() );
+			string_t UsernameLC = Username;
+
+			std::transform(UsernameLC.begin(), UsernameLC.end(), UsernameLC.begin(), ::tolower);
+
+			CreateUser->Bind( "@Username", UsernameLC.c_str() );
 			CreateUser->Bind( "@PasswordHash", Hash.c_str() );
 			CreateUser->Bind( "@HashMethod", 0 );
 
@@ -159,6 +163,8 @@ void Command_Authenticate::OnLoginMessage( const unique_ptr<GlobalContext>& Cont
 	Success &= GetJsonField( Packet, _T("username"), Username, Errors );
 	Success &= GetJsonField( Packet, _T("password"), Password, Errors );
 
+	std::transform(Username.begin(), Username.end(), Username.begin(), ::tolower);
+
 	if( !Success )
 	{
 		Message.reply( status_codes::BadRequest, Errors );
@@ -170,7 +176,6 @@ void Command_Authenticate::OnLoginMessage( const unique_ptr<GlobalContext>& Cont
 		FindUser->Bind( "@Username", Username.c_str() );
 
 		int PasswordAlgorithm;
-		string_t UsernameDB;
 		string_t PasswordHash;
 
 		bool Success = false;
@@ -228,7 +233,7 @@ void Command_Authenticate::OnLoginMessage( const unique_ptr<GlobalContext>& Cont
 		
 		http_response Response;
 		Response.set_status_code( status_codes::OK );
-		Response.headers().add( _T("Set-Cookie"), _T("SessionToken=") + SessionToken );
+		Response.headers().add( _T("Set-Cookie"), _T("SessionToken=") + SessionToken + _T("; HttpOnly; Path=/") );
 
 		json::value ResponseBody;
 
@@ -242,7 +247,7 @@ void Command_Authenticate::OnLogoutMessage( const unique_ptr<GlobalContext>& Con
 {
 	auto Packet = Message.extract_json().get();
 
-	if( !IsAuthenticated( Context, Message, Packet ) )
+	if( !IsAuthenticated( Context, Message, Packet, true ) )
 	{
 		return;
 	}
@@ -335,7 +340,7 @@ string_t Command_Authenticate::GetSessionToken( const http_request& Message )
 	return SessionToken;
 }
 
-bool Command_Authenticate::IsAuthenticated( const unique_ptr<GlobalContext>& Context, http_request& Message, const json::value& Packet )
+bool Command_Authenticate::IsAuthenticated( const unique_ptr<GlobalContext>& Context, http_request& Message, const json::value& Packet, bool RequireCSRF )
 {
 	string_t Errors;
 	
@@ -347,15 +352,30 @@ bool Command_Authenticate::IsAuthenticated( const unique_ptr<GlobalContext>& Con
 	string_t SessionToken = GetSessionToken( Message );
 
 	{
-		SQLiteDatabaseQueryInstance VerifySessionAndCSRF( Context->Database, _T("VerifySessionAndCSRF") );
-		VerifySessionAndCSRF->Bind( "@SessionToken", SessionToken.c_str() );
-		VerifySessionAndCSRF->Bind( "@CSRFToken", CSRF.c_str() );
-		
-		int Count = VerifySessionAndCSRF->Execute( nullptr );
-		if( Count != 1 )
+		if( RequireCSRF )
 		{
-			Message.reply( status_codes::BadRequest );
-			return false;
+			SQLiteDatabaseQueryInstance VerifySessionAndCSRF( Context->Database, _T("VerifySessionAndCSRF") );
+			VerifySessionAndCSRF->Bind( "@SessionToken", SessionToken.c_str() );
+			VerifySessionAndCSRF->Bind( "@CSRFToken", CSRF.c_str() );
+		
+			int Count = VerifySessionAndCSRF->Execute( nullptr );
+			if( Count != 1 )
+			{
+				Message.reply( status_codes::BadRequest );
+				return false;
+			}
+		}
+		else
+		{
+			SQLiteDatabaseQueryInstance VerifySession( Context->Database, _T("VerifySession") );
+			VerifySession->Bind( "@SessionToken", SessionToken.c_str() );
+		
+			int Count = VerifySession->Execute( nullptr );
+			if( Count != 1 )
+			{
+				Message.reply( status_codes::BadRequest );
+				return false;
+			}
 		}
 	}
 

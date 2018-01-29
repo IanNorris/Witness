@@ -6534,3 +6534,8 @@ ul li a:focus {
 	width: 100px;
 	height: 100px;
 }
+
+.CameraPreview {
+	width: 100%;
+	height: 100%;
+}

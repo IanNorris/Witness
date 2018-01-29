@@ -23,9 +23,9 @@ void ReportJsonError( const json::value& Object, const TCHAR* FieldName, string_
 	}
 }
 
-#define BUILD_JSON_FIELD_ACCESSOR( HasFunction, AsFunction, TypeName ) \
+#define BUILD_JSON_FIELD_ACCESSOR( HasFunction, AsFunction, Type, TypeName ) \
 	template<> \
-	bool GetJsonField( const json::value& Object, const TCHAR* FieldName, string_t& ValueOut, string_t& Errors ) \
+	bool GetJsonField( const json::value& Object, const TCHAR* FieldName, Type& ValueOut, string_t& Errors ) \
 	{ \
 		if( Object. HasFunction ( FieldName ) ) \
 		{ \
@@ -39,4 +39,5 @@ void ReportJsonError( const json::value& Object, const TCHAR* FieldName, string_
 		} \
 	}
 
-BUILD_JSON_FIELD_ACCESSOR( has_string_field, as_string, _T("string") )
+BUILD_JSON_FIELD_ACCESSOR( has_string_field, as_string, string_t, _T("string") )
+BUILD_JSON_FIELD_ACCESSOR( has_integer_field, as_integer, int, _T("int") )

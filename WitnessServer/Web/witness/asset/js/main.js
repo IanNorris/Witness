@@ -56,6 +56,27 @@ var AuthenticationViewModel = function() {
 	};
 };
 
+var CameraVideModel = function( cameraID ) {
+	"use strict";
+	
+	var self = this;
+	
+	self.cameraID = ko.observable( cameraID );
+	self.cameraPath = ko.observable('');
+	
+	self.frameIndex = 0;
+	
+	self.setNextCameraFrame = function() {
+		self.cameraPath( '/camera/preview/' + self.cameraID() + '#' + self.frameIndex );
+		self.frameIndex++;
+	};
+	
+	self.setNextCameraFrame();
+	/*window.setInterval( function() {
+		self.setNextCameraFrame();		
+	}, 20 );*/
+};
+
 var WitnessViewModel = function() {
 	"use strict";
 	
@@ -63,6 +84,12 @@ var WitnessViewModel = function() {
 	
 	self.authentication = new AuthenticationViewModel();
 	
+	
+	self.cameras = [
+		new CameraVideModel(0),
+		new CameraVideModel(1)
+	];
+		
 	self.ready = ko.computed( function() {
 		return self.authentication.ready();
 	} );

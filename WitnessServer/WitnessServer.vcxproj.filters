@@ -57,6 +57,18 @@
     <ClCompile Include="Source\Database.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Source\CameraWorker.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\MessageBus.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\ObservingMotionFilter.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Commands\Camera.cpp">
+      <Filter>Source Files\Commands</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Source\Listener.h">
@@ -88,6 +100,18 @@
     </ClInclude>
     <ClInclude Include="Source\Database.h">
       <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\CameraWorker.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\MessageBus.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\ObservingMotionFilter.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Commands\Camera.h">
+      <Filter>Header Files\Commands</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

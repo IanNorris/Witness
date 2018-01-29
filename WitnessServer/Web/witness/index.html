@@ -102,6 +102,9 @@
 					  <div class="col-md-6 col-sm-12">
 						<h3 class="animated fadeInLeft">Cameras</h3>
 						
+						<div data-bind="foreach: cameras">
+							<img class="CameraPreview" data-bind="attr: { src: cameraPath }, event: { load: setNextCameraFrame }"/>
+						</div>
 					</div>
 					<div class="col-md-6 col-sm-12">
 						<div class="col-md-6 col-sm-6 text-right" style="padding-left:10px;">

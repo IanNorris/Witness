@@ -3,6 +3,7 @@
 
 #include "Commands/Authenticate.h"
 #include "Commands/Static.h"
+#include "Commands/Camera.h"
 
 WitnessListener::WitnessListener( utility::string_t Hostname, int Port, bool Secure )
 {
@@ -37,6 +38,7 @@ void WitnessListener::Initialise(json::object& Config)
 {
 	m_Commands[U("auth")] = make_unique<Command_Authenticate>();
 	m_Commands[U("static")] = make_unique<Command_Static>( Config );
+	m_Commands[U("camera")] = make_unique<Command_Camera>();
 }
 
 void WitnessListener::Start()
