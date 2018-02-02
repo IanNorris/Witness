@@ -31,7 +31,7 @@ void Command_Camera::OnMessage( const unique_ptr<GlobalContext>& Context, http_r
 
 		return;
 	}
-	if( ChildPath.size() == 1 && !IsPost )
+	else if( ChildPath.size() == 1 && !IsPost )
 	{
 		auto Command = ChildPath.front();
 		if( Command.compare( _T("enum") ) == 0 )

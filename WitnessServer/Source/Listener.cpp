@@ -4,6 +4,7 @@
 #include "Commands/Authenticate.h"
 #include "Commands/Static.h"
 #include "Commands/Camera.h"
+#include "Commands/Clip.h"
 
 WitnessListener::WitnessListener( utility::string_t Hostname, int Port, bool Secure )
 {
@@ -23,6 +24,8 @@ WitnessListener::WitnessListener( utility::string_t Hostname, int Port, bool Sec
 	Uri.set_host( Hostname );
 	Uri.set_port( Port );
 
+	m_BaseUri = Uri.to_string();
+
 	m_Listener = make_unique<http_listener>( Uri.to_uri(), Config );
 
 	m_Listener->support( methods::GET, std::bind( &WitnessListener::OnCommand, this, std::placeholders::_1, false ) );
@@ -39,6 +42,7 @@ void WitnessListener::Initialise(json::object& Config)
 	m_Commands[U("auth")] = make_unique<Command_Authenticate>();
 	m_Commands[U("static")] = make_unique<Command_Static>( Config );
 	m_Commands[U("camera")] = make_unique<Command_Camera>();
+	m_Commands[U("clip")] = make_unique<Command_Clip>();
 }
 
 void WitnessListener::Start()

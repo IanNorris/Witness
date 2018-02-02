@@ -16,4 +16,7 @@ public:
 	shared_ptr<MessageBus> MessageBus;
 
 	unordered_map< int, vector<unsigned char> > CameraPreviews;
+	unordered_map< int, vector<unsigned char> > CameraMotionMask;
+
+	unordered_map< int, unordered_map< uint64_t, vector<unsigned char> > > CameraFrames;
 };

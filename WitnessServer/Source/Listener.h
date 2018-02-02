@@ -26,6 +26,8 @@ public:
 
 	unique_ptr<GlobalContext>& GetGlobalContext() { return m_GlobalContext; }
 
+	const string_t& GetBaseUri() { return m_BaseUri; }
+
 private:
 
 	void OnCommand( http_request Message, bool IsPost );
@@ -34,4 +36,6 @@ private:
 	unique_ptr<GlobalContext> m_GlobalContext;
 
 	unordered_map<string_t, unique_ptr<IListenerCommand>> m_Commands;
+
+	string_t				m_BaseUri;
 };

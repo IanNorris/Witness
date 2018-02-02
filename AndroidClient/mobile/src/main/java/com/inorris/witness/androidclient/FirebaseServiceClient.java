@@ -13,6 +13,7 @@ import com.google.firebase.messaging.FirebaseMessaging;
 public final class FirebaseServiceClient extends FirebaseInstanceIdService {
     @Override
     public void onTokenRefresh() {
+
         // Get updated InstanceID token.
         String refreshedToken = FirebaseInstanceId.getInstance().getToken();
         Log.d("WITNESS", "Refreshed token: " + refreshedToken);
@@ -22,6 +23,6 @@ public final class FirebaseServiceClient extends FirebaseInstanceIdService {
         // Instance ID token to your app server.
         //sendRegistrationToServer(refreshedToken);
 
-        FirebaseMessaging.getInstance().subscribeToTopic("/camera/front-door");
+        //FirebaseMessaging.getInstance().subscribeToTopic("/camera/front-door");
     }
 }

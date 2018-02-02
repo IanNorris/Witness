@@ -6,6 +6,8 @@
 #include <OutputStream.h>
 #include <MotionFilter.h>
 
+#include <cpprest/asyncrt_utils.h>
+
 #include <opencv2/opencv.hpp>
 
 #include "MessageBus.h"
@@ -23,9 +25,46 @@ struct CameraSnapshotMessage : public Message
 	vector<uchar> Jpeg;
 };
 
+struct CameraBeginMotionMessage : public Message
+{
+	CameraBeginMotionMessage( int CamIndex ) : Timestamp(0), Camera( CamIndex ) {}
+
+	uint64_t Timestamp;
+	int Camera;
+
+	vector<uchar> Jpeg;
+};
+
+struct CameraUpdateMotionMessage : public Message
+{
+	CameraUpdateMotionMessage( int CamIndex ) : TimestampStarted(0), TimestampNow(0), Camera( CamIndex ) {}
+
+	uint64_t TimestampStarted;
+	uint64_t TimestampNow;
+	int Camera;
+
+	vector<uchar> Jpeg;
+};
+
+struct CameraEndMotionMessage : public Message
+{
+	CameraEndMotionMessage( int CamIndex ) : TimestampStarted(0), TimestampNow(0), Camera( CamIndex ) {}
+
+	uint64_t TimestampStarted;
+	uint64_t TimestampNow;
+	int Camera;
+};
+
 class ObservingMotionFilter : public MotionFilter
 {
 public:
+
+	enum class MotionState
+	{
+		None,
+		Current,
+		GracePeriod,
+	};
 
 	ObservingMotionFilter( const int CameraID, const shared_ptr<MessageBus>& MessageBusIn );
 	virtual ~ObservingMotionFilter();
@@ -39,5 +78,11 @@ private:
 	shared_ptr<MessageBus>	MessageBusPtr;
 	int						CameraID;
 	int						FrameIndex;
+	int						LastMotionIndex;
 	bool					SaveNextFrame;
+
+	uint64_t				TimestampStarted;
+	uint64_t				TimestampEnded;
+
+	MotionState				State;
 };

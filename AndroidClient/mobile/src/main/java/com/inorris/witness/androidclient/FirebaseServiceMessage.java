@@ -1,6 +1,7 @@
 package com.inorris.witness.androidclient;
 
 import android.app.Notification;
+import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
@@ -8,8 +9,10 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Color;
 import android.icu.text.SimpleDateFormat;
 import android.icu.util.Calendar;
+import android.media.AudioAttributes;
 import android.net.Uri;
 import android.os.IBinder;
 import android.provider.MediaStore;
@@ -24,6 +27,9 @@ import java.net.URL;
 import java.util.Map;
 
 public class FirebaseServiceMessage extends FirebaseMessagingService {
+
+    private static final int TEMPORARY_NOTIFICATION_ID = 123;
+
     public FirebaseServiceMessage() {
     }
 
@@ -38,6 +44,8 @@ public class FirebaseServiceMessage extends FirebaseMessagingService {
 
         // Also if you intend on generating your own notifications as a result of a received FCM
         // message, here is where that should be initiated. See sendNotification method below.
+
+        super.onMessageReceived( remoteMessage );
     }
 
     private void sendNotification(final RemoteMessage remoteMessage) throws Exception {
@@ -54,7 +62,7 @@ public class FirebaseServiceMessage extends FirebaseMessagingService {
                 contentTitle,
                 Alert,
                 0,
-                MainActivity.class, 123, Image );
+                MainActivity.class, Image );
 
     }
 
@@ -64,8 +72,7 @@ public class FirebaseServiceMessage extends FirebaseMessagingService {
                                        String msg,
                                        long when,
                                        Class<? extends Context> classToLaunch,
-                                       long processId,
-                                 String imageUri ) {
+                                       String imageUri ) {
 
         //Define notification msg
         Intent launchIntent = null;
@@ -91,8 +98,26 @@ public class FirebaseServiceMessage extends FirebaseMessagingService {
                 launchIntent,
                 PendingIntent.FLAG_UPDATE_CURRENT);
 
+        NotificationManager notificationManager = (NotificationManager) appContext.getSystemService(Context.NOTIFICATION_SERVICE);
+
+        AudioAttributes.Builder att = new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                .setContentType(AudioAttributes.CONTENT_TYPE_UNKNOWN);
+
+        NotificationChannel channel = new NotificationChannel( "WitnessChannel", "WitnessChannel", NotificationManager.IMPORTANCE_HIGH );
+        channel.setDescription("Front Door");
+        channel.enableLights(true);
+        channel.setLightColor(Color.MAGENTA);
+        channel.setVibrationPattern( new long[] { 0, 1000, 500, 1000});
+        channel.setBypassDnd(true);
+        channel.setShowBadge(true);
+        channel.setSound( Uri.parse("android.resource://"+appContext.getPackageName()+"/"+R.raw.doorbell), att.build() );
+
+        channel.enableVibration(true);
+        notificationManager.createNotificationChannel(channel);
+
         //Instantiate the notification
-        NotificationCompat.Builder builder = new NotificationCompat.Builder(appContext); //(icon, msg, when);
+        Notification.Builder builder = new Notification.Builder(appContext, "WitnessChannel");
         builder.setContentTitle(title);
         builder.setSmallIcon(icon);
         builder.setWhen(when);
@@ -100,18 +125,18 @@ public class FirebaseServiceMessage extends FirebaseMessagingService {
         builder.setContentText(msg);
         builder.setContentIntent(pendingIntent);
         builder.setAutoCancel(true);
+
+        builder.addAction( new Notification.Action( icon, "Done", pendingIntent ) );
+        builder.addAction( new Notification.Action( icon, "Live", pendingIntent ) );
+
         try {
             URL url = new URL( imageUri );
             Bitmap image = BitmapFactory.decodeStream( url.openConnection().getInputStream() );
-            builder.setStyle( new NotificationCompat.BigPictureStyle().bigPicture( image ) );
+            builder.setStyle( new Notification.BigPictureStyle().bigPicture( image ) );
         } catch (IOException e) {
             e.printStackTrace();
         }
-        builder.setDefaults(Notification.DEFAULT_LIGHTS);
-        builder.setDefaults(Notification.DEFAULT_SOUND);
 
-
-        NotificationManager notificationManager = (NotificationManager) appContext.getSystemService(Context.NOTIFICATION_SERVICE);
-        notificationManager.notify((int) processId, builder.build());
+        notificationManager.notify( TEMPORARY_NOTIFICATION_ID, builder.build());
     }
 }

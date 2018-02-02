@@ -76,9 +76,9 @@ int wmain( int argc, wchar_t* argv[] )
 	string_t Camera		= U("Front Door");
 	string_t Image		= JsonConfigAndroid[U("fcm_link")].as_string();
 
-	SendAndroidNotification( ServerKey, User, MessageStr, Camera, Image, [](http_response Response){
+	/*SendAndroidNotification( ServerKey, User, MessageStr, Camera, Image, [](http_response Response){
 		wcout << Response.to_string() << endl;
-	} );
+	} );*/
 
 	auto JsonConfigServer = JsonConfig.at(U("server")).as_object();
 
@@ -182,7 +182,39 @@ int wmain( int argc, wchar_t* argv[] )
 			}
 		});
 
-		
+		Msg->Handle<CameraBeginMotionMessage>([&](const CameraBeginMotionMessage& Data)
+		{
+			string_t CameraName;
+
+			{
+				lock_guard<mutex> Lock( GC->Mutex );
+			
+				GC->CameraFrames[ Data.Camera ][ Data.Timestamp ] = Data.Jpeg;
+				CameraName = GC->CameraNames[ Data.Camera ];
+			}
+
+			StatusMessage( Data.Camera, _T("Begin Motion") );
+
+			stringstream_t Path;
+
+			Path << Listener.GetBaseUri() << _T("clip/thumb/") << Data.Camera << _T("/") << Data.Timestamp;
+			
+			SendAndroidNotification( ServerKey, User, MessageStr, CameraName, Path.str(), nullptr );
+		});
+
+		Msg->Handle<CameraUpdateMotionMessage>([&](const CameraUpdateMotionMessage& Data)
+		{
+			{
+				lock_guard<mutex> Lock( GC->Mutex );
+			
+				GC->CameraFrames[ Data.Camera ][ Data.TimestampStarted ] = Data.Jpeg;
+			}
+		});
+
+		Msg->Handle<CameraEndMotionMessage>([&](const CameraEndMotionMessage& Data)
+		{
+			StatusMessage( Data.Camera, _T("End Motion") );
+		});
 	}
 
 	GC->MessageBus->RemoveClient( ServerMessageClient );

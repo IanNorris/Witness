@@ -69,6 +69,9 @@
     <ClCompile Include="Source\Commands\Camera.cpp">
       <Filter>Source Files\Commands</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Commands\Clip.cpp">
+      <Filter>Source Files\Commands</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Source\Listener.h">
@@ -111,6 +114,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Source\Commands\Camera.h">
+      <Filter>Header Files\Commands</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Commands\Clip.h">
       <Filter>Header Files\Commands</Filter>
     </ClInclude>
   </ItemGroup>

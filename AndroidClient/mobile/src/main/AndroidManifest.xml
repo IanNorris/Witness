@@ -10,13 +10,13 @@ package="com.inorris.witness.androidclient">
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
     </activity>
-    <service android:name="com.inorris.witness.androidclient.FirebaseServiceClient">
+    <service android:name="com.inorris.witness.androidclient.FirebaseServiceClient" android:enabled="true" android:exported="true">
         <intent-filter>
             <action android:name="com.google.firebase.INSTANCE_ID_EVENT" />
         </intent-filter>
     </service>
 
-    <service android:name="com.inorris.witness.androidclient.FirebaseServiceMessage">
+    <service android:name="com.inorris.witness.androidclient.FirebaseServiceMessage" android:enabled="true" android:exported="true">
         <intent-filter>
             <action android:name="com.google.firebase.MESSAGING_EVENT" />
         </intent-filter>

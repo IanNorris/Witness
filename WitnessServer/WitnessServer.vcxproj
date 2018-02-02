@@ -99,6 +99,7 @@
     <ClCompile Include="Source\CameraWorker.cpp" />
     <ClCompile Include="Source\Commands\Authenticate.cpp" />
     <ClCompile Include="Source\Commands\Camera.cpp" />
+    <ClCompile Include="Source\Commands\Clip.cpp" />
     <ClCompile Include="Source\Commands\Static.cpp" />
     <ClCompile Include="Source\Common.cpp" />
     <ClCompile Include="Source\Database.cpp" />
@@ -120,6 +121,7 @@
     <ClInclude Include="Source\CameraWorker.h" />
     <ClInclude Include="Source\Commands\Authenticate.h" />
     <ClInclude Include="Source\Commands\Camera.h" />
+    <ClInclude Include="Source\Commands\Clip.h" />
     <ClInclude Include="Source\Commands\Static.h" />
     <ClInclude Include="Source\Common.h" />
     <ClInclude Include="Source\Database.h" />
