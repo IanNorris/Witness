@@ -23,33 +23,37 @@
     </head>
 
     <body class="dashboard form-signin-wrapper">
-      <div class="container">
-        <form id="loginForm" class="form-signin" data-bind="fadeVisible: loginVisible" style="display:none">
-          <div class="panel periodic-login">
-              <div class="panel-body text-center">
-			  
-                <h1>Witness</h1>
-				<img src="witness/asset/img/logo.svg"/>
-				  
-				<div class="form-group form-animate-text" style="margin-top:40px !important;">
-						<input name="username" type="text" class="form-text" data-bind="value: username, valueUpdate: 'keyup'" required>
-						<span class="bar"></span>
-						<label>Username</label>
-				</div>
-				<div class="form-group form-animate-text" style="margin-top:40px !important;" data-bind="css: { 'form-animate-error': invalidLogin }">
-					<input name="password" type="password" class="form-text"  data-bind="value: password, valueUpdate: 'keyup'" required>
-					<span class="bar"></span>
-					<label>Password</label>
-				</div>
-				  
-				<div class="alert alert-danger" data-bind="visible: invalidLogin" role="alert">
-					<p data-bind="text: errorMessage"></p>
-				</div>
-				  
-				<button class="btn ripple btn-round col-md-12" role="button" data-bind="click: function(){ submitLogin(); }, enable: canSubmit"><span data-bind="html: loginButtonLabel"></button>
-              </div>
-          </div>
-        </form>
+		<div class="signin-outer">
+			<div class="signin-middle">
+				<div class="signin-inner">
+					<form id="loginForm" class="form-signin" data-bind="fadeVisible: loginVisible" style="display:none">
+					  <div class="panel periodic-login">
+						  <div class="panel-body text-center">
+						  
+							<h1>Witness</h1>
+							<img src="witness/asset/img/logo.svg"/>
+							  
+							<div class="form-group form-animate-text" style="margin-top:40px !important;">
+									<input name="username" type="text" class="form-text" data-bind="value: username, valueUpdate: 'keyup'" required>
+									<span class="bar"></span>
+									<label>Username</label>
+							</div>
+							<div class="form-group form-animate-text" style="margin-top:10px !important;" data-bind="css: { 'form-animate-error': invalidLogin }">
+								<input name="password" type="password" class="form-text"  data-bind="value: password, valueUpdate: 'keyup'" required>
+								<span class="bar"></span>
+								<label>Password</label>
+							</div>
+							  
+							<div class="alert alert-danger" data-bind="visible: invalidLogin" role="alert">
+								<p data-bind="text: errorMessage"></p>
+							</div>
+							  
+							<button class="btn ripple btn-round col-md-12" role="button" data-bind="click: function(){ submitLogin(); }, enable: canSubmit"><span data-bind="html: loginButtonLabel"></button>
+						</div>
+					</div>
+				</form>
+			</div>
+		</div>
       </div>
 
       <script src="witness/asset/js/jquery.min.js"></script>

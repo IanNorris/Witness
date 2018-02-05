@@ -300,14 +300,14 @@ p.quote{
  .form-signin-wrapper{background: #2196f3 !important;}
  .form-signin{
          max-width: 330px;
-         padding: 15px;
+         padding: 5px;
          margin: 0 auto;
     }
     .form-signin a{color: #fff !important;font-weight: bold;}
     .form-signin .btn{margin-top: 30px;}
     .form-signin .form-group{margin-bottom: 20px !important;}
-    .form-signin .panel{background: #2196f3;color: #fff;padding: 10px;border:none !important;box-shadow: 0 7px 16px #0a86e9, 0 4px 5px #0a86e9;}
-    .form-signin .panel-body{padding-bottom: 50px;padding-top: 30px;}
+    .form-signin .panel{background: #2196f3;color: #fff;padding: 5px;border:none !important;box-shadow: 0 7px 16px #0a86e9, 0 4px 5px #0a86e9;}
+    .form-signin .panel-body{padding-bottom: 30px;padding-top: 10px;}
     .form-signin .atomic-number{font-size: 20px;}
     .form-signin .atomic-symbol{font-size: 10em !important;font-weight: 500;padding-bottom: 20spx;}
     .form-signin .element-name,.form-signin .atomic-mass{font-size: 18px;margin-top: -10px;font-weight: 600;line-height: 1.2;}
@@ -6538,4 +6538,22 @@ ul li a:focus {
 .CameraPreview {
 	width: 30%;
 	height: 30%;
+}
+
+.signin-outer {
+	display: table;
+	position: absolute;
+	height: 100%;
+	width: 100%;
+}
+
+.signin-middle {
+	display: table-cell;
+	vertical-align: middle;
+}
+
+.signin-inner {
+	margin-left: auto;
+    margin-right: auto; 
+    width: 320px;
 }
