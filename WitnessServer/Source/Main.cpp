@@ -193,7 +193,10 @@ int wmain( int argc, wchar_t* argv[] )
 				CameraName = GC->CameraNames[ Data.Camera ];
 			}
 
-			StatusMessage( Data.Camera, _T("Begin Motion") );
+			stringstream_t Message;
+			Message << _T("Begin Motion: ") << Data.MotionPercentage;
+
+			StatusMessage( Data.Camera, Message.str() );
 
 			stringstream_t Path;
 

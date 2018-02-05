@@ -131,9 +131,10 @@ ClassificationResult MotionFilter::FilterFrame( unsigned int Width, unsigned int
 	int SumResult = countNonZero( ID.ForegroundMask );
 
 	double ComparisonResult = Width * Height;
-	double Threshold = 0.005 * ComparisonResult;
 
-	if( SumResult > Threshold )
+	double Percentage = (float)SumResult / ComparisonResult;
+
+	if( Percentage > 0.03 )
 	{
 		OutputStream* DiagOutput = StreamManager->GetDiagnosticStream( Width, Height );
 
@@ -183,7 +184,7 @@ ClassificationResult MotionFilter::FilterFrame( unsigned int Width, unsigned int
 
 		DiagOutput->WriteFrame( ID.DiagFrame.get() );
 
-		return ClassificationResult( ClassificationImportance::Motion, "Motion" );
+		return ClassificationResult( ClassificationImportance::Motion, "Motion", Percentage );
 	}
 
 	

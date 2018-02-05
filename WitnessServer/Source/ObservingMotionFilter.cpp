@@ -5,7 +5,6 @@
 #include <opencv2/opencv.hpp>
 
 const int ClipEndGracePeriodInSeconds = 10;
-const int MaxFrameUpdatePeriodInSeconds = 3;
 const int TargetThumbnailSize = 400;
 
 ObservingMotionFilter::ObservingMotionFilter( const int CameraID, const shared_ptr<MessageBus>& MessageBusIn )
@@ -14,6 +13,7 @@ ObservingMotionFilter::ObservingMotionFilter( const int CameraID, const shared_p
 , CameraID( CameraID )
 , FrameIndex( 0 )
 , LastMotionIndex( INT_MIN )
+, LargestDelta( 0.0 )
 , SaveNextFrame( false )
 , TimestampStarted( 0 )
 , State( MotionState::None )
@@ -60,6 +60,7 @@ Witness::Camera::ClassificationResult ObservingMotionFilter::FilterFrame( unsign
 			auto MotionMessage = make_shared<CameraBeginMotionMessage>( CameraID );
 
 			TimestampStarted = MotionMessage->Timestamp = TimestampNow;
+			LargestDelta  = MotionMessage->MotionPercentage = Result.MotionPercentage;
 
 			cv::Mat RawData( cv::Size( Width, Height ), CV_8UC3, Data);
 
@@ -79,8 +80,10 @@ Witness::Camera::ClassificationResult ObservingMotionFilter::FilterFrame( unsign
 				State = MotionState::Current;
 			}
 
-			if (TimestampNow - TimestampStarted <= MaxFrameUpdatePeriodInSeconds)
+			if( Result.MotionPercentage > LargestDelta )
 			{
+				LargestDelta = Result.MotionPercentage;
+
 				auto MotionMessage = make_shared<CameraUpdateMotionMessage>( CameraID );
 
 				MotionMessage->TimestampStarted = TimestampStarted;

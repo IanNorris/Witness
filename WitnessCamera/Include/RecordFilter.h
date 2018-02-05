@@ -32,13 +32,16 @@ struct ClassificationResult
 		return (ClassificationImportance)Input;
 	}
 
-	ClassificationResult( ClassificationImportance Importance = ClassificationImportance::None, const char* ResultString = nullptr )
+	ClassificationResult( ClassificationImportance Importance = ClassificationImportance::None, const char* ResultString = nullptr, double MotionAmount = 0.0 )
 	: ResultString( ResultString )
 	, Importance( (int)Importance )
+	, MotionPercentage( MotionAmount )
 	{}
 
 	const char* ResultString;
 	int Importance;
+
+	double MotionPercentage;
 };
 
 class CAMERA_API IRecordFilter

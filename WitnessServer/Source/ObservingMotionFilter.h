@@ -27,8 +27,9 @@ struct CameraSnapshotMessage : public Message
 
 struct CameraBeginMotionMessage : public Message
 {
-	CameraBeginMotionMessage( int CamIndex ) : Timestamp(0), Camera( CamIndex ) {}
+	CameraBeginMotionMessage( int CamIndex ) : MotionPercentage( 0.0 ), Timestamp(0), Camera( CamIndex ) {}
 
+	double MotionPercentage;
 	uint64_t Timestamp;
 	int Camera;
 
@@ -80,6 +81,8 @@ private:
 	int						FrameIndex;
 	int						LastMotionIndex;
 	bool					SaveNextFrame;
+
+	double					LargestDelta;
 
 	uint64_t				TimestampStarted;
 	uint64_t				TimestampEnded;
