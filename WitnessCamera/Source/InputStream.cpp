@@ -159,6 +159,48 @@ CameraStreamError InputStream::ProcessFrame( IRecordFilter* Filter, Stream* Targ
 		STREAM_ERROR( FrameError );
 	}
 
+	OutputStream* Output = dynamic_cast<OutputStream*>(TargetStream);
+
+	if( Output && !ID.PacketsSinceKeyframe.empty() )
+	{
+		for( auto& Packet : ID.PacketsSinceKeyframe )
+		{
+			CameraStreamError WriteError = Output->WriteInterleavedPacket( &ID.FormatContext->streams[ID.ChosenStreamIndex]->time_base, &Packet );
+			if( WriteError != CameraStreamError::Success )
+			{
+				return WriteError;
+			}
+		}
+
+		ID.FreeQueuedPackets();
+	}
+
+	if( ID.Packet.flags & AV_PKT_FLAG_KEY )
+	{
+		ID.FreeQueuedPackets();
+	}
+
+	//Add the new packet to the buffer, if we're not already producing output
+	if (Output)
+	{
+		AVPacket NewPacket;
+		av_copy_packet( &NewPacket, &ID.Packet );
+
+		CameraStreamError WriteError = Output->WriteInterleavedPacket( &ID.FormatContext->streams[ID.ChosenStreamIndex]->time_base, &NewPacket );
+		if( WriteError != CameraStreamError::Success )
+		{
+			return WriteError;
+		}
+
+		av_packet_unref( &NewPacket );
+	}
+	else
+	{
+		ID.PacketsSinceKeyframe.push_back( AVPacket() );
+		AVPacket& NewPacket = ID.PacketsSinceKeyframe.back();
+		av_copy_packet( &NewPacket, &ID.Packet );
+	}
+
 	if( ID.Packet.stream_index == ID.ChosenStreamIndex )
 	{
 		Result = avcodec_send_packet( m_InternalData->CodecContext, &ID.Packet );
@@ -192,19 +234,7 @@ CameraStreamError InputStream::ProcessFrame( IRecordFilter* Filter, Stream* Targ
 					{
 						FilterResult = ResultNew;
 					}
-
-					OutputStream* Output = dynamic_cast<OutputStream*>(TargetStream);
-					if( Output )
-					{
-						CameraStreamError WriteError = Output->WriteInterleavedPacket( &ID.FormatContext->streams[ID.ChosenStreamIndex]->time_base, &ID.Packet );
-						if( WriteError != CameraStreamError::Success )
-						{
-							return WriteError;
-						}
-					}
 				}
-
-				
 
 				ID.Input->Unref();
 			}

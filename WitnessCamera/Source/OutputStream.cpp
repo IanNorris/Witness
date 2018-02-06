@@ -266,6 +266,21 @@ CameraStreamError OutputStream::WriteInterleavedPacket( AVRational* TimeBase, AV
 	}
 
 	auto& ID = *m_InternalData;
+
+	if (ID.IsFirstFrame)
+	{
+		ID.DTS = Packet->dts;
+		ID.PTS = Packet->pts;
+		Packet->dts = 0;
+		Packet->pts = 0;
+
+		ID.IsFirstFrame = false;
+	}
+	else
+	{
+		Packet->dts -= ID.DTS;
+		Packet->pts -= ID.PTS;
+	}
 	
 	av_packet_rescale_ts( 
 		Packet, 

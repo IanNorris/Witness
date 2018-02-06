@@ -4,6 +4,7 @@
 		"port": 443,
 		"secure": true,
 		"static_path": "C:\\Full\\Path\\To\\WebRoot",
+		"cache_path": "C:\\Full\\Path\\To\\Cache",
 		"mime": {
 			"css": "text/css",
 			"html": "text/html",

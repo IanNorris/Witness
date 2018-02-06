@@ -20,11 +20,38 @@ void CameraWorker::WorkerThread()
 			{
 				Shutdown = true;
 			});
+
+			Message->Handle<CameraStartRecordMessage>([&](const CameraStartRecordMessage& Data)
+			{
+				if (RecordStream)
+				{
+					RecordStream->CloseFile();
+					RecordStream.reset();
+				}
+				
+				RecordStream = make_shared<OutputStream>( string( Data.Path.begin(), Data.Path.end() ), CameraStream.get() );
+				RecordStream->Initialize();
+			});
+
+			Message->Handle<CameraStopRecordMessage>([&](const CameraStopRecordMessage& Data)
+			{
+				if( RecordStream )
+				{
+					RecordStream->CloseFile();
+					RecordStream.reset();
+				}
+			});
 		}
 
-		CameraStreamError Error = CameraStream->ProcessFrame( Filter.get(), nullptr );
+		CameraStreamError Error = CameraStream->ProcessFrame( Filter.get(), RecordStream.get() );
 		if( Error != CameraStreamError::Success )
 		{
+			if( Error == CameraStreamError::EndOfFile && RecordStream )
+			{
+				RecordStream->CloseFile();
+				RecordStream.reset();
+			}
+
 			MessageBus->SendToClient( nullptr, make_shared<CameraReconnectMessage>( CameraID, GetCameraStreamErrorMessage(Error) ) );
 
 			CameraStream = make_shared<InputStream>( std::string( Path.begin(), Path.end() ) );

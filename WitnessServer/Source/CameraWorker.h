@@ -67,6 +67,8 @@ private:
 
 	unique_ptr<thread> Thread;
 
+	shared_ptr<OutputStream> RecordStream;
+
 	shared_ptr<InputStream> CameraStream;
 	shared_ptr<ObservingMotionFilter> Filter;
 

@@ -85,11 +85,12 @@ int wmain( int argc, wchar_t* argv[] )
 	string_t Hostname = JsonConfigServer[U("hostname")].as_string();
 	int Port = JsonConfigServer[U("port")].as_integer();
 	bool Secure = JsonConfigServer[U("secure")].as_bool();
-
+	string_t CachePath = JsonConfigServer[U("cache_path")].as_string();
 
 	WitnessListener Listener( Hostname, Port, Secure );
 
 	auto& GC = Listener.GetGlobalContext();
+	GC->CachePath = CachePath;
 	GC->MessageBus = make_shared<MessageBus>();
 	GC->Database = Database::InitializeDatabase( DatabaseFile );
 
@@ -203,6 +204,19 @@ int wmain( int argc, wchar_t* argv[] )
 			Path << Listener.GetBaseUri() << _T("clip/thumb/") << Data.Camera << _T("/") << Data.Timestamp;
 			
 			SendAndroidNotification( ServerKey, User, MessageStr, CameraName, Path.str(), nullptr );
+
+			
+			CreateDirectoryW( CachePath.c_str(), nullptr );
+			stringstream_t TargetFilename;
+			TargetFilename << CachePath << _T("\\") << datetime::utc_timestamp() << ".mp4";
+
+			auto StartRecord = make_shared<CameraStartRecordMessage>( Data.Camera, TargetFilename.str() );
+
+			{
+				lock_guard<mutex> Lock( GC->Mutex );
+
+				GC->MessageBus->SendToClient( GC->CameraWorkers[ Data.Camera ].get(), StartRecord );
+			}
 		});
 
 		Msg->Handle<CameraUpdateMotionMessage>([&](const CameraUpdateMotionMessage& Data)
@@ -217,6 +231,14 @@ int wmain( int argc, wchar_t* argv[] )
 		Msg->Handle<CameraEndMotionMessage>([&](const CameraEndMotionMessage& Data)
 		{
 			StatusMessage( Data.Camera, _T("End Motion") );
+
+			auto StopRecord = make_shared<CameraStopRecordMessage>( Data.Camera );
+
+			{
+				lock_guard<mutex> Lock( GC->Mutex );
+
+				GC->MessageBus->SendToClient( GC->CameraWorkers[ Data.Camera ].get(), StopRecord );
+			}
 		});
 	}
 

@@ -10,6 +10,8 @@ public:
 
 	mutable mutex Mutex;
 
+	string_t CachePath;
+
 	shared_ptr<SQLiteDatabase> Database;
 	unordered_map< int, shared_ptr<CameraWorker> > CameraWorkers;
 	unordered_map< int, string_t > CameraNames;

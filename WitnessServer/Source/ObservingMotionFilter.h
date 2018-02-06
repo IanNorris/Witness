@@ -56,6 +56,21 @@ struct CameraEndMotionMessage : public Message
 	int Camera;
 };
 
+struct CameraStartRecordMessage : public Message
+{
+	CameraStartRecordMessage( int CamIndex, string_t PathIn ) : Path( PathIn ), Camera( CamIndex )  {}
+
+	string_t Path;
+	int Camera;
+};
+
+struct CameraStopRecordMessage : public Message
+{
+	CameraStopRecordMessage( int CamIndex ) : Camera( CamIndex )  {}
+
+	int Camera;
+};
+
 class ObservingMotionFilter : public MotionFilter
 {
 public:
