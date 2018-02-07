@@ -41,3 +41,4 @@ void ReportJsonError( const json::value& Object, const TCHAR* FieldName, string_
 
 BUILD_JSON_FIELD_ACCESSOR( has_string_field, as_string, string_t, _T("string") )
 BUILD_JSON_FIELD_ACCESSOR( has_integer_field, as_integer, int, _T("int") )
+BUILD_JSON_FIELD_ACCESSOR( has_boolean_field, as_bool, bool, _T("bool") )

@@ -51,10 +51,10 @@ void Command_Clip::OnThumbnailMessage( const unique_ptr<GlobalContext>& Context,
 
 	lock_guard<mutex> Lock( Context->Mutex );
 
-	auto IterCamera = Context->CameraFrames.find( TargetCameraInt );
-	if( IterCamera != Context->CameraFrames.end() )
+	auto IterCamera = Context->Cameras.find( TargetCameraInt );
+	if( IterCamera != Context->Cameras.end() )
 	{
-		const auto& Camera = (*IterCamera).second;
+		const auto& Camera = (*IterCamera).second.ClipThumbnails;
 		auto IterClip = Camera.find( TargetCameraTimestamp );
 		if( IterClip != Camera.end() )
 		{

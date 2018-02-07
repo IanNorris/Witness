@@ -6540,6 +6540,10 @@ ul li a:focus {
 	height: 30%;
 }
 
+.CameraPreviewRec {
+	border: 3px solid red;
+}
+
 .signin-outer {
 	display: table;
 	position: absolute;

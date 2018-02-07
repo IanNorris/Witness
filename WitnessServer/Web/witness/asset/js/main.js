@@ -58,7 +58,7 @@ var AuthenticationViewModel = function( parent ) {
 	};
 };
 
-var CameraViewModel = function( parent, cameraID, cameraName ) {
+var CameraViewModel = function( parent, cameraID, cameraName, cameraRecording ) {
 	"use strict";
 	
 	var self = this;
@@ -69,6 +69,7 @@ var CameraViewModel = function( parent, cameraID, cameraName ) {
 	self.cameraID = ko.observable( cameraID );
 	self.cameraPath = ko.observable('');
 	self.isSelected = ko.observable(cameraID == 0);
+	self.isRecording = ko.observable(cameraRecording);
 	
 	self.isSelectedClip = ko.computed( function() {
 		return self.isSelected() && self.parent.isViewingClips();
@@ -77,8 +78,10 @@ var CameraViewModel = function( parent, cameraID, cameraName ) {
 	self.isSelectedStream = ko.computed( function() {
 		return self.isSelected() && self.parent.isViewingStream();
 	} );
-	
+		
 	self.frameIndex = 0;
+	
+	
 	
 	self.setNextCameraFrame = function() {
 		self.cameraPath( '/camera/preview/' + self.cameraID() + '#' + self.frameIndex );
@@ -103,10 +106,37 @@ var CameraViewModel = function( parent, cameraID, cameraName ) {
 		self.parent.isViewingClips(true);
 	};
 	
+	self.toggleRecording = function() {
+		self.isRecording( !self.isRecording() );
+		
+		var logoutData = JSON.stringify( { 
+			'csrf': self.parent.authentication.csrfToken(),
+			'record': self.isRecording()
+		} );
+		
+		$.ajax({
+			method: 'POST',
+			url: '/camera/record/' + self.cameraID(),
+			dataType: 'json',
+			data: logoutData,
+			contentType: 'application/json; charset=utf-8',
+		} )
+		.done( function( result ) {
+			//Nothing
+		} )
+		.fail( function( result ) {
+			$.toast( {
+				text: "Error while attempting to set recording to " + self.isRecording() + ".",
+				type: 'warning',
+				position: 'top-center'
+			} );
+		} );
+	}
+	
 	self.setNextCameraFrame();
-	/*window.setInterval( function() {
+	window.setInterval( function() {
 		self.setNextCameraFrame();		
-	}, 20 );*/
+	}, 250 );
 };
 
 var WitnessViewModel = function() {
@@ -118,6 +148,7 @@ var WitnessViewModel = function() {
 		
 	self.cameraListReceived = ko.observable(false);
 	self.cameras = ko.observableArray([]);
+	self.cameras.extend({ rateLimit: 50 });
 	self.focusedCamera = ko.observable(null);
 	
 	self.isViewingClips = ko.observable(true);
@@ -132,34 +163,65 @@ var WitnessViewModel = function() {
 		return !self.ready();
 	} );
 	
-	$.ajax({
-		method: 'GET',
-		url: '/camera/enum',
-		contentType: 'application/json; charset=utf-8',
-	} )
-	.done( function( result ) {
-		
-		for( var camera = 0; camera < result.length; camera++ ) {
-			self.cameras.push( new CameraViewModel( self, result[camera].id, result[camera].name ) );
-		}
-		
-		self.cameraListReceived( true );
-	} )
-	.fail( function( result ) {
-		$.toast( {
-			text: "Error fetching camera list.",
-			type: 'danger',
-			bgColor: '#a94442',
-			position: 'top-center'
+	self.refreshCameraData = function() {
+		$.ajax({
+			method: 'GET',
+			url: '/camera/enum',
+			contentType: 'application/json; charset=utf-8',
+		} )
+		.done( function( result ) {
+			
+			for( var camera = 0; camera < result.length; camera++ ) {
+				
+				var newCameraID = result[camera].id;
+				var newCameraName = result[camera].name;
+				var newCameraRecording = result[camera].recording;
+								
+				var found = false;
+				for( var existingCamera = 0; existingCamera < self.cameras().length; existingCamera++ )
+				{
+					if( self.cameras()[ existingCamera ].cameraID() == newCameraID ) {
+						self.cameras()[ existingCamera ].cameraName( newCameraName );
+						self.cameras()[ existingCamera ].isRecording( newCameraRecording );
+						found = true;
+					}
+				}
+				
+				if( !found )
+				{
+					self.cameras.push(  new CameraViewModel( self, newCameraID, newCameraName, newCameraRecording ) );
+				}
+				
+				self.cameras.sort( function( left, right ) {
+					return left.cameraID() < right.cameraID();
+				} );
+			}
+			
+			self.cameraListReceived( true );
+		} )
+		.fail( function( result ) {
+			$.toast( {
+				text: "Error fetching camera list.",
+				type: 'danger',
+				bgColor: '#a94442',
+				position: 'top-center'
+			} );
+			
+			self.cameraListReceived( true );
 		} );
-		
-		self.cameraListReceived( true );
-	} );
+	};
+	self.refreshCameraData();
+	
+	window.setInterval( function() {
+		self.refreshCameraData();
+	}, 1000 );
 };
 	
 var g_viewModel = null;
 
 $(document).ready(function() {
+	ko.options.deferUpdates = true;
+	
 	g_viewModel = new WitnessViewModel();
 	
 	ko.applyBindings(g_viewModel);

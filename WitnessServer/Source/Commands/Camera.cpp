@@ -17,7 +17,19 @@ void Command_Camera::OnMessage( const unique_ptr<GlobalContext>& Context, http_r
 {
 	auto Packet = Message.extract_json().get();
 
-	if( ChildPath.size() == 2 && !IsPost )
+	if( ChildPath.size() == 2 && IsPost )
+	{
+		auto Command = ChildPath.front();
+		if( Command.compare( _T("record") ) == 0 )
+		{
+			OnRecordMessage( Context, Message, ChildPath[1], Packet );
+		}
+		else
+		{
+			Message.reply( status_codes::NotFound );
+		}
+	}
+	else if( ChildPath.size() == 2 && !IsPost )
 	{
 		auto Command = ChildPath.front();
 		if( Command.compare( _T("preview") ) == 0 )
@@ -64,12 +76,12 @@ void Command_Camera::OnPreviewMessage( const unique_ptr<GlobalContext>& Context,
 
 	lock_guard<mutex> Lock( Context->Mutex );
 
-	auto Iter = Context->CameraPreviews.find( TargetCameraInt );
-	if( Iter != Context->CameraPreviews.end() )
+	auto Iter = Context->Cameras.find( TargetCameraInt );
+	if( Iter != Context->Cameras.end() )
 	{
 		http_response Response;
 		Response.set_status_code( status_codes::OK );
-		Response.set_body( (*Iter).second );
+		Response.set_body( (*Iter).second.PreviewThumbnail );
 		Response.headers().set_content_type( _T("image/jpeg") );
 		Response.headers().set_cache_control( _T("no-cache, no-store, must-revalidate") );
 
@@ -94,7 +106,7 @@ void Command_Camera::OnEnumMessage( const unique_ptr<GlobalContext>& Context, ht
 	SQLiteDatabaseQueryInstance GetCameras( Context->Database, _T("GetCameras") );
 
 	GetCameras->Execute( 
-		[&Array]( const SQLiteDatabaseQuery& query )
+		[&Array, &Context]( const SQLiteDatabaseQuery& query )
 		{
 			int ID = query.GetColumnValueInt(0);
 			string_t Name = query.GetColumnValueText(1);
@@ -103,6 +115,16 @@ void Command_Camera::OnEnumMessage( const unique_ptr<GlobalContext>& Context, ht
 			Camera[ _T("id") ] = json::value(ID);
 			Camera[ _T("name") ] = json::value(Name);
 
+			{
+				lock_guard<mutex> Lock( Context->Mutex );
+
+				auto Iter = Context->Cameras.find( ID );
+				if( Iter != Context->Cameras.end() )
+				{
+					Camera[ _T("recording") ] = json::value( (*Iter).second.IsRecording );
+				}
+			}
+
 			Array.push_back( Camera );
 				
 			return true;
@@ -110,4 +132,45 @@ void Command_Camera::OnEnumMessage( const unique_ptr<GlobalContext>& Context, ht
 	);
 
 	Message.reply( status_codes::OK, json::value::array(Array) );
+}
+
+void Command_Camera::OnRecordMessage( const unique_ptr<GlobalContext>& Context, http_request& Message, const string_t& TargetCamera, const json::value& Packet )
+{
+	if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, true ) )
+	{
+		return;
+	}
+
+	int TargetCameraInt = _wtoi( TargetCamera.c_str() );
+
+	bool Success = true;
+	bool Record = false;
+	string_t Errors;
+
+	Success &= GetJsonField( Packet, _T("record"), Record, Errors );
+	
+	if (!Success)
+	{
+		Message.reply( status_codes::BadRequest, Errors );
+		return;
+	}
+
+	bool ValidCamera = false;
+
+	{
+		lock_guard<mutex> Lock( Context->Mutex );
+
+		auto Iter = Context->Cameras.find( TargetCameraInt );
+		if( Iter != Context->Cameras.end() )
+		{
+			//Don't set recording value here, need to ensure it gets toggled correctly
+			ValidCamera = true;
+		}
+	}
+
+	auto ToggleRecord = make_shared<CameraStateToggleRecordMessage>( TargetCameraInt, Record );
+
+	Context->MessageBus->SendToClient( nullptr, ToggleRecord );
+
+	Message.reply( status_codes::OK, json::value(_T("OK")) );
 }

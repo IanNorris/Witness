@@ -129,8 +129,9 @@ int wmain( int argc, wchar_t* argv[] )
 				tcout << _T("Starting ") << CameraName << _T(" camera...") << endl;
 
 				auto Worker = make_shared<CameraWorker>( CameraID, CameraPath, GC->MessageBus );
-				GC->CameraWorkers[ CameraID ] = Worker;
-				GC->CameraNames[ CameraID ] = CameraName;
+				auto& State = GC->Cameras[ CameraID ] = GlobalContext::CameraState();
+				State.Worker = Worker;
+				State.Name = CameraName;
 
 				return true;
 			}
@@ -140,6 +141,20 @@ int wmain( int argc, wchar_t* argv[] )
 	tcout << _T("Server boot complete...") << endl;
 
 	string_t Errors;
+
+	auto StartCameraRecording = [&GC,&CachePath](const shared_ptr<CameraWorker>& Worker, int CameraID, bool IsManual)
+	{
+		CreateDirectoryW( CachePath.c_str(), nullptr );
+		stringstream_t TargetFilename;
+		TargetFilename << CachePath << _T("\\") << CameraID << (IsManual ? _T("_Manual_") : _T("_Auto_")) << datetime::utc_timestamp() << ".mp4";
+
+		auto StartRecord = make_shared<CameraStartRecordMessage>( CameraID, TargetFilename.str() );
+			
+		if( Worker )
+		{
+			GC->MessageBus->SendToClient( Worker.get(), StartRecord );
+		}
+	};
 
 	while( true )
 	{
@@ -153,7 +168,11 @@ int wmain( int argc, wchar_t* argv[] )
 			{
 				lock_guard<mutex> Lock( GC->Mutex );
 			
-				CameraName = GC->CameraNames[ Camera ];
+				auto Iter = GC->Cameras.find( Camera );
+				if( Iter != GC->Cameras.end() )
+				{
+					CameraName = (*Iter).second.Name;
+				}
 			}
 
 			tcout << CameraName << _T(": ") << Reason << endl;
@@ -172,6 +191,17 @@ int wmain( int argc, wchar_t* argv[] )
 		Msg->Handle<CameraReconnectMessage>([&](const CameraReconnectMessage& Data)
 		{
 			StatusMessage( Data.Camera, Data.Error );
+
+			{
+				lock_guard<mutex> Lock( GC->Mutex );
+			
+				auto Iter = GC->Cameras.find( Data.Camera );
+				if( Iter != GC->Cameras.end() )
+				{
+					(*Iter).second.IsRecording = false;
+					(*Iter).second.IsManualRecording = false;
+				}
+			}
 		});
 
 		Msg->Handle<CameraSnapshotMessage>([&](const CameraSnapshotMessage& Data)
@@ -179,19 +209,37 @@ int wmain( int argc, wchar_t* argv[] )
 			{
 				lock_guard<mutex> Lock( GC->Mutex );
 			
-				GC->CameraPreviews[ Data.Camera ] = Data.Jpeg;
+				auto Iter = GC->Cameras.find( Data.Camera );
+				if( Iter != GC->Cameras.end() )
+				{
+					(*Iter).second.PreviewThumbnail = Data.Jpeg;
+				}
 			}
 		});
 
 		Msg->Handle<CameraBeginMotionMessage>([&](const CameraBeginMotionMessage& Data)
 		{
+			shared_ptr<CameraWorker> Worker;
 			string_t CameraName;
 
 			{
 				lock_guard<mutex> Lock( GC->Mutex );
 			
-				GC->CameraFrames[ Data.Camera ][ Data.Timestamp ] = Data.Jpeg;
-				CameraName = GC->CameraNames[ Data.Camera ];
+				auto Iter = GC->Cameras.find( Data.Camera );
+				if( Iter != GC->Cameras.end() )
+				{
+					(*Iter).second.ClipThumbnails[ Data.Timestamp ] = Data.Jpeg;
+					CameraName = (*Iter).second.Name;
+					Worker = (*Iter).second.Worker;
+
+					//Already recording
+					if ((*Iter).second.IsRecording)
+					{
+						return;
+					}
+
+					(*Iter).second.IsRecording = true;
+				}
 			}
 
 			stringstream_t Message;
@@ -199,24 +247,12 @@ int wmain( int argc, wchar_t* argv[] )
 
 			StatusMessage( Data.Camera, Message.str() );
 
-			stringstream_t Path;
-
-			Path << Listener.GetBaseUri() << _T("clip/thumb/") << Data.Camera << _T("/") << Data.Timestamp;
-			
-			SendAndroidNotification( ServerKey, User, MessageStr, CameraName, Path.str(), nullptr );
-
-			
-			CreateDirectoryW( CachePath.c_str(), nullptr );
-			stringstream_t TargetFilename;
-			TargetFilename << CachePath << _T("\\") << datetime::utc_timestamp() << ".mp4";
-
-			auto StartRecord = make_shared<CameraStartRecordMessage>( Data.Camera, TargetFilename.str() );
-
-			{
-				lock_guard<mutex> Lock( GC->Mutex );
-
-				GC->MessageBus->SendToClient( GC->CameraWorkers[ Data.Camera ].get(), StartRecord );
-			}
+            stringstream_t ThumbPath;
+            ThumbPath << Listener.GetBaseUri() << _T("clip/thumb/") << Data.Camera << _T("/") << Data.Timestamp;
+						
+			SendAndroidNotification( ServerKey, User, MessageStr, CameraName, ThumbPath.str(), nullptr );
+						
+			StartCameraRecording( Worker, Data.Camera, false );
 		});
 
 		Msg->Handle<CameraUpdateMotionMessage>([&](const CameraUpdateMotionMessage& Data)
@@ -224,7 +260,11 @@ int wmain( int argc, wchar_t* argv[] )
 			{
 				lock_guard<mutex> Lock( GC->Mutex );
 			
-				GC->CameraFrames[ Data.Camera ][ Data.TimestampStarted ] = Data.Jpeg;
+				auto Iter = GC->Cameras.find( Data.Camera );
+				if( Iter != GC->Cameras.end() )
+				{
+					(*Iter).second.ClipThumbnails[ Data.TimestampStarted ] = Data.Jpeg;
+				}
 			}
 		});
 
@@ -234,10 +274,67 @@ int wmain( int argc, wchar_t* argv[] )
 
 			auto StopRecord = make_shared<CameraStopRecordMessage>( Data.Camera );
 
+			shared_ptr<CameraWorker> Worker;
+
 			{
 				lock_guard<mutex> Lock( GC->Mutex );
 
-				GC->MessageBus->SendToClient( GC->CameraWorkers[ Data.Camera ].get(), StopRecord );
+				auto Iter = GC->Cameras.find( Data.Camera );
+				if( Iter != GC->Cameras.end() )
+				{
+					Worker = (*Iter).second.Worker;
+
+					if ((*Iter).second.IsManualRecording)
+					{
+						return;
+					}
+
+					(*Iter).second.IsRecording = false;
+				}
+			}
+
+			if( Worker )
+			{
+				GC->MessageBus->SendToClient( Worker.get(), StopRecord );
+			}
+		});
+
+		Msg->Handle<CameraStateToggleRecordMessage>([&](const CameraStateToggleRecordMessage& Data)
+		{
+			StatusMessage( Data.Camera, Data.Record ? _T("Manual Record: On") : _T("Manual Record: Off") );
+
+			shared_ptr<CameraWorker> Worker;
+
+			bool Change = false;
+
+			{
+				lock_guard<mutex> Lock( GC->Mutex );
+
+				auto Iter = GC->Cameras.find( Data.Camera );
+				if( Iter != GC->Cameras.end() )
+				{
+					Worker = (*Iter).second.Worker;
+					(*Iter).second.IsManualRecording = Data.Record;
+
+					if( (*Iter).second.IsRecording != Data.Record )
+					{
+						(*Iter).second.IsRecording = Data.Record;
+						Change = true;
+					}
+				}
+			}
+
+			if( Change && Worker )
+			{
+				if( Data.Record )
+				{
+					StartCameraRecording( Worker, Data.Camera, true );
+				}
+				else
+				{
+					auto StopRecord = make_shared<CameraStopRecordMessage>( Data.Camera );
+					GC->MessageBus->SendToClient( Worker.get(), StopRecord );
+				}
 			}
 		});
 	}
