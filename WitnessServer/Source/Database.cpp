@@ -28,6 +28,30 @@ namespace Database
 		);
 
 		CREATE UNIQUE INDEX IF NOT EXISTS CameraIndex ON Camera (CameraUID);
+
+
+		CREATE TABLE IF NOT EXISTS Clip(
+			Timestamp		DATETIME,
+			Camera			INT,
+			MotionTimestamp	DATETIME,
+			ActiveDuration	INT,
+			Duration		INT,
+			RecordMode		INT,
+			MaxMotion		FLOAT,
+			Description		TEXT
+		);
+
+		CREATE UNIQUE INDEX IF NOT EXISTS ClipIndex ON Clip (Timestamp,Camera);
+
+		CREATE TABLE IF NOT EXISTS Tag(
+			TagUID			INT									NOT NULL,
+			Name			CHAR(64)							NOT NULL,
+			Description		TEXT								NOT NULL
+		);
+
+		CREATE UNIQUE INDEX IF NOT EXISTS TagIndex ON Tag (TagUID);
+
+
 	)RAW";
 
 	string_t FindUser = LR"RAW(
@@ -73,11 +97,34 @@ namespace Database
 		ORDER BY CameraUID
 	)RAW";
 
+	string_t CreateClip = LR"RAW(
+		INSERT INTO Clip (Timestamp,Camera,MotionTimestamp,ActiveDuration,Duration,RecordMode,MaxMotion,Description)
+		VALUES(@Timestamp,@Camera,@MotionTimestamp,@ActiveDuration,@Duration,@RecordMode,@MaxMotion,@Description);
+	)RAW";
+
+	string_t UpdateClip = LR"RAW(
+		UPDATE Clip 
+		SET
+			MotionTimestamp = @MotionTimestamp,
+			ActiveDuration = @ActiveDuration,
+			Duration = @Duration,
+			MaxMotion = @MaxMotion
+		WHERE 
+				Timestamp == @Timestamp 
+			AND Camera == @Camera
+		;
+	)RAW";
+
 #define CREATE_QUERY( X ) DB->CreateQuery( _T(#X), X )
 
 	shared_ptr<SQLiteDatabase> InitializeDatabase( string_t Filename )
 	{
-		auto DB = make_shared<SQLiteDatabase>( Filename, Database::InitializationScript, true );
+		auto DB = make_shared<SQLiteDatabase>( Filename, Database::InitializationScript, true, 
+			[]( const string& Message )
+			{
+				cout << Message << endl;
+			}
+		);
 
 		CREATE_QUERY( FindUser );
 		CREATE_QUERY( CreateUser );
@@ -91,6 +138,9 @@ namespace Database
 		CREATE_QUERY( GetUserCount );
 
 		CREATE_QUERY( GetCameras );
+
+		CREATE_QUERY( CreateClip );
+		CREATE_QUERY( UpdateClip );
 
 		return DB;
 	}

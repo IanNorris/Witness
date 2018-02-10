@@ -57,7 +57,7 @@ class SQLiteDatabase : public enable_shared_from_this<SQLiteDatabase>
 {
 public:
 
-	SQLiteDatabase( const string_t& filename, const string& initScript, bool writeAccess );
+	SQLiteDatabase( const string_t& filename, const string& initScript, bool writeAccess, function<void(const string&)> onErrorCallback );
 	~SQLiteDatabase();
 
 	inline sqlite3*	GetDatabase() { return m_database; };
@@ -70,9 +70,13 @@ public:
 
 	bool IsNewlyCreated() const { return m_databaseNewlyCreated; }
 
+	void ThrowError( const string& Message );
+
 private:
 
 	unordered_map<string_t, shared_ptr<SQLiteDatabaseQuery>>	m_queries;
+
+	function<void(const string&)>								m_onErrorCallback;
 
 	string_t		m_filename;
 	sqlite3*	m_database;

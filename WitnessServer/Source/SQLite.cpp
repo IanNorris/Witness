@@ -1,11 +1,15 @@
 #include "SQLite.h"
 #include "Common.h"
 
+#define AssertQuery( condition, message, ... ) if( !(condition) ) { m_database->ThrowError( StringPrintfA( message, __VA_ARGS__ ) ); }
+#define AssertDB( condition, message, ... ) if( !(condition) ) { ThrowError( StringPrintfA( message, __VA_ARGS__ ) ); }
+
 SQLiteDatabaseQuery::SQLiteDatabaseQuery( shared_ptr<SQLiteDatabase> database )
 : m_database( database )	
 , m_lastInsertId( -1 )
 , m_reset( true )
-{}
+{
+}
 
 SQLiteDatabaseQuery::~SQLiteDatabaseQuery()
 {
@@ -25,7 +29,7 @@ void SQLiteDatabaseQuery::Bind( const char* paramName, const TCHAR* value )
 		if( index )
 		{
 			int result = sqlite3_bind_text16( statement, index, value, -1, SQLITE_TRANSIENT );
-			//assert( result == 0, "Failed to bind parameter: %s", sqlite3_errmsg( m_database->GetDatabase() ) );
+			AssertQuery( result == 0, "Failed to bind parameter: %s", sqlite3_errmsg( m_database->GetDatabase() ) );
 		}
 	}
 }
@@ -40,7 +44,7 @@ void SQLiteDatabaseQuery::Bind( const char* paramName, double value )
 		if( index )
 		{
 			int result = sqlite3_bind_double( statement, index, value );
-			//aeAssert( result == 0, "Failed to bind parameter: %s", sqlite3_errmsg( m_database->GetDatabase() ) );
+			AssertQuery( result == 0, "Failed to bind parameter: %s", sqlite3_errmsg( m_database->GetDatabase() ) );
 		}
 	}
 }
@@ -55,7 +59,7 @@ void SQLiteDatabaseQuery::Bind( const char* paramName, int value )
 		if( index )
 		{
 			int result = sqlite3_bind_int( statement, index, value );
-			//aeAssert( result == 0, "Failed to bind parameter: %s", sqlite3_errmsg( m_database->GetDatabase() ) );
+			AssertQuery( result == 0, "Failed to bind parameter: %s", sqlite3_errmsg( m_database->GetDatabase() ) );
 		}
 	}
 }
@@ -70,7 +74,7 @@ void SQLiteDatabaseQuery::Bind( const char* paramName, int64_t value )
 		if( index )
 		{
 			int result = sqlite3_bind_int64( statement, index, value );
-			//aeAssert( result == 0, "Failed to bind parameter: %s", sqlite3_errmsg( m_database->GetDatabase() ) );
+			AssertQuery( result == 0, "Failed to bind parameter: %s", sqlite3_errmsg( m_database->GetDatabase() ) );
 		}
 	}
 }
@@ -106,7 +110,7 @@ int SQLiteDatabaseQuery::Execute( const std::function< bool(const SQLiteDatabase
 			}
 		}
 
-		//aeAssert( result == SQLITE_DONE, "Error while reading rows: %s", sqlite3_errmsg( m_database->GetDatabase() ) );
+		AssertQuery( result == SQLITE_DONE, "Error while reading rows: %s", sqlite3_errmsg( m_database->GetDatabase() ) );
 	}
 
 	m_lastInsertId = sqlite3_last_insert_rowid( m_database->GetDatabase() );
@@ -146,11 +150,17 @@ const int SQLiteDatabaseQuery::GetColumnCount() const
 	return sqlite3_column_count( m_statements.back() );
 }
 
-SQLiteDatabase::SQLiteDatabase( const string_t& filename, const string& initScript, bool writeAccess )
-: m_filename( filename )
+SQLiteDatabase::SQLiteDatabase( const string_t& filename, const string& initScript, bool writeAccess, function<void(const string & )> onErrorCallback )
+: m_onErrorCallback( onErrorCallback )
+, m_filename( filename )
 , m_database( nullptr )
 , m_databaseNewlyCreated( false )
 {
+	if (!m_onErrorCallback)
+	{
+		m_onErrorCallback = [](string error){};
+	}
+
 	int flags = 0;
 	if( writeAccess )
 	{
@@ -164,13 +174,13 @@ SQLiteDatabase::SQLiteDatabase( const string_t& filename, const string& initScri
 	string NewFilename( filename.begin(), filename.end() );
 
 	int result = sqlite3_open_v2( NewFilename.c_str(), &m_database, flags, nullptr );
-	//aeAssert( result == 0, "Failed to open database: %s\n%s", newFilename.c_str(), sqlite3_errmsg( m_database ) );
+	AssertDB( result == 0, "Failed to open database: %s\n%s", NewFilename.c_str(), sqlite3_errmsg( m_database ) );
 
 	if( initScript.length() > 0 )
 	{
 		char* errorMessage = nullptr;
 		result = sqlite3_exec( m_database, initScript.c_str(), NULL, NULL, &errorMessage );
-		//aeAssert( result == 0, "Failed to execute init script: %s\n%s", filename.c_str(), sqlite3_errmsg( m_database ) );
+		AssertDB( result == 0, "Failed to execute init script: %s\n%s", NewFilename.c_str(), sqlite3_errmsg( m_database ) );
 
 		if( errorMessage )
 		{
@@ -188,9 +198,14 @@ SQLiteDatabase::~SQLiteDatabase()
 	}
 }
 
+void SQLiteDatabase::ThrowError( const string& Message )
+{
+	m_onErrorCallback( Message );
+}
+
 shared_ptr<SQLiteDatabaseQuery> SQLiteDatabase::CreateQuery( const string_t& queryName, const string_t& query )
 {
-	//aeAssert( m_database, "Database was not valid" );
+	AssertDB( m_database, "Database was not valid" );
 
 	auto generatedQuery = make_shared<SQLiteDatabaseQuery>( shared_from_this() );
 
@@ -198,11 +213,14 @@ shared_ptr<SQLiteDatabaseQuery> SQLiteDatabase::CreateQuery( const string_t& que
 	const TCHAR* nextStatement = newQuery.c_str();
 	do{
 		sqlite3_stmt* newStatement = nullptr;
-		newQuery = nextStatement;
-		int result = sqlite3_prepare16_v2( m_database, newQuery.c_str(), -1, &newStatement, (const void**)&nextStatement );
-		//aeAssert( result == 0 && newStatement, "Failed to prepare statement: %s\n:%s", newQuery.c_str(), sqlite3_errmsg( m_database ) );
+		newQuery = Trim(newQuery);
+		if( newQuery.length() )
+		{
+			int result = sqlite3_prepare16_v2( m_database, newQuery.c_str(), -1, &newStatement, (const void**)&nextStatement );
+			AssertDB( result == 0 && newStatement, "Failed to prepare statement: %s\n:%s", string( newQuery.begin(), newQuery.end() ).c_str(), sqlite3_errmsg( m_database ) );
 
-		generatedQuery->AddStatement( newStatement );
+			generatedQuery->AddStatement( newStatement );
+		}
 	} while( *nextStatement != '\0' );
 
 	m_queries[ queryName ] = generatedQuery;
