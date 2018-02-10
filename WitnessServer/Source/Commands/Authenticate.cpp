@@ -327,14 +327,22 @@ string_t Command_Authenticate::GetSessionToken( const http_request& Message )
 	
 	for ( auto CookiesIter = Headers.find(_T("Cookie")); CookiesIter != Headers.end(); ++CookiesIter )
 	{
-		auto CookieSplit = SplitString( CookiesIter->second, _T("=") );
-		if( CookieSplit.size() == 2 )
+		auto CookieSplit = SplitString( CookiesIter->second, _T(";") );
+		for (auto Cookie : CookieSplit)
 		{
-			if( CookieSplit[0].compare(_T("SessionToken")) == 0 )
+			auto TokenSplit = SplitString( Cookie, _T("=") );
+			if( TokenSplit.size() == 2 )
 			{
-				SessionToken = CookieSplit[1];
+				string_t Left = Trim(TokenSplit[0]);
+				string_t Right = Trim(TokenSplit[1]);
+
+				if( Left.compare(_T("SessionToken")) == 0 )
+				{
+					SessionToken = Right;
+				}
 			}
 		}
+		
 	}
 
 	return SessionToken;
