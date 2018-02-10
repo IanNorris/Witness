@@ -13,9 +13,7 @@ ObservingMotionFilter::ObservingMotionFilter( const int CameraID, const shared_p
 , CameraID( CameraID )
 , FrameIndex( 0 )
 , LastMotionIndex( INT_MIN )
-, LargestDelta( 0.0 )
 , SaveNextFrame( false )
-, TimestampStarted( 0 )
 , State( MotionState::None )
 {
 }
@@ -59,8 +57,10 @@ Witness::Camera::ClassificationResult ObservingMotionFilter::FilterFrame( unsign
 
 			auto MotionMessage = make_shared<CameraBeginMotionMessage>( CameraID );
 
-			TimestampStarted = MotionMessage->Timestamp = TimestampNow;
-			LargestDelta  = MotionMessage->MotionPercentage = Result.MotionPercentage;
+			ClipStats.TimestampClipStarted = MotionMessage->Timestamp = min( ClipStats.TimestampClipStarted, TimestampNow );
+			ClipStats.TimestampMotionEnded = INT64_MAX;
+			ClipStats.TimestampClipEnded = INT64_MAX;
+			ClipStats.LargestMotionDelta = MotionMessage->MotionPercentage = Result.MotionPercentage;
 
 			cv::Mat RawData( cv::Size( Width, Height ), CV_8UC3, Data);
 
@@ -78,17 +78,18 @@ Witness::Camera::ClassificationResult ObservingMotionFilter::FilterFrame( unsign
 			if( State == MotionState::GracePeriod )
 			{
 				State = MotionState::Current;
+				ClipStats.TimestampMotionEnded = 0;
+				ClipStats.TimestampClipEnded = 0;
 			}
 
-			if( Result.MotionPercentage > LargestDelta )
+			if( Result.MotionPercentage > ClipStats.LargestMotionDelta )
 			{
-				LargestDelta = Result.MotionPercentage;
+				ClipStats.LargestMotionDelta = Result.MotionPercentage;
 
 				auto MotionMessage = make_shared<CameraUpdateMotionMessage>( CameraID );
 
-				MotionMessage->TimestampStarted = TimestampStarted;
-				MotionMessage->TimestampNow = TimestampNow;
-
+				MotionMessage->ClipStats = ClipStats;
+				
 				cv::Mat RawData( cv::Size( Width, Height ), CV_8UC3, Data);
 
 				float Aspect = (float)RawData.cols / (float)RawData.rows;
@@ -106,19 +107,19 @@ Witness::Camera::ClassificationResult ObservingMotionFilter::FilterFrame( unsign
 	{
 		if( State == MotionState::Current )
 		{
-			TimestampEnded = TimestampNow;
+			ClipStats.TimestampMotionEnded = TimestampNow;
 			State = MotionState::GracePeriod;
 		}
 		else if( State == MotionState::GracePeriod )
 		{
-			if( TimestampNow - TimestampEnded >= ClipEndGracePeriodInSeconds )
+			if( TimestampNow - ClipStats.TimestampMotionEnded >= ClipEndGracePeriodInSeconds )
 			{
 				State = MotionState::None;
 
 				auto MotionMessage = make_shared<CameraEndMotionMessage>( CameraID );
 
-				MotionMessage->TimestampStarted = TimestampStarted;
-				MotionMessage->TimestampNow = TimestampNow;
+				ClipStats.TimestampClipEnded = TimestampNow;
+				MotionMessage->ClipStats = ClipStats;
 				
 				MessageBusPtr->SendToClient( nullptr, MotionMessage );
 			}

@@ -16,6 +16,26 @@ class MessageBus;
 
 using namespace Witness::Camera;
 
+struct ClipStatistics
+{
+	uint64_t				TimestampClipStarted;
+	uint64_t				TimestampMotionStarted;
+	uint64_t				TimestampClipEnded;
+	uint64_t				TimestampMotionEnded;
+	double					LargestMotionDelta;
+
+	ClipStatistics() { Clear(); }
+
+	void Clear()
+	{
+		TimestampClipStarted = INT64_MAX;
+		TimestampMotionStarted = INT64_MAX;
+		TimestampMotionEnded = 0;
+		TimestampClipEnded = 0;
+		LargestMotionDelta = 0.0;
+	}
+};
+
 struct CameraSnapshotMessage : public Message
 {
 	CameraSnapshotMessage( int CamIndex ) : Camera( CamIndex ) {}
@@ -38,10 +58,10 @@ struct CameraBeginMotionMessage : public Message
 
 struct CameraUpdateMotionMessage : public Message
 {
-	CameraUpdateMotionMessage( int CamIndex ) : TimestampStarted(0), TimestampNow(0), Camera( CamIndex ) {}
+	CameraUpdateMotionMessage( int CamIndex ) : Camera( CamIndex ) {}
 
-	uint64_t TimestampStarted;
-	uint64_t TimestampNow;
+	ClipStatistics ClipStats;
+	
 	int Camera;
 
 	vector<uchar> Jpeg;
@@ -49,24 +69,40 @@ struct CameraUpdateMotionMessage : public Message
 
 struct CameraEndMotionMessage : public Message
 {
-	CameraEndMotionMessage( int CamIndex ) : TimestampStarted(0), TimestampNow(0), Camera( CamIndex ) {}
+	CameraEndMotionMessage( int CamIndex ) : Camera( CamIndex ) {}
 
-	uint64_t TimestampStarted;
-	uint64_t TimestampNow;
+	ClipStatistics ClipStats;
+
 	int Camera;
 };
 
 struct CameraStartRecordMessage : public Message
 {
-	CameraStartRecordMessage( int CamIndex, string_t PathIn ) : Path( PathIn ), Camera( CamIndex )  {}
+	CameraStartRecordMessage( int CamIndex, int64_t TimestampIn, string_t PathIn ) 
+	: Path( PathIn )
+	, Timestamp( TimestampIn )
+	, Camera( CamIndex ) 
+	{}
 
 	string_t Path;
+	int64_t Timestamp;
 	int Camera;
 };
 
 struct CameraStopRecordMessage : public Message
 {
 	CameraStopRecordMessage( int CamIndex ) : Camera( CamIndex )  {}
+
+	ClipStatistics ClipStats;
+
+	int Camera;
+};
+
+struct CameraClipFinishedMessage : public Message
+{
+	CameraClipFinishedMessage( int CamIndex ) : Camera( CamIndex )  {}
+
+	ClipStatistics ClipStats;
 
 	int Camera;
 };
@@ -89,6 +125,13 @@ public:
 
 	bool FlagToSaveNextFrame() { SaveNextFrame = true; }
 
+	const ClipStatistics& GetClipStatistics() const { return ClipStats; }
+
+	void SetManualClipStart( uint64_t ClipStart ) { ClipStats.TimestampClipStarted = min( ClipStart, ClipStats.TimestampClipStarted ); }
+	void SetManualClipEnd( uint64_t ClipEnd ) { ClipStats.TimestampClipEnded = max( ClipEnd, ClipStats.TimestampClipEnded ); }
+
+	void ClearStats() { ClipStats.Clear(); }
+
 private:
 
 	shared_ptr<MessageBus>	MessageBusPtr;
@@ -97,10 +140,7 @@ private:
 	int						LastMotionIndex;
 	bool					SaveNextFrame;
 
-	double					LargestDelta;
-
-	uint64_t				TimestampStarted;
-	uint64_t				TimestampEnded;
+	ClipStatistics			ClipStats;
 
 	MotionState				State;
 };

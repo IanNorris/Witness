@@ -9,7 +9,25 @@ void CameraWorker::WorkerThread()
 	Filter = make_shared<ObservingMotionFilter>( CameraID, MessageBus );
 	CameraStream = make_shared<InputStream>( std::string( Path.begin(), Path.end() ) );
 
+	auto& MB = *MessageBus;
+
 	MessageBus->SendToClient( nullptr, make_shared<CameraStartupMessage>( CameraID ) );
+
+	auto OnClipFinished = [&]()
+	{
+		if (RecordStream)
+		{
+			Filter->SetManualClipEnd( datetime::utc_timestamp() );
+
+			auto FinishedMessage = make_shared<CameraClipFinishedMessage>( CameraID );
+			FinishedMessage->ClipStats = Filter->GetClipStatistics();
+			MB.SendToClient( nullptr, FinishedMessage );
+			Filter->ClearStats();
+
+			RecordStream->CloseFile();
+			RecordStream.reset();
+		}
+	};
 
 	while( !Shutdown )
 	{
@@ -23,34 +41,23 @@ void CameraWorker::WorkerThread()
 
 			Message->Handle<CameraStartRecordMessage>([&](const CameraStartRecordMessage& Data)
 			{
-				if (RecordStream)
-				{
-					RecordStream->CloseFile();
-					RecordStream.reset();
-				}
+				OnClipFinished();
 				
+				Filter->SetManualClipStart( Data.Timestamp );
 				RecordStream = make_shared<OutputStream>( string( Data.Path.begin(), Data.Path.end() ), CameraStream.get() );
 				RecordStream->Initialize();
 			});
 
 			Message->Handle<CameraStopRecordMessage>([&](const CameraStopRecordMessage& Data)
 			{
-				if( RecordStream )
-				{
-					RecordStream->CloseFile();
-					RecordStream.reset();
-				}
+				OnClipFinished();
 			});
 		}
 
 		CameraStreamError Error = CameraStream->ProcessFrame( Filter.get(), RecordStream.get() );
 		if( Error != CameraStreamError::Success )
 		{
-			if( Error == CameraStreamError::EndOfFile && RecordStream )
-			{
-				RecordStream->CloseFile();
-				RecordStream.reset();
-			}
+			OnClipFinished();
 
 			MessageBus->SendToClient( nullptr, make_shared<CameraReconnectMessage>( CameraID, GetCameraStreamErrorMessage(Error) ) );
 

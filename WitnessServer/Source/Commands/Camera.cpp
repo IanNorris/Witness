@@ -48,7 +48,7 @@ void Command_Camera::OnMessage( const unique_ptr<GlobalContext>& Context, http_r
 		auto Command = ChildPath.front();
 		if( Command.compare( _T("enum") ) == 0 )
 		{
-			OnEnumMessage( Context, Message, ChildPath[1], Packet );
+			OnEnumMessage( Context, Message, Packet );
 		}
 		else
 		{
@@ -93,7 +93,7 @@ void Command_Camera::OnPreviewMessage( const unique_ptr<GlobalContext>& Context,
 	}
 }
 
-void Command_Camera::OnEnumMessage( const unique_ptr<GlobalContext>& Context, http_request& Message, const string_t& TargetCamera, const json::value& Packet )
+void Command_Camera::OnEnumMessage( const unique_ptr<GlobalContext>& Context, http_request& Message, const json::value& Packet )
 {
 	//NO CSRF!
 	if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, false ) )

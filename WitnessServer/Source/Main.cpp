@@ -144,16 +144,51 @@ int wmain( int argc, wchar_t* argv[] )
 
 	auto StartCameraRecording = [&GC,&CachePath](const shared_ptr<CameraWorker>& Worker, int CameraID, bool IsManual)
 	{
+		int64_t Timestamp = datetime::utc_timestamp();
+
 		CreateDirectoryW( CachePath.c_str(), nullptr );
 		stringstream_t TargetFilename;
-		TargetFilename << CachePath << _T("\\") << CameraID << (IsManual ? _T("_Manual_") : _T("_Auto_")) << datetime::utc_timestamp() << ".mp4";
+		TargetFilename << CachePath << _T("\\") << CameraID << (IsManual ? _T("_Manual_") : _T("_Auto_")) << Timestamp << ".mp4";
 
-		auto StartRecord = make_shared<CameraStartRecordMessage>( CameraID, TargetFilename.str() );
+		auto StartRecord = make_shared<CameraStartRecordMessage>( CameraID, Timestamp, TargetFilename.str() );
 			
 		if( Worker )
 		{
 			GC->MessageBus->SendToClient( Worker.get(), StartRecord );
 		}
+
+		SQLiteDatabaseQueryInstance CreateClip( GC->Database, _T("CreateClip") );
+		CreateClip->Bind( "@Timestamp", Timestamp );
+		CreateClip->Bind( "@Camera", CameraID );
+		CreateClip->Bind( "@ActiveDuration", 0 );
+		CreateClip->Bind( "@Duration", 0 );
+		CreateClip->Bind( "@RecordMode", IsManual ? 0 : 1 );
+		CreateClip->Bind( "@MaxMotion", 0.0f );
+		CreateClip->Bind( "@Description", _T("") );
+		CreateClip->Execute( nullptr );
+	};
+
+	auto StopCameraRecording = [&GC](const ClipStatistics& ClipStats, int CameraID)
+	{
+		SQLiteDatabaseQueryInstance UpdateClip( GC->Database, _T("UpdateClip") );
+		UpdateClip->Bind( "@Timestamp", (int64_t)ClipStats.TimestampClipStarted );
+		UpdateClip->Bind( "@Camera", CameraID );
+
+		if( ClipStats.TimestampMotionStarted != INT64_MAX )
+		{
+			UpdateClip->Bind( "@MotionTimestamp", (int64_t)ClipStats.TimestampMotionStarted );
+			UpdateClip->Bind( "@ActiveDuration", (int64_t)(ClipStats.TimestampMotionEnded - ClipStats.TimestampMotionStarted) );
+		}
+		else
+		{
+			UpdateClip->Bind( "@MotionTimestamp", 0 );
+			UpdateClip->Bind( "@ActiveDuration", 0 );
+		}
+
+		UpdateClip->Bind( "@Duration", (int64_t)(ClipStats.TimestampClipEnded - ClipStats.TimestampClipStarted) );
+
+		UpdateClip->Bind( "@MaxMotion", ClipStats.LargestMotionDelta );
+		UpdateClip->Execute( nullptr );
 	};
 
 	while( true )
@@ -263,7 +298,7 @@ int wmain( int argc, wchar_t* argv[] )
 				auto Iter = GC->Cameras.find( Data.Camera );
 				if( Iter != GC->Cameras.end() )
 				{
-					(*Iter).second.ClipThumbnails[ Data.TimestampStarted ] = Data.Jpeg;
+					(*Iter).second.ClipThumbnails[ Data.ClipStats.TimestampClipStarted ] = Data.Jpeg;
 				}
 			}
 		});
@@ -297,6 +332,12 @@ int wmain( int argc, wchar_t* argv[] )
 			{
 				GC->MessageBus->SendToClient( Worker.get(), StopRecord );
 			}
+		});
+
+		
+		Msg->Handle<CameraClipFinishedMessage>([&](const CameraClipFinishedMessage& Data)
+		{
+			StopCameraRecording( Data.ClipStats, Data.Camera );
 		});
 
 		Msg->Handle<CameraStateToggleRecordMessage>([&](const CameraStateToggleRecordMessage& Data)
