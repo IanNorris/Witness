@@ -2,7 +2,8 @@
 
 #include "MessageBus.h"
 
-#include <opencv2/opencv.hpp>
+#include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
 
 const int ClipEndGracePeriodInSeconds = 10;
 const int TargetThumbnailSize = 400;

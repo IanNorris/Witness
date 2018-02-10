@@ -59,7 +59,7 @@ bool CheckHashedPasswordKey_Algorithm0( const string_t& Key, const string_t& Use
 	return true;
 }
 
-void OfflineCreationForFirstUser( const unique_ptr<GlobalContext>& Context )
+void OfflineCreationForFirstUser( const GlobalContext& Context )
 {
 	string_t Username;
 	string_t Password;
@@ -67,7 +67,7 @@ void OfflineCreationForFirstUser( const unique_ptr<GlobalContext>& Context )
 	bool Success = false;
 
 	{
-		SQLiteDatabaseQueryInstance GetUserCount( Context->Database, _T("GetUserCount") );
+		SQLiteDatabaseQueryInstance GetUserCount( Context.Database, _T("GetUserCount") );
 
 		
 		int Result = GetUserCount->Execute( 
@@ -101,7 +101,7 @@ void OfflineCreationForFirstUser( const unique_ptr<GlobalContext>& Context )
 		tcout << _T("Storing password...") << endl;
 
 		{
-			SQLiteDatabaseQueryInstance CreateUser( Context->Database, _T("CreateUser") );
+			SQLiteDatabaseQueryInstance CreateUser( Context.Database, _T("CreateUser") );
 
 			string_t UsernameLC = Username;
 
@@ -118,7 +118,7 @@ void OfflineCreationForFirstUser( const unique_ptr<GlobalContext>& Context )
 	}
 }
 
-void Command_Authenticate::OnMessage( const unique_ptr<GlobalContext>& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
+void Command_Authenticate::OnMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
 {
 	if( ChildPath.size() == 1 && IsPost )
 	{
@@ -148,7 +148,7 @@ void Command_Authenticate::OnMessage( const unique_ptr<GlobalContext>& Context, 
 	}
 }
 
-void Command_Authenticate::OnLoginMessage( const unique_ptr<GlobalContext>& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
+void Command_Authenticate::OnLoginMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
 {
 	//DO NOT CHECK CSRF HERE
 
@@ -172,7 +172,7 @@ void Command_Authenticate::OnLoginMessage( const unique_ptr<GlobalContext>& Cont
 	}
 
 	{
-		SQLiteDatabaseQueryInstance FindUser( Context->Database, _T("FindUser") );
+		SQLiteDatabaseQueryInstance FindUser( Context.Database, _T("FindUser") );
 		FindUser->Bind( "@Username", Username.c_str() );
 
 		int PasswordAlgorithm;
@@ -223,7 +223,7 @@ void Command_Authenticate::OnLoginMessage( const unique_ptr<GlobalContext>& Cont
 		auto Now = chrono::system_clock::now().time_since_epoch();
 		auto UTCTimeNow = chrono::duration_cast<std::chrono::seconds>(Now).count();
 
-		SQLiteDatabaseQueryInstance CreateSession( Context->Database, _T("CreateSession") );
+		SQLiteDatabaseQueryInstance CreateSession( Context.Database, _T("CreateSession") );
 		CreateSession->Bind( "@SessionToken", SessionToken.c_str() );
 		CreateSession->Bind( "@CSRFToken", CSRFToken.c_str() );
 		CreateSession->Bind( "@Username", Username.c_str() );
@@ -243,7 +243,7 @@ void Command_Authenticate::OnLoginMessage( const unique_ptr<GlobalContext>& Cont
 	}	
 }
 
-void Command_Authenticate::OnLogoutMessage( const unique_ptr<GlobalContext>& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
+void Command_Authenticate::OnLogoutMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
 {
 	auto Packet = Message.extract_json().get();
 
@@ -254,7 +254,7 @@ void Command_Authenticate::OnLogoutMessage( const unique_ptr<GlobalContext>& Con
 
 	string_t SessionToken = GetSessionToken( Message );
 
-	SQLiteDatabaseQueryInstance DeleteSession( Context->Database, _T("DeleteSession") );
+	SQLiteDatabaseQueryInstance DeleteSession( Context.Database, _T("DeleteSession") );
 	DeleteSession->Bind( "@SessionToken", SessionToken.c_str() );
 	DeleteSession->Bind( "@SessionToken", SessionToken.c_str() );
 		
@@ -271,7 +271,7 @@ void Command_Authenticate::OnLogoutMessage( const unique_ptr<GlobalContext>& Con
 	Message.reply( Response );
 }
 
-void Command_Authenticate::OnGetProfileMessage( const unique_ptr<GlobalContext>& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
+void Command_Authenticate::OnGetProfileMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
 {
 	//DO NOT CHECK CSRF HERE
 
@@ -279,7 +279,7 @@ void Command_Authenticate::OnGetProfileMessage( const unique_ptr<GlobalContext>&
 
 	string_t SessionToken = GetSessionToken( Message );
 
-	SQLiteDatabaseQueryInstance FindSession( Context->Database, _T("FindSession") );
+	SQLiteDatabaseQueryInstance FindSession( Context.Database, _T("FindSession") );
 	FindSession->Bind( "@SessionToken", SessionToken.c_str() );
 
 	string_t Username;
@@ -348,7 +348,7 @@ string_t Command_Authenticate::GetSessionToken( const http_request& Message )
 	return SessionToken;
 }
 
-bool Command_Authenticate::IsAuthenticated( const unique_ptr<GlobalContext>& Context, http_request& Message, const json::value& Packet, bool RequireCSRF )
+bool Command_Authenticate::IsAuthenticated( const GlobalContext& Context, http_request& Message, const json::value& Packet, bool RequireCSRF )
 {
 	string_t Errors;
 	
@@ -362,7 +362,7 @@ bool Command_Authenticate::IsAuthenticated( const unique_ptr<GlobalContext>& Con
 	{
 		if( RequireCSRF )
 		{
-			SQLiteDatabaseQueryInstance VerifySessionAndCSRF( Context->Database, _T("VerifySessionAndCSRF") );
+			SQLiteDatabaseQueryInstance VerifySessionAndCSRF( Context.Database, _T("VerifySessionAndCSRF") );
 			VerifySessionAndCSRF->Bind( "@SessionToken", SessionToken.c_str() );
 			VerifySessionAndCSRF->Bind( "@CSRFToken", CSRF.c_str() );
 		
@@ -375,7 +375,7 @@ bool Command_Authenticate::IsAuthenticated( const unique_ptr<GlobalContext>& Con
 		}
 		else
 		{
-			SQLiteDatabaseQueryInstance VerifySession( Context->Database, _T("VerifySession") );
+			SQLiteDatabaseQueryInstance VerifySession( Context.Database, _T("VerifySession") );
 			VerifySession->Bind( "@SessionToken", SessionToken.c_str() );
 		
 			int Count = VerifySession->Execute( nullptr );

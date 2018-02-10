@@ -13,7 +13,7 @@
 using namespace web::json;
 using namespace web::http::client;
 
-void Command_Camera::OnMessage( const unique_ptr<GlobalContext>& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
+void Command_Camera::OnMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
 {
 	auto Packet = Message.extract_json().get();
 
@@ -63,7 +63,7 @@ void Command_Camera::OnMessage( const unique_ptr<GlobalContext>& Context, http_r
 	}
 }
 
-void Command_Camera::OnPreviewMessage( const unique_ptr<GlobalContext>& Context, http_request& Message, const string_t& TargetCamera, const json::value& Packet )
+void Command_Camera::OnPreviewMessage( const GlobalContext& Context, http_request& Message, const string_t& TargetCamera, const json::value& Packet )
 {
 	//NO CSRF!
 
@@ -74,10 +74,10 @@ void Command_Camera::OnPreviewMessage( const unique_ptr<GlobalContext>& Context,
 		return;
 	}
 
-	lock_guard<mutex> Lock( Context->Mutex );
+	lock_guard<mutex> Lock( Context.Mutex );
 
-	auto Iter = Context->Cameras.find( TargetCameraInt );
-	if( Iter != Context->Cameras.end() )
+	auto Iter = Context.Cameras.find( TargetCameraInt );
+	if( Iter != Context.Cameras.end() )
 	{
 		http_response Response;
 		Response.set_status_code( status_codes::OK );
@@ -93,7 +93,7 @@ void Command_Camera::OnPreviewMessage( const unique_ptr<GlobalContext>& Context,
 	}
 }
 
-void Command_Camera::OnEnumMessage( const unique_ptr<GlobalContext>& Context, http_request& Message, const json::value& Packet )
+void Command_Camera::OnEnumMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet )
 {
 	//NO CSRF!
 	if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, false ) )
@@ -103,7 +103,7 @@ void Command_Camera::OnEnumMessage( const unique_ptr<GlobalContext>& Context, ht
 
 	vector<json::value> Array;
 	
-	SQLiteDatabaseQueryInstance GetCameras( Context->Database, _T("GetCameras") );
+	SQLiteDatabaseQueryInstance GetCameras( Context.Database, _T("GetCameras") );
 
 	GetCameras->Execute( 
 		[&Array, &Context]( const SQLiteDatabaseQuery& query )
@@ -116,10 +116,10 @@ void Command_Camera::OnEnumMessage( const unique_ptr<GlobalContext>& Context, ht
 			Camera[ _T("name") ] = json::value(Name);
 
 			{
-				lock_guard<mutex> Lock( Context->Mutex );
+				lock_guard<mutex> Lock( Context.Mutex );
 
-				auto Iter = Context->Cameras.find( ID );
-				if( Iter != Context->Cameras.end() )
+				auto Iter = Context.Cameras.find( ID );
+				if( Iter != Context.Cameras.end() )
 				{
 					Camera[ _T("recording") ] = json::value( (*Iter).second.IsRecording );
 				}
@@ -134,7 +134,7 @@ void Command_Camera::OnEnumMessage( const unique_ptr<GlobalContext>& Context, ht
 	Message.reply( status_codes::OK, json::value::array(Array) );
 }
 
-void Command_Camera::OnRecordMessage( const unique_ptr<GlobalContext>& Context, http_request& Message, const string_t& TargetCamera, const json::value& Packet )
+void Command_Camera::OnRecordMessage( const GlobalContext& Context, http_request& Message, const string_t& TargetCamera, const json::value& Packet )
 {
 	if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, true ) )
 	{
@@ -158,10 +158,10 @@ void Command_Camera::OnRecordMessage( const unique_ptr<GlobalContext>& Context, 
 	bool ValidCamera = false;
 
 	{
-		lock_guard<mutex> Lock( Context->Mutex );
+		lock_guard<mutex> Lock( Context.Mutex );
 
-		auto Iter = Context->Cameras.find( TargetCameraInt );
-		if( Iter != Context->Cameras.end() )
+		auto Iter = Context.Cameras.find( TargetCameraInt );
+		if( Iter != Context.Cameras.end() )
 		{
 			//Don't set recording value here, need to ensure it gets toggled correctly
 			ValidCamera = true;
@@ -170,7 +170,7 @@ void Command_Camera::OnRecordMessage( const unique_ptr<GlobalContext>& Context, 
 
 	auto ToggleRecord = make_shared<CameraStateToggleRecordMessage>( TargetCameraInt, Record );
 
-	Context->MessageBus->SendToClient( nullptr, ToggleRecord );
+	Context.MessageBus->SendToClient( nullptr, ToggleRecord );
 
 	Message.reply( status_codes::OK, json::value(_T("OK")) );
 }

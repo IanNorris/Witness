@@ -13,7 +13,7 @@
 using namespace web::json;
 using namespace web::http::client;
 
-void Command_Clip::OnMessage( const unique_ptr<GlobalContext>& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
+void Command_Clip::OnMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
 {
 	auto Packet = Message.extract_json().get();
 
@@ -37,7 +37,7 @@ void Command_Clip::OnMessage( const unique_ptr<GlobalContext>& Context, http_req
 	}
 }
 
-void Command_Clip::OnThumbnailMessage( const unique_ptr<GlobalContext>& Context, http_request& Message, const string_t& TargetCamera, const string_t& TargetClip, const json::value& Packet )
+void Command_Clip::OnThumbnailMessage( const GlobalContext& Context, http_request& Message, const string_t& TargetCamera, const string_t& TargetClip, const json::value& Packet )
 {
 	//NO CSRF!
 
@@ -49,10 +49,10 @@ void Command_Clip::OnThumbnailMessage( const unique_ptr<GlobalContext>& Context,
 		return;
 	}*/
 
-	lock_guard<mutex> Lock( Context->Mutex );
+	lock_guard<mutex> Lock( Context.Mutex );
 
-	auto IterCamera = Context->Cameras.find( TargetCameraInt );
-	if( IterCamera != Context->Cameras.end() )
+	auto IterCamera = Context.Cameras.find( TargetCameraInt );
+	if( IterCamera != Context.Cameras.end() )
 	{
 		const auto& Camera = (*IterCamera).second.ClipThumbnails;
 		auto IterClip = Camera.find( TargetCameraTimestamp );

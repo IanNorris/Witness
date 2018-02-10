@@ -15,7 +15,7 @@ struct CameraStateToggleRecordMessage : public Message
 class GlobalContext
 {
 public:
-
+	
 	struct CameraState
 	{
 		CameraState()

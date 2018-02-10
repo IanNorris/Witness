@@ -12,6 +12,8 @@ using namespace std;
 
 class SQLiteDatabase;
 
+#define MAKE_QUERY( Name ) SQLiteDatabaseQueryInstance Name( Context->Database, _T(#Name) )
+
 class SQLiteDatabaseQuery
 {
 public:

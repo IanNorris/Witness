@@ -81,15 +81,15 @@ void WitnessListener::OnCommand( http_request Message, bool IsPost )
 		{
 			Path.erase( Path.begin() );
 
-			(*FoundCommand).second->OnMessage( m_GlobalContext, Message, CommandName, Path, IsPost );
+			(*FoundCommand).second->OnMessage( *m_GlobalContext, Message, CommandName, Path, IsPost );
 		}
 		else
 		{
-			m_Commands[U("static")]->OnMessage( m_GlobalContext, Message, U(""), Path, IsPost );
+			m_Commands[U("static")]->OnMessage( *m_GlobalContext, Message, U(""), Path, IsPost );
 		}
 	}
 	else
 	{
-		m_Commands[U("static")]->OnMessage( m_GlobalContext, Message, U(""), Path, IsPost );
+		m_Commands[U("static")]->OnMessage( *m_GlobalContext, Message, U(""), Path, IsPost );
 	}
 }
