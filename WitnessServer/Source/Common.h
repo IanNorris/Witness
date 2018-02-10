@@ -50,5 +50,14 @@ enum class StringStrip
 string_t Trim( string_t tInput );
 vector< string_t > SplitString( string_t tInput, string_t tSeparator, StringTrim eTrim = StringTrim::Trim, StringStrip eStrip = StringStrip::RemoveEmpty );
 
+string StringPrintfA(char* Message, ...);
+wstring StringPrintfW(wchar_t* Message, ...);
+
+#if defined(UNICODE) || defined(_UNICODE)
+#define StringPrintfT StringPrintfW
+#else
+#define StringPrintfT StringPrintfA
+#endif
+
 template<typename T>
 bool GetJsonField( const web::json::value& Object, const TCHAR* FieldName, T& ValueOut, utility::string_t& Errors );

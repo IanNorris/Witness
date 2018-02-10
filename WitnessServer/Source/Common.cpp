@@ -7,6 +7,8 @@
 #include <unistd.h>
 #endif
 
+#include <stdarg.h>
+
 #include <fstream>
 #include <sstream>
 
@@ -91,4 +93,36 @@ vector< string_t > SplitString( string_t tInput, string_t tSeparator, StringTrim
 	}
 
 	return tResult;
+}
+
+string StringPrintfA(char* Message, ...)
+{
+	va_list Args;
+	va_start( Args, Message );
+
+	size_t Length = _vscprintf( Message, Args );
+
+	shared_ptr<char> Buffer( new char[ Length + 1 ], std::default_delete<char[]>() );
+
+	vsprintf_s( Buffer.get(), Length + 1, Message, Args );
+
+	va_end( Args );
+
+	return string(Buffer.get());
+}
+
+wstring StringPrintfW(wchar_t* Message, ...)
+{
+	va_list Args;
+	va_start( Args, Message );
+
+	size_t Length = _vscwprintf( Message, Args );
+
+	shared_ptr<wchar_t> Buffer( new wchar_t[ Length + 1 ], std::default_delete<wchar_t[]>() );
+
+	vswprintf_s( Buffer.get(), Length + 1, Message, Args );
+
+	va_end( Args );
+
+	return wstring(Buffer.get());
 }
