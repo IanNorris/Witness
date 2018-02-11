@@ -14,28 +14,6 @@ class ObservingMotionFilter;
 
 using namespace Witness::Camera;
 
-struct CameraStartupMessage : public Message
-{
-	CameraStartupMessage( int CamIndex ) : Camera( CamIndex ) {}
-
-	int Camera;
-};
-
-struct CameraShutdownMessage : public Message
-{
-	CameraShutdownMessage( int CamIndex ) : Camera( CamIndex ) {}
-
-	int Camera;
-};
-
-struct CameraReconnectMessage : public Message
-{
-	CameraReconnectMessage( int CamIndex, string_t Error ) : Camera( CamIndex ), Error( Error ) {}
-
-	int Camera;
-	string_t Error;
-};
-
 class CameraWorker
 {
 public:

@@ -4,25 +4,10 @@
 #include <condition_variable>
 #include <vector>
 #include "cpprest/json.h"
+#include "Message.h"
 
 using namespace web;
 using namespace std;
-
-struct Message
-{
-public:
-
-	virtual ~Message() {}
-
-	template< typename T > void Handle( const std::function< void(const T&) >& Delegate )
-	{
-		T* Object = dynamic_cast<T*>(this);
-		if( Object )
-		{
-			Delegate( *Object );
-		}
-	}
-};
 
 class MessageBusQueue
 {

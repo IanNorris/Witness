@@ -68,7 +68,7 @@
       <AdditionalDependencies>$(SolutionDir)\ThirdParty\SubModules\cpprestsdk\Binaries\x64\Debug\cpprest140d_2_10.lib;$(SolutionDir)\ThirdParty\SubModules\libsodium\Build\DebugDLL\x64\libsodium.lib;$(SolutionDir)\ThirdParty\opencv-3.3.0\x64\vc14\lib\opencv_world330d.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
-      <Command>cmd /C copy /Y $(SolutionDir)\ThirdParty\SubModules\cpprestsdk\Binaries\x64\Debug\cpprest140d_2_10.* $(OutputPath) &amp;&amp; copy /Y $(SolutionDir)\ThirdParty\SubModules\libsodium\Build\DebugDLL\x64\libsodium.* $(OutputPath) &amp;&amp; copy /Y $(SolutionDir)\ThirdParty\opencv-3.3.0\x64\vc14\bin\opencv_world330*.dll $(OutputPath)</Command>
+      <Command>cmd /C robocopy /njh /njs /np /nfl /ndl $(SolutionDir)\ThirdParty\SubModules\cpprestsdk\Binaries\x64\Debug $(OutputPath) cpprest140d_2_10.* &amp;&amp; robocopy /njh /njs /np /nfl /ndl $(SolutionDir)\ThirdParty\SubModules\libsodium\Build\DebugDLL\x64 $(OutputPath) libsodium.* &amp;&amp; robocopy /njh /njs /np /nfl /ndl $(SolutionDir)\ThirdParty\opencv-3.3.0\x64\vc14\bin $(OutputPath) opencv_world330*.dll</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -90,7 +90,7 @@
       <AdditionalDependencies>$(SolutionDir)\ThirdParty\SubModules\cpprestsdk\Binaries\x64\Release\cpprest140_2_10.lib;$(SolutionDir)\ThirdParty\SubModules\libsodium\Build\ReleaseDLL\x64\libsodium.lib;$(SolutionDir)\ThirdParty\opencv-3.3.0\x64\vc14\lib\opencv_world330.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
-      <Command>cmd /C copy /Y $(SolutionDir)\ThirdParty\SubModules\cpprestsdk\Binaries\x64\Release\cpprest140_2_10.* $(OutputPath) &amp;&amp; copy /Y $(SolutionDir)\ThirdParty\SubModules\libsodium\Build\ReleaseDLL\x64\libsodium.* $(OutputPath) &amp;&amp; copy /Y $(SolutionDir)\ThirdParty\opencv-3.3.0\x64\vc14\bin\opencv_world330*.dll $(OutputPath)</Command>
+      <Command>cmd /C robocopy /njh /njs /np /nfl /ndl $(SolutionDir)\ThirdParty\SubModules\cpprestsdk\Binaries\x64\Release $(OutputPath) cpprest140_2_10.* &amp;&amp; robocopy /njh /njs /np /nfl /ndl $(SolutionDir)\ThirdParty\SubModules\libsodium\Build\ReleaseDLL\x64 $(OutputPath) libsodium.* &amp;&amp; robocopy /njh /njs /np /nfl /ndl $(SolutionDir)\ThirdParty\opencv-3.3.0\x64\vc14\bin $(OutputPath) opencv_world330*.dll</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
@@ -107,11 +107,16 @@
     <ClCompile Include="Source\Listener.cpp" />
     <ClCompile Include="Source\Main.cpp" />
     <ClCompile Include="Source\MessageBus.cpp" />
-    <ClCompile Include="Source\MessageDispatcher.cpp" />
+    <ClCompile Include="Source\MessageDispatcher.cpp">
+      <PreprocessToFile Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">false</PreprocessToFile>
+    </ClCompile>
+    <ClCompile Include="Source\MotionEvents.cpp" />
     <ClCompile Include="Source\ObservingMotionFilter.cpp" />
     <ClCompile Include="Source\Init.cpp" />
+    <ClCompile Include="Source\Recording.cpp" />
     <ClCompile Include="Source\Shutdown.cpp" />
     <ClCompile Include="Source\SQLite.cpp" />
+    <ClCompile Include="Source\StatusEvents.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\WitnessCamera\WitnessCamera.vcxproj">
@@ -131,7 +136,9 @@
     <ClInclude Include="Source\GlobalContext.h" />
     <ClInclude Include="Source\Listener.h" />
     <ClInclude Include="Source\ListenerCommand.h" />
+    <ClInclude Include="Source\Message.h" />
     <ClInclude Include="Source\MessageBus.h" />
+    <ClInclude Include="Source\Messages.h" />
     <ClInclude Include="Source\ObservingMotionFilter.h" />
     <ClInclude Include="Source\SQLite.h" />
     <ClInclude Include="Source\Witness.h" />
