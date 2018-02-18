@@ -15,7 +15,14 @@ void WitnessServer::HandleCameraBeginMotionMessage(const CameraBeginMotionMessag
 		auto Iter = Context->Cameras.find( Data.Camera );
 		if( Iter != Context->Cameras.end() )
 		{
-			(*Iter).second.ClipThumbnails[ Data.Timestamp ] = Data.Jpeg;
+			if( Data.Jpeg.size() )
+			{
+				(*Iter).second.ClipThumbnails[ Data.Timestamp ] = Data.Jpeg;
+			}
+			else
+			{
+				tcerr << _T("Clip thumbnail is empty") << endl;
+			}
 			CameraName = (*Iter).second.Name;
 			Worker = (*Iter).second.Worker;
 

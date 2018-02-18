@@ -12,6 +12,7 @@
 	<link rel="stylesheet" type="text/css" href="asset/css/plugins/animate.min.css"/>
 	<link rel="stylesheet" type="text/css" href="asset/css/plugins/fullcalendar.min.css"/>
 	<link rel="stylesheet" type="text/css" href="asset/css/jquery.toast.min.css"/>
+	<link rel="stylesheet" type="text/css" href="asset/css/plugins/datatables.bootstrap.min.css">
 	
 	<link href="asset/css/style.css" rel="stylesheet">
 
@@ -70,15 +71,15 @@
 			  <div class="sub-left-menu scroll">
 				<ul class="nav nav-list">
 					<li class="time">
-					  <h1 class="animated fadeInLeft">21:00</h1>
-					  <p class="animated fadeInRight">Sat,October 1st 2029</p>
+					  <h1 class="animated fadeInLeft"></h1>
+					  <p class="animated fadeInRight"></p>
 					</li>
 					<li class="ripple" data-bind="css: { active: isViewingStream }">
 					  <a class="tree-toggle nav-header"><span class="fa-eye fa"></span> Live cameras 
 						<span class="fa-angle-right fa right-arrow text-right"></span>
 					  </a>
 					  <ul class="nav nav-list tree" data-bind="foreach: cameras">
-						  <li data-bind="css: { active: isSelectedStream }, click: selectCameraStream"><a href="" data-bind="text: cameraName"></a></li>
+						  <li data-bind="css: { active: isSelectedStream }, click: selectCameraStream"><a class="clickable" data-bind="text: cameraName, attr: { name: streamName }"></a></li>
 					  </ul>
 					</li>
 					<li class="ripple" data-bind="css: { active: isViewingClips }">
@@ -87,7 +88,7 @@
 						<span class="fa-angle-right fa right-arrow text-right"></span>
 					  </a>
 					  <ul class="nav nav-list tree" data-bind="foreach: cameras">
-						<li data-bind="css: { active: isSelectedClip }, click: selectCameraClips"><a href="" data-bind="text: cameraName"></a></li>
+						<li data-bind="css: { active: isSelectedClip }, click: selectCameraClips"><a class="clickable" data-bind="text: cameraName, attr: { name: clipName }"></a></li>
 					  </ul>
 					</li>
 				  </ul>
@@ -95,7 +96,7 @@
 			</div>
 			
 			<div id="content">
-				<div class="panel">
+				<div class="panel box-shadow-none content-header">
 				  <div class="panel-body">
 					  <div class="col-md-6 col-sm-12">
 						<h3 class="animated fadeInLeft">Cameras</h3>
@@ -135,6 +136,39 @@
 				</div>
 
 				<div class="col-md-12" style="padding:20px;">
+					<div class="panel animated fadeIn" data-bind="with: clipBrowser, visible: isViewingClips">
+						<div class="panel-heading">
+							<h3>Clips</h3>
+						</div>
+						<div class="panel-body">
+							<div class="responsive-table">
+								<div class="dataTables_wrapper form-inline dt-bootstrap no-footer">
+									<table class="table table-striped table-bordered dataTable no-footer" width="100%" style="width: 100%">
+										<thead>
+											<th tabindex="0">Preview</th>
+											<th>When</th>
+											<th>Duration</th>
+											<th>Motion</th>
+											<th>Type</th>
+										</thead>
+										<tbody data-bind="foreach: clips">
+											<tr role="row" class="even" data-bind="css: { odd: ($index() % 2 == 1), even: ($index() % 2 == 0) }">
+												<td style="width:400px;">
+													<video controls preload="metadata" data-bind="attr: { poster: thumbnail }" width="150" height="100">
+														<source data-bind="attr: { src: video }" type="video/mp4">
+													</video>
+												</td>
+												<td data-bind="text: agoDesc"></td>
+												<td data-bind="text: durationDesc"></td>
+												<td data-bind="text: motionDesc"></td>
+												<td data-bind="text: typeDesc"></td>
+											</tr>
+										</tbody>
+									</table>
+								</div>
+							</div>
+						</div>
+					</div>
 				</div>
 			</div>	  
 		</div>
@@ -144,6 +178,12 @@
 		<div class="spinner-container"></div>
 		<div class="spinner-container2"></div>
 	</div>
+	
+	<script type="text/html" id="ClipTemplate">
+		<tr>
+			
+		</tr>
+	</script>
 	
 	<script src="asset/js/jquery.min.js"></script>
 	<script src="asset/js/jquery.ui.min.js"></script>
@@ -156,6 +196,8 @@
 
 	<script src="asset/js/plugins/moment.min.js"></script>
 	<script src="asset/js/plugins/jquery.nicescroll.js"></script>
+	<script src="asset/js/plugins/jquery.datatables.min.js"></script>
+	<script src="asset/js/plugins/moment.min.js"></script>
 	
 	<script src="asset/js/main-ui.js"></script>
 	<script src="asset/js/main.js"></script>

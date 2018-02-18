@@ -3,6 +3,7 @@
 #include "Database.h"
 #include "Android/AndroidNotify.h"
 #include "Commands/Authenticate.h"
+#include "Commands/Clip.h"
 #include "ObservingMotionFilter.h"
 #include "Witness.h"
 
@@ -79,11 +80,8 @@ void WitnessServer::StopCameraRecording( const ClipStatistics& ClipStats, int Ca
 
 	//Could get no image, in which case don't send it as we've got nothing to save out.
 	if( !WriteThumbnailMessage->Jpeg.empty() )
-	{
-		stringstream_t PathOut;
-		PathOut << CachePath << _T("\\") << CameraID << _T("_") << ClipStats.TimestampClipStarted << _T(".jpg");
-	
-		WriteThumbnailMessage->Filename = PathOut.str();
+	{	
+		WriteThumbnailMessage->Filename = GetClipName( *Context, CameraID, ClipStats.TimestampClipStarted, false, false );;
 	
 		Context->MessageBus->SendToClient( Worker.get(), WriteThumbnailMessage );
 	}

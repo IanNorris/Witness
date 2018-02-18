@@ -115,6 +115,25 @@ namespace Database
 		;
 	)RAW";
 
+	string_t SelectClipsWithinRange = LR"RAW(
+		SELECT * FROM Clip
+		WHERE
+				Camera == @CameraID
+			AND	Timestamp >= @TimestampFrom
+			AND Timestamp <= @TimestampTo
+		ORDER BY Timestamp DESC
+		LIMIT @MaxCount OFFSET @PageOffset
+		;
+	)RAW";
+
+	string_t SelectClip = LR"RAW(
+		SELECT * FROM Clip
+		WHERE
+				Camera == @CameraID
+			AND	Timestamp == @Timestamp
+		;
+	)RAW";
+
 #define CREATE_QUERY( X ) DB->CreateQuery( _T(#X), X )
 
 	shared_ptr<SQLiteDatabase> InitializeDatabase( string_t Filename )
@@ -141,6 +160,8 @@ namespace Database
 
 		CREATE_QUERY( CreateClip );
 		CREATE_QUERY( UpdateClip );
+		CREATE_QUERY( SelectClip );
+		CREATE_QUERY( SelectClipsWithinRange );
 
 		return DB;
 	}

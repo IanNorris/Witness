@@ -1,3 +1,5 @@
+var anchorClickDelay = 100;
+
 var AuthenticationViewModel = function( parent ) {
 	"use strict";
 	
@@ -58,6 +60,122 @@ var AuthenticationViewModel = function( parent ) {
 	};
 };
 
+var ClipViewModel = function( parent, newTimestamp, newCameraID, newMotionTimestamp, newActiveDuration, newDuration, newRecordMode, newMaxMotion, newDescription ) {
+	"use strict";
+	
+	var self = this;
+		
+	self.parent = parent;
+	
+	self.timestamp = ko.observable(newTimestamp);
+	self.cameraID = ko.observable(newCameraID);
+	self.motionTimestamp = ko.observable(newMotionTimestamp);
+	self.activeDuration = ko.observable(newActiveDuration);
+	self.duration = ko.observable(newDuration);
+	self.recordMode = ko.observable(newRecordMode);
+	self.maxMotion = ko.observable(newMaxMotion);
+	self.description = ko.observable(newDescription);
+	
+	self.thumbnail = ko.computed( function() {
+		return "/clip/thumb/" + self.cameraID() + "/" + self.timestamp();
+	} );
+	
+	self.video = ko.computed( function() {
+		return "/clip/video/" + self.cameraID() + "/" + self.timestamp();
+	} );
+	
+	self.agoDesc = ko.computed( function() {
+		return moment(self.timestamp() * 1000).local().calendar();
+	} );
+	
+	self.durationDesc = ko.computed( function() {
+		return moment.duration(self.duration() * 1000).humanize();
+	} );
+	
+	self.motionDesc = ko.computed( function() {
+		return (self.maxMotion() * 100.0).toFixed(0) +'%';
+	} );
+	
+	self.typeDesc = ko.computed( function() {
+		return self.recordMode() == 0 ? 'Manual' : 'Motion activated';
+	} );
+};
+
+var CameraClipsViewModel = function( parent, cameraID ) {
+	"use strict";
+	
+	var self = this;
+		
+	self.parent = parent;
+	self.cameraID = ko.observable(cameraID);
+	
+	self.maxCount = ko.observable(10);
+	//self.startDate = ko.observable(0);
+	self.rangePeriod = ko.observable(24 * 60 * 60);
+	self.page = ko.observable(0);
+	
+	self.clips = ko.observableArray([]);
+	
+	self.refreshClipData = function() {
+		var timeNow = (moment().startOf('day').utc() / 1000) - 1;
+		$.ajax({
+			method: 'GET',
+			url: '/clip/enum/' + self.cameraID() + '/' + self.maxCount() + '/' + timeNow + '/' + self.rangePeriod() + '/' + self.page(),
+			contentType: 'application/json; charset=utf-8',
+		} )
+		.done( function( result ) {
+			
+			for( var clip = 0; clip < result.length; clip++ ) {
+				
+				var newTimestamp = result[clip].timestamp;
+				var newCameraID = result[clip].cameraID;
+				var newMotionTimestamp = result[clip].motionTimestamp;
+				var newActiveDuration = result[clip].activeDuration;
+				var newDuration = result[clip].duration;
+				var newRecordMode = result[clip].recordMode;
+				var newMaxMotion = result[clip].maxMotion;
+				var newDescription = result[clip].description;
+
+				var existing = null;
+				
+				for( var existingClip = 0; existingClip < self.clips().length; existingClip++ )
+				{
+					if( self.clips()[ existingClip ].timestamp() == newTimestamp ) {
+						existing = self.clips()[ existingClip ];
+						break;
+					}
+				}
+				
+				if( existing ){
+					existing.cameraID(newCameraID);
+					existing.motionTimestamp(newMotionTimestamp);
+					existing.activeDuration(newActiveDuration);
+					existing.duration(newDuration);
+					existing.recordMode(newRecordMode);
+					existing.maxMotion(newMaxMotion);
+					existing.description(newDescription);
+				}
+				else {
+					self.clips.push(  new ClipViewModel( self, newTimestamp, newCameraID, newMotionTimestamp, newActiveDuration, newDuration, newRecordMode, newMaxMotion, newDescription ) );
+				}
+				
+				self.clips.sort( function( left, right ) {
+					return left.timestamp() < right.timestamp();
+				} );
+			}
+		} )
+		.fail( function( result ) {
+			$.toast( {
+				text: "Error fetching clip list.",
+				type: 'danger',
+				bgColor: '#a94442',
+				position: 'top-center'
+			} );
+		} );
+	};
+	self.refreshClipData();
+};
+
 var CameraViewModel = function( parent, cameraID, cameraName, cameraRecording ) {
 	"use strict";
 	
@@ -78,6 +196,14 @@ var CameraViewModel = function( parent, cameraID, cameraName, cameraRecording ) 
 	self.isSelectedStream = ko.computed( function() {
 		return self.isSelected() && self.parent.isViewingStream();
 	} );
+	
+	self.streamName = ko.computed( function() {
+		return "Stream_" + self.cameraID();
+	} );
+	
+	self.clipName = ko.computed( function() {
+		return "Clip_" + self.cameraID();
+	} );
 		
 	self.frameIndex = 0;
 	
@@ -94,16 +220,20 @@ var CameraViewModel = function( parent, cameraID, cameraName, cameraRecording ) 
 			cameras[c].isSelected(false);
 		}
 		self.isSelected(true);
+		return self.cameraID();
 	};
 	
 	self.selectCameraStream = function() {
-		self.selectCamera();
+		var cameraID = self.selectCamera();
 		self.parent.isViewingClips(false);
+		window.location.hash = "#" + self.streamName();
 	};
 	
 	self.selectCameraClips = function() {
-		self.selectCamera();
+		var cameraID = self.selectCamera();
 		self.parent.isViewingClips(true);
+		self.parent.clipBrowser( new CameraClipsViewModel( self.parent, cameraID ) );
+		window.location.hash = "#" + self.clipName();
 	};
 	
 	self.toggleRecording = function() {
@@ -145,6 +275,8 @@ var WitnessViewModel = function() {
 	var self = this;
 	
 	self.authentication = new AuthenticationViewModel( self );
+	
+	self.clipBrowser = ko.observable(null);
 		
 	self.cameraListReceived = ko.observable(false);
 	self.cameras = ko.observableArray([]);
@@ -155,13 +287,25 @@ var WitnessViewModel = function() {
 	self.isViewingStream = ko.computed( function() { return !self.isViewingClips(); } );
 		
 	self.ready = ko.computed( function() {
-		return self.authentication.ready()
-			&& self.cameraListReceived();
+		var isReady = self.authentication.ready()
+				   && self.cameraListReceived();
+						
+		setTimeout( self.onFinishdRender, anchorClickDelay );
+						
+		return isReady;
 	} );
 	
 	self.notReady = ko.computed( function() {
 		return !self.ready();
 	} );
+	
+	self.onFinishdRender = function() {
+		if( self.ready() ) {
+			if( window.location.hash ) {
+				$( ".clickable[name='" + window.location.hash.substr(1) + "']" ).click();
+			}
+		}
+	};
 	
 	self.refreshCameraData = function() {
 		$.ajax({

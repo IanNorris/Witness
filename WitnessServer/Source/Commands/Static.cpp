@@ -101,7 +101,7 @@ void Command_Static::OnMessage( const GlobalContext& Context, http_request& Mess
 				fs::path fullPath = m_root;
 				fullPath.append( Iter->first );
 
-				size64_t FileSize = fs::file_size(fullPath );
+				size64_t FileSize = fs::file_size( fullPath );
 
 				auto FileHandle = concurrency::streams::file_stream<uint8_t>::open_istream(fullPath.native());
 
