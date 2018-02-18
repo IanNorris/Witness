@@ -31,15 +31,15 @@ void CameraWorker::WorkerThread()
 
 	while( !Shutdown )
 	{
-		shared_ptr<Message> Message;
-		if( MessageBusQueue->TryPop( Message ) )
+		shared_ptr<Message> Msg;
+		if( MessageBusQueue->TryPop( Msg ) )
 		{
-			Message->Handle<CameraShutdownMessage>([&](const CameraShutdownMessage& Data)
+			Msg->Handle<ThreadShutdownMessage>([&](const ThreadShutdownMessage& Data)
 			{
 				Shutdown = true;
 			});
 
-			Message->Handle<CameraStartRecordMessage>([&](const CameraStartRecordMessage& Data)
+			Msg->Handle<CameraStartRecordMessage>([&](const CameraStartRecordMessage& Data)
 			{
 				OnClipFinished();
 				
@@ -48,7 +48,7 @@ void CameraWorker::WorkerThread()
 				RecordStream->Initialize();
 			});
 
-			Message->Handle<CameraStopRecordMessage>([&](const CameraStopRecordMessage& Data)
+			Msg->Handle<CameraStopRecordMessage>([&](const CameraStopRecordMessage& Data)
 			{
 				OnClipFinished();
 			});
@@ -69,7 +69,7 @@ void CameraWorker::WorkerThread()
 	Filter = nullptr;
 	CameraStream = nullptr;
 
-	MessageBus->SendToClient( nullptr, make_shared<CameraShutdownMessage>( CameraID ) );
+	MessageBus->SendToClient( nullptr, make_shared<ThreadShutdownMessage>() );
 
 	MessageBus->RemoveClient( this );
 	MessageBusQueue = nullptr;

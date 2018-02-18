@@ -15,7 +15,6 @@
 void WitnessServer::MessageLoop()
 {
 	MakeLambda(CameraStartupMessage);
-	MakeLambda(CameraShutdownMessage);
 	MakeLambda(CameraReconnectMessage);
 	MakeLambda(CameraSnapshotMessage);
 	MakeLambda(CameraBeginMotionMessage);
@@ -28,12 +27,13 @@ void WitnessServer::MessageLoop()
 		MessageClient->Pop( Msg );
 
 		HandleEvent(CameraStartupMessage);
-		HandleEvent(CameraShutdownMessage);
 		HandleEvent(CameraReconnectMessage);
 		HandleEvent(CameraSnapshotMessage);
 		HandleEvent(CameraBeginMotionMessage);
 		HandleEvent(CameraUpdateMotionMessage);
 		HandleEvent(CameraEndMotionMessage);
+
+		Context->MessageBus->Forward<CameraWriteThumbnailMessage>( Worker.get(), Msg );
 		
 		Msg->Handle<CameraClipFinishedMessage>([&](const CameraClipFinishedMessage& Data)
 		{

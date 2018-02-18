@@ -2,6 +2,7 @@
 
 #include "Common.h"
 #include "Messages.h"
+#include "AsyncWorker.h"
 
 class WitnessListener;
 class GlobalContext;
@@ -35,7 +36,6 @@ private:
 	void StatusMessage( int Camera, string_t Reason );
 
 	void HandleCameraStartupMessage(const CameraStartupMessage& Data);
-	void HandleCameraShutdownMessage(const CameraShutdownMessage& Data);
 	void HandleCameraReconnectMessage(const CameraReconnectMessage& Data);
 	void HandleCameraSnapshotMessage(const CameraSnapshotMessage& Data);
 	void HandleCameraBeginMotionMessage(const CameraBeginMotionMessage& Data);
@@ -51,6 +51,7 @@ private:
 	void StartCameraRecording( const shared_ptr<CameraWorker>& Worker, int CameraID, bool IsManual );
 	void StopCameraRecording( const ClipStatistics& ClipStats, int CameraID );
 
+	unique_ptr<AsyncWorker> Worker;
 	unique_ptr<WitnessListener>	Server;
 	shared_ptr<GlobalContext> Context;
 	shared_ptr<MessageBusQueue> MessageClient;

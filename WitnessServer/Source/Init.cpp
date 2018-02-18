@@ -82,6 +82,8 @@ bool WitnessServer::Initialize()
 		return false;
 	}
 
+	Worker = make_unique<AsyncWorker>( Context->MessageBus );
+
 	void* ServerMessageClient = nullptr;
 	MessageClient = Context->MessageBus->AddClient( ServerMessageClient );
 

@@ -88,6 +88,16 @@ public:
 		return false;
 	}
 
+	template<class T>
+	void Forward( void* ClientTo, const shared_ptr<Message>& Message )
+	{
+		T* Object = dynamic_cast<T*>(Message.get());
+		if (Object)
+		{
+			SendToClient( ClientTo, Message );
+		}
+	}
+
 private:
 
 	mutable mutex Mutex;

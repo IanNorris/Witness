@@ -7,11 +7,6 @@ void WitnessServer::HandleCameraStartupMessage(const CameraStartupMessage& Data)
 	StatusMessage( Data.Camera, _T("Online") );
 };
 
-void WitnessServer::HandleCameraShutdownMessage(const CameraShutdownMessage& Data)
-{
-	StatusMessage( Data.Camera, _T("Offline") );
-};
-
 void WitnessServer::HandleCameraReconnectMessage(const CameraReconnectMessage& Data)
 {
 	StatusMessage( Data.Camera, Data.Error );

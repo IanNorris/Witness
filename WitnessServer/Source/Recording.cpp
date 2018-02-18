@@ -55,6 +55,38 @@ void WitnessServer::StopCameraRecording( const ClipStatistics& ClipStats, int Ca
 
 	UpdateClip->Bind( "@MaxMotion", ClipStats.LargestMotionDelta );
 	UpdateClip->Execute( nullptr );
+
+	auto WriteThumbnailMessage = make_shared<CameraWriteThumbnailMessage>( CameraID );
+	
+	string_t CachePath;
+
+	{
+		lock_guard<mutex> Lock( Context->Mutex );
+
+		CachePath = Context->CachePath;
+			
+		auto Iter = Context->Cameras.find( CameraID );
+		if( Iter != Context->Cameras.end() )
+		{
+			WriteThumbnailMessage->Jpeg = (*Iter).second.ClipThumbnails[ ClipStats.TimestampClipStarted ];
+
+			if( WriteThumbnailMessage->Jpeg.empty() )
+			{
+				WriteThumbnailMessage->Jpeg = (*Iter).second.PreviewThumbnail;
+			}
+		}
+	}
+
+	//Could get no image, in which case don't send it as we've got nothing to save out.
+	if( !WriteThumbnailMessage->Jpeg.empty() )
+	{
+		stringstream_t PathOut;
+		PathOut << CachePath << _T("\\") << CameraID << _T("_") << ClipStats.TimestampClipStarted << _T(".jpg");
+	
+		WriteThumbnailMessage->Filename = PathOut.str();
+	
+		Context->MessageBus->SendToClient( Worker.get(), WriteThumbnailMessage );
+	}
 }
 
 void WitnessServer::StatusMessage( int Camera, string_t Reason )

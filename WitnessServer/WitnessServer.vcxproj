@@ -96,6 +96,7 @@
   <ItemGroup>
     <ClCompile Include="..\ThirdParty\SQLite-20180118\sqlite3.c" />
     <ClCompile Include="Source\Android\AndroidNotify.cpp" />
+    <ClCompile Include="Source\AsyncWorker.cpp" />
     <ClCompile Include="Source\CameraWorker.cpp" />
     <ClCompile Include="Source\Commands\Authenticate.cpp" />
     <ClCompile Include="Source\Commands\Camera.cpp" />
@@ -126,6 +127,7 @@
   <ItemGroup>
     <ClInclude Include="..\ThirdParty\SQLite-20180118\sqlite3.h" />
     <ClInclude Include="Source\Android\AndroidNotify.h" />
+    <ClInclude Include="Source\AsyncWorker.h" />
     <ClInclude Include="Source\CameraWorker.h" />
     <ClInclude Include="Source\Commands\Authenticate.h" />
     <ClInclude Include="Source\Commands\Camera.h" />

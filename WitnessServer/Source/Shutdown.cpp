@@ -7,5 +7,8 @@ void WitnessServer::Shutdown()
 	Context->MessageBus->RemoveClient( nullptr );
 	MessageClient = nullptr;
 
+	Worker->RequestShutdown();
+	Worker = nullptr;
+
 	Server->Stop();
 }

@@ -106,11 +106,8 @@ struct CameraStartupMessage : public Message
 	int Camera;
 };
 
-struct CameraShutdownMessage : public Message
+struct ThreadShutdownMessage : public Message
 {
-	CameraShutdownMessage( int CamIndex ) : Camera( CamIndex ) {}
-
-	int Camera;
 };
 
 struct CameraReconnectMessage : public Message
@@ -119,4 +116,15 @@ struct CameraReconnectMessage : public Message
 
 	int Camera;
 	string_t Error;
+};
+
+struct CameraWriteThumbnailMessage : public Message
+{
+	CameraWriteThumbnailMessage( int CamIndex ) : Camera( CamIndex ) {}
+
+	vector<unsigned char> Jpeg;
+
+	string_t Filename;
+
+	int Camera;
 };
