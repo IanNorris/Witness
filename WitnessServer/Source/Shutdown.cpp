@@ -10,5 +10,8 @@ void WitnessServer::Shutdown()
 	Worker->RequestShutdown();
 	Worker = nullptr;
 
+	Watchdog->RequestShutdown();
+	Watchdog = nullptr;
+
 	Server->Stop();
 }

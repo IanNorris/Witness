@@ -118,6 +118,8 @@
     <ClCompile Include="Source\Shutdown.cpp" />
     <ClCompile Include="Source\SQLite.cpp" />
     <ClCompile Include="Source\StatusEvents.cpp" />
+    <ClCompile Include="Source\WatchdogWorker.cpp" />
+    <ClCompile Include="Source\WorkerBase.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\WitnessCamera\WitnessCamera.vcxproj">
@@ -143,7 +145,9 @@
     <ClInclude Include="Source\Messages.h" />
     <ClInclude Include="Source\ObservingMotionFilter.h" />
     <ClInclude Include="Source\SQLite.h" />
+    <ClInclude Include="Source\WatchdogWorker.h" />
     <ClInclude Include="Source\Witness.h" />
+    <ClInclude Include="Source\WorkerBase.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

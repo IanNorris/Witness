@@ -4,45 +4,22 @@
 #include <fstream>
 #include <windows.h>
 
-void AsyncWorker::WorkerThread()
+void AsyncWorker::WorkerMain()
 {
-	MessageBusQueue = MessageBus->AddClient( this );
+	shared_ptr<Message> Msg;
+	MessageBusQueue->Pop( Msg );
 
-	auto& MB = *MessageBus;
-
-	while( !Shutdown )
+	Msg->Handle<ThreadShutdownMessage>([&](const ThreadShutdownMessage& Data)
 	{
-		shared_ptr<Message> Msg;
-		if( MessageBusQueue->TryPop( Msg ) )
-		{
-			Msg->Handle<ThreadShutdownMessage>([&](const ThreadShutdownMessage& Data)
-			{
-				Shutdown = true;
-			});
+		RequestShutdown();
+	});
 
-			Msg->Handle<CameraWriteThumbnailMessage>([&](const CameraWriteThumbnailMessage& Data)
-			{
-				ofstream Output( string( Data.Filename.begin(), Data.Filename.end() ), ofstream::binary );
+	Msg->Handle<CameraWriteThumbnailMessage>([&](const CameraWriteThumbnailMessage& Data)
+	{
+		ofstream Output( string( Data.Filename.begin(), Data.Filename.end() ), ofstream::binary );
 
-				Output.write( (const char*)&Data.Jpeg[0], Data.Jpeg.size() );
+		Output.write( (const char*)&Data.Jpeg[0], Data.Jpeg.size() );
 
-				Output.close();
-			});
-		}
-	}
-	
-	MessageBus->RemoveClient( this );
-	MessageBusQueue = nullptr;
-
-	//Don't allow Complete to be fired until all work above is complete
-	MemoryBarrier();
-
-	Complete = true;
-}
-
-void AsyncWorker::RequestShutdown()
-{
-	Shutdown = true;
-
-	MemoryBarrier();
+		Output.close();
+	});
 }

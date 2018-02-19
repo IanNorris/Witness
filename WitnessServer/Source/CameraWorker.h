@@ -1,60 +1,37 @@
 #pragma once
 
-#include <thread>
-
-#include "Common.h"
+#include "WorkerBase.h"
 
 #include <InputStream.h>
 #include <OutputStream.h>
 #include <MotionFilter.h>
 
-#include "MessageBus.h"
-
 class ObservingMotionFilter;
 
 using namespace Witness::Camera;
 
-class CameraWorker
+class CameraWorker : public WorkerBase
 {
 public:
 	CameraWorker(const int CameraID, const string_t& InputPath, const shared_ptr<MessageBus>& MessageBus)
-	: MessageBus( MessageBus )
+	: WorkerBase( MessageBus )
 	, Path( InputPath )
 	, CameraID( CameraID )
-	, Shutdown( false )
-	, Complete( false )
-	{
-		Thread = make_unique<thread>( &CameraWorker::WorkerThread, this );
-	}
-
-	void RequestShutdown();
-
-	virtual ~CameraWorker()
-	{
-		RequestShutdown();
-
-		if( !Complete )
-		{
-			Thread->join();
-		}
-	}
+	{}
 
 private:
 
-	void WorkerThread();
+	virtual void WorkerInit() override;
+	virtual void WorkerShutdown() override;
+	virtual void WorkerMain() override;
 
-	unique_ptr<thread> Thread;
+	void OnClipFinished();
 
 	shared_ptr<OutputStream> RecordStream;
 
 	shared_ptr<InputStream> CameraStream;
 	shared_ptr<ObservingMotionFilter> Filter;
 
-	shared_ptr<MessageBus> MessageBus;
-	shared_ptr<MessageBusQueue> MessageBusQueue;
-
 	string_t Path;
 	int CameraID;
-	bool Shutdown;
-	bool Complete;
 };

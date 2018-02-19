@@ -3,6 +3,7 @@
 #include "Common.h"
 #include "Messages.h"
 #include "AsyncWorker.h"
+#include "WatchdogWorker.h"
 
 class WitnessListener;
 class GlobalContext;
@@ -52,6 +53,7 @@ private:
 	void StopCameraRecording( const ClipStatistics& ClipStats, int CameraID );
 
 	unique_ptr<AsyncWorker> Worker;
+	unique_ptr<WatchdogWorker> Watchdog;
 	unique_ptr<WitnessListener>	Server;
 	shared_ptr<GlobalContext> Context;
 	shared_ptr<MessageBusQueue> MessageClient;

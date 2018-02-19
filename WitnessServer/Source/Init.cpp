@@ -83,6 +83,10 @@ bool WitnessServer::Initialize()
 	}
 
 	Worker = make_unique<AsyncWorker>( Context->MessageBus );
+	Worker->Start();
+
+	Watchdog = make_unique<WatchdogWorker>( Context->MessageBus );
+	Watchdog->Start();
 
 	void* ServerMessageClient = nullptr;
 	MessageClient = Context->MessageBus->AddClient( ServerMessageClient );
@@ -175,6 +179,8 @@ void WitnessServer::StartCameraWorkers()
 			tcout << _T("Starting ") << CameraName << _T(" camera...") << endl;
 
 			auto Worker = make_shared<CameraWorker>( CameraID, CameraPath, Context->MessageBus );
+			Worker->Start();
+			Watchdog->AddTarget( Worker, CameraName );
 			auto& State = Context->Cameras[ CameraID ] = GlobalContext::CameraState();
 			State.Worker = Worker;
 			State.Name = CameraName;
