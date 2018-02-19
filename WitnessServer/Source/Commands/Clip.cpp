@@ -194,8 +194,8 @@ void Command_Clip::OnEnumClipsMessage( const GlobalContext& Context, http_reques
 	
 	SQLiteDatabaseQueryInstance SelectClipsWithinRange( Context.Database, _T("SelectClipsWithinRange") );
 	SelectClipsWithinRange->Bind( "@CameraID", TargetCameraInt );
-	SelectClipsWithinRange->Bind( "@TimestampFrom", (int64_t)StartDateInt );
-	SelectClipsWithinRange->Bind( "@TimestampTo", (int64_t)(StartDateInt + RangePeriodInt) );
+	SelectClipsWithinRange->Bind( "@TimestampFrom", (int64_t)(StartDateInt - RangePeriodInt) );
+	SelectClipsWithinRange->Bind( "@TimestampTo", (int64_t)StartDateInt );
 	SelectClipsWithinRange->Bind( "@MaxCount", MaxCountInt );
 	SelectClipsWithinRange->Bind( "@PageOffset", MaxCountInt * PageInt );
 

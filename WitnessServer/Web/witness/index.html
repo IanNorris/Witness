@@ -154,7 +154,7 @@
 										<tbody data-bind="foreach: clips">
 											<tr role="row" class="even" data-bind="css: { odd: ($index() % 2 == 1), even: ($index() % 2 == 0) }">
 												<td style="width:400px;">
-													<video controls preload="metadata" data-bind="attr: { poster: thumbnail }" width="150" height="100">
+													<video controls preload="none" data-bind="attr: { poster: thumbnail }" width="150" height="100">
 														<source data-bind="attr: { src: video }" type="video/mp4">
 													</video>
 												</td>
@@ -178,12 +178,6 @@
 		<div class="spinner-container"></div>
 		<div class="spinner-container2"></div>
 	</div>
-	
-	<script type="text/html" id="ClipTemplate">
-		<tr>
-			
-		</tr>
-	</script>
 	
 	<script src="asset/js/jquery.min.js"></script>
 	<script src="asset/js/jquery.ui.min.js"></script>

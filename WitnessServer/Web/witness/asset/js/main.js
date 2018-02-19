@@ -117,7 +117,7 @@ var CameraClipsViewModel = function( parent, cameraID ) {
 	self.clips = ko.observableArray([]);
 	
 	self.refreshClipData = function() {
-		var timeNow = (moment().startOf('day').utc() / 1000) - 1;
+		var timeNow = ((moment().utc() / 1000) - 1).toFixed(0);
 		$.ajax({
 			method: 'GET',
 			url: '/clip/enum/' + self.cameraID() + '/' + self.maxCount() + '/' + timeNow + '/' + self.rangePeriod() + '/' + self.page(),
