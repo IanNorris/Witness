@@ -115,6 +115,15 @@ namespace Database
 		;
 	)RAW";
 
+	string_t CountClipsWithinRange = LR"RAW(
+		SELECT COUNT(Timestamp) FROM Clip
+		WHERE
+				Camera == @CameraID
+			AND	Timestamp >= @TimestampFrom
+			AND Timestamp <= @TimestampTo
+		;
+	)RAW";
+
 	string_t SelectClipsWithinRange = LR"RAW(
 		SELECT * FROM Clip
 		WHERE
@@ -161,6 +170,7 @@ namespace Database
 		CREATE_QUERY( CreateClip );
 		CREATE_QUERY( UpdateClip );
 		CREATE_QUERY( SelectClip );
+		CREATE_QUERY( CountClipsWithinRange );
 		CREATE_QUERY( SelectClipsWithinRange );
 
 		return DB;

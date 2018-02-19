@@ -109,12 +109,49 @@ var CameraClipsViewModel = function( parent, cameraID ) {
 	self.parent = parent;
 	self.cameraID = ko.observable(cameraID);
 	
-	self.maxCount = ko.observable(10);
+	self.totalClipsInRange = ko.observable(0);
+	
+	self.maxCount = ko.observable(5);
 	//self.startDate = ko.observable(0);
-	self.rangePeriod = ko.observable(24 * 60 * 60);
+	//self.rangePeriod = ko.observable(24 * 60 * 60);
+	self.rangePeriod = ko.observable(9999999999);
 	self.page = ko.observable(0);
 	
 	self.clips = ko.observableArray([]);
+	
+	self.clipPageStart = ko.computed( function() {
+		return self.page() * self.maxCount();
+	} );
+	
+	self.clipCount = ko.computed( function() {
+		return self.clips().length;
+	} );
+	
+	self.clipPageEnd = ko.computed( function() {
+		return self.clipPageStart() + self.clipCount();
+	} );
+	
+	self.totalPages = ko.computed( function() {
+		return self.totalClipsInRange() / self.maxCount();
+	} );
+	
+	self.incrementPage = function() {
+		self.page( self.page() + 1 );
+		self.refreshClipData();
+	};
+	
+	self.decrementPage = function() {
+		self.page( self.page() - 1 );
+		self.refreshClipData();
+	};
+	
+	self.canIncrementPage = ko.computed( function() {
+		return (self.page()+1) < self.totalPages();
+	} );
+	
+	self.canDecrementPage = ko.computed( function() {
+		return (self.page()-1) >= 0;
+	} );
 	
 	self.refreshClipData = function() {
 		var timeNow = ((moment().utc() / 1000) - 1).toFixed(0);
@@ -125,16 +162,30 @@ var CameraClipsViewModel = function( parent, cameraID ) {
 		} )
 		.done( function( result ) {
 			
-			for( var clip = 0; clip < result.length; clip++ ) {
+			self.totalClipsInRange( result.count );
+			
+			self.clips.remove( function( item ) {
+				var found = false;
+				for( var clip = 0; clip < result.clips.length; clip++ ) {
+					if( item.timestamp() == result.clips[clip].timestamp ) {
+						found = true;
+						break;
+					}
+				}
 				
-				var newTimestamp = result[clip].timestamp;
-				var newCameraID = result[clip].cameraID;
-				var newMotionTimestamp = result[clip].motionTimestamp;
-				var newActiveDuration = result[clip].activeDuration;
-				var newDuration = result[clip].duration;
-				var newRecordMode = result[clip].recordMode;
-				var newMaxMotion = result[clip].maxMotion;
-				var newDescription = result[clip].description;
+				return !found;
+			} );
+			
+			for( var clip = 0; clip < result.clips.length; clip++ ) {
+				
+				var newTimestamp = result.clips[clip].timestamp;
+				var newCameraID = result.clips[clip].cameraID;
+				var newMotionTimestamp = result.clips[clip].motionTimestamp;
+				var newActiveDuration = result.clips[clip].activeDuration;
+				var newDuration = result.clips[clip].duration;
+				var newRecordMode = result.clips[clip].recordMode;
+				var newMaxMotion = result.clips[clip].maxMotion;
+				var newDescription = result.clips[clip].description;
 
 				var existing = null;
 				

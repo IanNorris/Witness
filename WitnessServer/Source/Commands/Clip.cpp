@@ -190,42 +190,67 @@ void Command_Clip::OnEnumClipsMessage( const GlobalContext& Context, http_reques
 		return;
 	}
 
+	int Count = 0;
+	json::value Data;
 	vector<json::value> Array;
+
+	{
+		SQLiteDatabaseQueryInstance CountClipsWithinRange( Context.Database, _T("CountClipsWithinRange") );
+		CountClipsWithinRange->Bind( "@CameraID", TargetCameraInt );
+		CountClipsWithinRange->Bind( "@TimestampFrom", (int64_t)(StartDateInt - RangePeriodInt) );
+		CountClipsWithinRange->Bind( "@TimestampTo", (int64_t)StartDateInt );
+		CountClipsWithinRange->Bind( "@MaxCount", MaxCountInt );
+		CountClipsWithinRange->Bind( "@PageOffset", MaxCountInt * PageInt );
+
+		CountClipsWithinRange->Execute( 
+			[&Count]( const SQLiteDatabaseQuery& query )
+			{
+				Count = query.GetColumnValueInt(0);
+				return true;
+			}
+		);
+	}
 	
-	SQLiteDatabaseQueryInstance SelectClipsWithinRange( Context.Database, _T("SelectClipsWithinRange") );
-	SelectClipsWithinRange->Bind( "@CameraID", TargetCameraInt );
-	SelectClipsWithinRange->Bind( "@TimestampFrom", (int64_t)(StartDateInt - RangePeriodInt) );
-	SelectClipsWithinRange->Bind( "@TimestampTo", (int64_t)StartDateInt );
-	SelectClipsWithinRange->Bind( "@MaxCount", MaxCountInt );
-	SelectClipsWithinRange->Bind( "@PageOffset", MaxCountInt * PageInt );
+	if( Count > 0 )
+	{
+		SQLiteDatabaseQueryInstance SelectClipsWithinRange( Context.Database, _T("SelectClipsWithinRange") );
+		SelectClipsWithinRange->Bind( "@CameraID", TargetCameraInt );
+		SelectClipsWithinRange->Bind( "@TimestampFrom", (int64_t)(StartDateInt - RangePeriodInt) );
+		SelectClipsWithinRange->Bind( "@TimestampTo", (int64_t)StartDateInt );
+		SelectClipsWithinRange->Bind( "@MaxCount", MaxCountInt );
+		SelectClipsWithinRange->Bind( "@PageOffset", MaxCountInt * PageInt );
 
-	SelectClipsWithinRange->Execute( 
-		[&Array, &Context]( const SQLiteDatabaseQuery& query )
-		{
-			uint64_t Timestamp = query.GetColumnValueInt64(0);
-			int CameraID = query.GetColumnValueInt(1);
-			uint64_t MotionTimestamp = query.GetColumnValueInt64(2);
-			int ActiveDuration = query.GetColumnValueInt(3);
-			int Duration = query.GetColumnValueInt(4);
-			int RecordMode = query.GetColumnValueInt(5);
-			double MaxMotion = query.GetColumnValueDouble(6);
-			string_t Description = query.GetColumnValueText(7);
+		SelectClipsWithinRange->Execute( 
+			[&Array, &Context]( const SQLiteDatabaseQuery& query )
+			{
+				uint64_t Timestamp = query.GetColumnValueInt64(0);
+				int CameraID = query.GetColumnValueInt(1);
+				uint64_t MotionTimestamp = query.GetColumnValueInt64(2);
+				int ActiveDuration = query.GetColumnValueInt(3);
+				int Duration = query.GetColumnValueInt(4);
+				int RecordMode = query.GetColumnValueInt(5);
+				double MaxMotion = query.GetColumnValueDouble(6);
+				string_t Description = query.GetColumnValueText(7);
 			
-			json::value Camera;
-			Camera[ _T("timestamp") ] = json::value(Timestamp);
-			Camera[ _T("cameraID") ] = json::value(CameraID);
-			Camera[ _T("motionTimestamp") ] = json::value(MotionTimestamp);
-			Camera[ _T("activeDuration") ] = json::value(ActiveDuration);
-			Camera[ _T("duration") ] = json::value(Duration);
-			Camera[ _T("recordMode") ] = json::value(RecordMode);
-			Camera[ _T("maxMotion") ] = json::value(MaxMotion);
-			Camera[ _T("description") ] = json::value(Description);
+				json::value Camera;
+				Camera[ _T("timestamp") ] = json::value(Timestamp);
+				Camera[ _T("cameraID") ] = json::value(CameraID);
+				Camera[ _T("motionTimestamp") ] = json::value(MotionTimestamp);
+				Camera[ _T("activeDuration") ] = json::value(ActiveDuration);
+				Camera[ _T("duration") ] = json::value(Duration);
+				Camera[ _T("recordMode") ] = json::value(RecordMode);
+				Camera[ _T("maxMotion") ] = json::value(MaxMotion);
+				Camera[ _T("description") ] = json::value(Description);
 
-			Array.push_back( Camera );
+				Array.push_back( Camera );
 				
-			return true;
-		} 
-	);
+				return true;
+			} 
+		);
+	}
 
-	Message.reply( status_codes::OK, json::value::array(Array) );
+	Data[ _T("count") ] = json::value(Count);
+	Data[ _T("clips") ] = json::value::array(Array);
+
+	Message.reply( status_codes::OK, Data );
 }
