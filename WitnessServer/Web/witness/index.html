@@ -138,33 +138,67 @@
 				<div class="col-md-12" style="padding:20px;">
 					<div class="panel animated fadeIn" data-bind="with: clipBrowser, visible: isViewingClips">
 						<div class="panel-heading">
-							<h3>Clips</h3><p>Showing <span data-bind="text: clipPageStart"></span>-<span data-bind="text: clipPageEnd"></span> of <span data-bind="text: totalClipsInRange"></span></p> <button data-bind="click: incrementPage, enable: canIncrementPage">+</button> <button data-bind="click: decrementPage, enable: canDecrementPage">-</button>
+							<h3>Clips</h3>
 						</div>
 						<div class="panel-body">
 							<div class="responsive-table">
 								<div class="dataTables_wrapper form-inline dt-bootstrap no-footer">
-									<table class="table table-striped table-bordered dataTable no-footer" width="100%" style="width: 100%">
-										<thead>
-											<th tabindex="0">Preview</th>
-											<th>When</th>
-											<th>Duration</th>
-											<th>Motion</th>
-											<th>Type</th>
-										</thead>
-										<tbody data-bind="foreach: clips">
-											<tr role="row" class="even" data-bind="css: { odd: ($index() % 2 == 1), even: ($index() % 2 == 0) }">
-												<td style="width:400px;">
-													<video controls preload="none" data-bind="attr: { poster: thumbnail }" width="150" height="100">
-														<source data-bind="attr: { src: video }" type="video/mp4">
-													</video>
-												</td>
-												<td data-bind="text: agoDesc"></td>
-												<td data-bind="text: durationDesc"></td>
-												<td data-bind="text: motionDesc"></td>
-												<td data-bind="text: typeDesc"></td>
-											</tr>
-										</tbody>
-									</table>
+									<div class="row">
+										<div class="col-sm-12">
+											<table class="table table-striped table-bordered dataTable no-footer" width="100%" style="width: 100%">
+												<thead>
+													<th tabindex="0">Preview</th>
+													<th>When</th>
+													<th>Duration</th>
+													<th>Motion</th>
+													<th>Type</th>
+												</thead>
+												<tbody data-bind="foreach: clips">
+													<tr role="row" class="even" data-bind="css: { odd: ($index() % 2 == 1), even: ($index() % 2 == 0) }">
+														<td style="width:400px;">
+															<video controls preload="none" data-bind="attr: { poster: thumbnail }" width="150" height="100">
+																<source data-bind="attr: { src: video }" type="video/mp4">
+															</video>
+														</td>
+														<td data-bind="text: agoDesc"></td>
+														<td data-bind="text: durationDesc"></td>
+														<td data-bind="text: motionDesc"></td>
+														<td data-bind="text: typeDesc"></td>
+													</tr>
+												</tbody>
+											</table>
+										</div>
+									</div>
+									<div class="row">
+										<div class="col-sm-5">
+											<div class="dataTables_info" role="status" aria-live="polite">Showing <span data-bind="text: clipPageStart"></span>-<span data-bind="text: clipPageEnd"></span> of <span data-bind="text: totalClipsInRange"></span></div>
+										</div>
+										<div class="col-sm-7">
+											<div class="dataTables_paginate paging_simple_numbers">
+												<ul class="pagination">
+													<li class="paginate_button" data-bind="css: { disabled: canNotDecrementPage }">
+														<a data-bind="click: setFirstPage">&larr;</a>
+													</li>
+													<li class="paginate_button" data-bind="css: { disabled : canNotDecrementPage }">
+														<a data-bind="click: decrementPage">&laquo;</a>
+													</li>
+													
+													<!-- ko foreach: visiblePages -->
+														<li class="paginate_button" data-bind="css: { active: $parent.isPage($data) }">
+															<a data-bind="click: $parent.setPage($data), text: $parent.getDisplayPage($data)"></a>
+														</li>
+													<!-- /ko -->
+													
+													<li class="paginate_button" data-bind="css: { disabled : canNotIncrementPage }">
+														<a data-bind="click: incrementPage">&raquo;</a>
+													</li>
+													<li class="paginate_button" data-bind="css: { disabled: canNotIncrementPage }">
+														<a data-bind="click: setLastPage">&rarr;</a>
+													</li>
+												</ul>
+											</div>
+										</div>
+									</div>
 								</div>
 							</div>
 						</div>
@@ -192,6 +226,7 @@
 	<script src="asset/js/plugins/jquery.nicescroll.js"></script>
 	<script src="asset/js/plugins/jquery.datatables.min.js"></script>
 	<script src="asset/js/plugins/moment.min.js"></script>
+	<script src="asset/js/plugins/datatables.bootstrap.min.js"></script>
 	
 	<script src="asset/js/main-ui.js"></script>
 	<script src="asset/js/main.js"></script>

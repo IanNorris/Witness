@@ -116,11 +116,12 @@ var CameraClipsViewModel = function( parent, cameraID ) {
 	//self.rangePeriod = ko.observable(24 * 60 * 60);
 	self.rangePeriod = ko.observable(9999999999);
 	self.page = ko.observable(0);
+	self.visiblePages = ko.observableArray([]);
 	
 	self.clips = ko.observableArray([]);
 	
 	self.clipPageStart = ko.computed( function() {
-		return self.page() * self.maxCount();
+		return self.page() * self.maxCount() + 1;
 	} );
 	
 	self.clipCount = ko.computed( function() {
@@ -128,21 +129,87 @@ var CameraClipsViewModel = function( parent, cameraID ) {
 	} );
 	
 	self.clipPageEnd = ko.computed( function() {
-		return self.clipPageStart() + self.clipCount();
+		return (self.page() * self.maxCount()) + self.clipCount();
 	} );
 	
 	self.totalPages = ko.computed( function() {
 		return self.totalClipsInRange() / self.maxCount();
 	} );
 	
+	self.previousPage = ko.computed( function() {
+		return (self.page()-1);
+	} );
+	
+	self.nextPage = ko.computed( function() {
+		return (self.page()+1);
+	} );
+	
 	self.incrementPage = function() {
-		self.page( self.page() + 1 );
-		self.refreshClipData();
+		if( self.canIncrementPage() ) {
+			self.page( self.page() + 1 );
+			self.refreshClipData();
+		}
 	};
 	
 	self.decrementPage = function() {
-		self.page( self.page() - 1 );
+		if( self.canDecrementPage() ) {
+			self.page( self.page() - 1 );
+			self.refreshClipData();
+		}
+	};
+	
+	self.setPage = function(newPage) {
+		self.page( newPage );
 		self.refreshClipData();
+	};
+	
+	self.getDisplayPage = function(newPage) {
+		return newPage+1;
+	};
+	
+	self.setFirstPage = function() {
+		self.page(0);
+		self.refreshClipData();
+	};
+	
+	self.setLastPage = function() {
+		self.page(self.totalPages()-1);
+		self.refreshClipData();
+	};
+	
+	self.isPage = function(pageNo) {
+		return self.page() == pageNo;
+	};
+	
+	self.updateVisiblePages = function() {
+		var pages = []
+		
+		if( self.page() == self.totalPages() )
+		{
+			if( self.page() > 2 )
+			{
+				pages.push( self.page() - 2 );
+			}
+		}
+		
+		if( self.page() > 1 )
+		{
+			pages.push( self.page() - 1 );
+		}
+		
+		pages.push( self.page() );
+		
+		if( self.totalPages() != 2 )
+		{
+			pages.push( self.page() + 1 );
+		}
+		
+		if( self.totalPages() != 3 )
+		{
+			pages.push( self.page() + 2 );
+		}
+		
+		self.visiblePages(pages);
 	};
 	
 	self.canIncrementPage = ko.computed( function() {
@@ -151,6 +218,14 @@ var CameraClipsViewModel = function( parent, cameraID ) {
 	
 	self.canDecrementPage = ko.computed( function() {
 		return (self.page()-1) >= 0;
+	} );
+	
+	self.canNotIncrementPage = ko.computed( function() {
+		return !self.canIncrementPage();
+	} );
+	
+	self.canNotDecrementPage = ko.computed( function() {
+		return !self.canDecrementPage();
 	} );
 	
 	self.refreshClipData = function() {
@@ -225,6 +300,7 @@ var CameraClipsViewModel = function( parent, cameraID ) {
 		} );
 	};
 	self.refreshClipData();
+	self.updateVisiblePages();
 };
 
 var CameraViewModel = function( parent, cameraID, cameraName, cameraRecording ) {
