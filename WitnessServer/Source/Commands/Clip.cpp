@@ -78,7 +78,7 @@ void Command_Clip::OnMessage( const GlobalContext& Context, http_request& Messag
 		auto Command = ChildPath.front();
 		if( Command.compare( _T("enum") ) == 0 )
 		{
-			OnEnumClipsMessage( Context, Message, /*TargetCamera*/ ChildPath[1], /*MaxCount*/ ChildPath[2], /*StartDate*/ ChildPath[3], /*RangePeriod*/ ChildPath[4], /*Page*/ ChildPath[5], Packet );
+			OnEnumClipsMessage( Context, Message, /*TargetCamera*/ ChildPath[1], /*MaxCount*/ ChildPath[2], /*StartDate*/ ChildPath[3], /*RangePeriod*/ ChildPath[4], /*PageOffset*/ ChildPath[5], Packet );
 		}
 		else
 		{
@@ -171,7 +171,7 @@ void Command_Clip::OnThumbnailMessage( const GlobalContext& Context, http_reques
 	Message.reply( status_codes::NotFound );
 }
 
-void Command_Clip::OnEnumClipsMessage( const GlobalContext& Context, http_request& Message, const string_t& TargetCamera, const string_t& MaxCount, const string_t& StartDate, const string_t& RangePeriod, const string_t& Page, const json::value& Packet )
+void Command_Clip::OnEnumClipsMessage( const GlobalContext& Context, http_request& Message, const string_t& TargetCamera, const string_t& MaxCount, const string_t& StartDate, const string_t& RangePeriod, const string_t& PageOffset, const json::value& Packet )
 {
 	//NO CSRF!
 
@@ -181,7 +181,7 @@ void Command_Clip::OnEnumClipsMessage( const GlobalContext& Context, http_reques
 	int MaxCountInt = _wtoi( MaxCount.c_str() );
 	uint64_t StartDateInt = _wtoll( StartDate.c_str() );
 	uint64_t RangePeriodInt = _wtoll( RangePeriod.c_str() );
-	int PageInt = _wtoi( Page.c_str() );
+	int PageOffsetInt = _wtoi( PageOffset.c_str() );
 
 	MaxCountInt = min( MaxCountInt, MaxClipsPerQuery );
 
@@ -200,7 +200,7 @@ void Command_Clip::OnEnumClipsMessage( const GlobalContext& Context, http_reques
 		CountClipsWithinRange->Bind( "@TimestampFrom", (int64_t)(StartDateInt - RangePeriodInt) );
 		CountClipsWithinRange->Bind( "@TimestampTo", (int64_t)StartDateInt );
 		CountClipsWithinRange->Bind( "@MaxCount", MaxCountInt );
-		CountClipsWithinRange->Bind( "@PageOffset", MaxCountInt * PageInt );
+		CountClipsWithinRange->Bind( "@PageOffset", PageOffsetInt );
 
 		CountClipsWithinRange->Execute( 
 			[&Count]( const SQLiteDatabaseQuery& query )
@@ -218,7 +218,7 @@ void Command_Clip::OnEnumClipsMessage( const GlobalContext& Context, http_reques
 		SelectClipsWithinRange->Bind( "@TimestampFrom", (int64_t)(StartDateInt - RangePeriodInt) );
 		SelectClipsWithinRange->Bind( "@TimestampTo", (int64_t)StartDateInt );
 		SelectClipsWithinRange->Bind( "@MaxCount", MaxCountInt );
-		SelectClipsWithinRange->Bind( "@PageOffset", MaxCountInt * PageInt );
+		SelectClipsWithinRange->Bind( "@PageOffset", PageOffsetInt );
 
 		SelectClipsWithinRange->Execute( 
 			[&Array, &Context]( const SQLiteDatabaseQuery& query )

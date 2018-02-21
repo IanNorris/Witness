@@ -84,6 +84,10 @@ var ClipViewModel = function( parent, newTimestamp, newCameraID, newMotionTimest
 		return "/clip/video/" + self.cameraID() + "/" + self.timestamp();
 	} );
 	
+	self.timeDesc = ko.computed( function() {
+		return moment(self.timestamp() * 1000).local().format();
+	} );
+	
 	self.agoDesc = ko.computed( function() {
 		return moment(self.timestamp() * 1000).local().calendar();
 	} );
@@ -111,14 +115,20 @@ var CameraClipsViewModel = function( parent, cameraID ) {
 	
 	self.totalClipsInRange = ko.observable(0);
 	
+	self.rangeOptions = ko.observableArray([1,2,3,5,10,20,50,100]);
 	self.maxCount = ko.observable(5);
+	
 	//self.startDate = ko.observable(0);
 	//self.rangePeriod = ko.observable(24 * 60 * 60);
 	self.rangePeriod = ko.observable(9999999999);
-	self.page = ko.observable(0);
+	self.pageOffset = ko.observable(0);
 	self.visiblePages = ko.observableArray([]);
 	
 	self.clips = ko.observableArray([]);
+	
+	self.page = ko.computed( function() {
+		return Math.floor( self.pageOffset() / self.maxCount() );
+	} );
 	
 	self.clipPageStart = ko.computed( function() {
 		return self.page() * self.maxCount() + 1;
@@ -129,7 +139,7 @@ var CameraClipsViewModel = function( parent, cameraID ) {
 	} );
 	
 	self.clipPageEnd = ko.computed( function() {
-		return (self.page() * self.maxCount()) + self.clipCount();
+		return Math.min( self.pageOffset() + self.clipCount(), self.totalClipsInRange() );
 	} );
 	
 	self.totalPages = ko.computed( function() {
@@ -146,20 +156,20 @@ var CameraClipsViewModel = function( parent, cameraID ) {
 	
 	self.incrementPage = function() {
 		if( self.canIncrementPage() ) {
-			self.page( self.page() + 1 );
+			self.pageOffset( Math.max( Math.min( self.pageOffset() + self.maxCount(), self.totalClipsInRange() - self.maxCount() ), 0 ) );
 			self.refreshClipData();
 		}
 	};
 	
 	self.decrementPage = function() {
 		if( self.canDecrementPage() ) {
-			self.page( self.page() - 1 );
+			self.pageOffset( Math.max( self.pageOffset() - self.maxCount(), 0 ) );
 			self.refreshClipData();
 		}
 	};
 	
 	self.setPage = function(newPage) {
-		self.page( newPage );
+		self.pageOffset( newPage * self.maxCount() );
 		self.refreshClipData();
 	};
 	
@@ -168,12 +178,12 @@ var CameraClipsViewModel = function( parent, cameraID ) {
 	};
 	
 	self.setFirstPage = function() {
-		self.page(0);
+		self.pageOffset(0);
 		self.refreshClipData();
 	};
 	
 	self.setLastPage = function() {
-		self.page(self.totalPages()-1);
+		self.pageOffset(self.totalClipsInRange()-self.maxCount());
 		self.refreshClipData();
 	};
 	
@@ -181,30 +191,31 @@ var CameraClipsViewModel = function( parent, cameraID ) {
 		return self.page() == pageNo;
 	};
 	
+	self.changeMaxCount = function() {
+		self.refreshClipData();
+	};
+	
 	self.updateVisiblePages = function() {
-		var pages = []
+		var pages = [];
 		
-		if( self.page() == self.totalPages() )
+		if( self.page() >= 2 )
 		{
-			if( self.page() > 2 )
-			{
-				pages.push( self.page() - 2 );
-			}
+			pages.push( self.page() - 2 );
 		}
 		
-		if( self.page() > 1 )
+		if( self.page() >= 1 )
 		{
 			pages.push( self.page() - 1 );
 		}
 		
 		pages.push( self.page() );
 		
-		if( self.totalPages() != 2 )
+		if( self.page() + 1 < self.totalPages() )
 		{
 			pages.push( self.page() + 1 );
 		}
 		
-		if( self.totalPages() != 3 )
+		if( self.page() + 2 < self.totalPages() )
 		{
 			pages.push( self.page() + 2 );
 		}
@@ -232,7 +243,7 @@ var CameraClipsViewModel = function( parent, cameraID ) {
 		var timeNow = ((moment().utc() / 1000) - 1).toFixed(0);
 		$.ajax({
 			method: 'GET',
-			url: '/clip/enum/' + self.cameraID() + '/' + self.maxCount() + '/' + timeNow + '/' + self.rangePeriod() + '/' + self.page(),
+			url: '/clip/enum/' + self.cameraID() + '/' + self.maxCount() + '/' + timeNow + '/' + self.rangePeriod() + '/' + self.pageOffset(),
 			contentType: 'application/json; charset=utf-8',
 		} )
 		.done( function( result ) {
@@ -289,6 +300,8 @@ var CameraClipsViewModel = function( parent, cameraID ) {
 					return left.timestamp() < right.timestamp();
 				} );
 			}
+			
+			self.updateVisiblePages();
 		} )
 		.fail( function( result ) {
 			$.toast( {
@@ -300,7 +313,6 @@ var CameraClipsViewModel = function( parent, cameraID ) {
 		} );
 	};
 	self.refreshClipData();
-	self.updateVisiblePages();
 };
 
 var CameraViewModel = function( parent, cameraID, cameraName, cameraRecording ) {
