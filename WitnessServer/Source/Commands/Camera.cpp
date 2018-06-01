@@ -69,7 +69,7 @@ void Command_Camera::OnPreviewMessage( const GlobalContext& Context, http_reques
 
 	int TargetCameraInt = _wtoi( TargetCamera.c_str() );
 
-	if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, false ) )
+	if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::Read, Command_Authenticate::Privilege::Normal ) )
 	{
 		return;
 	}
@@ -96,7 +96,7 @@ void Command_Camera::OnPreviewMessage( const GlobalContext& Context, http_reques
 void Command_Camera::OnEnumMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet )
 {
 	//NO CSRF!
-	if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, false ) )
+	if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::Read, Command_Authenticate::Privilege::Normal ) )
 	{
 		return;
 	}
@@ -136,7 +136,7 @@ void Command_Camera::OnEnumMessage( const GlobalContext& Context, http_request& 
 
 void Command_Camera::OnRecordMessage( const GlobalContext& Context, http_request& Message, const string_t& TargetCamera, const json::value& Packet )
 {
-	if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, true ) )
+	if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::ReadWrite, Command_Authenticate::Privilege::Normal ) )
 	{
 		return;
 	}

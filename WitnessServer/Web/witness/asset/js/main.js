@@ -1,4 +1,49 @@
+
+var VIEW_MODE_NONE = 0;
+var VIEW_MODE_CLIPS = 1;
+var VIEW_MODE_STREAM = 2;
+var VIEW_MODE_ADMIN = 100;
+
 var anchorClickDelay = 100;
+
+var PermissionViewModel = function(name, value) {
+	"use strict";
+	
+	var self = this;
+
+	self.id = value;
+	self.text = name;
+};
+
+var UserViewModel = function( parent, username, enabled, admin, displayName, permissions ) {
+	"use strict";
+	
+	var self = this;	
+	
+	self.parent = parent;
+	
+	self.username = ko.observable(username);
+	self.enabled = ko.observable(enabled);
+	self.admin = ko.observable(admin);
+	self.displayName = ko.observable(displayName);
+	self.userPermissions = ko.observable(permissions);
+	self.availablePermissions = [
+		new PermissionViewModel("External", 0),
+		new PermissionViewModel("Internal", 1),
+	];
+	
+	self.toggleEnabled = function(){
+		return true;
+	};
+	
+	self.toggleAdmin = function(){
+		return true;
+	};
+	
+	self.isSelf = ko.computed( function() {
+		return self.username() == self.parent.username();
+	} );
+};
 
 var AuthenticationViewModel = function( parent ) {
 	"use strict";
@@ -12,25 +57,33 @@ var AuthenticationViewModel = function( parent ) {
 	self.sessionToken = getCookie('SessionToken');
 	self.csrfToken = ko.observable('');
 	self.username = ko.observable('');
-		
-	$.ajax({
-			method: 'POST',
-			url: '/auth/profile',
-			dataType: 'json',
-			data: '{}',
-			contentType: 'application/json; charset=utf-8',
-		} )
-		.done( function( result ) {
-			
-			self.csrfToken(result.csrf);
-			self.username(result.username);
-			
-			self.ready(true);
-		} )
-		.fail( function( result ) {
-			window.location.replace( "/" );
-		} );
+	self.admin = ko.observable(false);
+	self.displayName = ko.observable('');
 	
+	//Admin functionality
+	self.users = ko.observableArray([]);
+
+	self.queryUserProfile = function() {	
+		$.ajax({
+				method: 'POST',
+				url: '/auth/profile',
+				dataType: 'json',
+				data: '{}',
+				contentType: 'application/json; charset=utf-8',
+			} )
+			.done( function( result ) {
+				
+				self.csrfToken(result.csrf);
+				self.username(result.username);
+				self.admin(result.admin ? true : false);
+				self.displayName(result.displayName);
+				
+				self.ready(true);
+			} )
+			.fail( function( result ) {
+				window.location.replace( "/" );
+			} );
+	};
 	
 	
 	self.logoutAction = function() {
@@ -57,6 +110,85 @@ var AuthenticationViewModel = function( parent ) {
 				position: 'top-center'
 			} );
 		} );
+	};
+	
+	self.refreshUsersAsAdmin = function() {
+		if( !self.admin() ) {
+				return;
+		}
+		
+		$.ajax({
+			method: 'GET',
+			url: '/auth/admin_enum/',
+			contentType: 'application/json; charset=utf-8',
+		} )
+		.done( function( result ) {
+			
+			self.users.remove( function( item ) {
+				var found = false;
+				for( var user = 0; user < result.length; user++ ) {
+					if( item.username() == result[user].username ) {
+						found = true;
+						break;
+					}
+				}
+				
+				return !found;
+			} );
+			
+			for( var user = 0; user < result.length; user++ ) {
+				
+				var newUsername = result[user].username;
+				var newEnabled = result[user].enabled;
+				var newAdmin = result[user].admin;
+				var newDisplayName = result[user].displayName;
+				
+				result[user].userPermissions = [0,1];
+				var newPermissions = result[user].userPermissions;
+
+				var existing = null;
+				
+				for( var existingUser = 0; existingUser < self.users().length; existingUser++ )
+				{
+					if( self.users()[ existingUser ].username() == newUsername ) {
+						existing = self.users()[ existingUser ];
+						break;
+					}
+				}
+				
+				if( existing ){
+					existing.admin(newAdmin);
+					existing.enabled(newEnabled);
+					existing.displayName(newDisplayName);
+					existing.userPermissions(newPermissions);
+				}
+				else {
+					self.users.push(  new UserViewModel( self, newUsername, newEnabled, newAdmin, newDisplayName, newPermissions ) );
+				}
+				
+				self.users.sort( function( left, right ) {
+					return left.username() < right.username();
+				} );
+			}
+		} )
+		.fail( function( result ) {
+			if( result.status == 401 || result.status == 403 ) {
+				window.location.replace( "/" );
+				return;
+			}
+			$.toast( {
+				text: "Error fetching user list.",
+				type: 'danger',
+				bgColor: '#a94442',
+				position: 'top-center'
+			} );
+		} );
+	};
+	
+	self.adminAction = function() {
+		parent.viewMode(VIEW_MODE_ADMIN);
+		window.location.hash = "#Administration";
+		self.refreshUsersAsAdmin();
 	};
 };
 
@@ -304,6 +436,10 @@ var CameraClipsViewModel = function( parent, cameraID ) {
 			self.updateVisiblePages();
 		} )
 		.fail( function( result ) {
+			if( result.status == 401 || result.status == 403 ) {
+				window.location.replace( "/" );
+				return;
+			}
 			$.toast( {
 				text: "Error fetching clip list.",
 				type: 'danger',
@@ -329,11 +465,11 @@ var CameraViewModel = function( parent, cameraID, cameraName, cameraRecording ) 
 	self.isRecording = ko.observable(cameraRecording);
 	
 	self.isSelectedClip = ko.computed( function() {
-		return self.isSelected() && self.parent.isViewingClips();
+		return self.isSelected() && self.parent.isViewMode(VIEW_MODE_CLIPS);
 	} );
 	
 	self.isSelectedStream = ko.computed( function() {
-		return self.isSelected() && self.parent.isViewingStream();
+		return self.isSelected() && self.parent.isViewMode(VIEW_MODE_STREAM);
 	} );
 	
 	self.streamName = ko.computed( function() {
@@ -364,13 +500,13 @@ var CameraViewModel = function( parent, cameraID, cameraName, cameraRecording ) 
 	
 	self.selectCameraStream = function() {
 		var cameraID = self.selectCamera();
-		self.parent.isViewingClips(false);
+		self.parent.viewMode(VIEW_MODE_STREAM);
 		window.location.hash = "#" + self.streamName();
 	};
 	
 	self.selectCameraClips = function() {
 		var cameraID = self.selectCamera();
-		self.parent.isViewingClips(true);
+		self.parent.viewMode(VIEW_MODE_CLIPS);
 		self.parent.clipBrowser( new CameraClipsViewModel( self.parent, cameraID ) );
 		window.location.hash = "#" + self.clipName();
 	};
@@ -394,6 +530,10 @@ var CameraViewModel = function( parent, cameraID, cameraName, cameraRecording ) 
 			//Nothing
 		} )
 		.fail( function( result ) {
+			if( result.status == 401 || result.status == 403 ) {
+				window.location.replace( "/" );
+				return;
+			}
 			$.toast( {
 				text: "Error while attempting to set recording to " + self.isRecording() + ".",
 				type: 'warning',
@@ -408,22 +548,32 @@ var CameraViewModel = function( parent, cameraID, cameraName, cameraRecording ) 
 	}, 250 );
 };
 
+var AdministrationViewModel = function() {
+	"use strict";
+	
+	var self = this;
+	
+	self.availablePermissions = ko.observableArray(["External", "Internal"]);
+};
+
 var WitnessViewModel = function() {
 	"use strict";
 	
 	var self = this;
 	
 	self.authentication = new AuthenticationViewModel( self );
-	
+	self.authentication.queryUserProfile();
+		
 	self.clipBrowser = ko.observable(null);
+	self.adminController = ko.observable( self.authentication.admin() ? new AdministrationViewModel() : null );
 		
 	self.cameraListReceived = ko.observable(false);
 	self.cameras = ko.observableArray([]);
 	self.cameras.extend({ rateLimit: 50 });
 	self.focusedCamera = ko.observable(null);
 	
-	self.isViewingClips = ko.observable(true);
-	self.isViewingStream = ko.computed( function() { return !self.isViewingClips(); } );
+	self.viewMode = ko.observable(VIEW_MODE_NONE);
+	self.isViewMode = function(modeToCheck) { return self.viewMode() == modeToCheck; }
 		
 	self.ready = ko.computed( function() {
 		var isReady = self.authentication.ready()
@@ -483,6 +633,10 @@ var WitnessViewModel = function() {
 			self.cameraListReceived( true );
 		} )
 		.fail( function( result ) {
+			if( result.status == 401 || result.status == 403 ) {
+				window.location.replace( "/" );
+				return;
+			}
 			$.toast( {
 				text: "Error fetching camera list.",
 				type: 'danger',

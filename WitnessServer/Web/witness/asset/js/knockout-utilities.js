@@ -48,3 +48,32 @@ ko.bindingHandlers.icheck = {
         }
     }
 };
+
+ko.bindingHandlers.select2 = {
+    after: ["options", "selected"],
+    init: function (el, valueAccessor, allBindingsAccessor, viewModel) {
+        $(el).val( ko.unwrap(allBindingsAccessor().selected) );
+        $(el).select2( ko.unwrap(allBindingsAccessor().select2) );
+        
+        ko.utils.domNodeDisposal.addDisposeCallback(el, function () {
+            $(el).select2('destroy');
+        });
+
+        var onChange = function(e) {
+
+            var newData = [];
+            var data = $(el).select2('data');
+            for( var i = 0; i < data.length; i++ ) {
+                newData.push(data[i][allBindingsAccessor().optionsValue]);
+            }
+
+            allBindingsAccessor().selected( newData );
+        };
+
+        $(el).on("change", onChange );
+    },
+    update: function (el, valueAccessor, allBindingsAccessor, viewModel) {
+        var newValue = ko.unwrap(allBindingsAccessor().selected);
+        $(el).select2("data", newValue );
+    }
+};

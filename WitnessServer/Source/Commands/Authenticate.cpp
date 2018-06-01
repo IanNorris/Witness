@@ -110,6 +110,8 @@ void OfflineCreationForFirstUser( const GlobalContext& Context )
 			CreateUser->Bind( "@Username", UsernameLC.c_str() );
 			CreateUser->Bind( "@PasswordHash", Hash.c_str() );
 			CreateUser->Bind( "@HashMethod", 0 );
+			CreateUser->Bind( "@Enabled", 1 );
+			CreateUser->Bind( "@Admin", 1 );
 
 			CreateUser->Execute( nullptr );
 		}
@@ -139,8 +141,20 @@ void Command_Authenticate::OnMessage( const GlobalContext& Context, http_request
 		{
 			Message.reply( status_codes::NotFound );
 		}
-
+		
 		return;
+	}
+	if (ChildPath.size() == 1 && !IsPost)
+	{
+		auto Command = ChildPath.front();
+		if( Command.compare( _T("admin_enum") ) == 0 )
+		{
+			OnEnumUsersMessage( Context, Message, CurrentCommand, ChildPath, IsPost );
+		}
+		else
+		{
+			Message.reply( status_codes::NotFound );
+		}
 	}
 	else
 	{
@@ -216,6 +230,33 @@ void Command_Authenticate::OnLoginMessage( const GlobalContext& Context, http_re
 		}
 	}
 
+	int Enabled = 0;
+	int Admin = 0;
+
+	{
+		Success = false;
+
+		SQLiteDatabaseQueryInstance FindUserForAuth( Context.Database, _T("FindUserForAuth") );
+		FindUserForAuth->Bind( "@Username", Username.c_str() );
+
+		int Result = FindUserForAuth->Execute( 
+			[&]( const SQLiteDatabaseQuery& query )
+			{
+				Enabled = query.GetColumnValueInt( 1 );
+				Admin = query.GetColumnValueInt( 2 );
+				Success = true;
+				
+				return true;
+			} 
+		);
+	}
+
+	if (!Success || !Enabled)
+	{
+		Message.reply( status_codes::Unauthorized );
+		return;
+	}
+
 	{
 		string_t SessionToken = GetRandomToken();
 		string_t CSRFToken = GetRandomToken();
@@ -247,7 +288,7 @@ void Command_Authenticate::OnLogoutMessage( const GlobalContext& Context, http_r
 {
 	auto Packet = Message.extract_json().get();
 
-	if( !IsAuthenticated( Context, Message, Packet, true ) )
+	if( !IsAuthenticated( Context, Message, Packet, Action::ReadWrite, Privilege::Normal ) )
 	{
 		return;
 	}
@@ -279,29 +320,57 @@ void Command_Authenticate::OnGetProfileMessage( const GlobalContext& Context, ht
 
 	string_t SessionToken = GetSessionToken( Message );
 
-	SQLiteDatabaseQueryInstance FindSession( Context.Database, _T("FindSession") );
-	FindSession->Bind( "@SessionToken", SessionToken.c_str() );
-
 	string_t Username;
 	string_t CSRFToken;
 
 	bool Success = false;
-	int Result = FindSession->Execute( 
-		[&Success,&Username,&CSRFToken]( const SQLiteDatabaseQuery& query )
-		{
-			CSRFToken = query.GetColumnValueText( 1 );
-			Username = query.GetColumnValueText( 2 );
-			Success = true;
-				
-			return true;
-		} 
-	);
 
-	if( Success )
+	{
+		SQLiteDatabaseQueryInstance FindSession( Context.Database, _T("FindSession") );
+		FindSession->Bind( "@SessionToken", SessionToken.c_str() );
+
+		int Result = FindSession->Execute( 
+			[&]( const SQLiteDatabaseQuery& query )
+			{
+				CSRFToken = query.GetColumnValueText( 1 );
+				Username = query.GetColumnValueText( 2 );
+				Success = true;
+				
+				return true;
+			} 
+		);
+	}
+
+	string_t DisplayName;
+	int Enabled = 0;
+	int Admin = 0;
+
+	{
+		Success = false;
+
+		SQLiteDatabaseQueryInstance FindUserForAuth( Context.Database, _T("FindUserForAuth") );
+		FindUserForAuth->Bind( "@Username", Username.c_str() );
+
+		int Result = FindUserForAuth->Execute( 
+			[&]( const SQLiteDatabaseQuery& query )
+			{
+				DisplayName = query.GetColumnValueText( 0 );
+				Enabled = query.GetColumnValueInt( 1 );
+				Admin = query.GetColumnValueInt( 2 );
+				Success = true;
+				
+				return true;
+			} 
+		);
+	}
+	
+	if( Success && Enabled )
 	{
 		json::value ResponseBody;
 		ResponseBody[_T("csrf")] = json::value(CSRFToken);
 		ResponseBody[_T("username")] = json::value(Username);
+		ResponseBody[_T("admin")] = json::value(Admin);
+		ResponseBody[_T("displayName")] = json::value(DisplayName);
 
 		Message.reply( status_codes::OK, ResponseBody );
 	}
@@ -316,7 +385,6 @@ void Command_Authenticate::OnGetProfileMessage( const GlobalContext& Context, ht
 		Response.set_body( ResponseBody );
 
 		Message.reply( Response );
-
 	}
 }
 
@@ -348,7 +416,7 @@ string_t Command_Authenticate::GetSessionToken( const http_request& Message )
 	return SessionToken;
 }
 
-bool Command_Authenticate::IsAuthenticated( const GlobalContext& Context, http_request& Message, const json::value& Packet, bool RequireCSRF )
+bool Command_Authenticate::IsAuthenticated( const GlobalContext& Context, http_request& Message, const json::value& Packet, Action ActionType, Privilege RequiredPrivilege )
 {
 	string_t Errors;
 	
@@ -358,16 +426,28 @@ bool Command_Authenticate::IsAuthenticated( const GlobalContext& Context, http_r
 	Success &= GetJsonField( Packet, _T("csrf"), CSRF, Errors );
 
 	string_t SessionToken = GetSessionToken( Message );
+	string_t Username;
 
 	{
-		if( RequireCSRF )
+		bool QuerySuccess = false;
+
+		//Verify CSRF for R/W actions
+		if( ActionType == Action::ReadWrite )
 		{
 			SQLiteDatabaseQueryInstance VerifySessionAndCSRF( Context.Database, _T("VerifySessionAndCSRF") );
 			VerifySessionAndCSRF->Bind( "@SessionToken", SessionToken.c_str() );
 			VerifySessionAndCSRF->Bind( "@CSRFToken", CSRF.c_str() );
 		
-			int Count = VerifySessionAndCSRF->Execute( nullptr );
-			if( Count != 1 )
+			int Count = VerifySessionAndCSRF->Execute( 
+				[&]( const SQLiteDatabaseQuery& query )
+				{
+					Username = query.GetColumnValueText( 2 );
+					QuerySuccess = true;
+				
+					return true;
+				} 
+			);
+			if( Count != 1 || !QuerySuccess )
 			{
 				Message.reply( status_codes::BadRequest );
 				return false;
@@ -378,8 +458,16 @@ bool Command_Authenticate::IsAuthenticated( const GlobalContext& Context, http_r
 			SQLiteDatabaseQueryInstance VerifySession( Context.Database, _T("VerifySession") );
 			VerifySession->Bind( "@SessionToken", SessionToken.c_str() );
 		
-			int Count = VerifySession->Execute( nullptr );
-			if( Count != 1 )
+			int Count = VerifySession->Execute( 
+				[&]( const SQLiteDatabaseQuery& query )
+				{
+					Username = query.GetColumnValueText( 2 );
+					QuerySuccess = true;
+				
+					return true;
+				} 
+			);
+			if( Count != 1 || !QuerySuccess )
 			{
 				Message.reply( status_codes::BadRequest );
 				return false;
@@ -387,5 +475,70 @@ bool Command_Authenticate::IsAuthenticated( const GlobalContext& Context, http_r
 		}
 	}
 
+	int Enabled = 0;
+	int Admin = 0;
+
+	{
+		Success = false;
+
+		SQLiteDatabaseQueryInstance FindUserForAuth( Context.Database, _T("FindUserForAuth") );
+		FindUserForAuth->Bind( "@Username", Username.c_str() );
+
+		bool Success = false;
+		int Result = FindUserForAuth->Execute( 
+			[&]( const SQLiteDatabaseQuery& query )
+			{
+				Enabled = query.GetColumnValueInt( 1 );
+				Admin = query.GetColumnValueInt( 2 );
+				Success = true;
+				
+				return true;
+			} 
+		);
+	}
+
+	if ( !Admin && RequiredPrivilege == Privilege::Administrator)
+	{
+		Message.reply( status_codes::Forbidden );
+		return false;
+	}
+
+	if( !Enabled )
+	{
+		Message.reply( status_codes::Forbidden );
+		return false;
+	}
+
 	return true;
+}
+
+void Command_Authenticate::OnEnumUsersMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
+{
+	auto Packet = Message.extract_json().get();
+
+	if( !IsAuthenticated( Context, Message, Packet, Action::Read, Privilege::Administrator ) )
+	{
+		return;
+	}
+
+	vector<json::value> Array;
+
+	SQLiteDatabaseQueryInstance FindUsers( Context.Database, _T("FindUsers") );
+
+	int Result = FindUsers->Execute( 
+		[&]( const SQLiteDatabaseQuery& query )
+		{
+			json::value User;
+			User[ _T("username") ] = json::value(query.GetColumnValueText( 0 ));
+			User[ _T("displayName") ] = json::value(query.GetColumnValueText( 1 ));
+			User[ _T("enabled") ] = json::value(query.GetColumnValueInt( 2 ));
+			User[ _T("admin") ] = json::value(query.GetColumnValueInt( 3 ));
+			
+			Array.push_back(User);
+
+			return true;
+		} 
+	);
+
+	Message.reply( status_codes::OK, json::value::array(Array) );
 }

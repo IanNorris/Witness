@@ -6,8 +6,11 @@ namespace Database
 	string InitializationScript = R"RAW(
 		CREATE TABLE IF NOT EXISTS User(
 			Username		CHAR(64)							NOT NULL,
+			DisplayName		CHAR(128)							NOT NULL,
 			PasswordHash	CHAR(128)							NOT NULL,
-			HashMethod		INT									NOT NULL
+			HashMethod		INTEGER								NOT NULL,
+			Enabled			INTEGER								NOT NULL,		
+			Admin			INTEGER								NOT NULL
 		);
 
 		CREATE UNIQUE INDEX IF NOT EXISTS UserIndex ON User (Username);
@@ -55,13 +58,22 @@ namespace Database
 	)RAW";
 
 	string_t FindUser = LR"RAW(
-		SELECT * FROM User 
+		SELECT Username, PasswordHash, HashMethod FROM User 
 		WHERE Username = @Username
 	)RAW";
 
+	string_t FindUserForAuth = LR"RAW(
+		SELECT DisplayName, Enabled, Admin FROM User 
+		WHERE Username = @Username
+	)RAW";
+
+	string_t FindUsers = LR"RAW(
+		SELECT Username, DisplayName, Enabled, Admin FROM User 
+	)RAW";
+
 	string_t CreateUser = LR"RAW(
-		INSERT INTO User (Username,PasswordHash,HashMethod)
-		VALUES(@Username,@PasswordHash,@HashMethod);
+		INSERT INTO User (Username,PasswordHash,HashMethod,Enabled,Admin)
+		VALUES(@Username,@PasswordHash,@HashMethod,@Enabled,@Admin);
 	)RAW";
 
 	string_t FindSession = LR"RAW(
@@ -155,6 +167,8 @@ namespace Database
 		);
 
 		CREATE_QUERY( FindUser );
+		CREATE_QUERY( FindUserForAuth );
+		CREATE_QUERY( FindUsers );
 		CREATE_QUERY( CreateUser );
 
 		CREATE_QUERY( FindSession );

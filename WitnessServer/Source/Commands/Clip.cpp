@@ -185,7 +185,7 @@ void Command_Clip::OnEnumClipsMessage( const GlobalContext& Context, http_reques
 
 	MaxCountInt = min( MaxCountInt, MaxClipsPerQuery );
 
-	if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, false ) )
+	if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::Read, Command_Authenticate::Privilege::Normal ) )
 	{
 		return;
 	}
