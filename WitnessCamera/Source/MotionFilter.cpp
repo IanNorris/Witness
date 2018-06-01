@@ -136,9 +136,9 @@ ClassificationResult MotionFilter::FilterFrame( unsigned int Width, unsigned int
 
 	if( Percentage > 0.03 )
 	{
-		OutputStream* DiagOutput = StreamManager->GetDiagnosticStream( Width, Height );
+		//OutputStream* DiagOutput = StreamManager->GetDiagnosticStream( Width, Height );
 
-		ID.DiagFrame->Prepare();
+		//ID.DiagFrame->Prepare();
 		
 		Mat annotatedFinal( ID.DiagFrame->GetHeight(), ID.DiagFrame->GetWidth(), CV_8UC3, ID.DiagFrame->GetFrame()->data[0] );
 		//Mat annotated( ID.DiagFrame->GetHeight(), ID.DiagFrame->GetWidth(), CV_8UC3 );
@@ -182,7 +182,7 @@ ClassificationResult MotionFilter::FilterFrame( unsigned int Width, unsigned int
 		//ID.ForegroundMask.copyTo( ID.PreviousMask );
 
 
-		DiagOutput->WriteFrame( ID.DiagFrame.get() );
+		//DiagOutput->WriteFrame( ID.DiagFrame.get() );
 
 		return ClassificationResult( ClassificationImportance::Motion, "Motion", Percentage );
 	}

@@ -18,7 +18,7 @@ OutputStream* StreamManager::GetDiagnosticStream( int Width, int Height )
 {
 	if( !m_DiagnosticStream )
 	{
-		m_DiagnosticStream = std::make_shared<OutputStream>( "X:\\Diagnostics.mp4", Width, Height, 25, true );
+		//m_DiagnosticStream = std::make_shared<OutputStream>( "X:\\Diagnostics.mp4", Width, Height, 25, true );
 	}
 
 	return m_DiagnosticStream.get();
