@@ -43,6 +43,10 @@ CameraStreamError InputStream::Initialize()
 	ID.FormatContext = avformat_alloc_context();
 	
 	av_dict_set( &ID.StreamOptions, "rtsp_transport", "tcp", 0 );
+	//av_dict_set( &ID.StreamOptions, "timeout", "2000000", 0 );
+	av_dict_set( &ID.StreamOptions, "buffer_size", "20971520", 0 );
+
+	av_dict_set( &ID.StreamOptions, "nobuffer", "1", 0 );
 	
 	int Result = avformat_open_input( &ID.FormatContext, ID.Path.c_str(), nullptr, &ID.StreamOptions );
 
