@@ -15,6 +15,15 @@ var PermissionViewModel = function(name, value) {
 	self.text = name;
 };
 
+var GroupViewModel = function(name, value) {
+	"use strict";
+	
+	var self = this;
+
+	self.id = value;
+	self.text = name;
+};
+
 var UserViewModel = function( parent, username, enabled, admin, displayName, permissions ) {
 	"use strict";
 	
@@ -43,6 +52,36 @@ var UserViewModel = function( parent, username, enabled, admin, displayName, per
 	self.isSelf = ko.computed( function() {
 		return self.username() == self.parent.username();
 	} );
+};
+
+var CameraDetailViewModel = function( cameraName, cameraPath, cameraGroups, cameraStatus ) {
+	"use strict";
+	
+	var self = this;	
+
+	self.cameraName = ko.observable(cameraName);
+	self.cameraPath = ko.observable(cameraPath);
+	self.cameraGroups = ko.observable(cameraGroups);
+	self.cameraStatus = ko.observable(cameraStatus);
+	self.availableGroups = [
+		new GroupViewModel( "Public", 0 ),
+		new GroupViewModel( "Inside", 1 ),
+		new GroupViewModel( "Front", 2 ),
+		new GroupViewModel( "Back", 3 )
+	];
+};
+
+var CameraControllerViewModel = function( parent ) {
+	"use strict";
+	
+	var self = this;	
+	
+	self.parent = parent;
+	
+	self.cameraList = ko.observableArray([
+		new CameraDetailViewModel( "Hello", "X:\\Path\\", [0,1,2,3], "Offline" ),
+		new CameraDetailViewModel( "World", "X:\\Path2\\", [2,3], "Online" )
+	]);
 };
 
 var AuthenticationViewModel = function( parent ) {
@@ -563,6 +602,8 @@ var WitnessViewModel = function() {
 	
 	self.authentication = new AuthenticationViewModel( self );
 	self.authentication.queryUserProfile();
+
+	self.cameraController = new CameraControllerViewModel( self );
 		
 	self.clipBrowser = ko.observable(null);
 	self.adminController = ko.observable( self.authentication.admin() ? new AdministrationViewModel() : null );
