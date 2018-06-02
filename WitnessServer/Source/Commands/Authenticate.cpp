@@ -94,20 +94,21 @@ void OfflineCreationForFirstUser( const GlobalContext& Context )
 		getline( tcin, Password );
 		SetStdinEcho( true );
 
+		string_t UsernameLC = Username;
+		std::transform(UsernameLC.begin(), UsernameLC.end(), UsernameLC.begin(), ::tolower);
+
+
 		tcout << endl << _T("Hashing password...") << endl;
 
-		string_t Hash = GetHashedPasswordKey_Algorithm0( Username, Password );
+		string_t Hash = GetHashedPasswordKey_Algorithm0( UsernameLC, Password );
 
 		tcout << _T("Storing password...") << endl;
 
 		{
 			SQLiteDatabaseQueryInstance CreateUser( Context.Database, _T("CreateUser") );
-
-			string_t UsernameLC = Username;
-
-			std::transform(UsernameLC.begin(), UsernameLC.end(), UsernameLC.begin(), ::tolower);
-
+			
 			CreateUser->Bind( "@Username", UsernameLC.c_str() );
+			CreateUser->Bind( "@DisplayName", Username.c_str() );
 			CreateUser->Bind( "@PasswordHash", Hash.c_str() );
 			CreateUser->Bind( "@HashMethod", 0 );
 			CreateUser->Bind( "@Enabled", 1 );
