@@ -5,6 +5,7 @@
 
 #include <vector>
 #include <iostream>
+#include <chrono>
 
 namespace Witness{
 namespace Camera{
@@ -12,6 +13,8 @@ namespace Camera{
 InputStream::InputStream( const std::string& StreamURL, int StreamIndex )
 : Stream()
 , m_StreamManager( new StreamManager() )
+, TimeStarted( 0 )
+, IsConnecting( false )
 {
 	m_InternalData->Path = StreamURL;
 	m_InternalData->StreamIndex = StreamIndex;
@@ -41,14 +44,20 @@ CameraStreamError InputStream::Initialize()
 	auto& ID = *m_InternalData;
 
 	ID.FormatContext = avformat_alloc_context();
+	ID.FormatContext->interrupt_callback.callback = InputStream::InterruptCallback;
+	ID.FormatContext->interrupt_callback.opaque = this;
+
 	
 	av_dict_set( &ID.StreamOptions, "rtsp_transport", "tcp", 0 );
-	//av_dict_set( &ID.StreamOptions, "timeout", "2000000", 0 );
+	//av_dict_set( &ID.StreamOptions, "timeout", "600000", 0 );
 	av_dict_set( &ID.StreamOptions, "buffer_size", "20971520", 0 );
 
 	av_dict_set( &ID.StreamOptions, "nobuffer", "1", 0 );
 	
+	IsConnecting = true;
+	TimeStarted = std::chrono::high_resolution_clock::now().time_since_epoch().count();
 	int Result = avformat_open_input( &ID.FormatContext, ID.Path.c_str(), nullptr, &ID.StreamOptions );
+	IsConnecting = false;
 
 	if( Result < 0 )
 	{
@@ -268,6 +277,23 @@ void InputStream::Shutdown()
 	}
 
 	Stream::Shutdown();
+}
+
+int InputStream::InterruptCallback( void* Opaque )
+{
+	InputStream* This = (InputStream*)Opaque;
+
+	if( This->IsConnecting )
+	{
+		int64_t TimeNow = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+
+		if (TimeNow - (ConnectionTimeout * 1000ll * 1000ll * 1000ll) > This->TimeStarted)
+		{
+			return 1;
+		}
+	}
+
+	return 0;
 }
 
 }}

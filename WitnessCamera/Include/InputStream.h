@@ -19,7 +19,14 @@ public:
 
 private:
 
+	const static int64_t ConnectionTimeout = 5;
+
+	static int InterruptCallback( void* Opaque );
+
 	StreamManager* m_StreamManager;
+
+	int64_t TimeStarted;
+	bool IsConnecting;
 };
 
 }}
