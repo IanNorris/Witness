@@ -5,6 +5,7 @@ namespace Database
 {
 	string InitializationScript = R"RAW(
 		CREATE TABLE IF NOT EXISTS User(
+			UserUID			INTEGER PRIMARY KEY	AUTOINCREMENT,
 			Username		CHAR(64)							NOT NULL,
 			DisplayName		CHAR(128)							NOT NULL,
 			PasswordHash	CHAR(128)							NOT NULL,
@@ -25,15 +26,26 @@ namespace Database
 		CREATE UNIQUE INDEX IF NOT EXISTS SessionIndex ON Session (SessionToken);
 
 		CREATE TABLE IF NOT EXISTS Camera(
-			CameraUID		INT									NOT NULL,
+			CameraUID		INTEGER PRIMARY KEY	AUTOINCREMENT,
 			CameraName		CHAR(64)							NOT NULL,
 			CameraString	TEXT								NOT NULL
 		);
 
-		CREATE UNIQUE INDEX IF NOT EXISTS CameraIndex ON Camera (CameraUID);
+		CREATE TABLE IF NOT EXISTS CameraGroup (
+			GroupUID		INTEGER PRIMARY KEY AUTOINCREMENT,
+			DisplayName		TEXT UNIQUE,
+			Description		TEXT
+		);
 
+		CREATE TABLE IF NOT EXISTS CameraGroupMapping (
+			Camera	INTEGER										NOT NULL,
+			`Group`	INTEGER										NOT NULL
+		);
+
+		CREATE UNIQUE INDEX IF NOT EXISTS CameraGroupMappingIndex ON CameraGroupMapping (Camera,`Group`);
 
 		CREATE TABLE IF NOT EXISTS Clip(
+			ClipUID			INTEGER PRIMARY KEY	AUTOINCREMENT,
 			Timestamp		DATETIME,
 			Camera			INT,
 			MotionTimestamp	DATETIME,
@@ -47,13 +59,10 @@ namespace Database
 		CREATE UNIQUE INDEX IF NOT EXISTS ClipIndex ON Clip (Timestamp,Camera);
 
 		CREATE TABLE IF NOT EXISTS Tag(
-			TagUID			INT									NOT NULL,
+			TagUID			INTEGER PRIMARY KEY	AUTOINCREMENT,
 			Name			CHAR(64)							NOT NULL,
 			Description		TEXT								NOT NULL
 		);
-
-		CREATE UNIQUE INDEX IF NOT EXISTS TagIndex ON Tag (TagUID);
-
 
 	)RAW";
 
@@ -72,8 +81,8 @@ namespace Database
 	)RAW";
 
 	string_t CreateUser = LR"RAW(
-		INSERT INTO User (Username,PasswordHash,HashMethod,Enabled,Admin)
-		VALUES(@Username,@PasswordHash,@HashMethod,@Enabled,@Admin);
+		INSERT INTO User (Username,DisplayName,PasswordHash,HashMethod,Enabled,Admin)
+		VALUES(@Username,@DisplayName,@PasswordHash,@HashMethod,@Enabled,@Admin);
 	)RAW";
 
 	string_t FindSession = LR"RAW(

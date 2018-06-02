@@ -141,9 +141,10 @@ void Command_Clip::OnThumbnailMessage( const GlobalContext& Context, http_reques
 	SelectClip->Execute( 
 		[&]( const SQLiteDatabaseQuery& query )
 		{
-			uint64_t Timestamp = query.GetColumnValueInt64(0);
-			int CameraID = query.GetColumnValueInt(1);
-			int RecordMode = query.GetColumnValueInt(5);
+			uint64_t ClipID = query.GetColumnValueInt64(0);
+			uint64_t Timestamp = query.GetColumnValueInt64(1);
+			int CameraID = query.GetColumnValueInt(2);
+			int RecordMode = query.GetColumnValueInt(6);
 
 			ClipFilename = GetClipName( Context, CameraID, Timestamp, RecordMode == 0, Video );
 			
@@ -223,14 +224,15 @@ void Command_Clip::OnEnumClipsMessage( const GlobalContext& Context, http_reques
 		SelectClipsWithinRange->Execute( 
 			[&Array, &Context]( const SQLiteDatabaseQuery& query )
 			{
-				uint64_t Timestamp = query.GetColumnValueInt64(0);
-				int CameraID = query.GetColumnValueInt(1);
-				uint64_t MotionTimestamp = query.GetColumnValueInt64(2);
-				int ActiveDuration = query.GetColumnValueInt(3);
-				int Duration = query.GetColumnValueInt(4);
-				int RecordMode = query.GetColumnValueInt(5);
-				double MaxMotion = query.GetColumnValueDouble(6);
-				string_t Description = query.GetColumnValueText(7);
+				uint64_t ClipID = query.GetColumnValueInt64(0);
+				uint64_t Timestamp = query.GetColumnValueInt64(1);
+				int CameraID = query.GetColumnValueInt(2);
+				uint64_t MotionTimestamp = query.GetColumnValueInt64(3);
+				int ActiveDuration = query.GetColumnValueInt(4);
+				int Duration = query.GetColumnValueInt(5);
+				int RecordMode = query.GetColumnValueInt(6);
+				double MaxMotion = query.GetColumnValueDouble(7);
+				string_t Description = query.GetColumnValueText(8);
 			
 				json::value Camera;
 				Camera[ _T("timestamp") ] = json::value(Timestamp);
