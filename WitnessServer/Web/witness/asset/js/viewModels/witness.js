@@ -56,54 +56,35 @@ var WitnessViewModel = function() {
 	};
 	
 	self.refreshCameraData = function() {
-		$.ajax({
-			method: 'GET',
-			url: '/camera/enum',
-			contentType: 'application/json; charset=utf-8',
-		} )
-		.done( function( result ) {
-			
-			for( var camera = 0; camera < result.length; camera++ ) {
-				
-				var newCameraID = result[camera].id;
-				var newCameraName = result[camera].name;
-				var newCameraRecording = result[camera].recording;
-								
-				var found = false;
-				for( var existingCamera = 0; existingCamera < self.cameras().length; existingCamera++ )
-				{
-					if( self.cameras()[ existingCamera ].cameraID() == newCameraID ) {
-						self.cameras()[ existingCamera ].cameraName( newCameraName );
-						self.cameras()[ existingCamera ].isRecording( newCameraRecording );
-						found = true;
+		makeQuery( null, '/camera/enum', true, "error|Error fetching camera list.",
+			function( result ) {	
+				for( var camera = 0; camera < result.length; camera++ ) {
+					
+					var newCameraID = result[camera].id;
+					var newCameraName = result[camera].name;
+					var newCameraRecording = result[camera].recording;
+									
+					var found = false;
+					for( var existingCamera = 0; existingCamera < self.cameras().length; existingCamera++ )
+					{
+						if( self.cameras()[ existingCamera ].cameraID() == newCameraID ) {
+							self.cameras()[ existingCamera ].cameraName( newCameraName );
+							self.cameras()[ existingCamera ].isRecording( newCameraRecording );
+							found = true;
+						}
 					}
+					
+					if( !found )
+					{
+						self.cameras.push(  new CameraViewModel( self, newCameraID, newCameraName, newCameraRecording ) );
+					}
+					
+					self.cameras.sort( function( left, right ) {
+						return left.cameraID() < right.cameraID();
+					} );
 				}
 				
-				if( !found )
-				{
-					self.cameras.push(  new CameraViewModel( self, newCameraID, newCameraName, newCameraRecording ) );
-				}
-				
-				self.cameras.sort( function( left, right ) {
-					return left.cameraID() < right.cameraID();
-				} );
-			}
-			
-			self.cameraListReceived( true );
-		} )
-		.fail( function( result ) {
-			if( result.status == 401 || result.status == 403 ) {
-				window.location.replace( "/" );
-				return;
-			}
-			$.toast( {
-				text: "Error fetching camera list.",
-				type: 'danger',
-				bgColor: '#a94442',
-				position: 'top-center'
-			} );
-			
-			self.cameraListReceived( true );
+				self.cameraListReceived( true );
 		} );
 	};
 	self.refreshCameraData();

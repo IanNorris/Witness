@@ -134,13 +134,10 @@ var CameraClipsViewModel = function( parent, cameraID ) {
 	
 	self.refreshClipData = function() {
 		var timeNow = ((moment().utc() / 1000) - 1).toFixed(0);
-		$.ajax({
-			method: 'GET',
-			url: '/clip/enum/' + self.cameraID() + '/' + self.maxCount() + '/' + timeNow + '/' + self.rangePeriod() + '/' + self.pageOffset(),
-			contentType: 'application/json; charset=utf-8',
-		} )
-		.done( function( result ) {
-			
+		
+		var url = '/clip/enum/' + self.cameraID() + '/' + self.maxCount() + '/' + timeNow + '/' + self.rangePeriod() + '/' + self.pageOffset();
+		
+		makeQuery( null, url, true, "error|Error fetching clip list.", function(result) {
 			self.totalClipsInRange( result.count );
 			
 			self.clips.remove( function( item ) {
@@ -195,18 +192,6 @@ var CameraClipsViewModel = function( parent, cameraID ) {
 			}
 			
 			self.updateVisiblePages();
-		} )
-		.fail( function( result ) {
-			if( result.status == 401 || result.status == 403 ) {
-				window.location.replace( "/" );
-				return;
-			}
-			$.toast( {
-				text: "Error fetching clip list.",
-				type: 'danger',
-				bgColor: '#a94442',
-				position: 'top-center'
-			} );
 		} );
 	};
 	self.refreshClipData();

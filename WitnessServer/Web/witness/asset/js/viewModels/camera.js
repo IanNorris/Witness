@@ -61,32 +61,12 @@ var CameraViewModel = function( parent, cameraID, cameraName, cameraRecording ) 
 	self.toggleRecording = function() {
 		self.isRecording( !self.isRecording() );
 		
-		var logoutData = JSON.stringify( { 
+		var data = { 
 			'csrf': self.parent.authentication.csrfToken(),
 			'record': self.isRecording()
-		} );
+		};
 		
-		$.ajax({
-			method: 'POST',
-			url: '/camera/record/' + self.cameraID(),
-			dataType: 'json',
-			data: logoutData,
-			contentType: 'application/json; charset=utf-8',
-		} )
-		.done( function( result ) {
-			//Nothing
-		} )
-		.fail( function( result ) {
-			if( result.status == 401 || result.status == 403 ) {
-				window.location.replace( "/" );
-				return;
-			}
-			$.toast( {
-				text: "Error while attempting to set recording to " + self.isRecording() + ".",
-				type: 'warning',
-				position: 'top-center'
-			} );
-		} );
+		makeQuery( data, '/camera/record/' + self.cameraID(), true, "warning|Error while toggling camera recording.", function(result) {} );
 	}
 	
 	self.setNextCameraFrame();

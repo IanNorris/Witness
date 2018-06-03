@@ -14,54 +14,28 @@ var AuthenticationViewModel = function( parent ) {
 	self.displayName = ko.observable('');
 
 	self.queryUserProfile = function( callback ) {	
-		$.ajax({
-				method: 'POST',
-				url: '/auth/profile',
-				dataType: 'json',
-				data: '{}',
-				contentType: 'application/json; charset=utf-8',
-			} )
-			.done( function( result ) {
-				
-				self.csrfToken(result.csrf);
-				self.username(result.username);
-				self.admin(result.admin ? true : false);
-				self.displayName(result.displayName);
-				
-				callback();
-				
-				self.ready(true);
-			} )
-			.fail( function( result ) {
-				window.location.replace( "/" );
-			} );
+		makeQuery( {}, '/auth/profile', true, "error|Error while querying user profile.", function(result) {				
+			self.csrfToken(result.csrf);
+			self.username(result.username);
+			self.admin(result.admin ? true : false);
+			self.displayName(result.displayName);
+			
+			callback();
+			
+			self.ready(true);
+		} );
 	};
 	
 	
 	self.logoutAction = function() {
 				
-		var logoutData = JSON.stringify( { 
+		var data = { 
 			'csrf': self.csrfToken()
-		} );
+		};
 		
-		$.ajax({
-			method: 'POST',
-			url: '/auth/logout',
-			dataType: 'json',
-			data: logoutData,
-			contentType: 'application/json; charset=utf-8',
-		} )
-		.done( function( result ) {
+		makeQuery( data, '/auth/logout', true, "warning|Error while logging out.", function(result){
 			window.location.replace( "/" );
-		} )
-		.fail( function( result ) {
-			$.toast( {
-				text: "Error while logging out.",
-				type: 'danger',
-				bgColor: '#a94442',
-				position: 'top-center'
-			} );
-		} );
+		});
 	};
 	
 	//Forwarding action

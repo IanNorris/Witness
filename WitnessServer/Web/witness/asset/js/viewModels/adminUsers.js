@@ -4,18 +4,11 @@ var AdminUsersViewModel = function( currentUsername ) {
 	var self = this;
 	
 	self.currentUsername = currentUsername;
-	
-	//Admin functionality
 	self.users = ko.observableArray([]);
 	
 	self.refreshUsersAsAdmin = function() {	
-		$.ajax({
-			method: 'GET',
-			url: '/auth/admin_enum/',
-			contentType: 'application/json; charset=utf-8',
-		} )
-		.done( function( result ) {
-			
+		makeQuery( null, '/auth/admin_enum/', true, "error|Error fetching user list.",
+			function(result){
 			self.users.remove( function( item ) {
 				var found = false;
 				for( var user = 0; user < result.length; user++ ) {
@@ -62,18 +55,6 @@ var AdminUsersViewModel = function( currentUsername ) {
 					return left.username() < right.username();
 				} );
 			}
-		} )
-		.fail( function( result ) {
-			if( result.status == 401 || result.status == 403 ) {
-				window.location.replace( "/" );
-				return;
-			}
-			$.toast( {
-				text: "Error fetching user list.",
-				type: 'danger',
-				bgColor: '#a94442',
-				position: 'top-center'
-			} );
 		} );
 	};
 	
