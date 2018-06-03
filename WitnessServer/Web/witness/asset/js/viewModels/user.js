@@ -24,6 +24,6 @@ var UserViewModel = function( parent, username, enabled, admin, displayName, per
 	};
 	
 	self.isSelf = ko.computed( function() {
-		return self.username() == self.parent.username();
+		return self.username() == self.parent.currentUsername;
 	} );
 };

@@ -10,13 +10,21 @@ var WitnessViewModel = function() {
 	
 	var self = this;
 	
+	self.adminController = ko.observable(null);
+	self.adminAction = function(){
+		if( self.adminController() ) {
+			self.viewMode(VIEW_MODE_ADMIN);
+			window.location.hash = "#Administration";
+			self.adminController().adminAction();
+		}
+	};
+	
 	self.authentication = new AuthenticationViewModel( self );
-	self.authentication.queryUserProfile();
-
-	self.cameraController = new CameraControllerViewModel( self );
-		
+	self.authentication.queryUserProfile( function() {
+		self.adminController( self.authentication.admin() ? new AdminViewModel( self.authentication.username() ) : null );
+	});
+	
 	self.clipBrowser = ko.observable(null);
-	self.adminController = ko.observable( self.authentication.admin() ? new AdministrationViewModel() : null );
 		
 	self.cameraListReceived = ko.observable(false);
 	self.cameras = ko.observableArray([]);

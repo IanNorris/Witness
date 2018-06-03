@@ -54,8 +54,11 @@
 
 				<div class="col-md-12" style="padding:20px;">
 					<div class="panel animated fadeIn" data-bind="with: clipBrowser, visible: isViewMode(VIEW_MODE_CLIPS)" template-path="clips.html"></div>
-					<div class="panel animated fadeIn" data-bind="with: cameraController, visible: isViewMode(VIEW_MODE_ADMIN)" template-path="admin/cameras.html"></div>
-					<div class="panel animated fadeIn" data-bind="with: authentication, visible: isViewMode(VIEW_MODE_ADMIN)" template-path="admin/users.html"></div>
+					
+					<!-- ko with: adminController -->
+					<div class="panel animated fadeIn" data-bind="with: cameras, visible: $parent.isViewMode(VIEW_MODE_ADMIN)" template-path="admin/cameras.html"></div>
+					<div class="panel animated fadeIn" data-bind="with: users, visible: $parent.isViewMode(VIEW_MODE_ADMIN)" template-path="admin/users.html"></div>
+					<!-- /ko -->
 				</div>
 			</div>
 		</div>
@@ -98,11 +101,12 @@
 			} );
 		</script>
 		
-		<script src="asset/js/viewModels/administration.js"></script>
+		<script src="asset/js/viewModels/admin.js"></script>
+		<script src="asset/js/viewModels/adminCameras.js"></script>
+		<script src="asset/js/viewModels/adminUsers.js"></script>
 		<script src="asset/js/viewModels/authentication.js"></script>
 		<script src="asset/js/viewModels/camera.js"></script>
 		<script src="asset/js/viewModels/cameraClips.js"></script>
-		<script src="asset/js/viewModels/cameraController.js"></script>
 		<script src="asset/js/viewModels/cameraDetail.js"></script>
 		<script src="asset/js/viewModels/clip.js"></script>
 		<script src="asset/js/viewModels/group.js"></script>
