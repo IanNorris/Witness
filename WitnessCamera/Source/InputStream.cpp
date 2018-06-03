@@ -162,7 +162,10 @@ CameraStreamError InputStream::ProcessFrame( IRecordFilter* Filter, Stream* Targ
 
 	auto& ID = *m_InternalData;
 
+	IsConnecting = true;
+	TimeStarted = std::chrono::high_resolution_clock::now().time_since_epoch().count();
 	int Result = av_read_frame( m_InternalData->FormatContext, &ID.Packet );
+	IsConnecting = false;
 	if( Result == AVERROR_EOF )
 	{
 		return CameraStreamError::EndOfFile;
