@@ -1,0 +1,30 @@
+<div class="sub-left-menu scroll">
+	<ul class="nav nav-list">
+		<li class="time">
+			<h1 class="animated fadeInLeft"></h1>
+			<p class="animated fadeInRight"></p>
+		</li>
+		<li class="ripple" data-bind="css: { active: isViewMode(VIEW_MODE_STREAM) }">
+			<a class="tree-toggle nav-header">
+				<span class="fa-eye fa"></span> Live cameras
+				<span class="fa-angle-right fa right-arrow text-right"></span>
+			</a>
+			<ul class="nav nav-list tree" data-bind="foreach: cameras">
+				<li data-bind="css: { active: isSelectedStream }, click: selectCameraStream">
+					<a class="clickable" data-bind="text: cameraName, attr: { name: streamName }"></a>
+				</li>
+			</ul>
+		</li>
+		<li class="ripple" data-bind="css: { active: isViewMode(VIEW_MODE_CLIPS) }">
+			<a class="tree-toggle nav-header">
+				<span class="fa-video fa"></span> Recorded clips
+				<span class="fa-angle-right fa right-arrow text-right"></span>
+			</a>
+			<ul class="nav nav-list tree" data-bind="foreach: cameras">
+				<li data-bind="css: { active: isSelectedClip }, click: selectCameraClips">
+					<a class="clickable" data-bind="text: cameraName, attr: { name: clipName }"></a>
+				</li>
+			</ul>
+		</li>
+	</ul>
+</div>
