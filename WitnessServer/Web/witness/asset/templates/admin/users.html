@@ -32,7 +32,7 @@
 										<input type="text" class="form-control android" style="width:100%" data-bind="value: displayName"></input>
 									</td>
 									<td nowrap>
-										<select multiple="multiple" data-bind="selected: userGroups, options: $parent.groups.groupList, optionsText: 'text', optionsValue: 'id', select2: { placeholder: 'Pick groups user can access', valueAllowUnset: true }"
+										<select multiple="multiple" data-bind="selected: userGroups, options: $parent.groups.groups, optionsText: 'text', optionsValue: 'id', select2: { placeholder: 'Pick groups user can access', valueAllowUnset: true }"
 										  class="select2" style="width:100%"></select>
 										Selected:
 										<span data-bind="text: userGroups"></span>

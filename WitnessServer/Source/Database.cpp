@@ -164,6 +164,31 @@ namespace Database
 		;
 	)RAW";
 
+	string_t SelectAllGroups = LR"RAW(
+		SELECT * FROM CameraGroup
+		;
+	)RAW";
+
+	string_t CreateGroup = LR"RAW(
+		INSERT INTO CameraGroup (DisplayName,Description)
+		VALUES(@DisplayName,@Description);
+	)RAW";
+
+	string_t UpdateGroup = LR"RAW(
+		UPDATE CameraGroup 
+		SET
+			DisplayName = @DisplayName,
+			Description = @Description
+		WHERE
+			GroupUID = @GroupUID
+		;
+	)RAW";
+
+	string_t DeleteGroup = LR"RAW(
+		DELETE FROM CameraGroup
+		WHERE GroupUID = @GroupUID;
+	)RAW";
+
 #define CREATE_QUERY( X ) DB->CreateQuery( _T(#X), X )
 
 	shared_ptr<SQLiteDatabase> InitializeDatabase( string_t Filename )
@@ -195,6 +220,11 @@ namespace Database
 		CREATE_QUERY( SelectClip );
 		CREATE_QUERY( CountClipsWithinRange );
 		CREATE_QUERY( SelectClipsWithinRange );
+
+		CREATE_QUERY( SelectAllGroups );
+		CREATE_QUERY( CreateGroup );
+		CREATE_QUERY( UpdateGroup );
+		CREATE_QUERY( DeleteGroup );
 
 		return DB;
 	}

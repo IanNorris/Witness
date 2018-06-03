@@ -57,6 +57,7 @@
 					
 					<!-- ko with: adminController -->
 					<div class="panel animated fadeIn" data-bind="with: cameras, visible: $parent.isViewMode(VIEW_MODE_ADMIN)" template-path="admin/cameras.html"></div>
+					<div class="panel animated fadeIn" data-bind="with: groups, visible: $parent.isViewMode(VIEW_MODE_ADMIN)" template-path="admin/groups.html"></div>
 					<div class="panel animated fadeIn" data-bind="with: users, visible: $parent.isViewMode(VIEW_MODE_ADMIN)" template-path="admin/users.html"></div>
 					<!-- /ko -->
 				</div>
