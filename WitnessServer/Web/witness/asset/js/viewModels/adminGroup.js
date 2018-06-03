@@ -1,4 +1,4 @@
-var GroupViewModel = function(name, value) {
+var AdminGroupViewModel = function(name, value) {
 	"use strict";
 	
 	var self = this;

@@ -20,7 +20,7 @@
 							<thead>
 								<th width="25%">Name</th>
 								<th width="33%">Connection String</th>
-								<th width="33%">Groups</th>
+								<th width="33%">Included In Groups</th>
 								<th>Status</th>
 								<th>Actions</th>
 							</thead>
@@ -33,7 +33,7 @@
 										<input type="text" class="form-control android" style="width:100%" data-bind="value: cameraPath"></input>
 									</td>
 									<td nowrap>
-										<select multiple="multiple" data-bind="selected: cameraGroups, options: availableGroups, optionsText: 'text', optionsValue: 'id', select2: { placeholder: 'Select groups with access', valueAllowUnset: true }"
+										<select multiple="multiple" data-bind="selected: cameraGroups, options: $parent.groups.groupList, optionsText: 'text', optionsValue: 'id', select2: { placeholder: 'Pick groups camera belongs to', valueAllowUnset: true }"
 										  class="select2" style="width:100%"></select>
 										Selected:
 										<span data-bind="text: cameraGroups"></span>

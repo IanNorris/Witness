@@ -1,11 +1,12 @@
-var AdminCamerasViewModel = function() {
+var AdminCamerasViewModel = function( groups ) {
 	"use strict";
 	
-	var self = this;	
+	var self = this;
+	self.groups = groups;
 	
 	self.cameraList = ko.observableArray([
-		new CameraDetailViewModel( "Hello", "X:\\Path\\", [0,1,2,3], "Offline" ),
-		new CameraDetailViewModel( "World", "X:\\Path2\\", [2,3], "Online" )
+		new AdminCameraViewModel( "Hello", "X:\\Path\\", [0,1,2,3], "Offline" ),
+		new AdminCameraViewModel( "World", "X:\\Path2\\", [2,3], "Online" )
 	]);
 	
 	self.adminAction = function() {

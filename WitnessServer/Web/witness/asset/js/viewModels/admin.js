@@ -3,10 +3,12 @@ var AdminViewModel = function( currentUsername ) {
 	
 	var self = this;
 	
-	self.users = new AdminUsersViewModel( currentUsername );
-	self.cameras = new AdminCamerasViewModel();
+	self.groups = new AdminGroupsViewModel();
+	self.users = new AdminUsersViewModel( currentUsername, self.groups );
+	self.cameras = new AdminCamerasViewModel( self.groups );
 	
-	self.adminAction = function(){		
+	self.adminAction = function(){
+		self.groups.adminAction();
 		self.users.adminAction();
 		self.cameras.adminAction();
 	};

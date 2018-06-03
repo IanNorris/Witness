@@ -1,7 +1,8 @@
-var AdminUsersViewModel = function( currentUsername ) {
+var AdminUsersViewModel = function( currentUsername, groups ) {
 	"use strict";
 	
 	var self = this;
+	self.groups = groups;
 	
 	self.currentUsername = currentUsername;
 	self.users = ko.observableArray([]);
@@ -28,8 +29,8 @@ var AdminUsersViewModel = function( currentUsername ) {
 				var newAdmin = result[user].admin;
 				var newDisplayName = result[user].displayName;
 				
-				result[user].userPermissions = [0,1];
-				var newPermissions = result[user].userPermissions;
+				result[user].userGroups = [0,1];
+				var newGroups = result[user].userGroups;
 
 				var existing = null;
 				
@@ -45,10 +46,10 @@ var AdminUsersViewModel = function( currentUsername ) {
 					existing.admin(newAdmin);
 					existing.enabled(newEnabled);
 					existing.displayName(newDisplayName);
-					existing.userPermissions(newPermissions);
+					existing.userGroups(newGroups);
 				}
 				else {
-					self.users.push(  new UserViewModel( self, newUsername, newEnabled, newAdmin, newDisplayName, newPermissions ) );
+					self.users.push(  new AdminUserViewModel( self, newUsername, newEnabled, newAdmin, newDisplayName, newGroups ) );
 				}
 				
 				self.users.sort( function( left, right ) {

@@ -1,4 +1,4 @@
-var UserViewModel = function( parent, username, enabled, admin, displayName, permissions ) {
+var AdminUserViewModel = function( parent, username, enabled, admin, displayName, groups ) {
 	"use strict";
 	
 	var self = this;	
@@ -9,11 +9,7 @@ var UserViewModel = function( parent, username, enabled, admin, displayName, per
 	self.enabled = ko.observable(enabled);
 	self.admin = ko.observable(admin);
 	self.displayName = ko.observable(displayName);
-	self.userPermissions = ko.observable(permissions);
-	self.availablePermissions = [
-		new PermissionViewModel("External", 0),
-		new PermissionViewModel("Internal", 1),
-	];
+	self.userGroups = ko.observable(groups);
 	
 	self.toggleEnabled = function(){
 		return true;
