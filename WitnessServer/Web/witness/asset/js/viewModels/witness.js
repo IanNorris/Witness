@@ -21,7 +21,7 @@ var WitnessViewModel = function() {
 	
 	self.authentication = new AuthenticationViewModel( self );
 	self.authentication.queryUserProfile( function() {
-		self.adminController( self.authentication.admin() ? new AdminViewModel( self.authentication.username() ) : null );
+		self.adminController( self.authentication.admin() ? new AdminViewModel( self.authentication ) : null );
 	});
 	
 	self.clipBrowser = ko.observable(null);

@@ -1,9 +1,72 @@
-var AdminGroupsViewModel = function() {
+var AdminGroupsViewModel = function( authentication ) {
 	"use strict";
 	
-	var self = this;	
+	var self = this;
+	self.authentication = authentication;
+
+	self.isBusy = ko.observable(false);
+	self.idToDelete = 0;
+	self.displayNameToDelete = ko.observable('');
+	self.newGroupNameBound = ko.observable('');
+	self.newGroupDescriptionBound = ko.observable('');
+	
+	self.createNewGroup = function(){
+		self.isBusy(true);
+		var newGroup = {
+			'csrf': self.authentication.csrfToken(),
+			displayName: self.newGroupNameBound(),
+			description: self.newGroupDescriptionBound()
+		};
+		makeQuery( newGroup, '/group/create/', true, "error|Error creating group.",
+			function(result){
+				self.groups.push(  new AdminGroupViewModel( result.id, newGroup.displayName, newGroup.description ) );
+				$('#addGroupAdmin').modal('toggle');
+				self.newGroupNameBound('');
+				self.newGroupDescriptionBound('');
+				
+				
+			},
+			function(result){ /*finally*/
+				self.isBusy(false);
+			}
+		);
+	};
+	
+	self.showDeleteDialog = function( id, displayName ) {
+		self.idToDelete = id;
+		self.displayNameToDelete( displayName );
+		$('#deleteGroupAdmin').modal('toggle');
+	};
+	
+	self.deleteGroup = function(){
+		self.isBusy(true);
+		var groupToDelete = {
+			'csrf': self.authentication.csrfToken(),
+			id: self.idToDelete
+		};
+		makeQuery( groupToDelete, '/group/delete/', true, "error|Error deleting group.",
+			function(result){
+				self.groups.remove( function( item ) {
+						return item.id == self.idToDelete;
+					} );
+				
+				$('#deleteGroupAdmin').modal('toggle');
+				self.displayNameToDelete('');
+				self.idToDelete = 0;
+			},
+			function(result){ /*finally*/
+				self.isBusy(false);
+			}
+		);
+	};
 	
 	self.groups = ko.observableArray([]);
+	
+	self.sortGroups = function() {
+		self.groups.sort( function( left, right ) {
+			return left.displayName() < right.displayName();
+		} );
+	};
 	
 	self.refreshGroupsAsAdmin = function() {	
 		makeQuery( null, '/group/enum/', true, "error|Error fetching group list.",
@@ -39,16 +102,14 @@ var AdminGroupsViewModel = function() {
 						}
 						
 						if( existing ){
-							existing.displayName(newAdmin);
+							existing.displayName(newDisplayName);
 							existing.description(newDescription);
 						}
 						else {
 							self.groups.push(  new AdminGroupViewModel( newId, newDisplayName, newDescription ) );
 						}
 						
-						self.groups.sort( function( left, right ) {
-							return left.displayName() < right.displayName();
-						} );
+						self.sortGroups();
 					}
 				}
 			} 

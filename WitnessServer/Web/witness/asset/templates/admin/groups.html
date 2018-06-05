@@ -31,7 +31,7 @@
 										<input type="text" class="form-control android" style="width:100%" data-bind="value: description"></input>
 									</td>
 									<td nowrap>
-										<button class="btn btn-default">
+										<button class="btn btn-default" data-bind="click: function(){ $parent.showDeleteDialog( id, displayName() ); }">
 											<span class="fa fa-delete"></span> Delete</button>
 									</td>
 								</tr>

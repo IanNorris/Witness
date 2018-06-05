@@ -99,12 +99,109 @@ void Command_Group::OnEnumMessage( const GlobalContext& Context, http_request& M
 
 void Command_Group::OnCreateMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet )
 {
+	if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::ReadWrite, Command_Authenticate::Privilege::Administrator ) )
+	{
+		return;
+	}
+
+	string_t Errors;
+	
+	bool Success = true;
+	string_t DisplayName;
+	string_t Description;
+
+	Success &= GetJsonField( Packet, _T("displayName"), DisplayName, Errors );
+	Success &= GetJsonField( Packet, _T("description"), Description, Errors );
+
+	json::value Data;
+	
+	int64_t RowResult = 0;
+
+	{
+		SQLiteDatabaseQueryInstance CreateGroup( Context.Database, _T("CreateGroup") );
+		CreateGroup->Bind( "@DisplayName", DisplayName.c_str() );
+		CreateGroup->Bind( "@Description", Description.c_str() );
+
+		if (CreateGroup->Execute(nullptr) < 0)
+		{
+			json::value Data;
+			Data[ _T("errorMessage") ] = json::value(CreateGroup->GetLastError());
+
+			Message.reply( status_codes::BadRequest, Data );
+			return;
+		}
+		RowResult = CreateGroup->GetLastInsertionId();
+	}
+	
+	Data[ _T("id") ] = json::value(RowResult);
+
+	if( RowResult > 0 )
+	{
+		Message.reply( status_codes::OK, Data );
+	}
+	else
+	{
+		Message.reply( status_codes::BadRequest );
+	}
 }
 
 void Command_Group::OnUpdateMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet )
 {
+	if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::ReadWrite, Command_Authenticate::Privilege::Administrator ) )
+	{
+		return;
+	}
+
+	string_t Errors;
+	
+	bool Success = true;
+	string_t GroupUID;
+	string_t DisplayName;
+	string_t Description;
+
+	
+	Success &= GetJsonField( Packet, _T("id"), GroupUID, Errors );
+	Success &= GetJsonField( Packet, _T("displayName"), DisplayName, Errors );
+	Success &= GetJsonField( Packet, _T("description"), Description, Errors );
+
+	
+
+	{
+		SQLiteDatabaseQueryInstance UpdateGroup( Context.Database, _T("UpdateGroup") );
+		UpdateGroup->Bind( "@GroupUID", GroupUID.c_str() );
+		UpdateGroup->Bind( "@DisplayName", DisplayName.c_str() );
+		UpdateGroup->Bind( "@Description", Description.c_str() );
+
+		UpdateGroup->Execute( nullptr );
+	}
+
+	json::value Data;
+	Message.reply( status_codes::OK, Data );
 }
 
 void Command_Group::OnDeleteMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet )
 {
+	if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::ReadWrite, Command_Authenticate::Privilege::Administrator ) )
+	{
+		return;
+	}
+
+	string_t Errors;
+	
+	bool Success = true;
+	int GroupUID;
+		
+	Success &= GetJsonField( Packet, _T("id"), GroupUID, Errors );
+	
+	int RowResult = 0;
+
+	{
+		SQLiteDatabaseQueryInstance DeleteGroup( Context.Database, _T("DeleteGroup") );
+		DeleteGroup->Bind( "@GroupUID", GroupUID );
+
+		RowResult = DeleteGroup->Execute( nullptr );
+	}
+
+	json::value Data;
+	Message.reply( status_codes::OK, Data );
 }
