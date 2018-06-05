@@ -111,6 +111,14 @@ int SQLiteDatabaseQuery::Execute( const std::function< bool(const SQLiteDatabase
 		}
 
 		AssertQuery( result == SQLITE_DONE, "Error while reading rows: %s", sqlite3_errmsg( m_database->GetDatabase() ) );
+		if (result != SQLITE_DONE)
+		{
+			std::string ErrorString(sqlite3_errmsg( m_database->GetDatabase() ));
+
+
+			m_lastError = string_t( ErrorString.begin(), ErrorString.end() );
+			return -1;
+		}
 	}
 
 	m_lastInsertId = sqlite3_last_insert_rowid( m_database->GetDatabase() );

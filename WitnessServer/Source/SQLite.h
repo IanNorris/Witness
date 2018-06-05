@@ -45,10 +45,13 @@ public:
 
 	mutex& PrepareQueryMutex() { return m_tMutex; }
 
+	string_t GetLastError() { return m_lastError; }
+
 private:
 
 	mutex													m_tMutex;
 
+	string_t												m_lastError;
 	shared_ptr<SQLiteDatabase>								m_database;
 	vector<sqlite3_stmt*>									m_statements;
 	int64_t													m_lastInsertId;
