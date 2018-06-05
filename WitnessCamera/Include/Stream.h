@@ -26,7 +26,7 @@ enum class CameraStreamError
 	EncoderCreationError,
 	FileNotWriteable,
 	WriteFailed,
-
+	NoStreamInput,
 
 	InternalError,
 	UnknownError,
@@ -78,6 +78,8 @@ static const TCHAR* GetCameraStreamErrorMessage( CameraStreamError Error )
 	case CameraStreamError::WriteFailed:
 		return _T("Write failed");
 
+	case CameraStreamError::NoStreamInput:
+		return _T("Input stream is invalid");
 
 	case CameraStreamError::InternalError:
 		return _T("Internal error");

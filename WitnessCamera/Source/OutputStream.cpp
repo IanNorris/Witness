@@ -14,26 +14,34 @@ OutputStream::OutputStream( const std::string& Path, InputStream * InputStream )
 
 	auto& ID = *m_InternalData;
 	auto& InID = m_InputStream->GetData();
-	const AVCodecContext& DecoderContext = *(InID.CodecContext);
 
-	ID.PixelFormat = DecoderContext.pix_fmt;
-	ID.CodecID = DecoderContext.codec_id;
-	ID.CodecTag = DecoderContext.codec_tag;
-
-	ID.Width = DecoderContext.width;
-	ID.Height = DecoderContext.height;
-
-	ID.Framerate.num = 25;
-	ID.Framerate.den = 1;
-
-	if( DecoderContext.framerate.num != 0 )
+	if( InID.CodecContext )
 	{
-		ID.Framerate = DecoderContext.framerate;
+		const AVCodecContext& DecoderContext = *(InID.CodecContext);
+
+		ID.PixelFormat = DecoderContext.pix_fmt;
+		ID.CodecID = DecoderContext.codec_id;
+		ID.CodecTag = DecoderContext.codec_tag;
+
+		ID.Width = DecoderContext.width;
+		ID.Height = DecoderContext.height;
+
+		ID.Framerate.num = 25;
+		ID.Framerate.den = 1;
+
+		if( DecoderContext.framerate.num != 0 )
+		{
+			ID.Framerate = DecoderContext.framerate;
+		}
+
+		ID.AspectRatio = DecoderContext.sample_aspect_ratio;
+
+		m_InternalData->Path = Path;
 	}
-
-	ID.AspectRatio = DecoderContext.sample_aspect_ratio;
-
-	m_InternalData->Path = Path;
+	else
+	{
+		ID.Framerate.den = 0;
+	}
 }
 
 OutputStream::OutputStream( const std::string& Path, unsigned int Width, unsigned int Height, int Framerate, bool IsBGR )
@@ -78,6 +86,12 @@ CameraStreamError OutputStream::Initialize()
 	}
 
 	auto& ID = *m_InternalData;
+
+	//Constructor failed because input was invalid
+	if ( ID.Framerate.den == 0 )
+	{
+		STREAM_ERROR( NoStreamInput );
+	}
 
 	av_init_packet( &ID.Packet );
 
