@@ -155,7 +155,7 @@ void Command_Group::OnUpdateMessage( const GlobalContext& Context, http_request&
 	string_t Errors;
 	
 	bool Success = true;
-	string_t GroupUID;
+	int GroupUID;
 	string_t DisplayName;
 	string_t Description;
 
@@ -168,7 +168,7 @@ void Command_Group::OnUpdateMessage( const GlobalContext& Context, http_request&
 
 	{
 		SQLiteDatabaseQueryInstance UpdateGroup( Context.Database, _T("UpdateGroup") );
-		UpdateGroup->Bind( "@GroupUID", GroupUID.c_str() );
+		UpdateGroup->Bind( "@GroupUID", GroupUID );
 		UpdateGroup->Bind( "@DisplayName", DisplayName.c_str() );
 		UpdateGroup->Bind( "@Description", Description.c_str() );
 

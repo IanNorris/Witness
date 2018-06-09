@@ -1,7 +1,8 @@
-var AdminGroupViewModel = function(id, name, description) {
+var AdminGroupViewModel = function(parent, id, name, description) {
 	"use strict";
 	
 	var self = this;
+	self.parent = parent;
 
 	self.id = id;
 	self.text = name;
@@ -15,5 +16,13 @@ var AdminGroupViewModel = function(id, name, description) {
 			self.text = value;
 		},
 		owner: self
+	} );
+	
+	self.displayName.subscribe( function(){
+		self.parent.updateGroup( self );
+	} );
+	
+	self.description.subscribe( function(){
+		self.parent.updateGroup( self );
 	} );
 };

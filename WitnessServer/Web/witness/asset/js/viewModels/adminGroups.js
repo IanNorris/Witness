@@ -19,7 +19,7 @@ var AdminGroupsViewModel = function( authentication ) {
 		};
 		makeQuery( newGroup, '/group/create/', true, "error|Error creating group.",
 			function(result){
-				self.groups.push(  new AdminGroupViewModel( result.id, newGroup.displayName, newGroup.description ) );
+				self.groups.push(  new AdminGroupViewModel( self, result.id, newGroup.displayName, newGroup.description ) );
 				$('#addGroupAdmin').modal('toggle');
 				self.newGroupNameBound('');
 				self.newGroupDescriptionBound('');
@@ -31,6 +31,26 @@ var AdminGroupsViewModel = function( authentication ) {
 			}
 		);
 	};
+	
+	self.updateGroup = function(existingGroup) {
+		var groupinfo = {
+			'csrf': self.authentication.csrfToken(),
+			id: existingGroup.id,
+			displayName: existingGroup.displayName(),
+			description: existingGroup.description()
+		};
+		makeQuery( groupinfo, '/group/update/', true, "error|Error updating group.",
+			function(result){
+				self.groups.remove( function( item ) {
+					return item.id == existingGroup.id;
+				} );
+				self.groups.push(  existingGroup );
+				
+				makeToast( existingGroup.text + ' group updated.', 'info' );
+			},
+			null
+		);
+	}
 	
 	self.showDeleteDialog = function( id, displayName ) {
 		self.idToDelete = id;
@@ -106,7 +126,7 @@ var AdminGroupsViewModel = function( authentication ) {
 							existing.description(newDescription);
 						}
 						else {
-							self.groups.push(  new AdminGroupViewModel( newId, newDisplayName, newDescription ) );
+							self.groups.push(  new AdminGroupViewModel( self, newId, newDisplayName, newDescription ) );
 						}
 						
 						self.sortGroups();

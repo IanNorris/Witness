@@ -1,3 +1,25 @@
+var makeToast = function(message, messageType ) {
+	var colour = '#a94442'; //Red
+	var type = 'danger';
+	
+	if( messageType == "warning" ) {
+		colour = '#F0AD4E';
+		type = 'warning';
+	}
+	else if( messageType == "info" ) {
+		colour = '#73CAEF';
+		type = 'info';
+	}
+	//else use error
+	
+	$.toast( {
+		text: message,
+		type: type,
+		bgColor: colour,
+		position: 'top-center'
+	} );	
+}
+
 var makeQuery = function( postData, queryString, redirectOnFail, messageOnFail, onSuccess, onAlways ) {
 	var queryType = postData ? 'POST' : 'GET';
 	
@@ -45,24 +67,6 @@ var makeQuery = function( postData, queryString, redirectOnFail, messageOnFail, 
 			}
 		}
 		
-		var colour = '#a94442'; //Red
-		var type = 'danger';
-		
-		if( messageType == "warning" ) {
-			colour = '#F0AD4E';
-			type = 'warning';
-		}
-		else if( messageType == "info" ) {
-			colour = '#73CAEF';
-			type = 'info';
-		}
-		//else use error
-		
-		$.toast( {
-			text: message,
-			type: type,
-			bgColor: colour,
-			position: 'top-center'
-		} );
+		makeToast( message, messageType );
 	} );
 };
