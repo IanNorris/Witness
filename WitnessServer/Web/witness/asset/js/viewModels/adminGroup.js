@@ -17,11 +17,7 @@ var AdminGroupViewModel = function(parent, id, name, description) {
 		},
 		owner: self
 	} );
-	
-	self.displayName.subscribe( function(){
-		self.parent.updateGroup( self );
-	} );
-	
+		
 	self.description.subscribe( function(){
 		self.parent.updateGroup( self );
 	} );
