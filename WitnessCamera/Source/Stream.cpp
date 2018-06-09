@@ -5,6 +5,18 @@
 #include <vector>
 #include <iostream>
 
+void FFMPEGErrorToString(int ErrorCode, char* Buffer, size_t BufferSize)
+{
+	if (ErrorCode == 0)
+	{
+		strcpy_s(Buffer, BufferSize, "");
+	}
+	else if (av_strerror(ErrorCode, Buffer, BufferSize) < 0)
+	{
+		strcpy_s(Buffer, BufferSize, "Unknown error");
+	}
+}
+
 namespace Witness{
 namespace Camera{
 

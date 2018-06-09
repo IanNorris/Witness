@@ -5,15 +5,20 @@
 
 #include <memory>
 #include <vector>
+#include <string>
+
+void FFMPEGErrorToString(int ErrorCode, char* Buffer, size_t BufferSize);
 
 #if defined _WIN32
 #include <windows.h>
-#define STREAM_ERROR( X )\
+#define STREAM_ERROR( X, Result )\
+	FFMPEGErrorToString(Result, m_ErrorMessage, sizeof(m_ErrorMessage)/sizeof(m_ErrorMessage[0]));\
 	m_LineNumber = __LINE__;\
 	/*if( IsDebuggerPresent() ) __debugbreak();*/\
 	return CameraStreamError::X;
 #else
-#define STREAM_ERROR( X )\
+#define STREAM_ERROR( X, Result )\
+	FFMPEGErrorToString(Result, m_ErrorMessage, sizeof(m_ErrorMessage)/sizeof(m_ErrorMessage[0]));\
 	m_LineNumber = __LINE__;\
 	return CameraStreamError::X;
 #endif

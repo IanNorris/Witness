@@ -103,6 +103,7 @@ public:
 	virtual void Shutdown();
 
 	inline int GetErrorLine() { return m_LineNumber; }
+	inline const char* GetFFMPEGErrorMessage() const { return m_ErrorMessage; }
 
 protected:
 
@@ -111,6 +112,7 @@ protected:
 	static void LogCallback( void* Data, int Level, const char* Format, va_list vargs );
 
 	
+	char							m_ErrorMessage[256];
 	int								m_LineNumber;
 };
 

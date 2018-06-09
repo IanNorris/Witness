@@ -90,7 +90,7 @@ CameraStreamError OutputStream::Initialize()
 	//Constructor failed because input was invalid
 	if ( ID.Framerate.den == 0 )
 	{
-		STREAM_ERROR( NoStreamInput );
+		STREAM_ERROR( NoStreamInput, 0 );
 	}
 
 	av_init_packet( &ID.Packet );
@@ -98,26 +98,26 @@ CameraStreamError OutputStream::Initialize()
 	int Result = avformat_alloc_output_context2( &ID.FormatContext, nullptr, nullptr, ID.Path.c_str() );
 	if( Result < 0 || !ID.FormatContext )
 	{
-		STREAM_ERROR( UnknownError );
+		STREAM_ERROR( UnknownError, Result );
 	}
 
 	AVCodec* Encoder = avcodec_find_encoder( ID.CodecID );
 
 	if( !Encoder )
 	{
-		STREAM_ERROR( NoH264Support );
+		STREAM_ERROR( NoH264Support, 0 );
 	}
 
 	AVStream* OutStream = avformat_new_stream( ID.FormatContext, Encoder );
 	if( !OutStream )
 	{
-		STREAM_ERROR( UnknownError );
+		STREAM_ERROR( UnknownError, 0 );
 	}
 
 	ID.CodecContext = avcodec_alloc_context3( Encoder );
 	if( !ID.CodecContext )
 	{
-		STREAM_ERROR( NoH264Support );
+		STREAM_ERROR( NoH264Support, 0 );
 	}
 
 	ID.CodecContext->time_base = av_inv_q(ID.Framerate);
@@ -146,7 +146,7 @@ CameraStreamError OutputStream::Initialize()
 		Result = avcodec_parameters_to_context( ID.CodecContext, CodecParams );
 		if( Result < 0 )
 		{
-			STREAM_ERROR( EncoderCreationError );
+			STREAM_ERROR( EncoderCreationError, Result );
 		}
 	}
 
@@ -170,7 +170,7 @@ CameraStreamError OutputStream::Initialize()
 	{
 		if( !m_InputStream )
 		{
-			STREAM_ERROR( UnsupportedStreamType );
+			STREAM_ERROR( UnsupportedStreamType, 0 );
 		}
 
 		auto& InID = m_InputStream->GetData();
@@ -208,13 +208,13 @@ CameraStreamError OutputStream::Initialize()
 	Result = avcodec_open2( ID.CodecContext, Encoder, &EncoderOptions );
 	if( Result < 0 )
 	{
-		STREAM_ERROR( EncoderCreationError );
+		STREAM_ERROR( EncoderCreationError, Result );
 	}
 
 	Result = avcodec_parameters_from_context( OutStream->codecpar, ID.CodecContext );
 	if( Result < 0 )
 	{
-		STREAM_ERROR( EncoderCreationError );
+		STREAM_ERROR( EncoderCreationError, Result );
 	}
 
 	if( ID.FormatContext->oformat->flags & AVFMT_GLOBALHEADER )
@@ -230,14 +230,14 @@ CameraStreamError OutputStream::Initialize()
 		Result = avio_open( &ID.FormatContext->pb, ID.Path.c_str(), AVIO_FLAG_WRITE );
 		if( Result < 0 )
 		{
-			STREAM_ERROR( FileNotWriteable );
+			STREAM_ERROR( FileNotWriteable, Result );
 		}
 	}
 
 	Result = avformat_write_header( ID.FormatContext, nullptr );
 	if( Result < 0 )
 	{
-		STREAM_ERROR( WriteFailed );
+		STREAM_ERROR( WriteFailed, Result );
 	}
 
 	ID.Output = std::make_unique<FFMPEG::Frame>( ID.CodecContext->width, ID.CodecContext->height, ID.CodecContext->pix_fmt );
@@ -304,7 +304,7 @@ CameraStreamError OutputStream::WriteInterleavedPacket( AVRational* TimeBase, AV
 	int Result = av_interleaved_write_frame( ID.FormatContext, Packet );
 	if( Result < 0 )
 	{
-		STREAM_ERROR( WriteFailed );
+		STREAM_ERROR( WriteFailed, Result );
 	}
 
 	FrameIndex++;
@@ -373,7 +373,7 @@ CameraStreamError OutputStream::SendAll( void )
 			Result = av_interleaved_write_frame( ID.FormatContext, &TempPacket );
 			if( Result < 0 )
 			{
-				STREAM_ERROR( WriteFailed );
+				STREAM_ERROR( WriteFailed, Result );
 			}
 
 			av_packet_unref( &TempPacket );
@@ -388,7 +388,7 @@ CameraStreamError OutputStream::SendAll( void )
 		}
 		else if( Result < 0 )
 		{
-			STREAM_ERROR( WriteFailed );
+			STREAM_ERROR( WriteFailed, Result );
 		}
 	} while ( Result == 0);
 
@@ -432,14 +432,14 @@ CameraStreamError OutputStream::CloseFile()
 		}
 		else
 		{
-			STREAM_ERROR( WriteFailed );
+			STREAM_ERROR( WriteFailed, Result );
 		}
 	}
 	
 	int Result = av_write_trailer( ID.FormatContext );
 	if( Result < 0 )
 	{
-		STREAM_ERROR( WriteFailed );
+		STREAM_ERROR( WriteFailed, Result );
 	}
 
 	if( !(ID.FormatContext->oformat->flags& AVFMT_NOFILE) )
@@ -447,7 +447,7 @@ CameraStreamError OutputStream::CloseFile()
 		Result = avio_close( ID.FormatContext->pb );
 		if( Result < 0 )
 		{
-			STREAM_ERROR( WriteFailed );
+			STREAM_ERROR( WriteFailed, Result );
 		}
 	}
 

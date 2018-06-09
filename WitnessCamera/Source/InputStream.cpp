@@ -61,12 +61,13 @@ CameraStreamError InputStream::Initialize()
 
 	if( Result < 0 )
 	{
-		STREAM_ERROR( ConnectionError );
+		STREAM_ERROR( ConnectionError, Result );
 	}
 
-	if( avformat_find_stream_info( ID.FormatContext, nullptr ) < 0 )
+	Result = avformat_find_stream_info( ID.FormatContext, nullptr );
+	if( Result < 0 )
 	{
-		STREAM_ERROR( NoStreams );
+		STREAM_ERROR( NoStreams, Result );
 	}
 
 	ID.ChosenStreamIndex = 0;
@@ -89,16 +90,17 @@ CameraStreamError InputStream::Initialize()
 	AVCodec* OutputCodec = avcodec_find_decoder(AV_CODEC_ID_H264);
 	if( !OutputCodec )
 	{
-		STREAM_ERROR( NoH264Support );
+		STREAM_ERROR( NoH264Support, 0 );
 	}
 
 	ID.CodecContext = avcodec_alloc_context3( nullptr );
 	avcodec_get_context_defaults3( ID.CodecContext, OutputCodec );
 	avcodec_parameters_to_context( ID.CodecContext, ID.FormatContext->streams[ ID.ChosenStreamIndex ]->codecpar );
 	
-	if( avcodec_open2( ID.CodecContext, OutputCodec, nullptr ) < 0 )
+	Result = avcodec_open2( ID.CodecContext, OutputCodec, nullptr );
+	if( Result < 0 )
 	{
-		STREAM_ERROR( UnsupportedStreamFormat );
+		STREAM_ERROR( UnsupportedStreamFormat, Result );
 	}
 
 	unsigned int OutputHeight = min( 400, ID.CodecContext->height );
@@ -168,11 +170,11 @@ CameraStreamError InputStream::ProcessFrame( IRecordFilter* Filter, Stream* Targ
 	IsConnecting = false;
 	if( Result == AVERROR_EOF )
 	{
-		return CameraStreamError::EndOfFile;
+		STREAM_ERROR( EndOfFile, Result );
 	}
 	else if( Result < 0 )
 	{
-		STREAM_ERROR( FrameError );
+		STREAM_ERROR( FrameError, Result );
 	}
 
 	if( ID.Packet.stream_index == ID.ChosenStreamIndex )
@@ -231,7 +233,7 @@ CameraStreamError InputStream::ProcessFrame( IRecordFilter* Filter, Stream* Targ
 		}
 		else if( Result < 0 )
 		{
-			STREAM_ERROR( PacketError );
+			STREAM_ERROR( PacketError, Result );
 		}
 
 		Result = 0;
@@ -244,7 +246,7 @@ CameraStreamError InputStream::ProcessFrame( IRecordFilter* Filter, Stream* Targ
 			}
 			else if( Result < 0 )
 			{
-				STREAM_ERROR( DecoderReceiverError );
+				STREAM_ERROR( DecoderReceiverError, Result );
 			}
 			else
 			{

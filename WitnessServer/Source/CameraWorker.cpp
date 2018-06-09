@@ -53,7 +53,16 @@ void CameraWorker::WorkerMain()
 	{
 		OnClipFinished();
 
-		MessageBusObject->SendToClient( nullptr, make_shared<CameraReconnectMessage>( CameraID, GetCameraStreamErrorMessage(Error) ) );
+		string_t ErrorStr = GetCameraStreamErrorMessage(Error);
+		if( CameraStream->GetFFMPEGErrorMessage()[0] != '\0')
+		{
+			string FFMPEGError = CameraStream->GetFFMPEGErrorMessage();
+			string_t FFMPEGErrorT = string_t(FFMPEGError.begin(), FFMPEGError.end());
+			ErrorStr += _T(": ");
+			ErrorStr += FFMPEGErrorT;
+		}
+
+		MessageBusObject->SendToClient( nullptr, make_shared<CameraReconnectMessage>( CameraID, ErrorStr ) );
 
 		CameraStream = make_shared<InputStream>( std::string( Path.begin(), Path.end() ) );
 	}
