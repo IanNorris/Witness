@@ -21,7 +21,7 @@ var WitnessViewModel = function() {
 	
 	self.authentication = new AuthenticationViewModel( self );
 	self.authentication.queryUserProfile( function() {
-		self.adminController( self.authentication.admin() ? new AdminViewModel( self.authentication ) : null );
+		self.adminController( self.authentication.admin() ? new AdminViewModel( self ) : null );
 	});
 	
 	self.clipBrowser = ko.observable(null);
@@ -60,27 +60,31 @@ var WitnessViewModel = function() {
 			function( result ) {	
 				for( var camera = 0; camera < result.length; camera++ ) {
 					
-					var newCameraID = result[camera].id;
-					var newCameraName = result[camera].name;
-					var newCameraRecording = result[camera].recording;
+					var newId = result[camera].id;
+					var newName = result[camera].name;
+					var newDescription = result[camera].description;
+					var newRecording = result[camera].recording;
+					var newStatus = result[camera].status;
 									
 					var found = false;
 					for( var existingCamera = 0; existingCamera < self.cameras().length; existingCamera++ )
 					{
-						if( self.cameras()[ existingCamera ].cameraID() == newCameraID ) {
-							self.cameras()[ existingCamera ].cameraName( newCameraName );
-							self.cameras()[ existingCamera ].isRecording( newCameraRecording );
+						if( self.cameras()[ existingCamera ].id == newId ) {
+							self.cameras()[ existingCamera ].name( newName );
+							self.cameras()[ existingCamera ].description( newDescription );
+							self.cameras()[ existingCamera ].isRecording( newRecording );
+							self.cameras()[ existingCamera ].status( newStatus );
 							found = true;
 						}
 					}
 					
 					if( !found )
 					{
-						self.cameras.push(  new CameraViewModel( self, newCameraID, newCameraName, newCameraRecording ) );
+						self.cameras.push(  new CameraViewModel( self, newId, newName, newRecording ) );
 					}
 					
 					self.cameras.sort( function( left, right ) {
-						return left.cameraID() < right.cameraID();
+						return left.id < right.id;
 					} );
 				}
 				

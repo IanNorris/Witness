@@ -1,15 +1,16 @@
 <div class="panel-body">
-	<div class="col-md-6 col-sm-12">
+	<div class="col-md-12 col-sm-12">
 		<h3 class="animated fadeInLeft">Cameras</h3>
 		<div data-bind="foreach: cameras">
-			<img class="CameraPreview" data-bind="attr: { src: cameraPath }, css: { 'CameraPreviewRec': isRecording }, click: toggleRecording"
-			/>
+			<img class="CameraPreview" data-bind="attr: { src: previewPath }, css: { 'CameraPreviewRec': isRecording }, click: toggleRecording" />
 		</div>
 	</div>
+	
+	<!--
 	<div class="col-md-6 col-sm-12">
 		<div class="col-md-6 col-sm-6 text-right" style="padding-left:10px;">
 			<h3 style="color:#DDDDDE;">
-				<span class="fa  fa-map-marker"></span> Leamington Spa</h3>
+				<span class="fa  fa-map-marker"></span> Place Name</h3>
 			<h1 style="margin-top: -10px;color: #ddd;">3
 				<sup>o</sup>
 			</h1>
@@ -36,5 +37,5 @@
 				</div>
 			</div>
 		</div>
-	</div>
+	</div>-->
 </div>

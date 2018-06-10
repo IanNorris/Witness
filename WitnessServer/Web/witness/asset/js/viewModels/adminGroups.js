@@ -88,7 +88,7 @@ var AdminGroupsViewModel = function( authentication ) {
 		} );
 	};
 	
-	self.refreshGroupsAsAdmin = function() {	
+	self.refreshGroupsAsAdmin = function( onComplete ) {	
 		makeQuery( null, '/group/enum/', true, "error|Error fetching group list.",
 			function(result){
 				var groupList = result.groups;
@@ -132,11 +132,12 @@ var AdminGroupsViewModel = function( authentication ) {
 						self.sortGroups();
 					}
 				}
-			} 
+			},
+			onComplete
 		);
 	};
 	
-	self.adminAction = function() {
-		self.refreshGroupsAsAdmin();
+	self.adminAction = function( onComplete ) {
+		self.refreshGroupsAsAdmin( onComplete );
 	};
 };

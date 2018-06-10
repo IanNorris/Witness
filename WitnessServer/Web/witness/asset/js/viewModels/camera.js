@@ -1,30 +1,35 @@
-var CameraViewModel = function( parent, cameraID, cameraName, cameraRecording ) {
+var CameraViewModel = function( witness, id, name, description, connectionString, groups, status, cameraRecording ) {
 	"use strict";
 	
 	var self = this;
 	
+	self.witness = witness;
 	self.parent = parent;
 	
-	self.cameraName = ko.observable( cameraName );
-	self.cameraID = ko.observable( cameraID );
-	self.cameraPath = ko.observable('');
-	self.isSelected = ko.observable(cameraID == 0);
+	self.id = id;
+	self.name = ko.observable(name);
+	self.description = ko.observable(description);
+	self.previewPath = ko.observable('');
+	self.connectionString = ko.observable(connectionString);
+	self.status = ko.observable(status);
+	self.isSelected = ko.observable(id == 0);
 	self.isRecording = ko.observable(cameraRecording);
+	self.groups = ko.observableArray(groups);
 	
 	self.isSelectedClip = ko.computed( function() {
-		return self.isSelected() && self.parent.isViewMode(VIEW_MODE_CLIPS);
+		return self.isSelected() && self.witness.isViewMode(VIEW_MODE_CLIPS);
 	} );
 	
 	self.isSelectedStream = ko.computed( function() {
-		return self.isSelected() && self.parent.isViewMode(VIEW_MODE_STREAM);
+		return self.isSelected() && self.witness.isViewMode(VIEW_MODE_STREAM);
 	} );
 	
 	self.streamName = ko.computed( function() {
-		return "Stream_" + self.cameraID();
+		return "Stream_" + self.id;
 	} );
 	
 	self.clipName = ko.computed( function() {
-		return "Clip_" + self.cameraID();
+		return "Clip_" + self.id;
 	} );
 		
 	self.frameIndex = 0;
@@ -32,29 +37,29 @@ var CameraViewModel = function( parent, cameraID, cameraName, cameraRecording ) 
 	
 	
 	self.setNextCameraFrame = function() {
-		self.cameraPath( '/camera/preview/' + self.cameraID() + '#' + self.frameIndex );
+		self.previewPath( '/camera/preview/' + self.id + '#' + self.frameIndex );
 		self.frameIndex++;
 	};
 	
 	self.selectCamera = function() {
-		var cameras = self.parent.cameras();
+		var cameras = self.witness.cameras();
 		for( var c = 0; c < cameras.length; c++ ) {
 			cameras[c].isSelected(false);
 		}
 		self.isSelected(true);
-		return self.cameraID();
+		return self.id;
 	};
 	
 	self.selectCameraStream = function() {
 		var cameraID = self.selectCamera();
-		self.parent.viewMode(VIEW_MODE_STREAM);
+		self.witness.viewMode(VIEW_MODE_STREAM);
 		window.location.hash = "#" + self.streamName();
 	};
 	
 	self.selectCameraClips = function() {
 		var cameraID = self.selectCamera();
-		self.parent.viewMode(VIEW_MODE_CLIPS);
-		self.parent.clipBrowser( new CameraClipsViewModel( self.parent, cameraID ) );
+		self.witness.viewMode(VIEW_MODE_CLIPS);
+		self.witness.clipBrowser( new CameraClipsViewModel( self.witness, cameraID ) );
 		window.location.hash = "#" + self.clipName();
 	};
 	
@@ -62,11 +67,11 @@ var CameraViewModel = function( parent, cameraID, cameraName, cameraRecording ) 
 		self.isRecording( !self.isRecording() );
 		
 		var data = { 
-			'csrf': self.parent.authentication.csrfToken(),
+			'csrf': self.witness.authentication.csrfToken(),
 			'record': self.isRecording()
 		};
 		
-		makeQuery( data, '/camera/record/' + self.cameraID(), true, "warning|Error while toggling camera recording.", function(result) {} );
+		makeQuery( data, '/camera/record/' + self.id, true, "warning|Error while toggling camera recording.", function(result) {} );
 	}
 	
 	self.setNextCameraFrame();

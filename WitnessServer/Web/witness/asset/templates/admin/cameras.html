@@ -5,7 +5,7 @@
 		</div>
 		<div class="col-sm-4" style="align-self:flex-end;adding-right:2em">
 			<div style="text-align:right">
-				<button class=" btn btn-sm btn-circle btn-primary" value="primary" data-toggle="modal" data-target="#addUserAdmin">
+				<button class=" btn btn-sm btn-circle btn-primary" value="primary" data-toggle="modal" data-target="#addCameraAdmin">
 					<span class="fa fa-plus"></span>
 				</button>
 			</div>
@@ -18,28 +18,30 @@
 					<div class="col-sm-12">
 						<table class="table table-striped table-bordered dataTable no-footer" width="100%" style="width: 100%">
 							<thead>
-								<th width="25%">Name</th>
-								<th width="33%">Connection String</th>
-								<th width="33%">Included In Groups</th>
-								<th>Status</th>
-								<th>Actions</th>
+								<th width="20%">Name</th>
+								<th width="20%">Description</th>
+								<th width="20%">Connection String</th>
+								<th width="20%">Included In Groups</th>
+								<th width="10%">Status</th>
+								<th width="10%">Actions</th>
 							</thead>
-							<tbody data-bind="foreach: cameraList">
+							<tbody data-bind="foreach: cameras">
 								<tr role="row" class="even" data-bind="css: { odd: ($index() % 2 == 1), even: ($index() % 2 == 0) }">
 									<td nowrap>
-										<input type="text" class="form-control android" style="width:100%" data-bind="value: cameraName"></input>
+										<input type="text" class="form-control android" style="width:100%" data-bind="value: name"></input>
 									</td>
 									<td nowrap>
-										<input type="text" class="form-control android" style="width:100%" data-bind="value: cameraPath"></input>
+										<input type="text" class="form-control android" style="width:100%" data-bind="value: description"></input>
 									</td>
 									<td nowrap>
-										<select multiple="multiple" data-bind="selected: cameraGroups, options: $parent.groups.groups, optionsText: 'text', optionsValue: 'id', select2: { placeholder: 'Pick groups camera belongs to', valueAllowUnset: true }"
+										<input type="text" class="form-control android" style="width:100%" data-bind="value: connectionString"></input>
+									</td>
+									<td nowrap>
+										<select multiple="multiple" data-bind="selected: groups, options: $parent.groups.groups, optionsText: 'text', optionsValue: 'id', select2: { placeholder: 'Pick groups camera belongs to', valueAllowUnset: true }"
 										  class="select2" style="width:100%"></select>
-										Selected:
-										<span data-bind="text: cameraGroups"></span>
 									</td>
 									<td nowrap>
-										<span data-bind="value: cameraStatus"></span>
+										<span data-bind="text: status"></span>
 									</td>
 									<td nowrap>
 										<button class="btn btn-default">

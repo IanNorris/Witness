@@ -11,7 +11,7 @@
 			</a>
 			<ul class="nav nav-list tree" data-bind="foreach: cameras">
 				<li data-bind="css: { active: isSelectedStream }, click: selectCameraStream">
-					<a class="clickable" data-bind="text: cameraName, attr: { name: streamName }"></a>
+					<a class="clickable" data-bind="text: name, attr: { name: streamName }"></a>
 				</li>
 			</ul>
 		</li>
@@ -22,7 +22,7 @@
 			</a>
 			<ul class="nav nav-list tree" data-bind="foreach: cameras">
 				<li data-bind="css: { active: isSelectedClip }, click: selectCameraClips">
-					<a class="clickable" data-bind="text: cameraName, attr: { name: clipName }"></a>
+					<a class="clickable" data-bind="text: name, attr: { name: clipName }"></a>
 				</li>
 			</ul>
 		</li>

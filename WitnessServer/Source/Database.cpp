@@ -28,7 +28,8 @@ namespace Database
 		CREATE TABLE IF NOT EXISTS Camera(
 			CameraUID		INTEGER PRIMARY KEY	AUTOINCREMENT,
 			CameraName		CHAR(64)							NOT NULL,
-			CameraString	TEXT								NOT NULL
+			CameraString	TEXT								NOT NULL,
+			Description		TEXT
 		);
 
 		CREATE TABLE IF NOT EXISTS CameraGroup (
@@ -169,6 +170,12 @@ namespace Database
 		;
 	)RAW";
 
+	string_t SelectGroupsForCamera = LR"RAW(
+		SELECT * FROM CameraGroupMapping
+		WHERE Camera == @Camera
+		;
+	)RAW";
+
 	string_t CreateGroup = LR"RAW(
 		INSERT INTO CameraGroup (DisplayName,Description)
 		VALUES(@DisplayName,@Description);
@@ -222,6 +229,7 @@ namespace Database
 		CREATE_QUERY( SelectClipsWithinRange );
 
 		CREATE_QUERY( SelectAllGroups );
+		CREATE_QUERY( SelectGroupsForCamera );
 		CREATE_QUERY( CreateGroup );
 		CREATE_QUERY( UpdateGroup );
 		CREATE_QUERY( DeleteGroup );

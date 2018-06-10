@@ -48,7 +48,11 @@ void Command_Camera::OnMessage( const GlobalContext& Context, http_request& Mess
 		auto Command = ChildPath.front();
 		if( Command.compare( _T("enum") ) == 0 )
 		{
-			OnEnumMessage( Context, Message, Packet );
+			OnEnumMessage( Context, Message, Packet, false );
+		}
+		else if( Command.compare( _T("admin_enum") ) == 0 )
+		{
+			OnEnumMessage( Context, Message, Packet, true );
 		}
 		else
 		{
@@ -93,10 +97,9 @@ void Command_Camera::OnPreviewMessage( const GlobalContext& Context, http_reques
 	}
 }
 
-void Command_Camera::OnEnumMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet )
+void Command_Camera::OnEnumMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet, bool AsAdmin )
 {
-	//NO CSRF!
-	if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::Read, Command_Authenticate::Privilege::Normal ) )
+	if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::Read, AsAdmin ? Command_Authenticate::Privilege::Administrator : Command_Authenticate::Privilege::Normal ) )
 	{
 		return;
 	}
@@ -106,14 +109,40 @@ void Command_Camera::OnEnumMessage( const GlobalContext& Context, http_request& 
 	SQLiteDatabaseQueryInstance GetCameras( Context.Database, _T("GetCameras") );
 
 	GetCameras->Execute( 
-		[&Array, &Context]( const SQLiteDatabaseQuery& query )
+		[&Array, &Context, AsAdmin]( const SQLiteDatabaseQuery& query )
 		{
 			int ID = query.GetColumnValueInt(0);
 			string_t Name = query.GetColumnValueText(1);
+			string_t ConnectionString = query.GetColumnValueText(2);
+			string_t Description = query.GetColumnValueText(3) ? query.GetColumnValueText(3) : _T("");
 			
 			json::value Camera;
 			Camera[ _T("id") ] = json::value(ID);
 			Camera[ _T("name") ] = json::value(Name);
+			Camera[ _T("description") ] = json::value(Description);
+
+			vector<json::value> Groups;
+
+			SQLiteDatabaseQueryInstance SelectGroupsForCamera( Context.Database, _T("SelectGroupsForCamera") );
+			SelectGroupsForCamera->Bind( "@Camera", ID );
+
+			SelectGroupsForCamera->Execute( 
+			[&Groups]( const SQLiteDatabaseQuery& query )
+				{
+					int GroupId = query.GetColumnValueInt(1);
+
+					Groups.push_back(json::value(GroupId));
+
+					return true;
+				}
+			);
+
+			if (AsAdmin)
+			{
+				Camera[ _T("connectionString") ] = json::value(ConnectionString);
+			}
+
+			Camera[ _T("groups") ] = json::value::array(Groups);
 
 			{
 				lock_guard<mutex> Lock( Context.Mutex );
@@ -121,6 +150,7 @@ void Command_Camera::OnEnumMessage( const GlobalContext& Context, http_request& 
 				auto Iter = Context.Cameras.find( ID );
 				if( Iter != Context.Cameras.end() )
 				{
+					Camera[ _T("status") ] = json::value( (*Iter).second.Status );
 					Camera[ _T("recording") ] = json::value( (*Iter).second.IsRecording );
 				}
 			}
