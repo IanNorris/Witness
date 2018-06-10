@@ -50,9 +50,9 @@ CameraStreamError InputStream::Initialize()
 	
 	av_dict_set( &ID.StreamOptions, "rtsp_transport", "tcp", 0 );
 	//av_dict_set( &ID.StreamOptions, "timeout", "600000", 0 );
-	av_dict_set( &ID.StreamOptions, "buffer_size", "20971520", 0 );
+	av_dict_set( &ID.StreamOptions, "buffer_size", "83886080", 0 );
 
-	av_dict_set( &ID.StreamOptions, "nobuffer", "1", 0 );
+	av_dict_set( &ID.StreamOptions, "nobuffer", "0", 0 );
 	
 	IsConnecting = true;
 	TimeStarted = std::chrono::high_resolution_clock::now().time_since_epoch().count();
