@@ -16,6 +16,7 @@ void WitnessServer::MessageLoop()
 {
 	MakeLambda(CameraStartupMessage);
 	MakeLambda(CameraReconnectMessage);
+	MakeLambda(CameraConnectedMessage);
 	MakeLambda(CameraSnapshotMessage);
 	MakeLambda(CameraBeginMotionMessage);
 	MakeLambda(CameraUpdateMotionMessage);
@@ -28,6 +29,7 @@ void WitnessServer::MessageLoop()
 
 		HandleEvent(CameraStartupMessage);
 		HandleEvent(CameraReconnectMessage);
+		HandleEvent(CameraConnectedMessage);
 		HandleEvent(CameraSnapshotMessage);
 		HandleEvent(CameraBeginMotionMessage);
 		HandleEvent(CameraUpdateMotionMessage);
@@ -42,7 +44,7 @@ void WitnessServer::MessageLoop()
 
 		Msg->Handle<CameraStateToggleRecordMessage>([&](const CameraStateToggleRecordMessage& Data)
 		{
-			StatusMessage( Data.Camera, Data.Record ? _T("Manual Record: On") : _T("Manual Record: Off") );
+			StatusMessage( Data.Camera, _T(""), Data.Record ? _T("Manual Record: On") : _T("Manual Record: Off") );
 
 			shared_ptr<CameraWorker> Worker;
 

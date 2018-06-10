@@ -17,6 +17,7 @@ public:
 	: WorkerBase( MessageBus )
 	, Path( InputPath )
 	, CameraID( CameraID )
+	, IsConnected( false )
 	{}
 
 private:
@@ -34,4 +35,5 @@ private:
 
 	string_t Path;
 	int CameraID;
+	bool IsConnected;
 };

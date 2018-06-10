@@ -4,12 +4,12 @@
 
 void WitnessServer::HandleCameraStartupMessage(const CameraStartupMessage& Data)
 {
-	StatusMessage( Data.Camera, _T("Online") );
-};
+	StatusMessage( Data.Camera, _T("Connecting"), _T("Connecting...") );
+}
 
 void WitnessServer::HandleCameraReconnectMessage(const CameraReconnectMessage& Data)
 {
-	StatusMessage( Data.Camera, Data.Error );
+	StatusMessage( Data.Camera, _T("Reconnecting"), Data.Error );
 
 	lock_guard<mutex> Lock( Context->Mutex );
 			
@@ -19,7 +19,12 @@ void WitnessServer::HandleCameraReconnectMessage(const CameraReconnectMessage& D
 		(*Iter).second.IsRecording = false;
 		(*Iter).second.IsManualRecording = false;
 	}
-};
+}
+
+void WitnessServer::HandleCameraConnectedMessage(const CameraConnectedMessage& Data)
+{
+	StatusMessage( Data.Camera, _T("Connected"), _T("Connected to camera") );
+}
 
 void WitnessServer::HandleCameraSnapshotMessage(const CameraSnapshotMessage& Data)
 {
@@ -30,4 +35,4 @@ void WitnessServer::HandleCameraSnapshotMessage(const CameraSnapshotMessage& Dat
 	{
 		(*Iter).second.PreviewThumbnail = Data.Jpeg;
 	}
-};
+}

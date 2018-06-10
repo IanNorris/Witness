@@ -34,10 +34,11 @@ public:
 
 private:
 
-	void StatusMessage( int Camera, string_t Reason );
+	void StatusMessage( int Camera, string_t NewStatus, string_t Reason );
 
 	void HandleCameraStartupMessage(const CameraStartupMessage& Data);
 	void HandleCameraReconnectMessage(const CameraReconnectMessage& Data);
+	void HandleCameraConnectedMessage(const CameraConnectedMessage& Data);
 	void HandleCameraSnapshotMessage(const CameraSnapshotMessage& Data);
 	void HandleCameraBeginMotionMessage(const CameraBeginMotionMessage& Data);
 	void HandleCameraUpdateMotionMessage(const CameraUpdateMotionMessage& Data);

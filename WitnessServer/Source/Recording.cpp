@@ -87,7 +87,7 @@ void WitnessServer::StopCameraRecording( const ClipStatistics& ClipStats, int Ca
 	}
 }
 
-void WitnessServer::StatusMessage( int Camera, string_t Reason )
+void WitnessServer::StatusMessage( int Camera, string_t NewStatus, string_t Reason )
 {
 	string_t CameraName;
 
@@ -97,6 +97,11 @@ void WitnessServer::StatusMessage( int Camera, string_t Reason )
 		auto Iter = Context->Cameras.find( Camera );
 		if( Iter != Context->Cameras.end() )
 		{
+			if( NewStatus.length() > 0 )
+			{
+				(*Iter).second.Status = NewStatus;
+			}
+
 			CameraName = (*Iter).second.Name;
 		}
 	}

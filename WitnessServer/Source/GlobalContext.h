@@ -19,7 +19,8 @@ public:
 	struct CameraState
 	{
 		CameraState()
-		: IsRecording(false)
+		: Status(_T("Starting"))
+		, IsRecording(false)
 		, IsManualRecording(false)
 		{
 
@@ -32,6 +33,7 @@ public:
 
 		unordered_map< uint64_t, vector<unsigned char> > ClipThumbnails;
 
+		string_t Status;
 		bool IsRecording;
 		bool IsManualRecording;
 	};

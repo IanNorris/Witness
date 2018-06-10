@@ -118,6 +118,13 @@ struct CameraReconnectMessage : public Message
 	string_t Error;
 };
 
+struct CameraConnectedMessage : public Message
+{
+	CameraConnectedMessage( int CamIndex ) : Camera( CamIndex ) {}
+
+	int Camera;
+};
+
 struct CameraWriteThumbnailMessage : public Message
 {
 	CameraWriteThumbnailMessage( int CamIndex ) : Camera( CamIndex ) {}

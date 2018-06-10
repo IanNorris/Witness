@@ -39,7 +39,7 @@ void WitnessServer::HandleCameraBeginMotionMessage(const CameraBeginMotionMessag
 	stringstream_t Message;
 	Message << _T("Begin Motion: ") << Data.MotionPercentage;
 
-	StatusMessage( Data.Camera, Message.str() );
+	StatusMessage( Data.Camera, _T(""), Message.str() );
 
     stringstream_t ThumbPath;
     ThumbPath << Server->GetBaseUri() << _T("clip/thumb/") << Data.Camera << _T("/") << Data.Timestamp;
@@ -64,7 +64,7 @@ void WitnessServer::HandleCameraUpdateMotionMessage(const CameraUpdateMotionMess
 
 void WitnessServer::HandleCameraEndMotionMessage(const CameraEndMotionMessage& Data)
 {
-	StatusMessage( Data.Camera, _T("End Motion") );
+	StatusMessage( Data.Camera, _T(""), _T("End Motion") );
 
 	auto StopRecord = make_shared<CameraStopRecordMessage>( Data.Camera );
 

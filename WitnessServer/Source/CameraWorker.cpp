@@ -5,11 +5,9 @@ void CameraWorker::WorkerInit()
 {
 	Filter = make_shared<ObservingMotionFilter>( CameraID, MessageBusObject );
 
-	UpdateLastTimedAction(_T("Connecting..."));
+	UpdateLastTimedAction(_T("Startup..."));
 
 	CameraStream = make_shared<InputStream>( std::string( Path.begin(), Path.end() ) );
-
-	UpdateLastTimedAction(_T("Connected..."));
 
 	MessageBusObject->SendToClient( nullptr, make_shared<CameraStartupMessage>( CameraID ) );
 }
@@ -25,6 +23,8 @@ void CameraWorker::WorkerShutdown()
 
 void CameraWorker::WorkerMain()
 {
+	UpdateLastTimedAction(_T("Work..."));
+
 	shared_ptr<Message> Msg;
 	if( MessageBusQueue->TryPop( Msg ) )
 	{
@@ -48,9 +48,29 @@ void CameraWorker::WorkerMain()
 		});
 	}
 
-	CameraStreamError Error = CameraStream->ProcessFrame( Filter.get(), RecordStream.get() );
-	if( Error != CameraStreamError::Success )
+	if (IsConnected)
 	{
+		UpdateLastTimedAction(_T("Processing..."));
+	}
+	else
+	{
+		UpdateLastTimedAction(_T("Connecting..."));
+	}
+
+	CameraStreamError Error = CameraStream->ProcessFrame( Filter.get(), RecordStream.get() );
+	if( Error == CameraStreamError::Success )
+	{
+		if( !IsConnected )
+		{
+			IsConnected = true;
+
+			MessageBusObject->SendToClient( nullptr, make_shared<CameraConnectedMessage>( CameraID ) );
+		}
+	}
+	else
+	{
+		IsConnected = false;
+
 		OnClipFinished();
 
 		string_t ErrorStr = GetCameraStreamErrorMessage(Error);
