@@ -10,6 +10,9 @@
 namespace Witness{
 namespace Camera{
 
+size_t MaxKeyFramesStored = 10; //This is the maximum buffer period in keyframes to maintain
+size_t MinKeyFramesStored = 4; //This is the minimum buffer period in keyframes to maintain on a constant stream
+
 InputStream::InputStream( const std::string& StreamURL, int StreamIndex )
 : Stream()
 , m_StreamManager( new StreamManager() )
@@ -18,6 +21,7 @@ InputStream::InputStream( const std::string& StreamURL, int StreamIndex )
 {
 	m_InternalData->Path = StreamURL;
 	m_InternalData->StreamIndex = StreamIndex;
+	m_InternalData->PacketsPerKeyframe.push_back(0);
 }
 
 InputStream::~InputStream()
@@ -181,9 +185,14 @@ CameraStreamError InputStream::ProcessFrame( IRecordFilter* Filter, Stream* Targ
 	{
 		OutputStream* Output = dynamic_cast<OutputStream*>(TargetStream);
 
-		if( Output && !ID.PacketsSinceKeyframe.empty() )
+		if( ID.Packet.flags & AV_PKT_FLAG_KEY )
 		{
-			for( auto& Packet : ID.PacketsSinceKeyframe )
+			ID.DeleteOldestKeyframe(MaxKeyFramesStored);
+		}
+
+		if( Output && !ID.PacketsBacklog.empty() )
+		{
+			for( auto& Packet : ID.PacketsBacklog )
 			{
 				CameraStreamError WriteError = Output->WriteInterleavedPacket( &ID.FormatContext->streams[ID.ChosenStreamIndex]->time_base, &Packet );
 				if( WriteError != CameraStreamError::Success )
@@ -192,12 +201,7 @@ CameraStreamError InputStream::ProcessFrame( IRecordFilter* Filter, Stream* Targ
 				}
 			}
 
-			ID.FreeQueuedPackets();
-		}
-
-		if( ID.Packet.flags & AV_PKT_FLAG_KEY )
-		{
-			ID.FreeQueuedPackets();
+			ID.FreeToMinimumBacklog(MinKeyFramesStored);
 		}
 
 		//Add the new packet to the buffer, if we're not already producing output
@@ -209,6 +213,7 @@ CameraStreamError InputStream::ProcessFrame( IRecordFilter* Filter, Stream* Targ
 			CameraStreamError WriteError = Output->WriteInterleavedPacket( &ID.FormatContext->streams[ID.ChosenStreamIndex]->time_base, &NewPacket );
 			if( WriteError != CameraStreamError::Success )
 			{
+				ID.FreeAllQueuedPackets();
 				return WriteError;
 			}
 
@@ -216,8 +221,9 @@ CameraStreamError InputStream::ProcessFrame( IRecordFilter* Filter, Stream* Targ
 		}
 		else
 		{
-			ID.PacketsSinceKeyframe.push_back( AVPacket() );
-			AVPacket& NewPacket = ID.PacketsSinceKeyframe.back();
+			ID.PacketsPerKeyframe.back()++;
+			ID.PacketsBacklog.push_back( AVPacket() );
+			AVPacket& NewPacket = ID.PacketsBacklog.back();
 			av_copy_packet( &NewPacket, &ID.Packet );
 		}
 

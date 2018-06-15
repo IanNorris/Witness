@@ -57,23 +57,71 @@ struct StreamData
 
 	~StreamData()
 	{
-		FreeQueuedPackets();
+		FreeAllQueuedPackets();
 	}
 
-	void FreeQueuedPackets()
+	void FreeAllQueuedPackets()
+	{
+		for (auto PacketIter = PacketsBacklog.begin(); PacketIter != PacketsBacklog.end(); ++PacketIter )
+		{
+			av_packet_unref( &(*PacketIter) );
+		}
+
+		PacketsBacklog.clear();
+		PacketsPerKeyframe.clear();
+		PacketsPerKeyframe.push_back(0);
+	}
+
+	void FreeToMinimumBacklog(size_t MinFrames)
+	{
+		for (auto FrameIter = PacketsPerKeyframe.begin(); FrameIter != PacketsPerKeyframe.end(); ++FrameIter )
+		{
+			FreePacketsFromBacklog(*FrameIter);
+
+			if (MinFrames == 0)
+			{
+				break;
+			}
+
+			MinFrames--;
+		}
+	}
+
+	void FreePacketsFromBacklog(size_t PacketsToDelete)
 	{
 		//Can delete the old data now
-		for (auto& PrevPacket : PacketsSinceKeyframe)
+		auto EndOfList = PacketsBacklog.begin();
+		for (auto PacketIter = PacketsBacklog.begin(); PacketIter != PacketsBacklog.end(); ++PacketIter )
 		{
-			av_packet_unref( &PrevPacket );
+			if (PacketsToDelete == 0)
+			{
+				break;
+			}
+
+			av_packet_unref( &(*PacketIter) );
+
+			PacketsToDelete--;
+			++EndOfList;
 		}
-		PacketsSinceKeyframe.clear();
+
+		PacketsBacklog.erase(PacketsBacklog.begin(), EndOfList);
+	}
+
+	void DeleteOldestKeyframe( size_t MaxFrames )
+	{
+		if (PacketsBacklog.size() > MaxFrames )
+		{
+			FreePacketsFromBacklog(PacketsPerKeyframe[0]);
+			PacketsPerKeyframe.erase(PacketsPerKeyframe.begin());
+		}
+		PacketsPerKeyframe.push_back(0);
 	}
 
 	std::unique_ptr<FFMPEG::Frame>	Input;
 	std::unique_ptr<FFMPEG::Frame>	Output;
 
-	std::vector<AVPacket>			PacketsSinceKeyframe;
+	std::vector<AVPacket>			PacketsBacklog;
+	std::vector<int>				PacketsPerKeyframe;
 
 	std::string Path;
 
