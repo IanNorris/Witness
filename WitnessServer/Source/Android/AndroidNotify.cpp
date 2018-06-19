@@ -13,12 +13,16 @@ void SendAndroidNotification( utility::string_t ServerKey, utility::string_t Tar
 	value PostParameters = value::object();
 	PostParameters[U("to")] = value::string(TargetUser);
 
+	int TimeToLive = 60*60;
+
 	auto Data = value::object();
 	Data[U("alert")] = value::string( MessageText );
 	Data[U("cameraSource")] = value::string( CameraName );
 	Data[U("image")] = value::string( ImageUri );
 
 	PostParameters[U("data")] = Data;
+	PostParameters[U("priority")] = value::string( U("high") );
+	PostParameters[U("time_to_live")] = value::number(TimeToLive);
 	
 	http_client client( U("https://fcm.googleapis.com") );
 	
