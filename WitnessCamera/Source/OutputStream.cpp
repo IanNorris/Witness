@@ -326,10 +326,15 @@ CameraStreamError OutputStream::WriteInterleavedPacket( AVRational* TimeBase, AV
 
 	auto& ID = *m_InternalData;
 
+	//Calculate next frame position based on stream metrics
+	int64_t NextOffset = TimeBase->den * ID.CodecContext->time_base.num / (ID.CodecContext->time_base.den * TimeBase->num);
+
+	Packet->duration = NextOffset;
+
 	if (ID.IsFirstFrame)
 	{
-		ID.DTS = Packet->dts;
-		ID.PTS = Packet->pts;
+		ID.DTS = 0;
+		ID.PTS = 0;
 		Packet->dts = 0;
 		Packet->pts = 0;
 
@@ -337,8 +342,11 @@ CameraStreamError OutputStream::WriteInterleavedPacket( AVRational* TimeBase, AV
 	}
 	else
 	{
-		Packet->dts -= ID.DTS;
-		Packet->pts -= ID.PTS;
+		ID.DTS += NextOffset;
+		ID.PTS += NextOffset;
+
+		Packet->dts = ID.DTS;
+		Packet->pts = ID.PTS;
 	}
 	
 	av_packet_rescale_ts( 
