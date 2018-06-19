@@ -9,6 +9,8 @@
 #include <iostream>
 #include <chrono>
 
+#define CURRENT_HASH_METHOD 0
+
 using namespace web::json;
 using namespace web::http::client;
 
@@ -110,7 +112,7 @@ void OfflineCreationForFirstUser( const GlobalContext& Context )
 			CreateUser->Bind( "@Username", UsernameLC.c_str() );
 			CreateUser->Bind( "@DisplayName", Username.c_str() );
 			CreateUser->Bind( "@PasswordHash", Hash.c_str() );
-			CreateUser->Bind( "@HashMethod", 0 );
+			CreateUser->Bind( "@HashMethod", CURRENT_HASH_METHOD );
 			CreateUser->Bind( "@Enabled", 1 );
 			CreateUser->Bind( "@Admin", 1 );
 
@@ -137,6 +139,14 @@ void Command_Authenticate::OnMessage( const GlobalContext& Context, http_request
 		else if( Command.compare( _T("profile") ) == 0 )
 		{
 			OnGetProfileMessage( Context, Message, CurrentCommand, ChildPath, IsPost );
+		}
+		else if( Command.compare( _T("new_user") ) == 0 )
+		{
+			OnNewUserMessage( Context, Message, CurrentCommand, ChildPath, IsPost );
+		}
+		else if( Command.compare( _T("change_password") ) == 0 )
+		{
+			OnChangePasswordMessage( Context, Message, CurrentCommand, ChildPath, IsPost );
 		}
 		else
 		{
@@ -542,4 +552,95 @@ void Command_Authenticate::OnEnumUsersMessage( const GlobalContext& Context, htt
 	);
 
 	Message.reply( status_codes::OK, json::value::array(Array) );
+}
+
+void Command_Authenticate::OnNewUserMessage(const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost)
+{
+	auto Packet = Message.extract_json().get();
+
+	if( !IsAuthenticated( Context, Message, Packet, Action::ReadWrite, Privilege::Administrator ) )
+	{
+		return;
+	}
+
+	string_t Errors;
+	
+	bool Success = true;
+	string_t Username;
+	
+	Success &= GetJsonField( Packet, _T("username"), Username, Errors );
+
+	if (!Success)
+	{
+		Message.reply( status_codes::BadRequest, Errors );
+		return;
+	}
+
+	//Generate password (some letters missing as they can be ambiguous)
+	constexpr TCHAR PasswordCharacters[] = _T("ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!$%@?+-&");
+	constexpr int PasswordCharacterCount = (sizeof(PasswordCharacters)-1)/sizeof(PasswordCharacters[0]);
+	const int DefaultPasswordLength = 8;
+	unsigned char TokenBytes[ DefaultPasswordLength ];
+	TCHAR Password[ DefaultPasswordLength+1 ];
+
+	randombytes_buf( TokenBytes, sizeof(TokenBytes) );
+	for (int i = 0; i < DefaultPasswordLength; i++)
+	{
+		Password[i] = PasswordCharacters[ TokenBytes[i]%PasswordCharacterCount ];
+	}
+	Password[DefaultPasswordLength] = '\0';
+
+	string_t UsernameLC = Username;
+	std::transform(UsernameLC.begin(), UsernameLC.end(), UsernameLC.begin(), ::tolower);
+
+	string_t Hash = GetHashedPasswordKey_Algorithm0( UsernameLC, Password );
+
+	int64_t RowResult = 0;
+
+	{
+		SQLiteDatabaseQueryInstance CreateUser( Context.Database, _T("CreateUser") );
+			
+		CreateUser->Bind( "@Username", UsernameLC.c_str() );
+		CreateUser->Bind( "@DisplayName", Username.c_str() );
+		CreateUser->Bind( "@PasswordHash", Hash.c_str() );
+		CreateUser->Bind( "@HashMethod", CURRENT_HASH_METHOD );
+		CreateUser->Bind( "@Enabled", 1 );
+		CreateUser->Bind( "@Admin", 0 );
+
+		if (CreateUser->Execute(nullptr) < 0)
+		{
+			json::value Data;
+			Data[ _T("errorMessage") ] = json::value(CreateUser->GetLastError());
+
+			Message.reply( status_codes::BadRequest, Data );
+			return;
+		}
+
+		RowResult = CreateUser->GetLastInsertionId();
+	}
+
+	json::value Data;
+	Data[ _T("id") ] = json::value(RowResult);
+	Data[ _T("username") ] = json::value(UsernameLC);
+	Data[ _T("displayName") ] = json::value(Username);	
+	Data[ _T("password") ] = json::value(Password);
+
+	if( RowResult > 0 )
+	{
+		Message.reply( status_codes::OK, Data );
+	}
+	else
+	{
+		Message.reply( status_codes::BadRequest );
+	}
+}
+
+void Command_Authenticate::OnChangePasswordMessage(const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost)
+{
+	auto Packet = Message.extract_json().get();
+
+	if( !IsAuthenticated( Context, Message, Packet, Action::ReadWrite, Privilege::Administrator ) )
+	{
+		return;
+	}
 }

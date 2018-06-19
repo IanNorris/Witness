@@ -2,7 +2,7 @@
 	<!-- ko with: adminController -->
 	<div class="modal-content" data-bind="with: users">
 		<div class="modal-header">
-			<h5 class="modal-title" id="addUserAdminLabel">Add new user</h5>
+			<h5 class="modal-title" id="createdUserAdminLabel">New user created</h5>
 			<button type="button" class="close" data-dismiss="modal" aria-label="Close" style="margin-top:-20px">
 				<span aria-hidden="true">&times;</span>
 			</button>
@@ -13,15 +13,24 @@
 					<div class="form-group">
 						<label class="col-sm-4 control-label text-right">Username</label>
 						<div class="col-sm-8">
-							<input type="text" class="form-control android" data-bind="value: newUsername" />
+							<input type="text" readonly class="form-control android" data-bind="value: newUsername" />
+						</div>
+					</div>
+				</div>
+			</div>
+			<div class="row">
+				<div class="col-md-12">
+					<div class="form-group">
+						<label class="col-sm-4 control-label text-right">Password</label>
+						<div class="col-sm-8">
+							<input type="text" readonly class="form-control android" data-bind="value: newPassword" />
 						</div>
 					</div>
 				</div>
 			</div>
 		</div>
 		<div class="modal-footer">
-			<button type="button" class="btn btn-primary" data-bind="click: createNewUser, disable: isBusy"><span data-bind="visible: isBusy"><i class="fa fa-spinner fa-spin"/></span> Add user</button>
-			<button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+			<button type="button" class="btn btn-primary" data-dismiss="modal" data-bind="click: closeCreatedUser">Close</button>
 		</div>
 	</div>
 	<!-- /ko -->

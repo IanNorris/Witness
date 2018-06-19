@@ -1,11 +1,42 @@
-var AdminUsersViewModel = function( currentUsername, groups ) {
+var AdminUsersViewModel = function( authentication, groups ) {
 	"use strict";
 	
 	var self = this;
 	self.groups = groups;
+	self.authentication = authentication;
 	
-	self.currentUsername = currentUsername;
+	self.currentUsername = authentication.currentUsername;
 	self.users = ko.observableArray([]);
+	
+	self.isBusy = ko.observable(false);
+	self.newUsername = ko.observable('');
+	self.newPassword = ko.observable('');
+	
+	self.closeCreatedUser = function(){
+		$('#createdUserAdmin').modal('toggle');
+		self.newUsername('');
+		self.newPassword('');
+	};
+	
+	self.createNewUser = function(){
+		self.isBusy(true);
+		var newUser = {
+			'csrf': self.authentication.csrfToken(),
+			username: self.newUsername()
+		};
+		makeQuery( newUser, '/auth/new_user/', true, "error|Error creating user.",
+			function(result){
+				self.users.push(  new AdminUserViewModel( self, result.username, true, false, result.displayName, [] ) );
+				$('#addUserAdmin').modal('toggle');
+				
+				self.newPassword( result.password );
+				$('#createdUserAdmin').modal('toggle');
+			},
+			function(result){ /*finally*/
+				self.isBusy(false);
+			}
+		);
+	};
 	
 	self.refreshUsersAsAdmin = function() {	
 		makeQuery( null, '/auth/admin_enum/', true, "error|Error fetching user list.",
