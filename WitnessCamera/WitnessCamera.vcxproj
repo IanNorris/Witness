@@ -95,6 +95,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Source\FFMPEG\Frame.cpp" />
+    <ClCompile Include="Source\ImageProcessingJobQueue.cpp" />
     <ClCompile Include="Source\InputStream.cpp" />
     <ClCompile Include="Source\MotionFilter.cpp" />
     <ClCompile Include="Source\OutputStream.cpp" />
@@ -103,6 +104,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Include\Export.h" />
+    <ClInclude Include="Include\ImageProcessingJob.h" />
     <ClInclude Include="Include\InputStream.h" />
     <ClInclude Include="Include\MotionFilter.h" />
     <ClInclude Include="Include\OutputStream.h" />
@@ -113,6 +115,7 @@
     <ClInclude Include="Source\FFMPEG\Common.h" />
     <ClInclude Include="Source\FFMPEG\Frame.h" />
     <ClInclude Include="Source\FilterData.h" />
+    <ClInclude Include="Source\ImageProcessingData.h" />
     <ClInclude Include="Source\StreamData.h" />
     <ClInclude Include="Source\StreamManager.h" />
   </ItemGroup>

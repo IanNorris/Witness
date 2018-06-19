@@ -22,7 +22,7 @@ public:
 	virtual ~OutputStream();
 
 	virtual CameraStreamError Initialize() override;
-	virtual CameraStreamError ProcessFrame( IRecordFilter* Filter, Stream* TargetStream ) override;
+	virtual CameraStreamError ProcessFrame( const std::shared_ptr<IRecordFilter>& Filter, Stream* TargetStream ) override;
 	virtual void Shutdown() override;
 
 	CameraStreamError WriteInterleavedPacket( AVRational* TimeBase, AVPacket* Packet );

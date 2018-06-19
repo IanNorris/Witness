@@ -105,6 +105,7 @@
     <ClCompile Include="Source\Commands\Static.cpp" />
     <ClCompile Include="Source\Common.cpp" />
     <ClCompile Include="Source\Database.cpp" />
+    <ClCompile Include="Source\ImageProcessorWorker.cpp" />
     <ClCompile Include="Source\JsonHelpers.cpp" />
     <ClCompile Include="Source\Listener.cpp" />
     <ClCompile Include="Source\Main.cpp" />
@@ -140,6 +141,7 @@
     <ClInclude Include="Source\Common.h" />
     <ClInclude Include="Source\Database.h" />
     <ClInclude Include="Source\GlobalContext.h" />
+    <ClInclude Include="Source\ImageProcessorWorker.h" />
     <ClInclude Include="Source\Listener.h" />
     <ClInclude Include="Source\ListenerCommand.h" />
     <ClInclude Include="Source\Message.h" />

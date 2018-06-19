@@ -3,7 +3,9 @@
 #include "Common.h"
 #include "Messages.h"
 #include "AsyncWorker.h"
+#include "ImageProcessorWorker.h"
 #include "WatchdogWorker.h"
+#include <ImageProcessingJob.h>
 
 class WitnessListener;
 class GlobalContext;
@@ -46,6 +48,7 @@ private:
 
 	void LoadAndroidSettings( const json::value& JsonAndroidSettings );
 	bool CreateListener( const json::value& JsonServerSettings );
+	bool CreateProcessors( const json::value& JsonProcessorSettings );
 	bool InitializeContext();
 
 	void StartCameraWorkers();
@@ -58,6 +61,10 @@ private:
 	unique_ptr<WitnessListener>	Server;
 	shared_ptr<GlobalContext> Context;
 	shared_ptr<MessageBusQueue> MessageClient;
+
+	vector<shared_ptr<ImageProcessorWorker>> ImageWorkers;
+
+	Witness::Camera::ImageProcessingJobQueue CommonImageProcessingJobQueue;
 
 	AndroidSettings	Android;
 

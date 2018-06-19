@@ -13,8 +13,9 @@ using namespace Witness::Camera;
 class CameraWorker : public WorkerBase
 {
 public:
-	CameraWorker(const int CameraID, const string_t& InputPath, const shared_ptr<MessageBus>& MessageBus)
+	CameraWorker(const int CameraID, ImageProcessingJobQueue* JobQueue, const string_t& InputPath, const shared_ptr<MessageBus>& MessageBus)
 	: WorkerBase( MessageBus )
+	, JobQueue( JobQueue )
 	, Path( InputPath )
 	, CameraID( CameraID )
 	, IsConnected( false )
@@ -32,6 +33,8 @@ private:
 
 	shared_ptr<InputStream> CameraStream;
 	shared_ptr<ObservingMotionFilter> Filter;
+
+	ImageProcessingJobQueue* JobQueue;
 
 	string_t Path;
 	int CameraID;

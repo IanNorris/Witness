@@ -13,5 +13,15 @@ void WitnessServer::Shutdown()
 	Watchdog->RequestShutdown();
 	Watchdog = nullptr;
 
+	for (auto& Worker : ImageWorkers)
+	{
+		Worker->RequestShutdown();
+	}
+	for (auto& Worker : ImageWorkers)
+	{
+		CommonImageProcessingJobQueue.Push(nullptr);
+	};
+	ImageWorkers.clear();
+
 	Server->Stop();
 }

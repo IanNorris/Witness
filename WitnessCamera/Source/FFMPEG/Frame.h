@@ -25,6 +25,9 @@ public:
 
 private:
 
+	Frame( const Frame& Other );
+	Frame& operator=( const Frame& );
+
 	AVFrame*		m_Frame;
 
 	unsigned int	m_Width;
@@ -32,6 +35,7 @@ private:
 	unsigned int	m_Alignment;
 	AVPixelFormat	m_Format;
 	
+	bool			m_Prepared;
 };
 
 }}}

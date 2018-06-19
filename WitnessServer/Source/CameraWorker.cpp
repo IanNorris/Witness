@@ -7,7 +7,7 @@ void CameraWorker::WorkerInit()
 
 	UpdateLastTimedAction(_T("Startup..."));
 
-	CameraStream = make_shared<InputStream>( std::string( Path.begin(), Path.end() ) );
+	CameraStream = make_shared<InputStream>( CameraID, JobQueue, std::string( Path.begin(), Path.end() ) );
 
 	MessageBusObject->SendToClient( nullptr, make_shared<CameraStartupMessage>( CameraID ) );
 }
@@ -57,7 +57,7 @@ void CameraWorker::WorkerMain()
 		UpdateLastTimedAction(_T("Connecting..."));
 	}
 
-	CameraStreamError Error = CameraStream->ProcessFrame( Filter.get(), RecordStream.get() );
+	CameraStreamError Error = CameraStream->ProcessFrame( static_pointer_cast<IRecordFilter>(Filter), RecordStream.get() );
 	if( Error == CameraStreamError::Success )
 	{
 		if( !IsConnected )
@@ -84,7 +84,9 @@ void CameraWorker::WorkerMain()
 
 		MessageBusObject->SendToClient( nullptr, make_shared<CameraReconnectMessage>( CameraID, ErrorStr ) );
 
-		CameraStream = make_shared<InputStream>( std::string( Path.begin(), Path.end() ) );
+		CameraStream = make_shared<InputStream>( CameraID, JobQueue, std::string( Path.begin(), Path.end() ) );
+
+		JobQueue->RemoveAllForSource( CameraID );
 	}
 }
 

@@ -102,6 +102,9 @@
     <ClCompile Include="Source\Commands\Group.cpp">
       <Filter>Source Files\Commands</Filter>
     </ClCompile>
+    <ClCompile Include="Source\ImageProcessorWorker.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Source\Listener.h">
@@ -169,6 +172,9 @@
     </ClInclude>
     <ClInclude Include="Source\Commands\Group.h">
       <Filter>Header Files\Commands</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\ImageProcessorWorker.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

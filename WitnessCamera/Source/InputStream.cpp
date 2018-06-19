@@ -2,6 +2,7 @@
 #include "OutputStream.h"
 #include "StreamManager.h"
 #include "StreamData.h"
+#include "ImageProcessingData.h"
 
 #include <vector>
 #include <iostream>
@@ -13,9 +14,11 @@ namespace Camera{
 size_t MaxKeyFramesStored = 10; //This is the maximum buffer period in keyframes to maintain
 size_t MinKeyFramesStored = 4; //This is the minimum buffer period in keyframes to maintain on a constant stream
 
-InputStream::InputStream( const std::string& StreamURL, int StreamIndex )
+InputStream::InputStream( int SourceID, ImageProcessingJobQueue* JobQueue, const std::string& StreamURL, int StreamIndex )
 : Stream()
+, CommonJobQueue( JobQueue )
 , m_StreamManager( new StreamManager() )
+, UniqueSourceID( SourceID )
 , TimeStarted( 0 )
 , IsConnecting( false )
 {
@@ -54,7 +57,7 @@ CameraStreamError InputStream::Initialize()
 	
 	av_dict_set( &ID.StreamOptions, "rtsp_transport", "tcp", 0 );
 	//av_dict_set( &ID.StreamOptions, "timeout", "600000", 0 );
-	av_dict_set( &ID.StreamOptions, "buffer_size", "83886080", 0 );
+	av_dict_set( &ID.StreamOptions, "recv_buffer_size", "8388608", 0 );
 
 	av_dict_set( &ID.StreamOptions, "nobuffer", "0", 0 );
 	
@@ -107,40 +110,18 @@ CameraStreamError InputStream::Initialize()
 		STREAM_ERROR( UnsupportedStreamFormat, Result );
 	}
 
-	unsigned int OutputHeight = min( 400, ID.CodecContext->height );
+	/*unsigned int OutputHeight = min( 400, ID.CodecContext->height );
 	unsigned int OutputWidth = (int)(((float)ID.CodecContext->width / (float)ID.CodecContext->height) * (float)OutputHeight);
 
 	OutputHeight &= (~15);
-	OutputWidth &= (~15);
+	OutputWidth &= (~15);*/
 
 	AVPixelFormat OutputPixelFormat = AV_PIX_FMT_BGR24;
+		
+	//ID.Output = std::make_shared<FFMPEG::Frame>( OutputWidth, OutputHeight, OutputPixelFormat );
+	ID.Input = std::make_shared<FFMPEG::Frame>( ID.CodecContext->width, ID.CodecContext->height, ID.CodecContext->pix_fmt );
 
-	AVPixelFormat InputPixelFormat = ID.CodecContext->pix_fmt;
-
-	//Remap deprecated formats to avoid the warning output.
-	switch(InputPixelFormat)
-	{
-	case AV_PIX_FMT_YUVJ420P:
-		InputPixelFormat = AV_PIX_FMT_YUV420P;
-		break;
-
-	case AV_PIX_FMT_YUVJ422P:
-		InputPixelFormat = AV_PIX_FMT_YUV422P;
-		break;
-
-	case AV_PIX_FMT_YUVJ444P:
-		InputPixelFormat = AV_PIX_FMT_YUV444P;
-		break;
-
-	case AV_PIX_FMT_YUVJ440P:
-		InputPixelFormat = AV_PIX_FMT_YUV440P;
-		break;
-	}
-
-	ID.Output = std::make_unique<FFMPEG::Frame>( OutputWidth, OutputHeight, OutputPixelFormat );
-	ID.Input = std::make_unique<FFMPEG::Frame>( ID.CodecContext->width, ID.CodecContext->height, InputPixelFormat );
-
-	ID.ConversionContext = sws_getCachedContext(
+	/*ID.ConversionContext = sws_getCachedContext(
 		ID.ConversionContext,
 		ID.Input->GetWidth(),
 		ID.Input->GetHeight(),
@@ -151,12 +132,12 @@ CameraStreamError InputStream::Initialize()
 		SWS_BICUBIC,
 		NULL,
 		NULL,
-		NULL );
+		NULL );*/
 
 	return CameraStreamError::Success;
 }
 
-CameraStreamError InputStream::ProcessFrame( IRecordFilter* Filter, Stream* TargetStream )
+CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter>& Filter, Stream* TargetStream )
 {
 	CameraStreamError InitError = Initialize();
 	if( InitError != CameraStreamError::Success )
@@ -256,7 +237,34 @@ CameraStreamError InputStream::ProcessFrame( IRecordFilter* Filter, Stream* Targ
 			}
 			else
 			{
-				int OutputSliceSize = sws_scale( m_InternalData->ConversionContext, ID.Input->GetFrame()->data, ID.Input->GetFrame()->linesize, 0, m_InternalData->CodecContext->height, ID.Output->GetFrame()->data, ID.Output->GetFrame()->linesize );
+				auto Job = std::make_shared<ImageProcessingJob>();
+				Job->Frame.swap(ID.Input);
+				Job->SourceID = UniqueSourceID;
+				Job->Timestamp = m_InternalData->DTS;
+				Job->Filter = Filter;
+
+				if (!CommonJobQueue->Push(Job))
+				{
+					auto Stats = CommonJobQueue->GetData().GetStatsForSource(UniqueSourceID);		
+
+					double Total = (double)Stats.TotalProcessingTime / ((double)Stats.FrameCount * 1000.0 * 1000.0);
+					double Scale = (double)Stats.ScaleTotalProcessingTime / ((double)Stats.FrameCount * 1000.0 * 1000.0);
+					double MD = (double)Stats.MotionDetectionTotalProcessingTime / ((double)Stats.FrameCount * 1000.0 * 1000.0);
+					double SP = (double)Stats.SecondPassFilterTotalProcessingTime / ((double)Stats.FrameCount * 1000.0 * 1000.0);
+					printf("Source %d: Total %.2fms, Scale: %.2fms, MD: %.2fms, 2p: %.2fms\n", UniqueSourceID, (float)Total, (float)Scale, (float)MD, (float)SP );
+
+					CommonJobQueue->RemoveAllForSource(UniqueSourceID);
+
+					STREAM_ERROR( ProcessingQueueFull, 0 );
+				}
+
+
+
+				//This needs to be inserted into a queue with multiple worker consumer threads
+				//Threads can then consume frames, skipping frames as appropriate if too much time
+				//has passed.
+
+				/*int OutputSliceSize = sws_scale( m_InternalData->ConversionContext, ID.Input->GetFrame()->data, ID.Input->GetFrame()->linesize, 0, m_InternalData->CodecContext->height, ID.Output->GetFrame()->data, ID.Output->GetFrame()->linesize );
 
 				ClassificationResult FilterResult = Filter->FilterFrame( ID.Output->GetWidth(), ID.Output->GetHeight(), ID.Output->GetFrame()->data[0], m_StreamManager );
 
@@ -269,7 +277,9 @@ CameraStreamError InputStream::ProcessFrame( IRecordFilter* Filter, Stream* Targ
 					}
 				}
 
-				ID.Input->Unref();
+				ID.Input->Unref();*/
+
+				ID.Input = std::make_shared<FFMPEG::Frame>( ID.CodecContext->width, ID.CodecContext->height, ID.CodecContext->pix_fmt );
 			}
 		}
 	}

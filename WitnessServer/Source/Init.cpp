@@ -70,14 +70,29 @@ bool WitnessServer::Initialize()
 		return false;
 	}
 
+	if( !JsonConfig.has_object_field(U("processing")) )
+	{
+		std::tcerr << U("Unable to config file. Expect a 'processing' section.") << std::endl;
+		return false;
+	}
+
 	auto JsonServerConfig = JsonConfig.at(U("server"));
-	
+	auto JsonProcessingConfig = JsonConfig.at(U("processing"));
+
 	if( !CreateListener( JsonServerConfig ) )
 	{
 		return false;
 	}
 
+	Context = Server->GetGlobalContext();
+	Context->CachePath = CachePath;
+
 	if( !InitializeContext() )
+	{
+		return false;
+	}
+
+	if( !CreateProcessors( JsonProcessingConfig ) )
 	{
 		return false;
 	}
@@ -151,12 +166,36 @@ bool WitnessServer::CreateListener( const json::value& JsonServerSettings )
 	return true;
 }
 
+bool WitnessServer::CreateProcessors(const json::value& JsonProcessorSettings)
+{
+	bool Success = true;
+	string_t Errors;
+
+	int ThreadCount = 2;
+
+	Success &= GetJsonField( JsonProcessorSettings, _T("thread_count"), ThreadCount, Errors );
+
+	if (!Success)
+	{
+		tcout << Errors << endl;
+		return false;
+	}
+	
+	while(ThreadCount--)
+	{
+		auto ImageWorker = make_shared<ImageProcessorWorker>( Context->MessageBus, &CommonImageProcessingJobQueue );
+		ImageWorker->Start();
+
+		ImageWorkers.push_back(ImageWorker);
+	}
+
+	return true;
+}
+
 bool WitnessServer::InitializeContext()
 {
 	auto DatabaseFile = GetConfigFilePath( U("server.db") );
 
-	Context = Server->GetGlobalContext();
-	Context->CachePath = CachePath;
 	Context->MessageBus = make_shared<MessageBus>();
 	Context->Database = Database::InitializeDatabase( DatabaseFile );
 
@@ -175,15 +214,23 @@ void WitnessServer::StartCameraWorkers()
 			int CameraID = query.GetColumnValueInt( 0 );
 			string_t CameraName = query.GetColumnValueText( 1 );
 			string_t CameraPath = query.GetColumnValueText( 2 );
+			int Enabled = query.GetColumnValueInt( 4 );
 
-			tcout << _T("Starting ") << CameraName << _T(" camera...") << endl;
+			if( Enabled )
+			{
+				tcout << _T("Starting ") << CameraName << _T(" camera...") << endl;
 
-			auto Worker = make_shared<CameraWorker>( CameraID, CameraPath, Context->MessageBus );
-			Worker->Start();
-			Watchdog->AddTarget( Worker, CameraName );
-			auto& State = Context->Cameras[ CameraID ] = GlobalContext::CameraState();
-			State.Worker = Worker;
-			State.Name = CameraName;
+				auto Worker = make_shared<CameraWorker>( CameraID, &CommonImageProcessingJobQueue, CameraPath, Context->MessageBus );
+				Worker->Start();
+				Watchdog->AddTarget( Worker, CameraName );
+				auto& State = Context->Cameras[ CameraID ] = GlobalContext::CameraState();
+				State.Worker = Worker;
+				State.Name = CameraName;
+			}
+			else
+			{
+				tcout << _T("Skipping ") << CameraName << _T(" camera, it's disabled...") << endl;
+			}
 
 			return true;
 		}

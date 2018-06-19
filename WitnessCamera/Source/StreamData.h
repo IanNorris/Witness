@@ -117,8 +117,8 @@ struct StreamData
 		PacketsPerKeyframe.push_back(0);
 	}
 
-	std::unique_ptr<FFMPEG::Frame>	Input;
-	std::unique_ptr<FFMPEG::Frame>	Output;
+	std::shared_ptr<FFMPEG::Frame>	Input;
+	std::shared_ptr<FFMPEG::Frame>	Output;
 
 	std::vector<AVPacket>			PacketsBacklog;
 	std::vector<int>				PacketsPerKeyframe;

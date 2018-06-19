@@ -5,6 +5,7 @@
 #include "RecordFilter.h"
 
 #include <string>
+#include <memory>
 #include <tchar.h>
 
 namespace Witness{
@@ -27,6 +28,7 @@ enum class CameraStreamError
 	FileNotWriteable,
 	WriteFailed,
 	NoStreamInput,
+	ProcessingQueueFull,
 
 	InternalError,
 	UnknownError,
@@ -81,6 +83,9 @@ static const TCHAR* GetCameraStreamErrorMessage( CameraStreamError Error )
 	case CameraStreamError::NoStreamInput:
 		return _T("Input stream is invalid");
 
+	case CameraStreamError::ProcessingQueueFull:
+		return _T("Frame processing queue is full. CPU is not powerful enough to handle current load.");
+
 	case CameraStreamError::InternalError:
 		return _T("Internal error");
 
@@ -99,7 +104,7 @@ public:
 	virtual ~Stream();
 
 	virtual CameraStreamError Initialize();
-	virtual CameraStreamError ProcessFrame( IRecordFilter* Filter, Stream* TargetStream );
+	virtual CameraStreamError ProcessFrame( const std::shared_ptr<IRecordFilter>& Filter, Stream* TargetStream );
 	virtual void Shutdown();
 
 	inline int GetErrorLine() { return m_LineNumber; }

@@ -104,10 +104,11 @@ ClassificationResult MotionFilter::FilterFrame( unsigned int Width, unsigned int
 {
 	auto& ID = GetData();
 
-	if( !ID.DiagFrame )
+	/*if( !ID.DiagFrame )
 	{
 		ID.DiagFrame = make_shared<FFMPEG::Frame>( Width, Height, AV_PIX_FMT_BGR24, 1 );
-	}
+		ID.DiagFrame->Prepare();
+	}*/
 
 	Mat InputFrame( Size( Width, Height ), CV_8UC3, Data );
 
@@ -119,14 +120,14 @@ ClassificationResult MotionFilter::FilterFrame( unsigned int Width, unsigned int
 		return ClassificationResult();
 	}
 
-	if( ID.PreviousMask.rows != Height && ID.PreviousMask.cols!= Width )
+	/*(if( ID.PreviousMask.rows != Height && ID.PreviousMask.cols!= Width )
 	{
 		ID.PreviousMask = Mat( ID.DiagFrame->GetHeight(), ID.DiagFrame->GetWidth(), CV_8UC1 );
 		ID.PreviousMask = Scalar(0,0,0);
 	}
 
 	float PrevAlpha = 0.4f;
-	addWeighted( ID.PreviousMask, PrevAlpha, ID.ForegroundMask, 1.0f, 0, ID.PreviousMask );
+	addWeighted( ID.PreviousMask, PrevAlpha, ID.ForegroundMask, 1.0f, 0, ID.PreviousMask );*/
 
 	int SumResult = countNonZero( ID.ForegroundMask );
 
@@ -140,11 +141,11 @@ ClassificationResult MotionFilter::FilterFrame( unsigned int Width, unsigned int
 
 		//ID.DiagFrame->Prepare();
 		
-		Mat annotatedFinal( ID.DiagFrame->GetHeight(), ID.DiagFrame->GetWidth(), CV_8UC3, ID.DiagFrame->GetFrame()->data[0] );
+		//Mat annotatedFinal( ID.DiagFrame->GetHeight(), ID.DiagFrame->GetWidth(), CV_8UC3, ID.DiagFrame->GetFrame()->data[0] );
 		//Mat annotated( ID.DiagFrame->GetHeight(), ID.DiagFrame->GetWidth(), CV_8UC3 );
 
-		annotatedFinal = Scalar(0,0,0);
-		InputFrame.copyTo( annotatedFinal, ID.PreviousMask );
+		//annotatedFinal = Scalar(0,0,0);
+		//InputFrame.copyTo( annotatedFinal, ID.PreviousMask );
 
 		//ID.ForegroundMask.copyTo( annotatedFinal );
 

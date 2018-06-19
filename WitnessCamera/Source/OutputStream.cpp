@@ -241,6 +241,7 @@ CameraStreamError OutputStream::Initialize()
 	}
 
 	ID.Output = std::make_unique<FFMPEG::Frame>( ID.CodecContext->width, ID.CodecContext->height, ID.CodecContext->pix_fmt );
+	//ID.Output->Prepare(); //Necessary?
 
 	ID.ConversionContext = sws_getCachedContext(
 		ID.ConversionContext,
@@ -258,7 +259,7 @@ CameraStreamError OutputStream::Initialize()
 	return CameraStreamError::Success;
 }
 
-CameraStreamError OutputStream::ProcessFrame( IRecordFilter* Filter, Stream* TargetStream )
+CameraStreamError OutputStream::ProcessFrame( const std::shared_ptr<IRecordFilter>& Filter, Stream* TargetStream )
 {
 	CameraStreamError InitError = Initialize();
 	if( InitError != CameraStreamError::Success )
