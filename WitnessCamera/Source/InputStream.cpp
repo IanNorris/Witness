@@ -257,28 +257,7 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 
 					STREAM_ERROR( ProcessingQueueFull, 0 );
 				}
-
-
-
-				//This needs to be inserted into a queue with multiple worker consumer threads
-				//Threads can then consume frames, skipping frames as appropriate if too much time
-				//has passed.
-
-				/*int OutputSliceSize = sws_scale( m_InternalData->ConversionContext, ID.Input->GetFrame()->data, ID.Input->GetFrame()->linesize, 0, m_InternalData->CodecContext->height, ID.Output->GetFrame()->data, ID.Output->GetFrame()->linesize );
-
-				ClassificationResult FilterResult = Filter->FilterFrame( ID.Output->GetWidth(), ID.Output->GetHeight(), ID.Output->GetFrame()->data[0], m_StreamManager );
-
-				if( FilterResult.ResultString )
-				{
-					ClassificationResult ResultNew = Filter->PostSuccessChildVisitor( ID.Output->GetWidth(), ID.Output->GetHeight(), ID.Output->GetFrame()->data[0], m_StreamManager );
-					if( ResultNew.ResultString )
-					{
-						FilterResult = ResultNew;
-					}
-				}
-
-				ID.Input->Unref();*/
-
+				
 				ID.Input = std::make_shared<FFMPEG::Frame>( ID.CodecContext->width, ID.CodecContext->height, ID.CodecContext->pix_fmt );
 			}
 		}

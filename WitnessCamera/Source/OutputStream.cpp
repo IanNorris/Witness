@@ -126,6 +126,30 @@ CameraStreamError OutputStream::Initialize()
 	{
 		AVCodecParameters* Params = avcodec_parameters_alloc();
 		avcodec_parameters_from_context( Params, m_InputStream->GetData().CodecContext );
+
+		int OutputPixelFormat = Params->format;
+
+		//Remap deprecated formats to avoid the warning output.
+		switch(OutputPixelFormat)
+		{
+		case AV_PIX_FMT_YUVJ420P:
+			OutputPixelFormat = AV_PIX_FMT_YUV420P;
+			break;
+
+		case AV_PIX_FMT_YUVJ422P:
+			OutputPixelFormat = AV_PIX_FMT_YUV422P;
+			break;
+
+		case AV_PIX_FMT_YUVJ444P:
+			OutputPixelFormat = AV_PIX_FMT_YUV444P;
+			break;
+
+		case AV_PIX_FMT_YUVJ440P:
+			OutputPixelFormat = AV_PIX_FMT_YUV440P;
+			break;
+		}
+
+		Params->format = OutputPixelFormat;
 		Params->codec_tag = 0;
 		Params->codec_id = ID.CodecID;
 		avcodec_parameters_to_context( ID.CodecContext, Params );
@@ -242,6 +266,26 @@ CameraStreamError OutputStream::Initialize()
 
 	ID.Output = std::make_unique<FFMPEG::Frame>( ID.CodecContext->width, ID.CodecContext->height, ID.CodecContext->pix_fmt );
 	//ID.Output->Prepare(); //Necessary?
+
+	//Remap deprecated formats to avoid the warning output.
+	switch(ID.PixelFormat)
+	{
+	case AV_PIX_FMT_YUVJ420P:
+		ID.PixelFormat = AV_PIX_FMT_YUV420P;
+		break;
+
+	case AV_PIX_FMT_YUVJ422P:
+		ID.PixelFormat = AV_PIX_FMT_YUV422P;
+		break;
+
+	case AV_PIX_FMT_YUVJ444P:
+		ID.PixelFormat = AV_PIX_FMT_YUV444P;
+		break;
+
+	case AV_PIX_FMT_YUVJ440P:
+		ID.PixelFormat = AV_PIX_FMT_YUV440P;
+		break;
+	}
 
 	ID.ConversionContext = sws_getCachedContext(
 		ID.ConversionContext,
