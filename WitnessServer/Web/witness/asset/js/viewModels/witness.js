@@ -61,8 +61,10 @@ var WitnessViewModel = function() {
 				for( var camera = 0; camera < result.length; camera++ ) {
 					
 					var newId = result[camera].id;
+					var newEnabled = result[camera].enabled;
 					var newName = result[camera].name;
 					var newDescription = result[camera].description;
+					var newRecording = result[camera].recording;
 					var newRecording = result[camera].recording;
 					var newStatus = result[camera].status;
 									
@@ -70,6 +72,7 @@ var WitnessViewModel = function() {
 					for( var existingCamera = 0; existingCamera < self.cameras().length; existingCamera++ )
 					{
 						if( self.cameras()[ existingCamera ].id == newId ) {
+							self.cameras()[ existingCamera ].enabled( newEnabled );
 							self.cameras()[ existingCamera ].name( newName );
 							self.cameras()[ existingCamera ].description( newDescription );
 							self.cameras()[ existingCamera ].isRecording( newRecording );
@@ -80,7 +83,7 @@ var WitnessViewModel = function() {
 					
 					if( !found )
 					{
-						self.cameras.push(  new CameraViewModel( self, newId, newName, newRecording ) );
+						self.cameras.push(  new CameraViewModel( self, newId, newEnabled, newName, newDescription, '', [], '', newRecording ) );
 					}
 					
 					self.cameras.sort( function( left, right ) {

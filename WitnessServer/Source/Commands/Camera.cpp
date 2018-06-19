@@ -115,48 +115,53 @@ void Command_Camera::OnEnumMessage( const GlobalContext& Context, http_request& 
 			string_t Name = query.GetColumnValueText(1);
 			string_t ConnectionString = query.GetColumnValueText(2);
 			string_t Description = query.GetColumnValueText(3) ? query.GetColumnValueText(3) : _T("");
-			
-			json::value Camera;
-			Camera[ _T("id") ] = json::value(ID);
-			Camera[ _T("name") ] = json::value(Name);
-			Camera[ _T("description") ] = json::value(Description);
+			int Enabled = query.GetColumnValueInt(4);
 
-			vector<json::value> Groups;
-
-			SQLiteDatabaseQueryInstance SelectGroupsForCamera( Context.Database, _T("SelectGroupsForCamera") );
-			SelectGroupsForCamera->Bind( "@Camera", ID );
-
-			SelectGroupsForCamera->Execute( 
-			[&Groups]( const SQLiteDatabaseQuery& query )
-				{
-					int GroupId = query.GetColumnValueInt(1);
-
-					Groups.push_back(json::value(GroupId));
-
-					return true;
-				}
-			);
-
-			if (AsAdmin)
+			if( Enabled || AsAdmin )
 			{
-				Camera[ _T("connectionString") ] = json::value(ConnectionString);
+				json::value Camera;
+				Camera[ _T("id") ] = json::value(ID);
+				Camera[ _T("name") ] = json::value(Name);
+				Camera[ _T("description") ] = json::value(Description);
+				Camera[ _T("enabled") ] = json::value(Enabled);
+
+				vector<json::value> Groups;
+
+				SQLiteDatabaseQueryInstance SelectGroupsForCamera( Context.Database, _T("SelectGroupsForCamera") );
+				SelectGroupsForCamera->Bind( "@Camera", ID );
+
+				SelectGroupsForCamera->Execute( 
+				[&Groups]( const SQLiteDatabaseQuery& query )
+					{
+						int GroupId = query.GetColumnValueInt(1);
+
+						Groups.push_back(json::value(GroupId));
+
+						return true;
+					}
+				);
+
+				if (AsAdmin)
+				{
+					Camera[ _T("connectionString") ] = json::value(ConnectionString);
+				}
+
+				Camera[ _T("groups") ] = json::value::array(Groups);
+
+				{
+					lock_guard<mutex> Lock( Context.Mutex );
+
+					auto Iter = Context.Cameras.find( ID );
+					if( Iter != Context.Cameras.end() )
+					{
+						Camera[ _T("status") ] = json::value( (*Iter).second.Status );
+						Camera[ _T("recording") ] = json::value( (*Iter).second.IsRecording );
+					}
+				}
+
+				Array.push_back( Camera );
 			}
 
-			Camera[ _T("groups") ] = json::value::array(Groups);
-
-			{
-				lock_guard<mutex> Lock( Context.Mutex );
-
-				auto Iter = Context.Cameras.find( ID );
-				if( Iter != Context.Cameras.end() )
-				{
-					Camera[ _T("status") ] = json::value( (*Iter).second.Status );
-					Camera[ _T("recording") ] = json::value( (*Iter).second.IsRecording );
-				}
-			}
-
-			Array.push_back( Camera );
-				
 			return true;
 		} 
 	);

@@ -11,7 +11,8 @@ namespace Database
 			PasswordHash	CHAR(128)							NOT NULL,
 			HashMethod		INTEGER								NOT NULL,
 			Enabled			INTEGER								NOT NULL,		
-			Admin			INTEGER								NOT NULL
+			Admin			INTEGER								NOT NULL,
+			MustChangePassword INTEGER							NOT NULL
 		);
 
 		CREATE UNIQUE INDEX IF NOT EXISTS UserIndex ON User (Username);
@@ -29,7 +30,8 @@ namespace Database
 			CameraUID		INTEGER PRIMARY KEY	AUTOINCREMENT,
 			CameraName		CHAR(64)							NOT NULL,
 			CameraString	TEXT								NOT NULL,
-			Description		TEXT
+			Description		TEXT,
+			Enabled			INTEGER NOT NULL
 		);
 
 		CREATE TABLE IF NOT EXISTS CameraGroup (

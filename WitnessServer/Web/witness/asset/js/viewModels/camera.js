@@ -1,4 +1,4 @@
-var CameraViewModel = function( witness, id, name, description, connectionString, groups, status, cameraRecording ) {
+var CameraViewModel = function( witness, id, enabled, name, description, connectionString, groups, status, cameraRecording ) {
 	"use strict";
 	
 	var self = this;
@@ -7,6 +7,7 @@ var CameraViewModel = function( witness, id, name, description, connectionString
 	self.parent = parent;
 	
 	self.id = id;
+	self.enabled = ko.observable(enabled);
 	self.name = ko.observable(name);
 	self.description = ko.observable(description);
 	self.previewPath = ko.observable('');

@@ -61,6 +61,7 @@ var AdminCamerasViewModel = function( authentication, groups, witness ) {
 					
 					for( var camera = 0; camera < cameraList.length; camera++ ) {
 						var newId = cameraList[camera].id;
+						var newEnabled = cameraList[camera].enabled;
 						var newName = cameraList[camera].name;
 						var newDescription = cameraList[camera].description;
 						var newConnectionString = cameraList[camera].connectionString;
@@ -80,6 +81,7 @@ var AdminCamerasViewModel = function( authentication, groups, witness ) {
 						
 						if( existing ){
 							existing.name(newName);
+							existing.enabled(newEnabled);
 							existing.description(newDescription);
 							existing.connectionString(newConnectionString);
 							existing.status(newStatus);
@@ -87,7 +89,7 @@ var AdminCamerasViewModel = function( authentication, groups, witness ) {
 							existing.groups(newGroups);
 						}
 						else {
-							self.cameras.push(  new CameraViewModel( self.witness, newId, newName, newDescription, newConnectionString, newGroups, newStatus, false ) );
+							self.cameras.push(  new CameraViewModel( self.witness, newId, newEnabled, newName, newDescription, newConnectionString, newGroups, newStatus, false ) );
 						}
 						
 						self.sortCameras();
