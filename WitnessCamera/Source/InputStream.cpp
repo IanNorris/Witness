@@ -68,7 +68,7 @@ CameraStreamError InputStream::Initialize()
 
 	if( Result < 0 )
 	{
-		STREAM_ERROR( ConnectionError, Result );
+ 		STREAM_ERROR( ConnectionError, Result );
 	}
 
 	Result = avformat_find_stream_info( ID.FormatContext, nullptr );

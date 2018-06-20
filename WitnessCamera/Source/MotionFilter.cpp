@@ -135,7 +135,7 @@ ClassificationResult MotionFilter::FilterFrame( unsigned int Width, unsigned int
 
 	double Percentage = (float)SumResult / ComparisonResult;
 
-	if( Percentage > 0.01 )
+	if( Percentage > 0.015 )
 	{
 		//OutputStream* DiagOutput = StreamManager->GetDiagnosticStream( Width, Height );
 

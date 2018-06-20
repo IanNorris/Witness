@@ -1,6 +1,8 @@
 #include "CameraWorker.h"
 #include "ObservingMotionFilter.h"
 
+#include <windows.h>
+
 void CameraWorker::WorkerInit()
 {
 	Filter = make_shared<ObservingMotionFilter>( CameraID, MessageBusObject );
@@ -87,6 +89,8 @@ void CameraWorker::WorkerMain()
 		CameraStream = make_shared<InputStream>( CameraID, JobQueue, std::string( Path.begin(), Path.end() ) );
 
 		JobQueue->RemoveAllForSource( CameraID );
+
+		Sleep( 3000 );
 	}
 }
 
