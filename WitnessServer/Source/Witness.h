@@ -4,13 +4,13 @@
 #include "Messages.h"
 #include "AsyncWorker.h"
 #include "ImageProcessorWorker.h"
+#include "CameraWorker.h"
 #include "WatchdogWorker.h"
 #include <ImageProcessingJob.h>
 
 class WitnessListener;
 class GlobalContext;
 class MessageBusQueue;
-class CameraWorker;
 struct ClipStatistics;
 
 struct AndroidSettings
@@ -67,6 +67,7 @@ private:
 	Witness::Camera::ImageProcessingJobQueue CommonImageProcessingJobQueue;
 
 	AndroidSettings	Android;
+	VideoSettings Video;
 
 	string_t CachePath;
 };

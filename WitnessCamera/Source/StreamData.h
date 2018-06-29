@@ -88,15 +88,6 @@ struct StreamData
 		KeyframeStates.push_back(KeyframeInfo());
 	}
 
-	void FreeToMinimumBacklog(size_t MinFrames)
-	{
-		while( KeyframeStates.size() > MinFrames )
-		{
-			FreePacketsFromBacklog(KeyframeStates[0].PacketCount);
-			KeyframeStates.erase(KeyframeStates.begin());
-		}
-	}
-
 	void FreePacketsFromBacklog(size_t PacketsToDelete)
 	{
 		//Can delete the old data now
@@ -117,9 +108,9 @@ struct StreamData
 		PacketsBacklog.erase(PacketsBacklog.begin(), EndOfList);
 	}
 
-	void DeleteOldestKeyframe( size_t MaxFrames )
+	void DeleteOldestKeyframe( uint64_t CurrentTime, double OldestDelay )
 	{
-		if (KeyframeStates.size() > MaxFrames )
+		while( !KeyframeStates.empty() && (double)(CurrentTime - KeyframeStates[0].Timestamp) > OldestDelay )
 		{
 			FreePacketsFromBacklog(KeyframeStates[0].PacketCount);
 			KeyframeStates.erase(KeyframeStates.begin());

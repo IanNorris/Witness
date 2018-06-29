@@ -10,17 +10,46 @@ class ObservingMotionFilter;
 
 using namespace Witness::Camera;
 
+struct VideoSettings
+{
+	VideoSettings()
+	: ClipHistoryPeriod( 5.0 )
+	{}
+
+	double		ClipHistoryPeriod;
+};
+
+struct CameraSettings
+{
+	CameraSettings()
+	: JobQueue()
+	, Name()
+	, Path()
+	, MDThreshold( 0.05 )
+	, ID( 0 )
+	, Enabled( 1 )
+	, SkipFrames( 1 )
+	, MDFrameHeight( 720 )
+	{}
+
+	ImageProcessingJobQueue* JobQueue;
+
+	string_t Name;
+	string_t Path;
+	double MDThreshold;
+	int ID;
+	int Enabled;
+	int SkipFrames;
+	int MDFrameHeight;
+};
+
 class CameraWorker : public WorkerBase
 {
 public:
-	CameraWorker(const int CameraID, unsigned int SkipFrames, unsigned int MotionDetectFrameHeight, double MotionDetectThreshold, ImageProcessingJobQueue* JobQueue, const string_t& InputPath, const shared_ptr<MessageBus>& MessageBus)
+	CameraWorker( const VideoSettings& Video, const CameraSettings& Camera, const shared_ptr<MessageBus>& MessageBus)
 	: WorkerBase( MessageBus )
-	, JobQueue( JobQueue )
-	, Path( InputPath )
-	, MotionDetectThreshold( MotionDetectThreshold )
-	, SkipFrames( SkipFrames )
-	, MotionDetectFrameHeight( MotionDetectFrameHeight )
-	, CameraID( CameraID )
+	, Video( Video )
+	, Camera( Camera )
 	, IsConnected( false )
 	{}
 
@@ -39,12 +68,8 @@ private:
 	shared_ptr<InputStream> CameraStream;
 	shared_ptr<ObservingMotionFilter> Filter;
 
-	ImageProcessingJobQueue* JobQueue;
+	VideoSettings Video;
+	CameraSettings Camera;
 
-	string_t Path;
-	double MotionDetectThreshold;
-	unsigned int SkipFrames;
-	unsigned int MotionDetectFrameHeight;
-	int CameraID;
 	bool IsConnected;
 };

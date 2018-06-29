@@ -17,6 +17,7 @@ struct CAMERA_API InputStreamSetup
 		, MotionFilterFrameSkip(1)
 		, MotionDetectFrameHeight( 720 )
 		, MotionDetectThreshold( 0.1 )
+		, HistoricalPacketBufferSeconds( 5.0 )
 	{}
 
 	bool Validate();
@@ -26,6 +27,7 @@ struct CAMERA_API InputStreamSetup
 	unsigned int MotionFilterFrameSkip; //Accept only one in this number of frames. Eg 1 = full framerate, 2 = 1 in 2 frames, 4 = 1 in 4 frames.
 	unsigned int MotionDetectFrameHeight;
 	double MotionDetectThreshold;
+	double HistoricalPacketBufferSeconds;
 };
 
 class CAMERA_API InputStream : public Stream

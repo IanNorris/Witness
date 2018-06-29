@@ -75,9 +75,25 @@ bool WitnessServer::Initialize()
 		std::tcerr << U("Unable to config file. Expect a 'processing' section.") << std::endl;
 		return false;
 	}
-
+	
 	auto JsonServerConfig = JsonConfig.at(U("server"));
 	auto JsonProcessingConfig = JsonConfig.at(U("processing"));
+
+	//Process video settings
+	if( JsonConfig.has_object_field(U("video")) )
+	{
+		auto JsonVideoConfig = JsonConfig.at(U("video"));
+
+		bool Success = true;
+		string_t Errors;
+
+		Success &= GetJsonField( JsonVideoConfig, _T("clip_leadin"), Video.ClipHistoryPeriod, Errors );
+		
+		if (!Success)
+		{
+
+		}
+	}
 
 	if( !CreateListener( JsonServerConfig ) )
 	{
@@ -211,28 +227,32 @@ void WitnessServer::StartCameraWorkers()
 	GetCameras->Execute( 
 		[&]( const SQLiteDatabaseQuery& query )
 		{
-			int CameraID = query.GetColumnValueInt( 0 );
-			string_t CameraName = query.GetColumnValueText( 1 );
-			string_t CameraPath = query.GetColumnValueText( 2 );
-			int Enabled = query.GetColumnValueInt( 4 );
-			int SkipFrames = query.GetColumnValueInt( 5 );
-			int MDFrameHeight = query.GetColumnValueInt( 6 );
-			double MDThreshold = query.GetColumnValueDouble( 7 );
 
-			if( Enabled )
+			CameraSettings Camera;
+
+			Camera.ID = query.GetColumnValueInt( 0 );
+			Camera.Name = query.GetColumnValueText( 1 );
+			Camera.Path = query.GetColumnValueText( 2 );
+			Camera.Enabled = query.GetColumnValueInt( 4 );
+			Camera.SkipFrames = query.GetColumnValueInt( 5 );
+			Camera.MDFrameHeight = query.GetColumnValueInt( 6 );
+			Camera.MDThreshold = query.GetColumnValueDouble( 7 );
+			Camera.JobQueue = &CommonImageProcessingJobQueue;
+
+			if( Camera.Enabled )
 			{
-				tcout << _T("Starting ") << CameraName << _T(" camera...") << endl;
+				tcout << _T("Starting ") << Camera.Name << _T(" camera...") << endl;
 
-				auto Worker = make_shared<CameraWorker>( CameraID, SkipFrames, MDFrameHeight, MDThreshold, &CommonImageProcessingJobQueue, CameraPath, Context->MessageBus );
+				auto Worker = make_shared<CameraWorker>( Video, Camera, Context->MessageBus );
 				Worker->Start( WorkerBase::Priority::HighPriority );
-				Watchdog->AddTarget( Worker, CameraName );
-				auto& State = Context->Cameras[ CameraID ] = GlobalContext::CameraState();
+				Watchdog->AddTarget( Worker, Camera.Name );
+				auto& State = Context->Cameras[ Camera.ID ] = GlobalContext::CameraState();
 				State.Worker = Worker;
-				State.Name = CameraName;
+				State.Name = Camera.Name;
 			}
 			else
 			{
-				tcout << _T("Skipping ") << CameraName << _T(" camera, it's disabled...") << endl;
+				tcout << _T("Skipping ") << Camera.Name << _T(" camera, it's disabled...") << endl;
 			}
 
 			return true;

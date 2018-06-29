@@ -7,20 +7,21 @@ void CameraWorker::CreateInputStream()
 {
 	InputStreamSetup Setup;
 	Setup.GetTimestamp = datetime::utc_timestamp;
-	Setup.MotionFilterFrameSkip = SkipFrames;
-	Setup.MotionDetectFrameHeight = MotionDetectFrameHeight;
-	Setup.MotionDetectThreshold = MotionDetectThreshold;
+	Setup.MotionFilterFrameSkip = Camera.SkipFrames;
+	Setup.MotionDetectFrameHeight = Camera.MDFrameHeight;
+	Setup.MotionDetectThreshold = Camera.MDThreshold;
+	Setup.HistoricalPacketBufferSeconds = Video.ClipHistoryPeriod;
 
-	CameraStream = make_shared<InputStream>( Setup, CameraID, JobQueue, std::string( Path.begin(), Path.end() ) );
+	CameraStream = make_shared<InputStream>( Setup, Camera.ID, Camera.JobQueue, std::string( Camera.Path.begin(), Camera.Path.end() ) );
 }
 
 void CameraWorker::WorkerInit()
 {
-	Filter = make_shared<ObservingMotionFilter>( MotionDetectThreshold, CameraID, MessageBusObject );
+	Filter = make_shared<ObservingMotionFilter>( Camera.MDThreshold, Camera.ID, MessageBusObject );
 
 	UpdateLastTimedAction(_T("Startup..."));
 
-	MessageBusObject->SendToClient( nullptr, make_shared<CameraStartupMessage>( CameraID ) );
+	MessageBusObject->SendToClient( nullptr, make_shared<CameraStartupMessage>( Camera.ID ) );
 
 	CreateInputStream();
 }
@@ -77,7 +78,7 @@ void CameraWorker::WorkerMain()
 		{
 			IsConnected = true;
 
-			MessageBusObject->SendToClient( nullptr, make_shared<CameraConnectedMessage>( CameraID ) );
+			MessageBusObject->SendToClient( nullptr, make_shared<CameraConnectedMessage>( Camera.ID ) );
 		}
 	}
 	else
@@ -95,11 +96,11 @@ void CameraWorker::WorkerMain()
 			ErrorStr += FFMPEGErrorT;
 		}
 
-		MessageBusObject->SendToClient( nullptr, make_shared<CameraReconnectMessage>( CameraID, ErrorStr ) );
+		MessageBusObject->SendToClient( nullptr, make_shared<CameraReconnectMessage>( Camera.ID, ErrorStr ) );
 
 		CreateInputStream();
 
-		JobQueue->RemoveAllForSource( CameraID );
+		Camera.JobQueue->RemoveAllForSource( Camera.ID );
 
 		Sleep( 3000 );
 	}
@@ -111,7 +112,7 @@ void CameraWorker::OnClipFinished()
 	{
 		Filter->SetManualClipEnd( datetime::utc_timestamp() );
 
-		auto FinishedMessage = make_shared<CameraClipFinishedMessage>( CameraID );
+		auto FinishedMessage = make_shared<CameraClipFinishedMessage>( Camera.ID );
 		FinishedMessage->ClipStats = Filter->GetClipStatistics();
 		MessageBusObject->SendToClient( nullptr, FinishedMessage );
 		Filter->ClearStats();

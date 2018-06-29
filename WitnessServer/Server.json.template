@@ -19,5 +19,8 @@
 	},
 	"processing": {
 		"thread_count": 2
+	},
+	"video": {
+		"clip_leadin": 5.0
 	}
 }

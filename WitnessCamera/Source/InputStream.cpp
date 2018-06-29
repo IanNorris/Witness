@@ -11,9 +11,6 @@
 namespace Witness{
 namespace Camera{
 
-size_t MaxKeyFramesStored = 10; //This is the maximum buffer period in keyframes to maintain
-size_t MinKeyFramesStored = 4; //This is the minimum buffer period in keyframes to maintain on a constant stream
-
 InputStream::InputStream( const InputStreamSetup& Setup, int SourceID, ImageProcessingJobQueue* JobQueue, const std::string& StreamURL, int StreamIndex )
 : Stream()
 , StreamSetup( Setup )
@@ -171,13 +168,15 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 		STREAM_ERROR( FrameError, Result );
 	}
 
+	uint64_t CurrentTime = StreamSetup.GetTimestamp();
+
 	if( ID.Packet.stream_index == ID.ChosenStreamIndex )
 	{
 		OutputStream* Output = dynamic_cast<OutputStream*>(TargetStream);
 
 		if( ID.Packet.flags & AV_PKT_FLAG_KEY )
 		{
-			ID.DeleteOldestKeyframe(MaxKeyFramesStored);
+			ID.DeleteOldestKeyframe( CurrentTime, StreamSetup.HistoricalPacketBufferSeconds );
 		}
 
 		if( Output && !ID.KeyframeStates.empty() )
@@ -234,7 +233,7 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 			State.StreamIndex = Output ? Output->GetStreamIndex() : -1;
 			if( State.Timestamp == 0)
 			{
-				State.Timestamp = StreamSetup.GetTimestamp();
+				State.Timestamp = CurrentTime;
 			}
 			ID.PacketsBacklog.push_back( AVPacket() );
 			AVPacket& NewPacket = ID.PacketsBacklog.back();
