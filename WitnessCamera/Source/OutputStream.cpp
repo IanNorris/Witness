@@ -5,10 +5,13 @@
 namespace Witness{
 namespace Camera{
 
+int OutputStream::GlobalOutputStreamIndex = 0;
+
 OutputStream::OutputStream( const std::string& Path, InputStream * InputStream )
 : Stream()
 , m_InputStream( InputStream )
 , FrameIndex( 0 )
+, StreamIndex( GlobalOutputStreamIndex++ )
 {
 	m_InputStream->Initialize();
 
@@ -26,13 +29,8 @@ OutputStream::OutputStream( const std::string& Path, InputStream * InputStream )
 		ID.Width = DecoderContext.width;
 		ID.Height = DecoderContext.height;
 
-		ID.Framerate.num = 25;
-		ID.Framerate.den = 1;
-
-		if( DecoderContext.framerate.num != 0 )
-		{
-			ID.Framerate = DecoderContext.framerate;
-		}
+		InputStream->GetFramerate( &ID.Framerate );
+		InputStream->GetTimebase( &ID.Timebase );
 
 		ID.AspectRatio = DecoderContext.sample_aspect_ratio;
 
@@ -57,6 +55,8 @@ OutputStream::OutputStream( const std::string& Path, unsigned int Width, unsigne
 	ID.Height= Height;
 	ID.Framerate.num = Framerate;
 	ID.Framerate.den = 1;
+	ID.Timebase.num = 90000;
+	ID.Timebase.den = 1;
 
 	ID.PixelFormat = IsBGR ? AV_PIX_FMT_BGR24 : AV_PIX_FMT_RGB24;
 	ID.CodecID = AV_CODEC_ID_H264;
@@ -120,7 +120,30 @@ CameraStreamError OutputStream::Initialize()
 		STREAM_ERROR( NoH264Support, 0 );
 	}
 
-	ID.CodecContext->time_base = av_inv_q(ID.Framerate);
+	if( ID.IsVideo )
+	{
+		ID.CodecContext->width = ID.Width;
+		ID.CodecContext->height = ID.Height;
+		ID.CodecContext->sample_aspect_ratio = ID.AspectRatio;
+		ID.CodecContext->framerate = ID.Framerate;
+		ID.CodecContext->time_base = av_inv_q(ID.Framerate);
+
+		if( Encoder->pix_fmts )
+		{
+			ID.CodecContext->pix_fmt = Encoder->pix_fmts[0];
+		}
+		else
+		{
+			ID.CodecContext->pix_fmt = ID.PixelFormat;
+		}
+	}
+	else
+	{
+		if( !m_InputStream )
+		{
+			STREAM_ERROR( UnsupportedStreamType, 0 );
+		}
+	}
 
 	if( m_InputStream )
 	{
@@ -172,40 +195,6 @@ CameraStreamError OutputStream::Initialize()
 		{
 			STREAM_ERROR( EncoderCreationError, Result );
 		}
-	}
-
-	if( ID.IsVideo )
-	{
-		ID.CodecContext->width = ID.Width;
-		ID.CodecContext->height = ID.Height;
-		ID.CodecContext->sample_aspect_ratio = ID.AspectRatio;
-		ID.CodecContext->time_base = av_inv_q(ID.Framerate);
-
-		if( Encoder->pix_fmts )
-		{
-			ID.CodecContext->pix_fmt = Encoder->pix_fmts[0];
-		}
-		else
-		{
-			ID.CodecContext->pix_fmt = ID.PixelFormat;
-		}
-	}
-	else
-	{
-		if( !m_InputStream )
-		{
-			STREAM_ERROR( UnsupportedStreamType, 0 );
-		}
-
-		auto& InID = m_InputStream->GetData();
-		const AVCodecContext& DecoderContext = *(InID.CodecContext);
-
-		ID.CodecContext->sample_rate = DecoderContext.sample_rate;
-		ID.CodecContext->channel_layout = DecoderContext.channel_layout;
-		ID.CodecContext->channels = DecoderContext.channels;
-		ID.CodecContext->sample_fmt = Encoder->sample_fmts[0];
-		ID.CodecContext->time_base.num = 1;
-		ID.CodecContext->time_base.den = ID.CodecContext->sample_rate;
 	}
 
 	AVDictionary* EncoderOptions = nullptr;
@@ -316,7 +305,7 @@ CameraStreamError OutputStream::ProcessFrame( const std::shared_ptr<IRecordFilte
 	return CameraStreamError::Success;
 }
 
-CameraStreamError OutputStream::WriteInterleavedPacket( AVRational* TimeBase, AVPacket* Packet )
+CameraStreamError OutputStream::WriteInterleavedPacket( const AVPacket* Packet )
 {
 	CameraStreamError InitError = Initialize();
 	if( InitError != CameraStreamError::Success )
@@ -324,37 +313,38 @@ CameraStreamError OutputStream::WriteInterleavedPacket( AVRational* TimeBase, AV
 		return InitError;
 	}
 
+	AVPacket PacketCopy;
+	av_copy_packet( &PacketCopy, Packet );
+
 	auto& ID = *m_InternalData;
-
-	//Calculate next frame position based on stream metrics
-	int64_t NextOffset = TimeBase->den * ID.CodecContext->time_base.num / (ID.CodecContext->time_base.den * TimeBase->num);
-
-	Packet->duration = NextOffset;
-
+	
 	if (ID.IsFirstFrame)
 	{
-		ID.DTS = 0;
-		ID.PTS = 0;
-		Packet->dts = 0;
-		Packet->pts = 0;
+		ID.DTS = Packet->dts;
+		ID.PTS = Packet->pts;
+		PacketCopy.dts = 0;
+		PacketCopy.pts = 0;
 
 		ID.IsFirstFrame = false;
 	}
 	else
 	{
-		ID.DTS += NextOffset;
-		ID.PTS += NextOffset;
-
-		Packet->dts = ID.DTS;
-		Packet->pts = ID.PTS;
+		PacketCopy.dts -= ID.DTS;
+		PacketCopy.pts -= ID.PTS;
 	}
 	
-	av_packet_rescale_ts( 
-		Packet, 
-		*TimeBase,
-		ID.FormatContext->streams[0]->time_base );
+	if( m_InputStream )
+	{
+		AVRational TimeBase;
+		m_InputStream->GetTimebase( &TimeBase );
 
-	int Result = av_interleaved_write_frame( ID.FormatContext, Packet );
+		av_packet_rescale_ts( 
+			&PacketCopy, 
+			TimeBase,
+			ID.FormatContext->streams[0]->time_base );
+	}
+
+	int Result = av_interleaved_write_frame( ID.FormatContext, &PacketCopy );
 	if( Result < 0 )
 	{
 		STREAM_ERROR( WriteFailed, Result );
@@ -506,6 +496,11 @@ CameraStreamError OutputStream::CloseFile()
 
 
 	return CameraStreamError::Success;
+}
+
+int OutputStream::GetStreamIndex()
+{
+	return StreamIndex;
 }
 
 }}

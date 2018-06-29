@@ -31,10 +31,12 @@ struct KeyframeInfo
 	KeyframeInfo()
 	: Timestamp(0)
 	, PacketCount(0)
+	, StreamIndex(-1)
 	{}
 
 	int64_t Timestamp;
 	int PacketCount;
+	int StreamIndex;
 };
 
 struct StreamData
@@ -64,6 +66,9 @@ struct StreamData
 
 		Framerate.den = 0;
 		Framerate.num = 0;
+
+		Timebase.den = 0;
+		Timebase.num = 0;
 	}
 
 	~StreamData()
@@ -85,16 +90,10 @@ struct StreamData
 
 	void FreeToMinimumBacklog(size_t MinFrames)
 	{
-		for (auto FrameIter = KeyframeStates.begin(); FrameIter != KeyframeStates.end(); ++FrameIter )
+		while( KeyframeStates.size() > MinFrames )
 		{
-			FreePacketsFromBacklog((*FrameIter).PacketCount);
-
-			if (MinFrames == 0)
-			{
-				break;
-			}
-
-			MinFrames--;
+			FreePacketsFromBacklog(KeyframeStates[0].PacketCount);
+			KeyframeStates.erase(KeyframeStates.begin());
 		}
 	}
 
@@ -120,7 +119,7 @@ struct StreamData
 
 	void DeleteOldestKeyframe( size_t MaxFrames )
 	{
-		if (PacketsBacklog.size() > MaxFrames )
+		if (KeyframeStates.size() > MaxFrames )
 		{
 			FreePacketsFromBacklog(KeyframeStates[0].PacketCount);
 			KeyframeStates.erase(KeyframeStates.begin());
@@ -145,6 +144,7 @@ struct StreamData
 
 	AVRational			AspectRatio;
 	AVRational			Framerate;
+	AVRational			Timebase;
 	AVPixelFormat		PixelFormat;
 	AVCodecID			CodecID;
 	int					CodecTag;

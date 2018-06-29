@@ -180,18 +180,32 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 			ID.DeleteOldestKeyframe(MaxKeyFramesStored);
 		}
 
-		if( Output && !ID.PacketsBacklog.empty() )
+		if( Output && !ID.KeyframeStates.empty() )
 		{
-			for( auto& Packet : ID.PacketsBacklog )
+			size_t PacketBase = 0;
+			for( auto& Keyframe : ID.KeyframeStates )
 			{
-				CameraStreamError WriteError = Output->WriteInterleavedPacket( &ID.FormatContext->streams[ID.ChosenStreamIndex]->time_base, &Packet );
-				if( WriteError != CameraStreamError::Success )
+				//Only process valid keyframes, and those we haven't touched already
+				if( Keyframe.Timestamp > 0 && Keyframe.StreamIndex < Output->GetStreamIndex() )
 				{
-					return WriteError;
-				}
-			}
+					Keyframe.StreamIndex = Output->GetStreamIndex();
 
-			ID.FreeToMinimumBacklog(MinKeyFramesStored);
+					for( size_t PacketIndex = 0; PacketIndex < Keyframe.PacketCount; PacketIndex++ )
+					{
+						auto& Packet = ID.PacketsBacklog[PacketBase+PacketIndex];
+
+						printf( "BL DTS=%" PRId64 ", PTS=%" PRId64 ", Dur=%" PRId64 "\n", Packet.dts, Packet.pts, Packet.duration );
+
+						CameraStreamError WriteError = Output->WriteInterleavedPacket( &Packet );
+						if( WriteError != CameraStreamError::Success )
+						{
+							return WriteError;
+						}
+					}
+				}
+
+				PacketBase += Keyframe.PacketCount;
+			}
 		}
 
 		//Add the new packet to the buffer, if we're not already producing output
@@ -200,7 +214,9 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 			AVPacket NewPacket;
 			av_copy_packet( &NewPacket, &ID.Packet );
 
-			CameraStreamError WriteError = Output->WriteInterleavedPacket( &ID.FormatContext->streams[ID.ChosenStreamIndex]->time_base, &NewPacket );
+			printf( "PT DTS=%" PRId64 ", PTS=%" PRId64 ", Dur=%" PRId64 "\n", ID.Packet.dts, ID.Packet.pts, ID.Packet.duration );
+
+			CameraStreamError WriteError = Output->WriteInterleavedPacket( &NewPacket );
 			if( WriteError != CameraStreamError::Success )
 			{
 				ID.FreeAllQueuedPackets();
@@ -209,17 +225,30 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 
 			av_packet_unref( &NewPacket );
 		}
+		
 
-		//Copy backet to the backlog
-		auto State = ID.KeyframeStates.back();
-		State.PacketCount++;
-		if( State.Timestamp == 0)
 		{
-			State.Timestamp = StreamSetup.GetTimestamp();
+			//Copy packet to the backlog
+			auto& State = ID.KeyframeStates.back();
+			State.PacketCount++;
+			State.StreamIndex = Output ? Output->GetStreamIndex() : -1;
+			if( State.Timestamp == 0)
+			{
+				State.Timestamp = StreamSetup.GetTimestamp();
+			}
+			ID.PacketsBacklog.push_back( AVPacket() );
+			AVPacket& NewPacket = ID.PacketsBacklog.back();
+			av_copy_packet( &NewPacket, &ID.Packet );
+
+			//No idea why, but the first packet always
+			//has an invalid DTS/PTS that's higher than
+			//the packets that follow it.
+			if (FrameIndex == 0)
+			{
+				NewPacket.dts = 0;
+				NewPacket.pts = 0;
+			}
 		}
-		ID.PacketsBacklog.push_back( AVPacket() );
-		AVPacket& NewPacket = ID.PacketsBacklog.back();
-		av_copy_packet( &NewPacket, &ID.Packet );
 
 	
 		Result = avcodec_send_packet( m_InternalData->CodecContext, &ID.Packet );
@@ -350,6 +379,18 @@ bool InputStreamSetup::Validate()
 	}
 
 	return true;
+}
+
+void InputStream::GetTimebase( AVRational* TimebaseOut )
+{
+	auto& ID = *m_InternalData;
+	*TimebaseOut = ID.FormatContext->streams[ID.ChosenStreamIndex]->time_base;
+}
+
+void InputStream::GetFramerate( AVRational* FramerateOut )
+{
+	auto& ID = *m_InternalData;
+	*FramerateOut = ID.CodecContext->framerate;
 }
 
 }}

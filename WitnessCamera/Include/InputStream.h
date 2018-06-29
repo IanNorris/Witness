@@ -3,6 +3,8 @@
 #include "Stream.h"
 #include "ImageProcessingJob.h"
 
+struct AVRational;
+
 namespace Witness{
 namespace Camera{
 
@@ -35,6 +37,9 @@ public:
 	virtual CameraStreamError Initialize() override;
 	virtual CameraStreamError ProcessFrame( const std::shared_ptr<IRecordFilter>& Filter, Stream* TargetStream ) override;
 	virtual void Shutdown() override;
+
+	void GetTimebase( AVRational* TimebaseOut );
+	void GetFramerate( AVRational* FramerateOut );
 
 private:
 
