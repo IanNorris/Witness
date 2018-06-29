@@ -194,7 +194,7 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 					{
 						auto& Packet = ID.PacketsBacklog[PacketBase+PacketIndex];
 
-						printf( "BL DTS=%" PRId64 ", PTS=%" PRId64 ", Dur=%" PRId64 "\n", Packet.dts, Packet.pts, Packet.duration );
+						//printf( "BL DTS=%" PRId64 ", PTS=%" PRId64 ", Dur=%" PRId64 "\n", Packet.dts, Packet.pts, Packet.duration );
 
 						CameraStreamError WriteError = Output->WriteInterleavedPacket( &Packet );
 						if( WriteError != CameraStreamError::Success )
@@ -214,7 +214,7 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 			AVPacket NewPacket;
 			av_copy_packet( &NewPacket, &ID.Packet );
 
-			printf( "PT DTS=%" PRId64 ", PTS=%" PRId64 ", Dur=%" PRId64 "\n", ID.Packet.dts, ID.Packet.pts, ID.Packet.duration );
+			//printf( "PT DTS=%" PRId64 ", PTS=%" PRId64 ", Dur=%" PRId64 "\n", ID.Packet.dts, ID.Packet.pts, ID.Packet.duration );
 
 			CameraStreamError WriteError = Output->WriteInterleavedPacket( &NewPacket );
 			if( WriteError != CameraStreamError::Success )
