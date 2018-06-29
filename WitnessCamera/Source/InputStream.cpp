@@ -14,17 +14,19 @@ namespace Camera{
 size_t MaxKeyFramesStored = 10; //This is the maximum buffer period in keyframes to maintain
 size_t MinKeyFramesStored = 4; //This is the minimum buffer period in keyframes to maintain on a constant stream
 
-InputStream::InputStream( int SourceID, ImageProcessingJobQueue* JobQueue, const std::string& StreamURL, int StreamIndex )
+InputStream::InputStream( const InputStreamSetup& Setup, int SourceID, ImageProcessingJobQueue* JobQueue, const std::string& StreamURL, int StreamIndex )
 : Stream()
+, StreamSetup( Setup )
 , CommonJobQueue( JobQueue )
 , m_StreamManager( new StreamManager() )
 , UniqueSourceID( SourceID )
+, FrameIndex(0)
 , TimeStarted( 0 )
 , IsConnecting( false )
 {
 	m_InternalData->Path = StreamURL;
 	m_InternalData->StreamIndex = StreamIndex;
-	m_InternalData->PacketsPerKeyframe.push_back(0);
+	m_InternalData->KeyframeStates.push_back(KeyframeInfo());
 }
 
 InputStream::~InputStream()
@@ -40,7 +42,14 @@ CameraStreamError InputStream::Initialize()
 		return CameraStreamError::Success;
 	}
 
+	if( !StreamSetup.Validate() )
+	{
+ 		STREAM_ERROR( InvalidSetup, 0 );
+	}
+
 	m_InternalData->HasInitialized = true;
+
+	FrameIndex = 0;
 
 	CameraStreamError StreamInitResult = Stream::Initialize();
 	if( StreamInitResult != CameraStreamError::Success )
@@ -200,26 +209,33 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 
 			av_packet_unref( &NewPacket );
 		}
-		else
+
+		//Copy backet to the backlog
+		auto State = ID.KeyframeStates.back();
+		State.PacketCount++;
+		if( State.Timestamp == 0)
 		{
-			ID.PacketsPerKeyframe.back()++;
-			ID.PacketsBacklog.push_back( AVPacket() );
-			AVPacket& NewPacket = ID.PacketsBacklog.back();
-			av_copy_packet( &NewPacket, &ID.Packet );
+			State.Timestamp = StreamSetup.GetTimestamp();
 		}
+		ID.PacketsBacklog.push_back( AVPacket() );
+		AVPacket& NewPacket = ID.PacketsBacklog.back();
+		av_copy_packet( &NewPacket, &ID.Packet );
 
 	
 		Result = avcodec_send_packet( m_InternalData->CodecContext, &ID.Packet );
 		if( Result == AVERROR(EAGAIN) )
 		{
+			av_packet_unref( &ID.Packet );
 			return CameraStreamError::Success;
 		}
 		else if (Result == AVERROR_EOF)
 		{
+			av_packet_unref( &ID.Packet );
 			return CameraStreamError::EndOfFile;
 		}
 		else if( Result < 0 )
 		{
+			av_packet_unref( &ID.Packet );
 			STREAM_ERROR( PacketError, Result );
 		}
 
@@ -233,32 +249,42 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 			}
 			else if( Result < 0 )
 			{
+				av_packet_unref( &ID.Packet );
 				STREAM_ERROR( DecoderReceiverError, Result );
 			}
 			else
 			{
-				auto Job = std::make_shared<ImageProcessingJob>();
-				Job->Frame.swap(ID.Input);
-				Job->SourceID = UniqueSourceID;
-				Job->Timestamp = m_InternalData->DTS;
-				Job->Filter = Filter;
-
-				if (!CommonJobQueue->Push(Job))
+				if( (FrameIndex++ % StreamSetup.MotionFilterFrameSkip) == 0 )
 				{
-					auto Stats = CommonJobQueue->GetData().GetStatsForSource(UniqueSourceID);		
+					auto Job = std::make_shared<ImageProcessingJob>();
+					Job->Frame.swap(ID.Input);
+					Job->SourceID = UniqueSourceID;
+					Job->TargetHeight = StreamSetup.MotionDetectFrameHeight;
+					Job->Timestamp = m_InternalData->DTS;
+					Job->Filter = Filter;
 
-					double Total = (double)Stats.TotalProcessingTime / ((double)Stats.FrameCount * 1000.0 * 1000.0);
-					double Scale = (double)Stats.ScaleTotalProcessingTime / ((double)Stats.FrameCount * 1000.0 * 1000.0);
-					double MD = (double)Stats.MotionDetectionTotalProcessingTime / ((double)Stats.FrameCount * 1000.0 * 1000.0);
-					double SP = (double)Stats.SecondPassFilterTotalProcessingTime / ((double)Stats.FrameCount * 1000.0 * 1000.0);
-					printf("Source %d: Total %.2fms, Scale: %.2fms, MD: %.2fms, 2p: %.2fms\n", UniqueSourceID, (float)Total, (float)Scale, (float)MD, (float)SP );
+					if (!CommonJobQueue->Push(Job))
+					{
+						auto Stats = CommonJobQueue->GetData().GetStatsForSource(UniqueSourceID);		
 
-					CommonJobQueue->RemoveAllForSource(UniqueSourceID);
+						double Total = (double)Stats.TotalProcessingTime / ((double)Stats.FrameCount * 1000.0 * 1000.0);
+						double Scale = (double)Stats.ScaleTotalProcessingTime / ((double)Stats.FrameCount * 1000.0 * 1000.0);
+						double MD = (double)Stats.MotionDetectionTotalProcessingTime / ((double)Stats.FrameCount * 1000.0 * 1000.0);
+						double SP = (double)Stats.SecondPassFilterTotalProcessingTime / ((double)Stats.FrameCount * 1000.0 * 1000.0);
+						printf("Source %d: Total %.2fms, Scale: %.2fms, MD: %.2fms, 2p: %.2fms\n", UniqueSourceID, (float)Total, (float)Scale, (float)MD, (float)SP );
 
-					STREAM_ERROR( ProcessingQueueFull, 0 );
-				}
+						CommonJobQueue->RemoveAllForSource(UniqueSourceID);
+
+						av_packet_unref( &ID.Packet );
+						STREAM_ERROR( ProcessingQueueFull, 0 );
+					}
 				
-				ID.Input = std::make_shared<FFMPEG::Frame>( ID.CodecContext->width, ID.CodecContext->height, ID.CodecContext->pix_fmt );
+					ID.Input = std::make_shared<FFMPEG::Frame>( ID.CodecContext->width, ID.CodecContext->height, ID.CodecContext->pix_fmt );
+				}
+				else
+				{
+					ID.Input->Unref();
+				}
 			}
 		}
 	}
@@ -284,6 +310,12 @@ void InputStream::Shutdown()
 		ID.FormatContext = nullptr;
 	}
 
+	if( ID.CodecContext )
+	{
+		avcodec_free_context( &ID.CodecContext );
+		ID.CodecContext = nullptr;
+	}
+
 	Stream::Shutdown();
 }
 
@@ -302,6 +334,22 @@ int InputStream::InterruptCallback( void* Opaque )
 	}
 
 	return 0;
+}
+
+bool InputStreamSetup::Validate()
+{
+	if(		GetTimestamp == nullptr
+		||	MotionFilterFrameSkip <= 0
+		||	MotionFilterFrameSkip > 50 
+		||	MotionDetectFrameHeight < 20
+		||	MotionDetectThreshold <= 0.0
+		||	MotionDetectThreshold >= 1.0
+	)
+	{
+ 		return false;
+	}
+
+	return true;
 }
 
 }}

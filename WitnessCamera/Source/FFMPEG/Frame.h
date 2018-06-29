@@ -11,7 +11,7 @@ class Frame
 public:
 	
 	Frame( unsigned int Width, unsigned int Height, AVPixelFormat Format, unsigned int Alignment = 1 );
-	~Frame();
+	virtual ~Frame();
 
 	void Prepare();
 

@@ -98,10 +98,10 @@ bool WitnessServer::Initialize()
 	}
 
 	Worker = make_unique<AsyncWorker>( Context->MessageBus );
-	Worker->Start();
+	Worker->Start( WorkerBase::Priority::Normal );
 
 	Watchdog = make_unique<WatchdogWorker>( Context->MessageBus );
-	Watchdog->Start();
+	Watchdog->Start( WorkerBase::Priority::Normal );
 
 	void* ServerMessageClient = nullptr;
 	MessageClient = Context->MessageBus->AddClient( ServerMessageClient );
@@ -184,7 +184,7 @@ bool WitnessServer::CreateProcessors(const json::value& JsonProcessorSettings)
 	while(ThreadCount--)
 	{
 		auto ImageWorker = make_shared<ImageProcessorWorker>( Context->MessageBus, &CommonImageProcessingJobQueue );
-		ImageWorker->Start();
+		ImageWorker->Start( WorkerBase::Priority::LowPriority );
 
 		ImageWorkers.push_back(ImageWorker);
 	}
@@ -215,13 +215,16 @@ void WitnessServer::StartCameraWorkers()
 			string_t CameraName = query.GetColumnValueText( 1 );
 			string_t CameraPath = query.GetColumnValueText( 2 );
 			int Enabled = query.GetColumnValueInt( 4 );
+			int SkipFrames = query.GetColumnValueInt( 5 );
+			int MDFrameHeight = query.GetColumnValueInt( 6 );
+			double MDThreshold = query.GetColumnValueDouble( 7 );
 
 			if( Enabled )
 			{
 				tcout << _T("Starting ") << CameraName << _T(" camera...") << endl;
 
-				auto Worker = make_shared<CameraWorker>( CameraID, &CommonImageProcessingJobQueue, CameraPath, Context->MessageBus );
-				Worker->Start();
+				auto Worker = make_shared<CameraWorker>( CameraID, SkipFrames, MDFrameHeight, MDThreshold, &CommonImageProcessingJobQueue, CameraPath, Context->MessageBus );
+				Worker->Start( WorkerBase::Priority::HighPriority );
 				Watchdog->AddTarget( Worker, CameraName );
 				auto& State = Context->Cameras[ CameraID ] = GlobalContext::CameraState();
 				State.Worker = Worker;

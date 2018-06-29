@@ -175,7 +175,7 @@ void ImageProcessingJobQueue::WorkerThreadMain()
 		
 		AVPixelFormat OutputPixelFormat = AV_PIX_FMT_BGR24;
 
-		unsigned int OutputHeight = min( 250, Job->Frame->GetHeight() );
+		unsigned int OutputHeight = min( Job->TargetHeight, Job->Frame->GetHeight() );
 		unsigned int OutputWidth = (int)(((float)Job->Frame->GetWidth() / (float)Job->Frame->GetHeight()) * (float)OutputHeight);
 
 		OutputHeight &= (~15);
@@ -269,14 +269,14 @@ void ImageProcessingJobQueueData::AddFrame(int Source, int64_t Timestamp, int64_
 	Ref.SecondPassFilterTotalProcessingTime += SecondPassProcessingTime;
 	Ref.TotalProcessingTime += ScaleProcessingTime + MDProcessingTime + SecondPassProcessingTime;
 
-	if (Ref.FrameCount % 1000 == 999)
+	/*if (Ref.FrameCount % 1000 == 999)
 	{
 		double Total = (double)Ref.TotalProcessingTime / ((double)Ref.FrameCount * 1000.0 * 1000.0);
 		double Scale = (double)Ref.ScaleTotalProcessingTime / ((double)Ref.FrameCount * 1000.0 * 1000.0);
 		double MD = (double)Ref.MotionDetectionTotalProcessingTime / ((double)Ref.FrameCount * 1000.0 * 1000.0);
 		double SP = (double)Ref.SecondPassFilterTotalProcessingTime / ((double)Ref.FrameCount * 1000.0 * 1000.0);
 		printf("Source %d: Total %.2fms, Scale: %.2fms, MD: %.2fms, 2p: %.2fms\n", Source, (float)Total, (float)Scale, (float)MD, (float)SP );
-	}
+	}*/
 }
 
 SourceState::SourceState()

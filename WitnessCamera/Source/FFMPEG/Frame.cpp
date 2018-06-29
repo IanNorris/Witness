@@ -25,6 +25,7 @@ Frame::~Frame()
 	if (m_Prepared)
 	{
 		av_freep( &m_Frame->data[0] );
+
 	}
 	
 	av_frame_free( &m_Frame );

@@ -28,7 +28,7 @@ public:
 		GracePeriod,
 	};
 
-	ObservingMotionFilter( const int CameraID, const shared_ptr<MessageBus>& MessageBusIn );
+	ObservingMotionFilter( double MotionThreshold, const int CameraID, const shared_ptr<MessageBus>& MessageBusIn );
 	virtual ~ObservingMotionFilter();
 
 	virtual ClassificationResult FilterFrame( unsigned int Width, unsigned int Height, void* Data, StreamManager* StreamManager ) override;

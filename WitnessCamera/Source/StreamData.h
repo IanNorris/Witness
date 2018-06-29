@@ -26,6 +26,17 @@ void FFMPEGErrorToString(int ErrorCode, char* Buffer, size_t BufferSize);
 namespace Witness{
 namespace Camera{
 
+struct KeyframeInfo
+{
+	KeyframeInfo()
+	: Timestamp(0)
+	, PacketCount(0)
+	{}
+
+	int64_t Timestamp;
+	int PacketCount;
+};
+
 struct StreamData
 {
 	StreamData()
@@ -68,15 +79,15 @@ struct StreamData
 		}
 
 		PacketsBacklog.clear();
-		PacketsPerKeyframe.clear();
-		PacketsPerKeyframe.push_back(0);
+		KeyframeStates.clear();
+		KeyframeStates.push_back(KeyframeInfo());
 	}
 
 	void FreeToMinimumBacklog(size_t MinFrames)
 	{
-		for (auto FrameIter = PacketsPerKeyframe.begin(); FrameIter != PacketsPerKeyframe.end(); ++FrameIter )
+		for (auto FrameIter = KeyframeStates.begin(); FrameIter != KeyframeStates.end(); ++FrameIter )
 		{
-			FreePacketsFromBacklog(*FrameIter);
+			FreePacketsFromBacklog((*FrameIter).PacketCount);
 
 			if (MinFrames == 0)
 			{
@@ -111,17 +122,17 @@ struct StreamData
 	{
 		if (PacketsBacklog.size() > MaxFrames )
 		{
-			FreePacketsFromBacklog(PacketsPerKeyframe[0]);
-			PacketsPerKeyframe.erase(PacketsPerKeyframe.begin());
+			FreePacketsFromBacklog(KeyframeStates[0].PacketCount);
+			KeyframeStates.erase(KeyframeStates.begin());
 		}
-		PacketsPerKeyframe.push_back(0);
+		KeyframeStates.push_back(KeyframeInfo());
 	}
 
 	std::shared_ptr<FFMPEG::Frame>	Input;
 	std::shared_ptr<FFMPEG::Frame>	Output;
 
 	std::vector<AVPacket>			PacketsBacklog;
-	std::vector<int>				PacketsPerKeyframe;
+	std::vector<KeyframeInfo>		KeyframeStates;
 
 	std::string Path;
 

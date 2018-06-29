@@ -29,6 +29,8 @@ enum class CameraStreamError
 	WriteFailed,
 	NoStreamInput,
 	ProcessingQueueFull,
+	InvalidPacket,
+	InvalidSetup,
 
 	InternalError,
 	UnknownError,
@@ -86,8 +88,14 @@ static const TCHAR* GetCameraStreamErrorMessage( CameraStreamError Error )
 	case CameraStreamError::ProcessingQueueFull:
 		return _T("Frame processing queue is full. CPU is not powerful enough to handle current load.");
 
+	case CameraStreamError::InvalidPacket:
+		return _T("Invalid packet in buffer");
+
 	case CameraStreamError::InternalError:
 		return _T("Internal error");
+
+	case CameraStreamError::InvalidSetup:
+		return _T("One or more components of the setup struct were invalid.");
 
 	case CameraStreamError::UnknownError:
 	default:

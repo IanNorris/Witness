@@ -10,6 +10,13 @@ class WorkerBase
 {
 public:
 
+	enum class Priority
+	{
+		HighPriority,
+		Normal,
+		LowPriority
+	};
+
 	struct AtomicTimedActionData
 	{
 		uint64_t Timestamp;
@@ -23,10 +30,14 @@ public:
 	{
 	}
 
-	void Start()
+	void SetPriority( Priority ThreadPriority );
+
+	void Start( Priority ThreadPriority )
 	{
 		UpdateLastTimedAction(_T("Thread starting..."));
 		Thread = make_unique<thread>( &WorkerBase::WorkerThread, this );
+
+		SetPriority(ThreadPriority);
 	}
 
 	void RequestShutdown()

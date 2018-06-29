@@ -94,7 +94,8 @@ struct MotionFilterData : public FilterDataBase
 PIMPL_CONSTRUCT(MotionFilterData)
 FILTER_BASE_CONSTRUCT(MotionFilterData)
 
-MotionFilter::MotionFilter()
+MotionFilter::MotionFilter( double MotionThreshold )
+: MotionThreshold( MotionThreshold )
 {}
 
 MotionFilter::~MotionFilter()
@@ -135,7 +136,7 @@ ClassificationResult MotionFilter::FilterFrame( unsigned int Width, unsigned int
 
 	double Percentage = (float)SumResult / ComparisonResult;
 
-	if( Percentage > 0.015 )
+	if( Percentage > MotionThreshold )
 	{
 		//OutputStream* DiagOutput = StreamManager->GetDiagnosticStream( Width, Height );
 

@@ -13,10 +13,13 @@ using namespace Witness::Camera;
 class CameraWorker : public WorkerBase
 {
 public:
-	CameraWorker(const int CameraID, ImageProcessingJobQueue* JobQueue, const string_t& InputPath, const shared_ptr<MessageBus>& MessageBus)
+	CameraWorker(const int CameraID, unsigned int SkipFrames, unsigned int MotionDetectFrameHeight, double MotionDetectThreshold, ImageProcessingJobQueue* JobQueue, const string_t& InputPath, const shared_ptr<MessageBus>& MessageBus)
 	: WorkerBase( MessageBus )
 	, JobQueue( JobQueue )
 	, Path( InputPath )
+	, MotionDetectThreshold( MotionDetectThreshold )
+	, SkipFrames( SkipFrames )
+	, MotionDetectFrameHeight( MotionDetectFrameHeight )
 	, CameraID( CameraID )
 	, IsConnected( false )
 	{}
@@ -29,6 +32,8 @@ private:
 
 	void OnClipFinished();
 
+	void CreateInputStream();
+
 	shared_ptr<OutputStream> RecordStream;
 
 	shared_ptr<InputStream> CameraStream;
@@ -37,6 +42,9 @@ private:
 	ImageProcessingJobQueue* JobQueue;
 
 	string_t Path;
+	double MotionDetectThreshold;
+	unsigned int SkipFrames;
+	unsigned int MotionDetectFrameHeight;
 	int CameraID;
 	bool IsConnected;
 };

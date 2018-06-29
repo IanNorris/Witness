@@ -8,8 +8,8 @@
 const int ClipEndGracePeriodInSeconds = 10;
 const int TargetThumbnailSize = 400;
 
-ObservingMotionFilter::ObservingMotionFilter( const int CameraID, const shared_ptr<MessageBus>& MessageBusIn )
-: MotionFilter()
+ObservingMotionFilter::ObservingMotionFilter( double MotionThreshold, const int CameraID, const shared_ptr<MessageBus>& MessageBusIn )
+: MotionFilter( MotionThreshold )
 , MessageBusPtr( MessageBusIn )
 , CameraID( CameraID )
 , FrameIndex( 0 )
@@ -58,9 +58,10 @@ Witness::Camera::ClassificationResult ObservingMotionFilter::FilterFrame( unsign
 
 			auto MotionMessage = make_shared<CameraBeginMotionMessage>( CameraID );
 
-			ClipStats.TimestampClipStarted = MotionMessage->Timestamp = min( ClipStats.TimestampClipStarted, TimestampNow );
-			ClipStats.TimestampMotionEnded = INT64_MAX;
-			ClipStats.TimestampClipEnded = INT64_MAX;
+			ClipStats.TimestampClipStarted = MotionMessage->Timestamp = ClipStats.TimestampClipStarted > 0 ? min( ClipStats.TimestampClipStarted, TimestampNow ) : TimestampNow;
+			ClipStats.TimestampMotionStarted = TimestampNow;
+			ClipStats.TimestampMotionEnded = INT64_MIN;
+			ClipStats.TimestampClipEnded = INT64_MIN;
 			ClipStats.LargestMotionDelta = MotionMessage->MotionPercentage = Result.MotionPercentage;
 
 			cv::Mat RawData( cv::Size( Width, Height ), CV_8UC3, Data);

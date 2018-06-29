@@ -18,6 +18,7 @@ struct ImageProcessingJob
 
 	int64_t							Timestamp;
 
+	unsigned int					TargetHeight;
 	int								SourceID;
 };
 

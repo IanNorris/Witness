@@ -31,7 +31,10 @@ namespace Database
 			CameraName		CHAR(64)							NOT NULL,
 			CameraString	TEXT								NOT NULL,
 			Description		TEXT,
-			Enabled			INTEGER NOT NULL
+			Enabled			INTEGER NOT NULL,
+			SkipFrames		INTEGER NOT NULL,
+			MDFrameHeight	INTEGER NOT NULL,
+			MDThreshold		NUMERIC NOT NULL
 		);
 
 		CREATE TABLE IF NOT EXISTS CameraGroup (

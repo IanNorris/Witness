@@ -3,15 +3,26 @@
 
 #include <windows.h>
 
+void CameraWorker::CreateInputStream()
+{
+	InputStreamSetup Setup;
+	Setup.GetTimestamp = datetime::utc_timestamp;
+	Setup.MotionFilterFrameSkip = SkipFrames;
+	Setup.MotionDetectFrameHeight = MotionDetectFrameHeight;
+	Setup.MotionDetectThreshold = MotionDetectThreshold;
+
+	CameraStream = make_shared<InputStream>( Setup, CameraID, JobQueue, std::string( Path.begin(), Path.end() ) );
+}
+
 void CameraWorker::WorkerInit()
 {
-	Filter = make_shared<ObservingMotionFilter>( CameraID, MessageBusObject );
+	Filter = make_shared<ObservingMotionFilter>( MotionDetectThreshold, CameraID, MessageBusObject );
 
 	UpdateLastTimedAction(_T("Startup..."));
 
-	CameraStream = make_shared<InputStream>( CameraID, JobQueue, std::string( Path.begin(), Path.end() ) );
-
 	MessageBusObject->SendToClient( nullptr, make_shared<CameraStartupMessage>( CameraID ) );
+
+	CreateInputStream();
 }
 
 void CameraWorker::WorkerShutdown()
@@ -86,7 +97,7 @@ void CameraWorker::WorkerMain()
 
 		MessageBusObject->SendToClient( nullptr, make_shared<CameraReconnectMessage>( CameraID, ErrorStr ) );
 
-		CameraStream = make_shared<InputStream>( CameraID, JobQueue, std::string( Path.begin(), Path.end() ) );
+		CreateInputStream();
 
 		JobQueue->RemoveAllForSource( CameraID );
 
