@@ -13,9 +13,11 @@ using namespace Witness::Camera;
 struct VideoSettings
 {
 	VideoSettings()
-	: ClipHistoryPeriod( 5.0 )
+	: MotionFilterName()
+	, ClipHistoryPeriod( 5.0 )
 	{}
 
+	string_t	MotionFilterName;
 	double		ClipHistoryPeriod;
 };
 
@@ -25,6 +27,7 @@ struct CameraSettings
 	: JobQueue()
 	, Name()
 	, Path()
+	, MotionFilterName()
 	, MDThreshold( 0.05 )
 	, ID( 0 )
 	, Enabled( 1 )
@@ -36,6 +39,7 @@ struct CameraSettings
 
 	string_t Name;
 	string_t Path;
+	string_t MotionFilterName;
 	double MDThreshold;
 	int ID;
 	int Enabled;

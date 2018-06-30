@@ -58,7 +58,7 @@
       <AdditionalDependencies>$(SolutionDir)\ThirdParty\ffmpeg-3.3.3-win64-dev\lib\avcodec.lib;$(SolutionDir)\ThirdParty\ffmpeg-3.3.3-win64-dev\lib\avformat.lib;$(SolutionDir)\ThirdParty\ffmpeg-3.3.3-win64-dev\lib\swscale.lib;$(SolutionDir)\ThirdParty\ffmpeg-3.3.3-win64-dev\lib\avutil.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
-      <Command>cmd /C copy /Y $(SolutionDir)\ThirdParty\ffmpeg-3.3.3-win64-shared\bin\*.dll $(OutputPath) &amp;&amp; copy /Y $(SolutionDir)\ThirdParty\opencv-3.3.0\x64\vc14\bin\opencv_world330*.dll $(OutputPath)</Command>
+      <Command>cmd /C xcopy /D /Y $(SolutionDir)\ThirdParty\ffmpeg-3.3.3-win64-shared\bin\*.dll $(OutputPath) &amp;&amp; xcopy /D /Y $(SolutionDir)\ThirdParty\opencv-3.3.0\x64\vc14\bin\opencv_world330*.dll $(OutputPath)</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">

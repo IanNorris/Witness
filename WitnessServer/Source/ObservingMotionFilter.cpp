@@ -8,8 +8,8 @@
 const int ClipEndGracePeriodInSeconds = 10;
 const int TargetThumbnailSize = 400;
 
-ObservingMotionFilter::ObservingMotionFilter( double MotionThreshold, const int CameraID, const shared_ptr<MessageBus>& MessageBusIn )
-: MotionFilter( MotionThreshold )
+ObservingMotionFilter::ObservingMotionFilter( double MotionThreshold, const char* MotionFilterName, const int CameraID, const shared_ptr<MessageBus>& MessageBusIn )
+: MotionFilter( MotionThreshold, MotionFilterName )
 , MessageBusPtr( MessageBusIn )
 , CameraID( CameraID )
 , FrameIndex( 0 )
@@ -46,7 +46,16 @@ Witness::Camera::ClassificationResult ObservingMotionFilter::FilterFrame( unsign
 		MessageBusPtr->SendToClient( nullptr, SaveFrameMessage );
 	}
 
-	auto Result = MotionFilter::FilterFrame( Width, Height, Data, StreamManager );
+	ClassificationResult Result;
+	try 
+	{
+		Result = MotionFilter::FilterFrame( Width, Height, Data, StreamManager );
+	}
+	catch (cv::Exception& e)
+	{
+		printf("OpenCV error: %s\n", e.what());
+		abort();
+	}
 	
 	uint64_t TimestampNow = datetime::utc_timestamp();
 

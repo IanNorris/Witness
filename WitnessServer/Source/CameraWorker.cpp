@@ -17,7 +17,7 @@ void CameraWorker::CreateInputStream()
 
 void CameraWorker::WorkerInit()
 {
-	Filter = make_shared<ObservingMotionFilter>( Camera.MDThreshold, Camera.ID, MessageBusObject );
+	Filter = make_shared<ObservingMotionFilter>( Camera.MDThreshold, std::string( Camera.MotionFilterName.begin(), Camera.MotionFilterName.end() ).c_str(), Camera.ID, MessageBusObject );
 
 	UpdateLastTimedAction(_T("Startup..."));
 

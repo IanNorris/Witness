@@ -34,7 +34,8 @@ namespace Database
 			Enabled			INTEGER NOT NULL,
 			SkipFrames		INTEGER NOT NULL,
 			MDFrameHeight	INTEGER NOT NULL,
-			MDThreshold		NUMERIC NOT NULL
+			MDThreshold		NUMERIC NOT NULL,
+			MotionFilter	TEXT
 		);
 
 		CREATE TABLE IF NOT EXISTS CameraGroup (

@@ -21,6 +21,7 @@
 		"thread_count": 2
 	},
 	"video": {
-		"clip_leadin": 5.0
+		"clip_leadin": 4.0,
+		"default_background_algorithm": "BGS_LBMixtureOfGaussians"
 	}
 }

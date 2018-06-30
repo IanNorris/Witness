@@ -11,7 +11,7 @@ class CAMERA_API MotionFilter : public RecordFilterBase<MotionFilterData>
 {
 public:
 
-	MotionFilter( double MotionThreshold );
+	MotionFilter( double MotionThreshold, const char* FilterName );
 	virtual ~MotionFilter();
 
 	virtual ClassificationResult FilterFrame( unsigned int Width, unsigned int Height, void* Data, StreamManager* StreamManager );

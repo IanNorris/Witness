@@ -12,6 +12,8 @@
 #include <opencv2/video.hpp>
 #include <opencv2/videoio.hpp>
 
+#include <string.h>
+
 #pragma warning(push)
 #pragma warning(disable:4099)
 #pragma warning(disable:4267)
@@ -33,58 +35,17 @@ struct MotionFilterData : public FilterDataBase
 	MotionFilterData()
 	: BackgroundFilter( nullptr )
 	, InitialFrameFilter( IgnoreInitialFrames )
-	{	
-		//BackgroundFilter = new FrameDifference;
-		//BackgroundFilter = new StaticFrameDifference;
-		//BackgroundFilter = new WeightedMovingMean;
-		//BackgroundFilter = new WeightedMovingVariance;
-		//BackgroundFilter = new MixtureOfGaussianV1; // only on OpenCV 2.x
-		//BackgroundFilter = new MixtureOfGaussianV2;
-		//BackgroundFilter = new AdaptiveBackgroundLearning;
-		//BackgroundFilter = new AdaptiveSelectiveBackgroundLearning;
-		//BackgroundFilter = new GMG; // only on OpenCV 2.x
-		//BackgroundFilter = new KNN; // only on OpenCV 3.x
-		//BackgroundFilter = new DPAdaptiveMedian;
-		//BackgroundFilter = new DPGrimsonGMM;
-		//BackgroundFilter = new DPZivkovicAGMM;
-		//BackgroundFilter = new DPMean;
-		//BackgroundFilter = new DPWrenGA;
-		//BackgroundFilter = new DPPratiMediod;
-		//BackgroundFilter = new DPEigenbackground;
-		//BackgroundFilter = new DPTexture;
-		//BackgroundFilter = new T2FGMM_UM;
-		//BackgroundFilter = new T2FGMM_UV;
-		//BackgroundFilter = new T2FMRF_UM;
-		//BackgroundFilter = new T2FMRF_UV;
-		//BackgroundFilter = new FuzzySugenoIntegral;
-		//BackgroundFilter = new FuzzyChoquetIntegral;
-		//BackgroundFilter = new MultiLayer;
-		//BackgroundFilter = new PixelBasedAdaptiveSegmenter;
-		//BackgroundFilter = new LBSimpleGaussian;
-		//BackgroundFilter = new LBFuzzyGaussian;
-		//BackgroundFilter = new LBMixtureOfGaussians;
-		//BackgroundFilter = new LBAdaptiveSOM;
-		//BackgroundFilter = new LBFuzzyAdaptiveSOM;
-		//BackgroundFilter = new LBP_MRF;
-		BackgroundFilter = new VuMeter;
-		//BackgroundFilter = new KDE;
-		//BackgroundFilter = new IndependentMultimodal;
-		//BackgroundFilter = new MultiCue;
-		//BackgroundFilter = new SigmaDelta;
-		//BackgroundFilter = new SuBSENSE;
-		//BackgroundFilter = new LOBSTER;
-		//BackgroundFilter = new PAWCS;
-		//BackgroundFilter = new TwoPoints;
-		//BackgroundFilter = new ViBe;
-		//BackgroundFilter = new CodeBook;
-	}
+	{}
+
+	void CreateFilter( const char* Name );
 
 	vector<vector<Point>> Contours;
 	vector<Point> ContoursPoly;
 	shared_ptr<FFMPEG::Frame> DiagFrame;
 
-	IBGS* BackgroundFilter;
+	unique_ptr<IBGS> BackgroundFilter;
 	Mat ForegroundMask;
+	Mat ForegroundMask1Channel;
 	Mat Background;
 	Mat PreviousMask;
 
@@ -94,9 +55,63 @@ struct MotionFilterData : public FilterDataBase
 PIMPL_CONSTRUCT(MotionFilterData)
 FILTER_BASE_CONSTRUCT(MotionFilterData)
 
-MotionFilter::MotionFilter( double MotionThreshold )
+void MotionFilterData::CreateFilter( const char* Name )
+{
+#define CREATE_FILTER( N, Prefix )			\
+		if( _stricmp( Name, Prefix #N ) == 0 )	\
+		{ BackgroundFilter = make_unique<N>(); return; }
+
+	CREATE_FILTER( FrameDifference, "BGS_" )
+	CREATE_FILTER( StaticFrameDifference, "BGS_" )
+	CREATE_FILTER( WeightedMovingMean, "BGS_" )
+	CREATE_FILTER( WeightedMovingVariance, "BGS_" )
+	CREATE_FILTER( MixtureOfGaussianV2, "BGS_" )
+	CREATE_FILTER( AdaptiveBackgroundLearning, "BGS_" )
+	CREATE_FILTER( AdaptiveSelectiveBackgroundLearning, "BGS_" )
+	CREATE_FILTER( KNN, "BGS_" )
+	CREATE_FILTER( DPAdaptiveMedian, "BGS_" )
+	CREATE_FILTER( DPGrimsonGMM, "BGS_" )
+	CREATE_FILTER( DPZivkovicAGMM, "BGS_" ) 
+	CREATE_FILTER( DPMean, "BGS_" )
+	CREATE_FILTER( DPWrenGA, "BGS_" )
+	CREATE_FILTER( DPPratiMediod, "BGS_" )
+	CREATE_FILTER( DPEigenbackground, "BGS_" )
+	CREATE_FILTER( DPTexture, "BGS_" )
+	CREATE_FILTER( T2FGMM_UM, "BGS_" )
+	CREATE_FILTER( T2FGMM_UV, "BGS_" )
+	CREATE_FILTER( T2FMRF_UM, "BGS_" )
+	CREATE_FILTER( T2FMRF_UV, "BGS_" )
+	CREATE_FILTER( FuzzySugenoIntegral, "BGS_" )
+	CREATE_FILTER( FuzzyChoquetIntegral, "BGS_" )
+	CREATE_FILTER( MultiLayer, "BGS_" )
+	CREATE_FILTER( PixelBasedAdaptiveSegmenter, "BGS_" )
+	CREATE_FILTER( LBSimpleGaussian, "BGS_" )
+	CREATE_FILTER( LBFuzzyGaussian, "BGS_" )
+	CREATE_FILTER( LBMixtureOfGaussians, "BGS_" )
+	CREATE_FILTER( LBAdaptiveSOM, "BGS_" )
+	CREATE_FILTER( LBFuzzyAdaptiveSOM, "BGS_" )
+	CREATE_FILTER( LBP_MRF, "BGS_" )
+	CREATE_FILTER( VuMeter, "BGS_" )
+	CREATE_FILTER( KDE, "BGS_" )
+	CREATE_FILTER( IndependentMultimodal, "BGS_" )
+	CREATE_FILTER( MultiCue, "BGS_" )
+	CREATE_FILTER( SigmaDelta, "BGS_" )
+	CREATE_FILTER( SuBSENSE, "BGS_" )
+	CREATE_FILTER( LOBSTER, "BGS_" )
+	CREATE_FILTER( PAWCS, "BGS_" )
+	CREATE_FILTER( TwoPoints, "BGS_" )
+	CREATE_FILTER( ViBe, "BGS_" )
+	CREATE_FILTER( CodeBook, "BGS_" )
+
+#undef CREATE_FILTER
+}
+
+MotionFilter::MotionFilter( double MotionThreshold, const char* FilterName )
 : MotionThreshold( MotionThreshold )
-{}
+{
+ auto& ID = GetData();
+ ID.CreateFilter( FilterName );
+}
 
 MotionFilter::~MotionFilter()
 {}
@@ -130,11 +145,23 @@ ClassificationResult MotionFilter::FilterFrame( unsigned int Width, unsigned int
 	float PrevAlpha = 0.4f;
 	addWeighted( ID.PreviousMask, PrevAlpha, ID.ForegroundMask, 1.0f, 0, ID.PreviousMask );*/
 
-	int SumResult = countNonZero( ID.ForegroundMask );
+	int SumResult = 0;
+
+	if (ID.ForegroundMask.channels() > 1)
+	{
+		cv::extractChannel( ID.ForegroundMask, ID.ForegroundMask1Channel, 0 );
+		SumResult = countNonZero( ID.ForegroundMask1Channel );
+	}
+	else
+	{
+		SumResult = countNonZero( ID.ForegroundMask );
+	}
+
+	
 
 	double ComparisonResult = Width * Height;
 
-	double Percentage = (float)SumResult / ComparisonResult;
+	double Percentage = (double)SumResult / ComparisonResult;
 
 	if( Percentage > MotionThreshold )
 	{

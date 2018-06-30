@@ -80,6 +80,7 @@ bool WitnessServer::Initialize()
 	auto JsonProcessingConfig = JsonConfig.at(U("processing"));
 
 	//Process video settings
+	Video.MotionFilterName = _T("BGS_LBMixtureOfGaussians");
 	if( JsonConfig.has_object_field(U("video")) )
 	{
 		auto JsonVideoConfig = JsonConfig.at(U("video"));
@@ -88,11 +89,7 @@ bool WitnessServer::Initialize()
 		string_t Errors;
 
 		Success &= GetJsonField( JsonVideoConfig, _T("clip_leadin"), Video.ClipHistoryPeriod, Errors );
-		
-		if (!Success)
-		{
-
-		}
+		Success &= GetJsonField( JsonVideoConfig, _T("default_background_algorithm"), Video.MotionFilterName, Errors );
 	}
 
 	if( !CreateListener( JsonServerConfig ) )
@@ -237,6 +234,10 @@ void WitnessServer::StartCameraWorkers()
 			Camera.SkipFrames = query.GetColumnValueInt( 5 );
 			Camera.MDFrameHeight = query.GetColumnValueInt( 6 );
 			Camera.MDThreshold = query.GetColumnValueDouble( 7 );
+			const wchar_t* MotionFilterName = query.GetColumnValueText( 8 );
+
+
+			Camera.MotionFilterName = MotionFilterName ? MotionFilterName : Video.MotionFilterName.c_str();
 			Camera.JobQueue = &CommonImageProcessingJobQueue;
 
 			if( Camera.Enabled )

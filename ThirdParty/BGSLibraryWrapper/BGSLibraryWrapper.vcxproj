@@ -60,7 +60,13 @@
       <PrecompiledHeader>
       </PrecompiledHeader>
       <WarningLevel>Level3</WarningLevel>
-      <Optimization>Disabled</Optimization>
+	  
+      <!--<Optimization>Disabled</Optimization>-->
+	  
+	  <Optimization>MaxSpeed</Optimization>
+      <FunctionLevelLinking>true</FunctionLevelLinking>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
+	  
       <PreprocessorDefinitions>_DEBUG;_LIB;_CRT_SECURE_NO_WARNINGS;MEX_COMPILE_FLAG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <Link>
@@ -85,6 +91,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="..\SubModules\bgslibrary\package_bgs\**\*.cpp" />
+	<ClCompile Include="..\SubModules\bgslibrary\package_analysis\**\*.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
