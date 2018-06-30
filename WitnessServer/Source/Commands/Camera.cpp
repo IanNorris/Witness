@@ -156,6 +156,23 @@ void Command_Camera::OnEnumMessage( const GlobalContext& Context, http_request& 
 					{
 						Camera[ _T("status") ] = json::value( (*Iter).second.Status );
 						Camera[ _T("recording") ] = json::value( (*Iter).second.IsRecording );
+
+						auto Stats = Context.CommonImageProcessingJobQueue->GetStats( ID );
+						Camera[ _T("lastTimestamp") ] = json::value( Stats.LastTimestamp );
+
+						if (AsAdmin && Stats.FrameCount > 0)
+						{
+							double Total = (double)Stats.TotalProcessingTime / ((double)Stats.FrameCount * 1000.0 * 1000.0);
+							double Scale = (double)Stats.ScaleTotalProcessingTime / ((double)Stats.FrameCount * 1000.0 * 1000.0);
+							double MD = (double)Stats.MotionDetectionTotalProcessingTime / ((double)Stats.FrameCount * 1000.0 * 1000.0);
+							double SP = (double)Stats.SecondPassFilterTotalProcessingTime / ((double)Stats.FrameCount * 1000.0 * 1000.0);
+
+							Camera[ _T("frameCount") ] = json::value( Stats.FrameCount );
+							Camera[ _T("processingTimeMS") ] = json::value( Total );
+							Camera[ _T("scaleProcessingTimeMS") ] = json::value( Scale );
+							Camera[ _T("motionDetectionProcessingTimeMS") ] = json::value( MD );
+							Camera[ _T("secondPassProcessingTimeMS") ] = json::value( SP );
+						}
 					}
 				}
 

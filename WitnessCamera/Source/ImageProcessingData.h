@@ -6,6 +6,8 @@
 #include <memory>
 #include <unordered_map>
 
+#include "SourceStats.h"
+
 namespace Witness{
 namespace Camera{
 
@@ -20,31 +22,6 @@ struct ImageProcessingJob
 
 	unsigned int					TargetHeight;
 	int								SourceID;
-};
-
-struct SourceStats
-{
-	SourceStats()
-	{
-		Reset();
-	}
-
-	int64_t							LastTimestamp;
-	int64_t							FrameCount;
-	int64_t							TotalProcessingTime;
-	int64_t							ScaleTotalProcessingTime;
-	int64_t							MotionDetectionTotalProcessingTime;
-	int64_t							SecondPassFilterTotalProcessingTime;
-	
-	void Reset()
-	{
-		LastTimestamp = 0;
-		FrameCount = 0;
-		TotalProcessingTime = 0;
-		ScaleTotalProcessingTime = 0;
-		MotionDetectionTotalProcessingTime = 0;
-		SecondPassFilterTotalProcessingTime = 0;
-	}
 };
 
 struct SourceState

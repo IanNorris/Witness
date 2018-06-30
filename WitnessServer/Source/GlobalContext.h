@@ -44,6 +44,7 @@ public:
 
 	shared_ptr<SQLiteDatabase> Database;
 	unordered_map< int, CameraState> Cameras;
+	Witness::Camera::ImageProcessingJobQueue* CommonImageProcessingJobQueue;
 
 	shared_ptr<MessageBus> MessageBus;
 };

@@ -288,7 +288,7 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 					Job->Frame.swap(ID.Input);
 					Job->SourceID = UniqueSourceID;
 					Job->TargetHeight = StreamSetup.MotionDetectFrameHeight;
-					Job->Timestamp = m_InternalData->DTS;
+					Job->Timestamp = CurrentTime;
 					Job->Filter = Filter;
 
 					if (!CommonJobQueue->Push(Job))

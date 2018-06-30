@@ -211,6 +211,7 @@ bool WitnessServer::InitializeContext()
 
 	Context->MessageBus = make_shared<MessageBus>();
 	Context->Database = Database::InitializeDatabase( DatabaseFile );
+	Context->CommonImageProcessingJobQueue = &CommonImageProcessingJobQueue;
 
 	return true;
 }

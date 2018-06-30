@@ -83,5 +83,8 @@
     <ClInclude Include="Source\ImageProcessingData.h">
       <Filter>Source Files</Filter>
     </ClInclude>
+    <ClInclude Include="Include\SourceStats.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

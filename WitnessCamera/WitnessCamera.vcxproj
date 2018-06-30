@@ -111,6 +111,7 @@
     <ClInclude Include="Include\Pimpl.h" />
     <ClInclude Include="Include\RecordFilter.h" />
     <ClInclude Include="Include\RecordFilterBase.h" />
+    <ClInclude Include="Include\SourceStats.h" />
     <ClInclude Include="Include\Stream.h" />
     <ClInclude Include="Source\FFMPEG\Common.h" />
     <ClInclude Include="Source\FFMPEG\Frame.h" />

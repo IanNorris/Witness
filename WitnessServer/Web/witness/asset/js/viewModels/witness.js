@@ -77,13 +77,21 @@ var WitnessViewModel = function() {
 							self.cameras()[ existingCamera ].description( newDescription );
 							self.cameras()[ existingCamera ].isRecording( newRecording );
 							self.cameras()[ existingCamera ].status( newStatus );
+							
+							self.cameras()[ existingCamera ].lastTimestamp( result[camera].lastTimestamp );
+							self.cameras()[ existingCamera ].statFrameCount( result[camera].frameCount );
+							self.cameras()[ existingCamera ].statProcessingTimeMS( result[camera].processingTimeMS );
+							self.cameras()[ existingCamera ].statScaleProcessingTimeMS( result[camera].scaleProcessingTimeMS );
+							self.cameras()[ existingCamera ].statMotionDetectionProcessingTimeMS( result[camera].motionDetectionProcessingTimeMS );
+							self.cameras()[ existingCamera ].statSecondPassProcessingTimeMS( result[camera].secondPassProcessingTimeMS );
+							
 							found = true;
 						}
 					}
 					
 					if( !found )
 					{
-						self.cameras.push(  new CameraViewModel( self, newId, newEnabled, newName, newDescription, '', [], '', newRecording ) );
+						self.cameras.push(  new CameraViewModel( self, newId, newEnabled, newName, newDescription, '', [], '', newRecording, result[camera] ) );
 					}
 					
 					self.cameras.sort( function( left, right ) {

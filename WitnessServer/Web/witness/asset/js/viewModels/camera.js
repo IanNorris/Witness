@@ -1,4 +1,4 @@
-var CameraViewModel = function( witness, id, enabled, name, description, connectionString, groups, status, cameraRecording ) {
+var CameraViewModel = function( witness, id, enabled, name, description, connectionString, groups, status, cameraRecording, allData ) {
 	"use strict";
 	
 	var self = this;
@@ -16,6 +16,13 @@ var CameraViewModel = function( witness, id, enabled, name, description, connect
 	self.isSelected = ko.observable(id == 0);
 	self.isRecording = ko.observable(cameraRecording);
 	self.groups = ko.observableArray(groups);
+	
+	self.lastTimestamp = ko.observable(allData.lastTimestamp);
+	self.statFrameCount = ko.observable(allData.frameCount).extend({numeric: 1});
+	self.statProcessingTimeMS = ko.observable(allData.processingTimeMS).extend({numeric: 1});
+	self.statScaleProcessingTimeMS = ko.observable(allData.scaleProcessingTimeMS).extend({numeric: 1});
+	self.statMotionDetectionProcessingTimeMS = ko.observable(allData.motionDetectionProcessingTimeMS).extend({numeric: 1});
+	self.statSecondPassProcessingTimeMS = ko.observable(allData.secondPassProcessingTimeMS).extend({numeric: 1});
 	
 	self.isSelectedClip = ko.computed( function() {
 		return self.isSelected() && self.witness.isViewMode(VIEW_MODE_CLIPS);

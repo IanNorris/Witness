@@ -2,6 +2,7 @@
 
 #include "Export.h"
 #include "Pimpl.h"
+#include "SourceStats.h"
 
 namespace Witness{
 namespace Camera{
@@ -15,6 +16,8 @@ struct CAMERA_API ImageProcessingJobQueue : public Pimpl<ImageProcessingJobQueue
 	bool TryPop(std::shared_ptr<ImageProcessingJob>& Job);
 	void Pop(std::shared_ptr<ImageProcessingJob>& Job);
 	void RemoveAllForSource( int SourceID );
+
+	SourceStats GetStats( int SourceID );
 
 	void CompletedJob( int SourceID );
 

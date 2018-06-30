@@ -87,9 +87,16 @@ var AdminCamerasViewModel = function( authentication, groups, witness ) {
 							existing.status(newStatus);
 							existing.isRecording(newRecording);
 							existing.groups(newGroups);
+							
+							existing.lastTimestamp( cameraList[camera].lastTimestamp );
+							existing.statFrameCount( cameraList[camera].frameCount );
+							existing.statProcessingTimeMS( cameraList[camera].processingTimeMS );
+							existing.statScaleProcessingTimeMS( cameraList[camera].scaleProcessingTimeMS );
+							existing.statMotionDetectionProcessingTimeMS( cameraList[camera].motionDetectionProcessingTimeMS );
+							existing.statSecondPassProcessingTimeMS( cameraList[camera].secondPassProcessingTimeMS );
 						}
 						else {
-							self.cameras.push(  new CameraViewModel( self.witness, newId, newEnabled, newName, newDescription, newConnectionString, newGroups, newStatus, false ) );
+							self.cameras.push(  new CameraViewModel( self.witness, newId, newEnabled, newName, newDescription, newConnectionString, newGroups, newStatus, false, cameraList[camera] ) );
 						}
 						
 						self.sortCameras();

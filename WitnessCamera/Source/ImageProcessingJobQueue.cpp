@@ -141,6 +141,12 @@ void ImageProcessingJobQueue::RemoveAllForSource(int SourceID)
 	}
 }
 
+SourceStats ImageProcessingJobQueue::GetStats(int SourceID)
+{
+	auto& ID = *m_InternalData;
+	return ID.GetStatsForSource(SourceID);
+}
+
 void ImageProcessingJobQueue::CompletedJob(int SourceID)
 {
 	auto& ID = *m_InternalData;
