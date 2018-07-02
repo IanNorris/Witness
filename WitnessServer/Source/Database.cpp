@@ -71,6 +71,35 @@ namespace Database
 			Description		TEXT								NOT NULL
 		);
 
+		CREATE TABLE IF NOT EXISTS Action(
+			ActionUID		INTEGER PRIMARY KEY	AUTOINCREMENT,
+			Name			CHAR(64)							NOT NULL,
+			Command			CHAR(64)							NOT NULL,
+			Param1			TEXT								NOT NULL,
+			Param2			TEXT								NOT NULL,
+			Param3			TEXT								NOT NULL
+		);
+
+		CREATE TABLE IF NOT EXISTS CameraAction(
+			CameraActionUID INTEGER PRIMARY KEY	AUTOINCREMENT,
+			ActionUID		INTEGER,
+			CameraUID		INTEGER,
+			MDThreshold		FLOAT
+		);
+
+		CREATE UNIQUE INDEX IF NOT EXISTS CameraActionIndex ON CameraAction (ActionUID,CameraUID);
+
+	)RAW";
+
+	string_t FindActions = LR"RAW(
+		SELECT ActionUID FROM CameraAction
+		WHERE CameraUID = @CameraUID 
+		AND MDThreshold <= @MDThreshold
+	)RAW";
+
+	string_t GetAction = LR"RAW(
+		SELECT * FROM Action
+		WHERE ActionUID = @ActionUID
 	)RAW";
 
 	string_t FindUser = LR"RAW(
@@ -239,6 +268,9 @@ namespace Database
 		CREATE_QUERY( CreateGroup );
 		CREATE_QUERY( UpdateGroup );
 		CREATE_QUERY( DeleteGroup );
+
+		CREATE_QUERY( FindActions );
+		CREATE_QUERY( GetAction );
 
 		return DB;
 	}

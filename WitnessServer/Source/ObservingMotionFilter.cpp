@@ -89,8 +89,8 @@ Witness::Camera::ClassificationResult ObservingMotionFilter::FilterFrame( unsign
 			if( State == MotionState::GracePeriod )
 			{
 				State = MotionState::Current;
-				ClipStats.TimestampMotionEnded = 0;
-				ClipStats.TimestampClipEnded = 0;
+				ClipStats.TimestampMotionEnded = TimestampNow;
+				ClipStats.TimestampClipEnded = TimestampNow;
 			}
 
 			if( Result.MotionPercentage > ClipStats.LargestMotionDelta )

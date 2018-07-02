@@ -132,6 +132,7 @@
     <ClInclude Include="..\ThirdParty\SQLite-20180118\sqlite3.h" />
     <ClInclude Include="Source\Android\AndroidNotify.h" />
     <ClInclude Include="Source\AsyncWorker.h" />
+    <ClInclude Include="Source\CameraState.h" />
     <ClInclude Include="Source\CameraWorker.h" />
     <ClInclude Include="Source\Commands\Authenticate.h" />
     <ClInclude Include="Source\Commands\Camera.h" />

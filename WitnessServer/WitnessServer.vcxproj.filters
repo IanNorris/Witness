@@ -176,5 +176,8 @@
     <ClInclude Include="Source\ImageProcessorWorker.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Source\CameraState.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

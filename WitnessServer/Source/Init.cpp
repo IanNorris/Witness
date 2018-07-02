@@ -248,7 +248,7 @@ void WitnessServer::StartCameraWorkers()
 				auto Worker = make_shared<CameraWorker>( Video, Camera, Context->MessageBus );
 				Worker->Start( WorkerBase::Priority::HighPriority );
 				Watchdog->AddTarget( Worker, Camera.Name );
-				auto& State = Context->Cameras[ Camera.ID ] = GlobalContext::CameraState();
+				auto& State = Context->Cameras[ Camera.ID ] = CameraState();
 				State.Worker = Worker;
 				State.Name = Camera.Name;
 			}

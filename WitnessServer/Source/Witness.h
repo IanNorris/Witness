@@ -6,10 +6,12 @@
 #include "ImageProcessorWorker.h"
 #include "CameraWorker.h"
 #include "WatchdogWorker.h"
+#include "CameraState.h"
 #include <ImageProcessingJob.h>
 
 class WitnessListener;
 class GlobalContext;
+struct CameraState;
 class MessageBusQueue;
 struct ClipStatistics;
 
@@ -50,6 +52,9 @@ private:
 	bool CreateListener( const json::value& JsonServerSettings );
 	bool CreateProcessors( const json::value& JsonProcessorSettings );
 	bool InitializeContext();
+
+	void HandleActions( const shared_ptr<GlobalContext>& Context, CameraState& State, int CameraIndex, double MotionThreshold );
+	void TriggerAction( const string_t& Command, const string_t& Param1, const string_t& Param2, const string_t& Param3, CameraState& State, int CameraIndex );
 
 	void StartCameraWorkers();
 

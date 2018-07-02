@@ -3,6 +3,7 @@
 #include "SQLite.h"
 #include "CameraWorker.h"
 #include "cpprest/json.h"
+#include "CameraState.h"
 
 struct CameraStateToggleRecordMessage : public Message
 {
@@ -15,28 +16,6 @@ struct CameraStateToggleRecordMessage : public Message
 class GlobalContext
 {
 public:
-	
-	struct CameraState
-	{
-		CameraState()
-		: Status(_T("Starting"))
-		, IsRecording(false)
-		, IsManualRecording(false)
-		{
-
-		}
-
-		shared_ptr<CameraWorker> Worker;
-		string_t Name;
-
-		vector<unsigned char> PreviewThumbnail;
-
-		unordered_map< uint64_t, vector<unsigned char> > ClipThumbnails;
-
-		string_t Status;
-		bool IsRecording;
-		bool IsManualRecording;
-	};
 
 	mutable mutex Mutex;
 
