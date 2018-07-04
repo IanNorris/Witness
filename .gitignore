@@ -290,3 +290,6 @@ Private/
 AndroidClient/mobile/google-services.json
 WindowsClient/config/
 WitnessServer/config/VuMeter.xml
+CrashDumps/
+ThirdParty/ffmpeg-4.0-win64-shared/
+ThirdParty/ffmpeg-4.0-win64-dev/

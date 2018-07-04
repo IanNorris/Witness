@@ -314,7 +314,8 @@ CameraStreamError OutputStream::WriteInterleavedPacket( const AVPacket* Packet )
 	}
 
 	AVPacket PacketCopy;
-	av_copy_packet( &PacketCopy, Packet );
+	memset( &PacketCopy, 0, sizeof(PacketCopy) );
+	av_packet_ref( &PacketCopy, Packet );
 
 	auto& ID = *m_InternalData;
 	

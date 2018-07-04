@@ -75,7 +75,6 @@ void Stream::OneTimeInit()
 	if( !m_InternalData->HasOneTimeInitialized )
 	{
 		av_log_set_callback( &InputStream::LogCallback );
-		av_register_all();
 		avformat_network_init();
 
 		m_InternalData->HasOneTimeInitialized = true;
