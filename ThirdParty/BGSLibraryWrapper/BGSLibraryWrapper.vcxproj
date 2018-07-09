@@ -51,7 +51,7 @@
   <PropertyGroup />
   <ItemDefinitionGroup>
 	<ClCompile>
-      <AdditionalIncludeDirectories>$(SolutionDir)\ThirdParty\opencv-3.3.0\include;$(SolutionDir)\ThirdParty\SubModules\bgslibrary;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)\ThirdParty\opencv-3.4.2\include;$(SolutionDir)\ThirdParty\SubModules\bgslibrary;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
 	  <DisableSpecificWarnings>4800;4244;4267;4099;4838;4305;4018;%(DisableSpecificWarnings)</DisableSpecificWarnings>
     </ClCompile>
   </ItemDefinitionGroup>
