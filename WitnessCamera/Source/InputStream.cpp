@@ -210,13 +210,9 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 		//Add the new packet to the buffer, if we're not already producing output
 		if (Output)
 		{
-			AVPacket NewPacket;
-			memset( &NewPacket, 0, sizeof(NewPacket) );
-			av_packet_ref( &NewPacket, &ID.Packet );
-
 			//printf( "PT DTS=%" PRId64 ", PTS=%" PRId64 ", Dur=%" PRId64 "\n", ID.Packet.dts, ID.Packet.pts, ID.Packet.duration );
 
-			CameraStreamError WriteError = Output->WriteInterleavedPacket( &NewPacket );
+			CameraStreamError WriteError = Output->WriteInterleavedPacket( &ID.Packet );
 			if( WriteError != CameraStreamError::Success )
 			{
 				ID.FreeAllQueuedPackets();
@@ -239,7 +235,11 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 			ID.PacketsBacklog.push_back( AVPacket() );
 			AVPacket& NewPacket = ID.PacketsBacklog.back();
 			memset( &NewPacket, 0, sizeof(NewPacket) );
-			av_packet_ref( &NewPacket, &ID.Packet );
+			Result = av_packet_ref( &NewPacket, &ID.Packet );
+			if (Result < 0)
+			{
+				STREAM_ERROR( RefError, Result );
+			}
 
 			//No idea why, but the first packet always
 			//has an invalid DTS/PTS that's higher than

@@ -315,7 +315,11 @@ CameraStreamError OutputStream::WriteInterleavedPacket( const AVPacket* Packet )
 
 	AVPacket PacketCopy;
 	memset( &PacketCopy, 0, sizeof(PacketCopy) );
-	av_packet_ref( &PacketCopy, Packet );
+	int Result = av_packet_ref( &PacketCopy, Packet );
+	if( Result < 0 )
+	{
+		STREAM_ERROR( RefError, Result );
+	}
 
 	auto& ID = *m_InternalData;
 	
@@ -345,7 +349,7 @@ CameraStreamError OutputStream::WriteInterleavedPacket( const AVPacket* Packet )
 			ID.FormatContext->streams[0]->time_base );
 	}
 
-	int Result = av_interleaved_write_frame( ID.FormatContext, &PacketCopy );
+	Result = av_interleaved_write_frame( ID.FormatContext, &PacketCopy );
 	if( Result < 0 )
 	{
 		STREAM_ERROR( WriteFailed, Result );

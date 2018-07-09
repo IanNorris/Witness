@@ -31,6 +31,7 @@ enum class CameraStreamError
 	ProcessingQueueFull,
 	InvalidPacket,
 	InvalidSetup,
+	RefError,
 
 	InternalError,
 	UnknownError,
@@ -96,6 +97,9 @@ static const TCHAR* GetCameraStreamErrorMessage( CameraStreamError Error )
 
 	case CameraStreamError::InvalidSetup:
 		return _T("One or more components of the setup struct were invalid.");
+
+	case CameraStreamError::RefError:
+		return _T("Failed to modify ref count for a packet.");
 
 	case CameraStreamError::UnknownError:
 	default:
