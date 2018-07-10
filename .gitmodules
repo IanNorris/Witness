@@ -10,3 +10,9 @@
 [submodule "ThirdParty/SubModules/libsodium"]
 	path = ThirdParty/SubModules/libsodium
 	url = https://github.com/jedisct1/libsodium.git
+[submodule "ThirdParty/SubModules/opencv_contrib"]
+	path = ThirdParty/SubModules/opencv_contrib
+	url = https://github.com/opencv/opencv_contrib.git
+[submodule "ThirdParty/SubModules/opencv"]
+	path = ThirdParty/SubModules/opencv
+	url = https://github.com/opencv/opencv.git
