@@ -257,8 +257,6 @@ void WitnessServer::StartCameraWorkers()
 
 			Camera.MotionFilterName = MotionFilterName ? MotionFilterName : Video.MotionFilterName.c_str();
 
-			//"X:\\Programming\\Witness\\WitnessServer\\Data\\Cascades\\mallick_haarcascade_frontalface_default.xml", "X:\\Programming\\Witness\\WitnessServer\\Data\\Cascades\\haarcascade_fullbody.xml"
-
 			auto FaceCascadeName = Video.FaceCascadeFilter + _T(".xml");
 			auto FaceCascade = Video.DataPath + _T("\\Cascades\\") + FaceCascadeName;
 
