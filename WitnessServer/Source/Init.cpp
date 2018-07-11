@@ -54,7 +54,7 @@ bool WitnessServer::Initialize()
 	}
 	catch( json_exception Exception)
 	{
-		std::tcerr << U("Unable to open parse config file ") << ConfigFile << U(" due to : ") << Exception.what() << std::endl;
+		std::tcerr << U("Unable to parse config file ") << ConfigFile << U(" due to : ") << Exception.what() << std::endl;
 		return false;
 		
 	}
@@ -66,13 +66,13 @@ bool WitnessServer::Initialize()
 
 	if( !JsonConfig.has_object_field(U("server")) )
 	{
-		std::tcerr << U("Unable to config file. Expect a 'server' section.") << std::endl;
+		std::tcerr << U("Missing section in config file. Expected a 'server' section.") << std::endl;
 		return false;
 	}
 
 	if( !JsonConfig.has_object_field(U("processing")) )
 	{
-		std::tcerr << U("Unable to config file. Expect a 'processing' section.") << std::endl;
+		std::tcerr << U("Missing section in config file. Expected a 'processing' section.") << std::endl;
 		return false;
 	}
 	
@@ -88,8 +88,25 @@ bool WitnessServer::Initialize()
 		bool Success = true;
 		string_t Errors;
 
+		//Required
+		Success &= GetJsonField( JsonVideoConfig, _T("data_path"), Video.DataPath, Errors );
+		Success &= GetJsonField( JsonVideoConfig, _T("face_recognition_cascade_name"), Video.FaceCascadeFilter, Errors );
+		Success &= GetJsonField( JsonVideoConfig, _T("body_recognition_cascade_name"), Video.FullBodyCascadeFilter, Errors );
+
+		if (!Success)
+		{
+			tcout << Errors << endl;
+			return false;
+		}
+
+		//Optional
 		Success &= GetJsonField( JsonVideoConfig, _T("clip_leadin"), Video.ClipHistoryPeriod, Errors );
 		Success &= GetJsonField( JsonVideoConfig, _T("default_background_algorithm"), Video.MotionFilterName, Errors );
+	}
+	else
+	{
+		std::tcerr << U("Missing section in config file. Expected a 'video' section.") << std::endl;
+		return false;
 	}
 
 	if( !CreateListener( JsonServerConfig ) )
@@ -239,6 +256,18 @@ void WitnessServer::StartCameraWorkers()
 
 
 			Camera.MotionFilterName = MotionFilterName ? MotionFilterName : Video.MotionFilterName.c_str();
+
+			//"X:\\Programming\\Witness\\WitnessServer\\Data\\Cascades\\mallick_haarcascade_frontalface_default.xml", "X:\\Programming\\Witness\\WitnessServer\\Data\\Cascades\\haarcascade_fullbody.xml"
+
+			auto FaceCascadeName = Video.FaceCascadeFilter + _T(".xml");
+			auto FaceCascade = Video.DataPath + _T("\\Cascades\\") + FaceCascadeName;
+
+			auto BodyCascadeName = Video.FullBodyCascadeFilter + _T(".xml");
+			auto BodyCascade = Video.DataPath + _T("\\Cascades\\") + BodyCascadeName;
+
+			Camera.FaceCascadeFilter = FaceCascade;
+			Camera.FullBodyCascadeFilter = BodyCascade;
+
 			Camera.JobQueue = &CommonImageProcessingJobQueue;
 
 			if( Camera.Enabled )

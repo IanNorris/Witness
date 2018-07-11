@@ -147,6 +147,12 @@ SourceStats ImageProcessingJobQueue::GetStats(int SourceID)
 	return ID.GetStatsForSource(SourceID);
 }
 
+void ImageProcessingJobQueue::ResetStats(int SourceID)
+{
+	auto& ID = *m_InternalData;
+	return ID.ResetStats(SourceID);
+}
+
 void ImageProcessingJobQueue::CompletedJob(int SourceID)
 {
 	auto& ID = *m_InternalData;
@@ -235,10 +241,12 @@ void ImageProcessingJobQueue::WorkerThreadMain()
 
 		ClassificationResult FilterResult = Job->Filter->FilterFrame( OutputWidth, OutputHeight, Output->GetFrame()->data[0], /*m_StreamManager*/nullptr );
 
+		bool Used2P = false;
 		auto AfterMD = std::chrono::high_resolution_clock::now();
 
 		if( FilterResult.ResultString )
 		{
+			Used2P = true;
 			ClassificationResult ResultNew = Job->Filter->PostSuccessChildVisitor( OutputWidth, OutputHeight, Output->GetFrame()->data[0], /*m_StreamManager*/ nullptr );
 			if( ResultNew.ResultString )
 			{
@@ -255,7 +263,7 @@ void ImageProcessingJobQueue::WorkerThreadMain()
 			Job->Timestamp,
 			AfterScale.time_since_epoch().count() - Start.time_since_epoch().count(),
 			AfterMD.time_since_epoch().count() - AfterScale.time_since_epoch().count(),
-			End.time_since_epoch().count() - AfterMD.time_since_epoch().count()
+			Used2P ? (End.time_since_epoch().count() - AfterMD.time_since_epoch().count()) : 0
 		);
 
 		CompletedJob( Job->SourceID );
@@ -269,6 +277,12 @@ void ImageProcessingJobQueueData::AddFrame(int Source, int64_t Timestamp, int64_
 	auto& Ref = Stats[Source];
 
 	Ref.FrameCount++;
+
+	if (SecondPassProcessingTime > 0)
+	{
+		Ref.SecondPassFrameCount++;
+	}
+
 	Ref.LastTimestamp = Timestamp;
 	Ref.ScaleTotalProcessingTime += ScaleProcessingTime;
 	Ref.MotionDetectionTotalProcessingTime += MDProcessingTime;
@@ -280,9 +294,23 @@ void ImageProcessingJobQueueData::AddFrame(int Source, int64_t Timestamp, int64_
 		double Total = (double)Ref.TotalProcessingTime / ((double)Ref.FrameCount * 1000.0 * 1000.0);
 		double Scale = (double)Ref.ScaleTotalProcessingTime / ((double)Ref.FrameCount * 1000.0 * 1000.0);
 		double MD = (double)Ref.MotionDetectionTotalProcessingTime / ((double)Ref.FrameCount * 1000.0 * 1000.0);
-		double SP = (double)Ref.SecondPassFilterTotalProcessingTime / ((double)Ref.FrameCount * 1000.0 * 1000.0);
+		double SP = (double)Ref.SecondPassFilterTotalProcessingTime / ((double)Ref.SecondPassFrameCount * 1000.0 * 1000.0);
 		printf("Source %d: Total %.2fms, Scale: %.2fms, MD: %.2fms, 2p: %.2fms\n", Source, (float)Total, (float)Scale, (float)MD, (float)SP );
 	}*/
+}
+
+void ImageProcessingJobQueueData::ResetStats(int Source)
+{
+	std::lock_guard<std::mutex> Lock(StatsMutex);
+
+	auto& Ref = Stats[Source];
+
+	Ref.FrameCount = 0;
+	Ref.LastTimestamp = 0;
+	Ref.ScaleTotalProcessingTime = 0;
+	Ref.MotionDetectionTotalProcessingTime = 0;
+	Ref.SecondPassFilterTotalProcessingTime = 0;
+	Ref.TotalProcessingTime = 0;
 }
 
 SourceState::SourceState()

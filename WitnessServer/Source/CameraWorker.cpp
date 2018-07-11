@@ -1,5 +1,6 @@
 #include "CameraWorker.h"
 #include "ObservingMotionFilter.h"
+#include "PersonRecognitionFilter.h"
 
 #include <windows.h>
 
@@ -18,6 +19,14 @@ void CameraWorker::CreateInputStream()
 void CameraWorker::WorkerInit()
 {
 	Filter = make_shared<ObservingMotionFilter>( Camera.MDThreshold, std::string( Camera.MotionFilterName.begin(), Camera.MotionFilterName.end() ).c_str(), Camera.ID, MessageBusObject );
+
+	auto PersonFilter = make_shared<PersonRecognitionFilter>(
+		std::string( Camera.FaceCascadeFilter.begin(), Camera.FaceCascadeFilter.end() ).c_str(),
+		std::string( Camera.FullBodyCascadeFilter.begin(), Camera.FullBodyCascadeFilter.end() ).c_str(),
+		"FaceRecognition"
+		);
+
+	Filter->AddChildFilter( dynamic_pointer_cast<IRecordFilter>(PersonFilter) );
 
 	UpdateLastTimedAction(_T("Startup..."));
 
@@ -71,7 +80,25 @@ void CameraWorker::WorkerMain()
 		UpdateLastTimedAction(_T("Connecting..."));
 	}
 
+	double FrameRate = CameraStream->GetFramerateDouble();
+	double FrameTime = 1.0f / FrameRate;
+
+	const double NanoSecondsToSeconds = 1000.0 * 1000.0 * 1000.0;
+	uint64_t Start = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+
+	if (LastFrameTime > 0)
+	{
+		double Duration = (double)(Start - LastFrameTime) / NanoSecondsToSeconds;
+		if (Duration < FrameTime)
+		{
+			Sleep( (DWORD)((FrameTime - Duration) * 1000.0) );
+		}
+	}
+	
 	CameraStreamError Error = CameraStream->ProcessFrame( static_pointer_cast<IRecordFilter>(Filter), RecordStream.get() );
+
+	LastFrameTime = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+
 	if( Error == CameraStreamError::Success )
 	{
 		if( !IsConnected )

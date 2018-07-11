@@ -18,6 +18,7 @@ struct CAMERA_API ImageProcessingJobQueue : public Pimpl<ImageProcessingJobQueue
 	void RemoveAllForSource( int SourceID );
 
 	SourceStats GetStats( int SourceID );
+	void ResetStats(int Source);
 
 	void CompletedJob( int SourceID );
 

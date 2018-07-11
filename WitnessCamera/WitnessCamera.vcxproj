@@ -94,7 +94,7 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="Source\FaceRecognitionFilter.cpp" />
+    <ClCompile Include="Source\PersonRecognitionFilter.cpp" />
     <ClCompile Include="Source\FFMPEG\Frame.cpp" />
     <ClCompile Include="Source\ImageProcessingJobQueue.cpp" />
     <ClCompile Include="Source\InputStream.cpp" />
@@ -105,7 +105,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Include\Export.h" />
-    <ClInclude Include="Include\FaceRecognitionFilter.h" />
+    <ClInclude Include="Include\PersonRecognitionFilter.h" />
     <ClInclude Include="Include\ImageProcessingJob.h" />
     <ClInclude Include="Include\InputStream.h" />
     <ClInclude Include="Include\MotionFilter.h" />

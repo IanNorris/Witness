@@ -1,0 +1,13 @@
+Install CMake, point it at the opencv folder, set the binary output to opencv/bin.
+
+Click configure.
+
+Find OPENCV_EXTRA_MODULES_PATH and set it to the modules path under opencv_contrib.
+
+Under BUILD, find BUILD_WORLD and ensure it's ticked.
+
+Click Generate.
+
+Open the project file and build Release.
+
+Find CMakeTargets\INSTALL that appears as a project in Visual Studio and Build it. This will generate the headers.

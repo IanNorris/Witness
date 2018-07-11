@@ -294,3 +294,5 @@ CrashDumps/
 ThirdParty/ffmpeg-4.0-win64-shared/
 ThirdParty/ffmpeg-4.0-win64-dev/
 ThirdParty/opencv-3.4.2/
+WitnessServer/Data/Cascades/
+enc_temp_folder/

@@ -43,6 +43,8 @@ public:
 	void GetTimebase( AVRational* TimebaseOut );
 	void GetFramerate( AVRational* FramerateOut );
 
+	double GetFramerateDouble();
+
 private:
 
 	const static int64_t ConnectionTimeout = 5;

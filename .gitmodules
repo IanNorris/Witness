@@ -16,3 +16,6 @@
 [submodule "ThirdParty/SubModules/opencv"]
 	path = ThirdParty/SubModules/opencv
 	url = https://github.com/opencv/opencv.git
+[submodule "ThirdParty/SubModules/mallick_cascades"]
+	path = ThirdParty/SubModules/mallick_cascades
+	url = https://github.com/spmallick/mallick_cascades.git

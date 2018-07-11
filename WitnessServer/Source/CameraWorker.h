@@ -14,10 +14,16 @@ struct VideoSettings
 {
 	VideoSettings()
 	: MotionFilterName()
+	, DataPath()
+	, FullBodyCascadeFilter()
+	, FaceCascadeFilter()
 	, ClipHistoryPeriod( 5.0 )
 	{}
 
+	string_t	DataPath;
 	string_t	MotionFilterName;
+	string_t	FullBodyCascadeFilter;
+	string_t	FaceCascadeFilter;
 	double		ClipHistoryPeriod;
 };
 
@@ -28,6 +34,8 @@ struct CameraSettings
 	, Name()
 	, Path()
 	, MotionFilterName()
+	, FullBodyCascadeFilter()
+	, FaceCascadeFilter()
 	, MDThreshold( 0.05 )
 	, ID( 0 )
 	, Enabled( 1 )
@@ -40,6 +48,8 @@ struct CameraSettings
 	string_t Name;
 	string_t Path;
 	string_t MotionFilterName;
+	string_t FullBodyCascadeFilter;
+	string_t FaceCascadeFilter;
 	double MDThreshold;
 	int ID;
 	int Enabled;
@@ -54,6 +64,7 @@ public:
 	: WorkerBase( MessageBus )
 	, Video( Video )
 	, Camera( Camera )
+	, LastFrameTime( 0 )
 	, IsConnected( false )
 	{}
 
@@ -74,6 +85,8 @@ private:
 
 	VideoSettings Video;
 	CameraSettings Camera;
+
+	uint64_t LastFrameTime;
 
 	bool IsConnected;
 };
