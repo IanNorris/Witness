@@ -83,6 +83,7 @@ void CameraWorker::WorkerMain()
 	double FrameRate = CameraStream->GetFramerateDouble();
 	double FrameTime = 1.0f / FrameRate;
 
+	const double BufferPeriodInMilliseconds = 2.0;
 	const double NanoSecondsToSeconds = 1000.0 * 1000.0 * 1000.0;
 	uint64_t Start = std::chrono::high_resolution_clock::now().time_since_epoch().count();
 
@@ -91,13 +92,20 @@ void CameraWorker::WorkerMain()
 		double Duration = (double)(Start - LastFrameTime) / NanoSecondsToSeconds;
 		if (Duration < FrameTime)
 		{
-			Sleep( (DWORD)((FrameTime - Duration) * 1000.0) );
+			double MillisecondsToWait = ((FrameTime - Duration) * 1000.0);
+
+			MillisecondsToWait = min( MillisecondsToWait - BufferPeriodInMilliseconds, 0 );
+
+			if( MillisecondsToWait > 0.0 )
+			{
+				Sleep( (DWORD)MillisecondsToWait );
+			}
 		}
 	}
 	
 	CameraStreamError Error = CameraStream->ProcessFrame( static_pointer_cast<IRecordFilter>(Filter), RecordStream.get() );
 
-	LastFrameTime = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+	LastFrameTime = Start;
 
 	if( Error == CameraStreamError::Success )
 	{
