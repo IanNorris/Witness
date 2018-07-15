@@ -18,19 +18,30 @@ void CameraWorker::CreateInputStream()
 
 void CameraWorker::WorkerInit()
 {
-	Filter = make_shared<ObservingMotionFilter>( Camera.MDThreshold, std::string( Camera.MotionFilterName.begin(), Camera.MotionFilterName.end() ).c_str(), Camera.ID, MessageBusObject );
+	UpdateLastTimedAction(_T("Creating filters..."));
 
-	/*auto PersonFilter = make_shared<PersonRecognitionFilter>(
+	auto RootMotionNode = make_shared<MotionChainNode>();
+
+	RootMotionNode->Filter = make_shared<MotionFilter>( std::string( Camera.MotionFilterName.begin(), Camera.MotionFilterName.end() ).c_str() );
+	RootMotionNode->MinimumThreshold = (float)Camera.MDThreshold;
+	RootMotionNode->InclusiveFilter = ClassificationResult::Motion_Motion;
+	RootMotionNode->ExclusiveFilter = 0;
+
+	auto PersonMotionNode = make_shared<MotionChainNode>();
+	RootMotionNode->OnSuccess = PersonMotionNode;
+	PersonMotionNode->Filter = make_shared<PersonRecognitionFilter>(
 		std::string( Camera.FaceCascadeFilter.begin(), Camera.FaceCascadeFilter.end() ).c_str(),
-		std::string( Camera.FullBodyCascadeFilter.begin(), Camera.FullBodyCascadeFilter.end() ).c_str(),
-		"FaceRecognition"
-		);
+		std::string( Camera.FullBodyCascadeFilter.begin(), Camera.FullBodyCascadeFilter.end() ).c_str()
+	);
+	PersonMotionNode->InclusiveFilter = ClassificationResult::Motion_Person;
+	PersonMotionNode->ExclusiveFilter = 0;
+	PersonMotionNode->MinimumThreshold = 0.0f;
 
-	Filter->AddChildFilter( dynamic_pointer_cast<IRecordFilter>(PersonFilter) );*/
-
-	UpdateLastTimedAction(_T("Startup..."));
+	Filter = make_shared<ObservingMotionFilter>( RootMotionNode, Camera.ID, MessageBusObject );
 
 	MessageBusObject->SendToClient( nullptr, make_shared<CameraStartupMessage>( Camera.ID ) );
+
+	UpdateLastTimedAction(_T("Starting camera connection..."));
 
 	CreateInputStream();
 }
@@ -83,7 +94,7 @@ void CameraWorker::WorkerMain()
 	double FrameRate = CameraStream->GetFramerateDouble();
 	double FrameTime = 1.0f / FrameRate;
 
-	const double BufferPeriodInMilliseconds = 2.0;
+	const double BufferPeriodInMilliseconds = 0.0;
 	const double NanoSecondsToSeconds = 1000.0 * 1000.0 * 1000.0;
 	uint64_t Start = std::chrono::high_resolution_clock::now().time_since_epoch().count();
 
@@ -94,9 +105,9 @@ void CameraWorker::WorkerMain()
 		{
 			double MillisecondsToWait = ((FrameTime - Duration) * 1000.0);
 
-			MillisecondsToWait = min( MillisecondsToWait - BufferPeriodInMilliseconds, 0 );
+			MillisecondsToWait = max( MillisecondsToWait - BufferPeriodInMilliseconds, 0 );
 
-			if( MillisecondsToWait > 0.0 )
+			if( MillisecondsToWait > 0.0  )
 			{
 				Sleep( (DWORD)MillisecondsToWait );
 			}
@@ -134,10 +145,14 @@ void CameraWorker::WorkerMain()
 		MessageBusObject->SendToClient( nullptr, make_shared<CameraReconnectMessage>( Camera.ID, ErrorStr ) );
 
 		CreateInputStream();
+		LastFrameTime = 0;
 
 		Camera.JobQueue->RemoveAllForSource( Camera.ID );
 
-		Sleep( 3000 );
+		if( Error != CameraStreamError::EndOfFile )
+		{
+			Sleep( 3000 );
+		}
 	}
 }
 

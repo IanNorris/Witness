@@ -11,8 +11,8 @@
 const int ClipEndGracePeriodInSeconds = 10;
 const int TargetThumbnailSize = 400;
 
-ObservingMotionFilter::ObservingMotionFilter( double MotionThreshold, const char* MotionFilterName, const int CameraID, const shared_ptr<MessageBus>& MessageBusIn )
-: MotionFilter( MotionThreshold, MotionFilterName )
+ObservingMotionFilter::ObservingMotionFilter( const shared_ptr<MotionChainNode>& MotionChain, const int CameraID, const shared_ptr<MessageBus>& MessageBusIn )
+: MotionChain( MotionChain )
 , MessageBusPtr( MessageBusIn )
 , CameraID( CameraID )
 , FrameIndex( 0 )
@@ -31,25 +31,27 @@ void ObservingMotionFilter::FilterFrame( ClassificationResult& Result, cv::Mat& 
 
 	SaveNextFrame = true;
 
-	if( SaveNextFrame )
-	{
-		SaveNextFrame = false;
-
-		auto SaveFrameMessage = make_shared<CameraSnapshotMessage>( CameraID );
-		
-		float Aspect = (float)InputFrame.cols / (float)InputFrame.rows;
-
-		cv::Mat ResizedImage;
-		resize( InputFrame, ResizedImage, cv::Size(TargetThumbnailSize,(int)((float)TargetThumbnailSize/Aspect)), 0, 0 );
-
-		cv::imencode( ".jpg", ResizedImage, SaveFrameMessage->Jpeg, std::vector<int>{ CV_IMWRITE_JPEG_QUALITY, 70 } );
-
-		MessageBusPtr->SendToClient( nullptr, SaveFrameMessage );
-	}
-
 	try 
 	{
-		MotionFilter::FilterFrame( Result, InputFrame, GrayscaleInputFrame );
+		MotionChainNode* Next = MotionChain.get();
+		while (Next)
+		{
+			unsigned int ClassificationSuperset = Result.ClassificationSuperset;
+
+			Next->Filter->FilterFrame( Result, InputFrame, GrayscaleInputFrame );
+
+			if (	(Result.ClassificationSuperset & Next->InclusiveFilter) != 0
+				&&	(Result.ClassificationSuperset & Next->ExclusiveFilter) == 0
+				&&	Result.MotionAmount >= Next->MinimumThreshold )
+			{
+				Next = Next->OnSuccess.get();
+			}
+			else
+			{
+				Result.ClassificationSuperset = ClassificationSuperset;
+				Next = Next->OnFailure.get();
+			}
+		}
 	}
 	catch (cv::Exception& e)
 	{
@@ -59,7 +61,7 @@ void ObservingMotionFilter::FilterFrame( ClassificationResult& Result, cv::Mat& 
 	
 	uint64_t TimestampNow = datetime::utc_timestamp();
 
-	if (Result.ClassificationSuperset)
+	if (Result.ClassificationSuperset )
 	{
 		if( State == MotionState::None )
 		{
@@ -131,5 +133,21 @@ void ObservingMotionFilter::FilterFrame( ClassificationResult& Result, cv::Mat& 
 				MessageBusPtr->SendToClient( nullptr, MotionMessage );
 			}
 		}
+	}
+
+	if( SaveNextFrame )
+	{
+		SaveNextFrame = false;
+
+		auto SaveFrameMessage = make_shared<CameraSnapshotMessage>( CameraID );
+		
+		float Aspect = (float)InputFrame.cols / (float)InputFrame.rows;
+
+		cv::Mat ResizedImage;
+		resize( InputFrame, ResizedImage, cv::Size(TargetThumbnailSize,(int)((float)TargetThumbnailSize/Aspect)), 0, 0 );
+
+		cv::imencode( ".jpg", ResizedImage, SaveFrameMessage->Jpeg, std::vector<int>{ CV_IMWRITE_JPEG_QUALITY, 70 } );
+
+		MessageBusPtr->SendToClient( nullptr, SaveFrameMessage );
 	}
 }

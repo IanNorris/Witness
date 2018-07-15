@@ -399,7 +399,7 @@ double InputStream::GetFramerateDouble()
 {
 	auto& ID = *m_InternalData;
 
-	if (ID.CodecContext)
+	if (ID.CodecContext && ID.CodecContext->framerate.num > 0 && ID.CodecContext->framerate.den > 0 )
 	{
 		return (double)ID.CodecContext->framerate.num / (double)ID.CodecContext->framerate.den;
 	}

@@ -107,8 +107,7 @@ void MotionFilterData::CreateFilter( const char* Name )
 #undef CREATE_FILTER
 }
 
-MotionFilter::MotionFilter( double MotionThreshold, const char* FilterName )
-: MotionThreshold( MotionThreshold )
+MotionFilter::MotionFilter( const char* FilterName )
 {
  auto& ID = GetData();
  ID.CreateFilter( FilterName );
@@ -167,7 +166,13 @@ void MotionFilter::FilterFrame( ClassificationResult& Result, cv::Mat& InputFram
 
 	double Percentage = (double)SumResult / ComparisonResult;
 
-	if( Percentage > MotionThreshold )
+	if( Percentage > 0.0 )
+	{
+		Result.ClassificationSuperset |= ClassificationResult::Motion_Motion;
+	}
+	Result.MotionAmount = (float)Percentage;
+
+	//if( Percentage > MotionThreshold )
 	{
 		//OutputStream* DiagOutput = StreamManager->GetDiagnosticStream( Width, Height );
 
@@ -217,8 +222,7 @@ void MotionFilter::FilterFrame( ClassificationResult& Result, cv::Mat& InputFram
 
 		//DiagOutput->WriteFrame( ID.DiagFrame.get() );
 
-		Result.ClassificationSuperset |= ClassificationResult::Motion_Motion;
-		Result.MotionAmount = (float)Percentage;
+		
 	}
 
 	

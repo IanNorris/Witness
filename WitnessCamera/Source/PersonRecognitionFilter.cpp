@@ -45,7 +45,7 @@ struct PersonRecognitionFilterData : public FilterDataBase
 
 PIMPL_CONSTRUCT(PersonRecognitionFilterData)
 
-PersonRecognitionFilter::PersonRecognitionFilter( const char* FaceCascadeDataFilename, const char* FullBodyCascadeDataFilename, const char* FilterName )
+PersonRecognitionFilter::PersonRecognitionFilter( const char* FaceCascadeDataFilename, const char* FullBodyCascadeDataFilename )
 {
 	auto& ID = GetData();
 
@@ -68,7 +68,8 @@ void PersonRecognitionFilter::FilterFrame( ClassificationResult& Result, cv::Mat
 	auto& ID = GetData();
 
 	//Alternate between body and face recognition
-	bool ChooseFace = (ID.Frame % 2) == 0;
+	//bool ChooseFace = (ID.Frame % 2) == 0;
+	bool ChooseFace = true;
 	++ID.Frame;
 	
 	std::vector<cv::Rect> faces;
@@ -82,10 +83,17 @@ void PersonRecognitionFilter::FilterFrame( ClassificationResult& Result, cv::Mat
 		ID.BodyCascade.detectMultiScale( GrayscaleInputFrame, faces );
 	}
 	
-
-
 	for(int j=0;j<faces.size();j++){
-		cv::rectangle(InputFrame, faces[j], cv::Scalar(255,0,255));
+		cv::rectangle(InputFrame, faces[j], cv::Scalar(255,0,255), 4);
+
+		ClassificationResult::RegionOfInterest ROI;
+		ROI.Classification = ClassificationResult::Motion_Person;
+		ROI.ClassificationGroup = 0;
+		ROI.Left = faces[j].x;
+		ROI.Top = faces[j].y;
+		ROI.Width = faces[j].width;
+		ROI.Height = faces[j].height;
+		Result.ROI.push_back( ROI );
 	}
 
 	if( faces.size() >= 1 )

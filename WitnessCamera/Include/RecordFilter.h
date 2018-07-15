@@ -38,7 +38,14 @@ struct ClassificationResult
 
 	struct RegionOfInterest
 	{
-		cv::Mat Image;
+		RegionOfInterest()
+		: Left( 0 )
+		, Top( 0 )
+		, Width( 0 )
+		, Height( 0 )
+		, Classification( 0 )
+		, ClassificationGroup( 0 )
+		{}
 
 		unsigned int Left;
 		unsigned int Top;

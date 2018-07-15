@@ -17,7 +17,20 @@ class MessageBus;
 
 using namespace Witness::Camera;
 
-class ObservingMotionFilter : public MotionFilter
+struct MotionChainNode
+{
+	shared_ptr<MotionChainNode> OnSuccess;
+	shared_ptr<MotionChainNode> OnFailure;
+
+	shared_ptr<IRecordFilter> Filter;
+
+	unsigned int InclusiveFilter; //Mask that must be matched for success
+	unsigned int ExclusiveFilter; //Mask that must not be matched for success
+
+	float MinimumThreshold;
+};
+
+class ObservingMotionFilter : public IRecordFilter
 {
 public:
 
@@ -28,7 +41,7 @@ public:
 		GracePeriod,
 	};
 
-	ObservingMotionFilter( double MotionThreshold, const char* MotionFilterName, const int CameraID, const shared_ptr<MessageBus>& MessageBusIn );
+	ObservingMotionFilter( const shared_ptr<MotionChainNode>& MotionChain, const int CameraID, const shared_ptr<MessageBus>& MessageBusIn );
 	virtual ~ObservingMotionFilter();
 
 	virtual void FilterFrame( ClassificationResult& Result, cv::Mat& InputFrame, cv::Mat& GrayscaleInputFrame ) override;
@@ -43,6 +56,8 @@ public:
 	void ClearStats() { ClipStats.Clear(); }
 
 private:
+
+	shared_ptr<MotionChainNode>	MotionChain;
 
 	shared_ptr<MessageBus>	MessageBusPtr;
 	int						CameraID;
