@@ -103,6 +103,8 @@ void MotionFilterData::CreateFilter( const char* Name )
 	CREATE_FILTER( ViBe, "BGS_" )
 	CREATE_FILTER( CodeBook, "BGS_" )
 
+	printf( "Unable to create filter for %s\n", Name );
+
 #undef CREATE_FILTER
 }
 
@@ -119,6 +121,11 @@ MotionFilter::~MotionFilter()
 ClassificationResult MotionFilter::FilterFrame( unsigned int Width, unsigned int Height, void* Data, StreamManager* StreamManager )
 {
 	auto& ID = GetData();
+
+	if (!ID.BackgroundFilter)
+	{
+		return ClassificationResult();
+	}
 
 	/*if( !ID.DiagFrame )
 	{

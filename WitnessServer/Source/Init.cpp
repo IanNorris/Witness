@@ -255,7 +255,7 @@ void WitnessServer::StartCameraWorkers()
 			const wchar_t* MotionFilterName = query.GetColumnValueText( 8 );
 
 
-			Camera.MotionFilterName = MotionFilterName ? MotionFilterName : Video.MotionFilterName.c_str();
+			Camera.MotionFilterName = MotionFilterName && wcslen(MotionFilterName) ? MotionFilterName : Video.MotionFilterName.c_str();
 
 			auto FaceCascadeName = Video.FaceCascadeFilter + _T(".xml");
 			auto FaceCascade = Video.DataPath + _T("\\Cascades\\") + FaceCascadeName;
