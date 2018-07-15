@@ -66,6 +66,7 @@ public:
 	, Camera( Camera )
 	, LastFrameTime( 0 )
 	, IsConnected( false )
+	, IsRTSP( false )
 	{}
 
 private:
@@ -89,4 +90,5 @@ private:
 	uint64_t LastFrameTime;
 
 	bool IsConnected;
+	bool IsRTSP;
 };

@@ -13,7 +13,14 @@ void CameraWorker::CreateInputStream()
 	Setup.MotionDetectThreshold = Camera.MDThreshold;
 	Setup.HistoricalPacketBufferSeconds = Video.ClipHistoryPeriod;
 
-	CameraStream = make_shared<InputStream>( Setup, Camera.ID, Camera.JobQueue, std::string( Camera.Path.begin(), Camera.Path.end() ) );
+	std::string CamPath = std::string( Camera.Path.begin(), Camera.Path.end() );
+
+	CameraStream = make_shared<InputStream>( Setup, Camera.ID, Camera.JobQueue, CamPath );
+
+	if (_strnicmp(CamPath.c_str(), "rtsp://", 7) == 0)
+	{
+		IsRTSP = true;
+	}
 }
 
 void CameraWorker::WorkerInit()
@@ -98,7 +105,7 @@ void CameraWorker::WorkerMain()
 	const double NanoSecondsToSeconds = 1000.0 * 1000.0 * 1000.0;
 	uint64_t Start = std::chrono::high_resolution_clock::now().time_since_epoch().count();
 
-	if (LastFrameTime > 0)
+	if (LastFrameTime > 0 && !IsRTSP)
 	{
 		double Duration = (double)(Start - LastFrameTime) / NanoSecondsToSeconds;
 		if (Duration < FrameTime)
