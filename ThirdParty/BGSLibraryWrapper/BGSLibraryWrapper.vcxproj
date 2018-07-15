@@ -63,7 +63,7 @@
 	  
       <!--<Optimization>Disabled</Optimization>-->
 	  
-	  <Optimization>MaxSpeed</Optimization>
+	  <!--<Optimization>MaxSpeed</Optimization>-->
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
 	  
