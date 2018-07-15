@@ -65,7 +65,7 @@
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>$(SolutionDir)\ThirdParty\SubModules\cpprestsdk\Binaries\x64\Debug\cpprest140d_2_10.lib;$(SolutionDir)\ThirdParty\SubModules\libsodium\Build\DebugDLL\x64\libsodium.lib;$(SolutionDir)\ThirdParty\SubModules\opencv\bin\install\x64\vc15\lib\opencv_world400.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(SolutionDir)\ThirdParty\SubModules\cpprestsdk\Binaries\x64\Debug\cpprest140d_2_10.lib;$(SolutionDir)\ThirdParty\SubModules\libsodium\Build\DebugDLL\x64\libsodium.lib;$(SolutionDir)\ThirdParty\SubModules\opencv\bin\install\x64\vc15\lib\opencv_world400d.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
       <Command>cmd /C robocopy /njh /njs /np /nfl /ndl $(SolutionDir)\ThirdParty\SubModules\cpprestsdk\Binaries\x64\Debug $(OutputPath) cpprest140d_2_10.* &amp;&amp; robocopy /njh /njs /np /nfl /ndl $(SolutionDir)\ThirdParty\SubModules\libsodium\Build\DebugDLL\x64 $(OutputPath) libsodium.* &amp;&amp; robocopy /njh /njs /np /nfl /ndl $(SolutionDir)\ThirdParty\SubModules\opencv\bin\install\x64\vc15\bin $(OutputPath) opencv_world400*.dll</Command>
