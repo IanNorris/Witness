@@ -44,7 +44,6 @@ struct PersonRecognitionFilterData : public FilterDataBase
 };
 
 PIMPL_CONSTRUCT(PersonRecognitionFilterData)
-FILTER_BASE_CONSTRUCT(PersonRecognitionFilterData)
 
 PersonRecognitionFilter::PersonRecognitionFilter( const char* FaceCascadeDataFilename, const char* FullBodyCascadeDataFilename, const char* FilterName )
 {
@@ -64,28 +63,23 @@ PersonRecognitionFilter::PersonRecognitionFilter( const char* FaceCascadeDataFil
 PersonRecognitionFilter::~PersonRecognitionFilter()
 {}
 
-ClassificationResult PersonRecognitionFilter::FilterFrame( unsigned int Width, unsigned int Height, void* Data, StreamManager* StreamManager )
+void PersonRecognitionFilter::FilterFrame( ClassificationResult& Result, cv::Mat& InputFrame, cv::Mat& GrayscaleInputFrame )
 {
 	auto& ID = GetData();
 
 	//Alternate between body and face recognition
 	bool ChooseFace = (ID.Frame % 2) == 0;
 	++ID.Frame;
-
-	Mat InputFrame( Size( Width, Height ), CV_8UC3, Data );
-
-	Mat GrayscaleFrame;
-	cvtColor( InputFrame, GrayscaleFrame, CV_RGB2GRAY );
-
+	
 	std::vector<cv::Rect> faces;
 
 	if( ChooseFace )
 	{
-		ID.FaceCascade.detectMultiScale( GrayscaleFrame, faces );
+		ID.FaceCascade.detectMultiScale( GrayscaleInputFrame, faces );
 	}
 	else
 	{
-		ID.BodyCascade.detectMultiScale( GrayscaleFrame, faces );
+		ID.BodyCascade.detectMultiScale( GrayscaleInputFrame, faces );
 	}
 	
 
@@ -97,9 +91,9 @@ ClassificationResult PersonRecognitionFilter::FilterFrame( unsigned int Width, u
 	if( faces.size() >= 1 )
 	{
 		printf("%d %s detected.\n", (int)faces.size(), ChooseFace ? "face(s)" : "body(s)" );
-	}
 
-	return ClassificationResult( ClassificationImportance::Person_Unknown, "Person", 1.0 );
+		Result.ClassificationSuperset |= ClassificationResult::Motion_Person;
+	}
 }
 
 }}

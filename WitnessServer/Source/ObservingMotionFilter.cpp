@@ -25,7 +25,7 @@ ObservingMotionFilter::ObservingMotionFilter( double MotionThreshold, const char
 ObservingMotionFilter::~ObservingMotionFilter()
 {}
 
-Witness::Camera::ClassificationResult ObservingMotionFilter::FilterFrame( unsigned int Width, unsigned int Height, void* Data, Witness::Camera::StreamManager* StreamManager )
+void ObservingMotionFilter::FilterFrame( ClassificationResult& Result, cv::Mat& InputFrame, cv::Mat& GrayscaleInputFrame )
 {
 	FrameIndex++;
 
@@ -36,23 +36,20 @@ Witness::Camera::ClassificationResult ObservingMotionFilter::FilterFrame( unsign
 		SaveNextFrame = false;
 
 		auto SaveFrameMessage = make_shared<CameraSnapshotMessage>( CameraID );
-
-		cv::Mat RawData( cv::Size( Width, Height ), CV_8UC3, Data);
-
-		float Aspect = (float)RawData.cols / (float)RawData.rows;
+		
+		float Aspect = (float)InputFrame.cols / (float)InputFrame.rows;
 
 		cv::Mat ResizedImage;
-		resize( RawData, ResizedImage, cv::Size(TargetThumbnailSize,(int)((float)TargetThumbnailSize/Aspect)), 0, 0 );
+		resize( InputFrame, ResizedImage, cv::Size(TargetThumbnailSize,(int)((float)TargetThumbnailSize/Aspect)), 0, 0 );
 
 		cv::imencode( ".jpg", ResizedImage, SaveFrameMessage->Jpeg, std::vector<int>{ CV_IMWRITE_JPEG_QUALITY, 70 } );
 
 		MessageBusPtr->SendToClient( nullptr, SaveFrameMessage );
 	}
 
-	ClassificationResult Result;
 	try 
 	{
-		Result = MotionFilter::FilterFrame( Width, Height, Data, StreamManager );
+		MotionFilter::FilterFrame( Result, InputFrame, GrayscaleInputFrame );
 	}
 	catch (cv::Exception& e)
 	{
@@ -62,7 +59,7 @@ Witness::Camera::ClassificationResult ObservingMotionFilter::FilterFrame( unsign
 	
 	uint64_t TimestampNow = datetime::utc_timestamp();
 
-	if (Result.Importance > 0)
+	if (Result.ClassificationSuperset)
 	{
 		if( State == MotionState::None )
 		{
@@ -74,14 +71,12 @@ Witness::Camera::ClassificationResult ObservingMotionFilter::FilterFrame( unsign
 			ClipStats.TimestampMotionStarted = TimestampNow;
 			ClipStats.TimestampMotionEnded = INT64_MIN;
 			ClipStats.TimestampClipEnded = INT64_MIN;
-			ClipStats.LargestMotionDelta = MotionMessage->MotionPercentage = Result.MotionPercentage;
-
-			cv::Mat RawData( cv::Size( Width, Height ), CV_8UC3, Data);
-
-			float Aspect = (float)RawData.cols / (float)RawData.rows;
+			ClipStats.LargestMotionDelta = MotionMessage->MotionPercentage = Result.MotionAmount;
+			
+			float Aspect = (float)InputFrame.cols / (float)InputFrame.rows;
 
 			cv::Mat ResizedImage;
-			resize( RawData, ResizedImage, cv::Size(TargetThumbnailSize,(int)((float)TargetThumbnailSize/Aspect)), 0, 0 );
+			resize( InputFrame, ResizedImage, cv::Size(TargetThumbnailSize,(int)((float)TargetThumbnailSize/Aspect)), 0, 0 );
 
 			cv::imencode( ".jpg", ResizedImage, MotionMessage->Jpeg, std::vector<int>{ CV_IMWRITE_JPEG_QUALITY, 70 } );
 
@@ -96,20 +91,18 @@ Witness::Camera::ClassificationResult ObservingMotionFilter::FilterFrame( unsign
 				ClipStats.TimestampClipEnded = TimestampNow;
 			}
 
-			if( Result.MotionPercentage > ClipStats.LargestMotionDelta )
+			if( Result.MotionAmount > ClipStats.LargestMotionDelta )
 			{
-				ClipStats.LargestMotionDelta = Result.MotionPercentage;
+				ClipStats.LargestMotionDelta = Result.MotionAmount;
 
 				auto MotionMessage = make_shared<CameraUpdateMotionMessage>( CameraID );
 
 				MotionMessage->ClipStats = ClipStats;
 				
-				cv::Mat RawData( cv::Size( Width, Height ), CV_8UC3, Data);
-
-				float Aspect = (float)RawData.cols / (float)RawData.rows;
+				float Aspect = (float)InputFrame.cols / (float)InputFrame.rows;
 
 				cv::Mat ResizedImage;
-				resize( RawData, ResizedImage, cv::Size(TargetThumbnailSize,(int)((float)TargetThumbnailSize/Aspect)), 0, 0 );
+				resize( InputFrame, ResizedImage, cv::Size(TargetThumbnailSize,(int)((float)TargetThumbnailSize/Aspect)), 0, 0 );
 
 				cv::imencode( ".jpg", ResizedImage, MotionMessage->Jpeg, std::vector<int>{ CV_IMWRITE_JPEG_QUALITY, 70 } );
 
@@ -139,6 +132,4 @@ Witness::Camera::ClassificationResult ObservingMotionFilter::FilterFrame( unsign
 			}
 		}
 	}
-
-	return Result;
 }

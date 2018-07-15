@@ -14,7 +14,7 @@ public:
 	MotionFilter( double MotionThreshold, const char* FilterName );
 	virtual ~MotionFilter();
 
-	virtual ClassificationResult FilterFrame( unsigned int Width, unsigned int Height, void* Data, StreamManager* StreamManager );
+	virtual void FilterFrame( ClassificationResult& Result, cv::Mat& InputFrame, cv::Mat& GrayscaleInputFrame );
 
 private:
 

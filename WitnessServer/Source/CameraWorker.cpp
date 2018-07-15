@@ -20,13 +20,13 @@ void CameraWorker::WorkerInit()
 {
 	Filter = make_shared<ObservingMotionFilter>( Camera.MDThreshold, std::string( Camera.MotionFilterName.begin(), Camera.MotionFilterName.end() ).c_str(), Camera.ID, MessageBusObject );
 
-	auto PersonFilter = make_shared<PersonRecognitionFilter>(
+	/*auto PersonFilter = make_shared<PersonRecognitionFilter>(
 		std::string( Camera.FaceCascadeFilter.begin(), Camera.FaceCascadeFilter.end() ).c_str(),
 		std::string( Camera.FullBodyCascadeFilter.begin(), Camera.FullBodyCascadeFilter.end() ).c_str(),
 		"FaceRecognition"
 		);
 
-	Filter->AddChildFilter( dynamic_pointer_cast<IRecordFilter>(PersonFilter) );
+	Filter->AddChildFilter( dynamic_pointer_cast<IRecordFilter>(PersonFilter) );*/
 
 	UpdateLastTimedAction(_T("Startup..."));
 

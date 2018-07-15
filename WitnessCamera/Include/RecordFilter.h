@@ -3,7 +3,10 @@
 #include "Export.h"
 #include "Pimpl.h"
 
+#include <opencv2/core/mat.hpp>
+
 #include <memory>
+#include <type_traits>
 
 namespace Witness{
 namespace Camera{
@@ -11,47 +14,59 @@ namespace Camera{
 struct FilterData;
 class StreamManager;
 
-enum class ClassificationImportance
-{
-	None,
-
-	Motion = 10,
-
-	Person_Familial = 100,
-	Person_Friends = 150,
-	Person_Recognized = 200,
-
-	Person_Unknown = 200,
-	Person_HighRisk = 500,
-};
-
 struct ClassificationResult
 {
-	ClassificationImportance operator= ( int Input )
+	enum ClassificationFlag
 	{
-		return (ClassificationImportance)Input;
-	}
+		Motion_None					= 0,
+		Motion_Motion				= 1 << 0,
 
-	ClassificationResult( ClassificationImportance Importance = ClassificationImportance::None, const char* ResultString = nullptr, double MotionAmount = 0.0 )
-	: ResultString( ResultString )
-	, Importance( (int)Importance )
-	, MotionPercentage( MotionAmount )
+		Motion_Animal				= 1 << 1,
+		Motion_Animal_Cat			= 1 << 2,
+		Motion_Animal_Dog			= 1 << 3,
+		Motion_Animal_Other			= 1 << 4,
+
+		Motion_Vehicle				= 1 << 8,
+		Motion_Vehicle_Unrecognized	= 1 << 9,
+		Motion_Vehicle_Recognized	= 1 << 10,
+
+		Motion_Person				= 1 << 15,
+		Motion_Person_Unrecognized	= 1 << 16,
+		Motion_Person_Recognized	= 1 << 17,
+		Motion_Person_HighRisk		= 1 << 18,
+	};
+
+	struct RegionOfInterest
+	{
+		cv::Mat Image;
+
+		unsigned int Left;
+		unsigned int Top;
+		unsigned int Width;
+		unsigned int Height;
+
+		unsigned int Classification;
+		unsigned int ClassificationGroup;
+	};
+	
+	ClassificationResult()
+	: ClassificationSuperset( Motion_None )
+	, MotionAmount( 0.0f )
 	{}
 
-	const char* ResultString;
-	int Importance;
+	std::vector<RegionOfInterest> ROI;
 
-	double MotionPercentage;
+	unsigned int ClassificationSuperset;
+	float MotionAmount;
 };
 
 class CAMERA_API IRecordFilter
 {
 public:
-	
-	virtual ClassificationResult FilterFrame( unsigned int Width, unsigned int Height, void* Data, StreamManager* StreamManager ) = 0;
 
-	virtual void AddChildFilter( std::shared_ptr<IRecordFilter>& ChildFilter ) = 0;
-	virtual ClassificationResult PostSuccessChildVisitor( unsigned int Width, unsigned int Height, void* Data, StreamManager* StreamManager ) = 0;
+	virtual ~IRecordFilter(){}
+	
+	virtual void FilterFrame( ClassificationResult& Result, cv::Mat& InputFrame, cv::Mat& GrayscaleInputFrame ) = 0;
 };
 
 }}

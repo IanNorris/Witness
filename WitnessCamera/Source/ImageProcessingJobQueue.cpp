@@ -3,6 +3,10 @@
 #include "ImageProcessingJob.h"
 #include "MotionFilter.h"
 
+#include <opencv2/core/core.hpp>
+#include <opencv2/imgproc.hpp>
+#include <opencv2/imgproc/imgproc_c.h>
+
 #include <minmax.h>
 
 namespace Witness{
@@ -239,20 +243,27 @@ void ImageProcessingJobQueue::WorkerThreadMain()
 
 		auto AfterScale = std::chrono::high_resolution_clock::now();
 
-		ClassificationResult FilterResult = Job->Filter->FilterFrame( OutputWidth, OutputHeight, Output->GetFrame()->data[0], /*m_StreamManager*/nullptr );
+		cv::Mat MotionFrame( cv::Size( OutputWidth, OutputHeight ), CV_8UC3, Output->GetFrame()->data[0] );
+		cv::Mat MotionFrameGray;
+
+	    cvtColor( MotionFrame, MotionFrameGray, CV_RGB2GRAY );
+
+
+		ClassificationResult FilterResult;
+		Job->Filter->FilterFrame( FilterResult, MotionFrame, MotionFrameGray );
 
 		bool Used2P = false;
 		auto AfterMD = std::chrono::high_resolution_clock::now();
 
-		if( FilterResult.ResultString )
+		/*if( FilterResult.ResultString )
 		{
 			Used2P = true;
-			ClassificationResult ResultNew = Job->Filter->PostSuccessChildVisitor( OutputWidth, OutputHeight, Output->GetFrame()->data[0], /*m_StreamManager*/ nullptr );
+			ClassificationResult ResultNew = Job->Filter->PostSuccessChildVisitor( OutputWidth, OutputHeight, Output->GetFrame()->data[0], nullptr );
 			if( ResultNew.ResultString )
 			{
 				FilterResult = ResultNew;
 			}
-		}
+		}*/
 		
 		Job->Frame->Unref();
 

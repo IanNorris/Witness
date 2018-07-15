@@ -53,7 +53,6 @@ struct MotionFilterData : public FilterDataBase
 };
 
 PIMPL_CONSTRUCT(MotionFilterData)
-FILTER_BASE_CONSTRUCT(MotionFilterData)
 
 void MotionFilterData::CreateFilter( const char* Name )
 {
@@ -118,13 +117,13 @@ MotionFilter::MotionFilter( double MotionThreshold, const char* FilterName )
 MotionFilter::~MotionFilter()
 {}
 
-ClassificationResult MotionFilter::FilterFrame( unsigned int Width, unsigned int Height, void* Data, StreamManager* StreamManager )
+void MotionFilter::FilterFrame( ClassificationResult& Result, cv::Mat& InputFrame, cv::Mat& GrayscaleInputFrame )
 {
 	auto& ID = GetData();
 
 	if (!ID.BackgroundFilter)
 	{
-		return ClassificationResult();
+		return;
 	}
 
 	/*if( !ID.DiagFrame )
@@ -132,15 +131,13 @@ ClassificationResult MotionFilter::FilterFrame( unsigned int Width, unsigned int
 		ID.DiagFrame = make_shared<FFMPEG::Frame>( Width, Height, AV_PIX_FMT_BGR24, 1 );
 		ID.DiagFrame->Prepare();
 	}*/
-
-	Mat InputFrame( Size( Width, Height ), CV_8UC3, Data );
-
+	
 	ID.BackgroundFilter->process( InputFrame, ID.ForegroundMask, ID.Background );
 
 	if( ID.InitialFrameFilter > 0 )
 	{
 		ID.InitialFrameFilter--;
-		return ClassificationResult();
+		return;
 	}
 
 	/*(if( ID.PreviousMask.rows != Height && ID.PreviousMask.cols!= Width )
@@ -166,7 +163,7 @@ ClassificationResult MotionFilter::FilterFrame( unsigned int Width, unsigned int
 
 	
 
-	double ComparisonResult = Width * Height;
+	double ComparisonResult = InputFrame.cols * InputFrame.rows;
 
 	double Percentage = (double)SumResult / ComparisonResult;
 
@@ -220,7 +217,8 @@ ClassificationResult MotionFilter::FilterFrame( unsigned int Width, unsigned int
 
 		//DiagOutput->WriteFrame( ID.DiagFrame.get() );
 
-		return ClassificationResult( ClassificationImportance::Motion, "Motion", Percentage );
+		Result.ClassificationSuperset |= ClassificationResult::Motion_Motion;
+		Result.MotionAmount = (float)Percentage;
 	}
 
 	
@@ -301,21 +299,7 @@ ClassificationResult MotionFilter::FilterFrame( unsigned int Width, unsigned int
 		r.y += cvRound(r.height*0.07);
 		r.height = cvRound(r.height*0.8);
 		rectangle(img, r.tl(), r.br(), cv::Scalar(0,255,0), 3);
-	}
-
-
-	return found_filtered.empty() ? nullptr : "People";*/
-
-	/*if( Found )
-	{
-		return "Motion";
-	}
-	else*/
-	
-	{
-
-		return ClassificationResult();
-	}
+	}*/
 }
 
 }}

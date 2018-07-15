@@ -14,7 +14,7 @@ public:
 	PersonRecognitionFilter( const char* FaceCascadeDataFilename, const char* FullBodyCascadeDataFilename, const char* FilterName );
 	virtual ~PersonRecognitionFilter();
 
-	virtual ClassificationResult FilterFrame( unsigned int Width, unsigned int Height, void* Data, StreamManager* StreamManager );
+	virtual void FilterFrame( ClassificationResult& Result, cv::Mat& InputFrame, cv::Mat& GrayscaleInputFrame );
 };
 
 }}
