@@ -63,7 +63,7 @@ PersonRecognitionFilter::PersonRecognitionFilter( const char* FaceCascadeDataFil
 PersonRecognitionFilter::~PersonRecognitionFilter()
 {}
 
-void PersonRecognitionFilter::FilterFrame( ClassificationResult& Result, cv::Mat& InputFrame, cv::Mat& GrayscaleInputFrame )
+void PersonRecognitionFilter::FilterFrame( const AVFrame* Frame, ClassificationResult& Result, cv::Mat& InputFrame, cv::Mat& GrayscaleInputFrame )
 {
 	auto& ID = GetData();
 

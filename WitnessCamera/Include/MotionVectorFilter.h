@@ -5,14 +5,14 @@
 namespace Witness{
 namespace Camera{
 
-struct MotionFilterData;
+struct MotionVectorFilterData;
 
-class CAMERA_API MotionFilter : public RecordFilterBase<MotionFilterData>
+class CAMERA_API MotionVectorFilter : public RecordFilterBase<MotionVectorFilterData>
 {
 public:
 
-	MotionFilter( const char* FilterName );
-	virtual ~MotionFilter();
+	MotionVectorFilter();
+	virtual ~MotionVectorFilter();
 
 	virtual void FilterFrame( const AVFrame* Frame, ClassificationResult& Result, cv::Mat& InputFrame, cv::Mat& GrayscaleInputFrame );
 };

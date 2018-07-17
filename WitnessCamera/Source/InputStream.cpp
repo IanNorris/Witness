@@ -60,7 +60,6 @@ CameraStreamError InputStream::Initialize()
 	ID.FormatContext->interrupt_callback.callback = InputStream::InterruptCallback;
 	ID.FormatContext->interrupt_callback.opaque = this;
 
-	
 	av_dict_set( &ID.StreamOptions, "rtsp_transport", "tcp", 0 );
 	//av_dict_set( &ID.StreamOptions, "timeout", "600000", 0 );
 	av_dict_set( &ID.StreamOptions, "recv_buffer_size", "8388608", 0 );
@@ -110,7 +109,11 @@ CameraStreamError InputStream::Initialize()
 	avcodec_get_context_defaults3( ID.CodecContext, OutputCodec );
 	avcodec_parameters_to_context( ID.CodecContext, ID.FormatContext->streams[ ID.ChosenStreamIndex ]->codecpar );
 	
-	Result = avcodec_open2( ID.CodecContext, OutputCodec, nullptr );
+	//Export motion vectors for use by our motion detection algorithm
+	AVDictionary* CodecOptions = nullptr;
+	av_dict_set( &CodecOptions, "flags2", "+export_mvs", 0 );
+
+	Result = avcodec_open2( ID.CodecContext, OutputCodec, &CodecOptions );
 	if( Result < 0 )
 	{
 		STREAM_ERROR( UnsupportedStreamFormat, Result );
@@ -157,6 +160,9 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 
 	IsConnecting = true;
 	TimeStarted = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+
+	
+
 	int Result = av_read_frame( m_InternalData->FormatContext, &ID.Packet );
 	IsConnecting = false;
 	if( Result == AVERROR_EOF )

@@ -250,7 +250,7 @@ void ImageProcessingJobQueue::WorkerThreadMain()
 
 
 		ClassificationResult FilterResult;
-		Job->Filter->FilterFrame( FilterResult, MotionFrame, MotionFrameGray );
+		Job->Filter->FilterFrame( Job->Frame->GetFrame(), FilterResult, MotionFrame, MotionFrameGray );
 
 		bool Used2P = false;
 		auto AfterMD = std::chrono::high_resolution_clock::now();

@@ -116,7 +116,7 @@ MotionFilter::MotionFilter( const char* FilterName )
 MotionFilter::~MotionFilter()
 {}
 
-void MotionFilter::FilterFrame( ClassificationResult& Result, cv::Mat& InputFrame, cv::Mat& GrayscaleInputFrame )
+void MotionFilter::FilterFrame( const AVFrame* Frame, ClassificationResult& Result, cv::Mat& InputFrame, cv::Mat& GrayscaleInputFrame )
 {
 	auto& ID = GetData();
 

@@ -39,6 +39,9 @@
     <ClCompile Include="Source\PersonRecognitionFilter.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Source\MotionVectorFilter.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Include\Export.h">
@@ -90,6 +93,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Include\PersonRecognitionFilter.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Include\MotionVectorFilter.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

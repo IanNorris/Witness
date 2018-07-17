@@ -44,7 +44,7 @@ public:
 	ObservingMotionFilter( const shared_ptr<MotionChainNode>& MotionChain, const int CameraID, const shared_ptr<MessageBus>& MessageBusIn );
 	virtual ~ObservingMotionFilter();
 
-	virtual void FilterFrame( ClassificationResult& Result, cv::Mat& InputFrame, cv::Mat& GrayscaleInputFrame ) override;
+	virtual void FilterFrame( const AVFrame* Frame, ClassificationResult& Result, cv::Mat& InputFrame, cv::Mat& GrayscaleInputFrame ) override;
 
 	bool FlagToSaveNextFrame() { SaveNextFrame = true; }
 

@@ -25,7 +25,7 @@ ObservingMotionFilter::ObservingMotionFilter( const shared_ptr<MotionChainNode>&
 ObservingMotionFilter::~ObservingMotionFilter()
 {}
 
-void ObservingMotionFilter::FilterFrame( ClassificationResult& Result, cv::Mat& InputFrame, cv::Mat& GrayscaleInputFrame )
+void ObservingMotionFilter::FilterFrame( const AVFrame* Frame, ClassificationResult& Result, cv::Mat& InputFrame, cv::Mat& GrayscaleInputFrame )
 {
 	FrameIndex++;
 
@@ -38,7 +38,7 @@ void ObservingMotionFilter::FilterFrame( ClassificationResult& Result, cv::Mat& 
 		{
 			unsigned int ClassificationSuperset = Result.ClassificationSuperset;
 
-			Next->Filter->FilterFrame( Result, InputFrame, GrayscaleInputFrame );
+			Next->Filter->FilterFrame( Frame, Result, InputFrame, GrayscaleInputFrame );
 
 			if (	(Result.ClassificationSuperset & Next->InclusiveFilter) != 0
 				&&	(Result.ClassificationSuperset & Next->ExclusiveFilter) == 0
