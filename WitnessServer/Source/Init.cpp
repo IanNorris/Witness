@@ -102,6 +102,7 @@ bool WitnessServer::Initialize()
 		//Optional
 		Success &= GetJsonField( JsonVideoConfig, _T("clip_leadin"), Video.ClipHistoryPeriod, Errors );
 		Success &= GetJsonField( JsonVideoConfig, _T("default_background_algorithm"), Video.MotionFilterName, Errors );
+		Success &= GetJsonField( JsonVideoConfig, _T("export_motion_vectors"), Video.ExportMotionVectors, Errors );
 	}
 	else
 	{

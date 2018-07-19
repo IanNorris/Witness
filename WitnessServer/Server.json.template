@@ -25,6 +25,7 @@
 		"default_background_algorithm": "BGS_DPAdaptiveMedian",
 		"data_path": "C:\\Full\\Path\\To\\Data",
 		"face_recognition_cascade_name": "mallick_haarcascade_frontalface_default",
-		"body_recognition_cascade_name": "haarcascade_fullbody"
+		"body_recognition_cascade_name": "haarcascade_fullbody",
+		"export_motion_vectors": 1
 	}
 }

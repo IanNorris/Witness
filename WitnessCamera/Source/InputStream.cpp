@@ -111,7 +111,10 @@ CameraStreamError InputStream::Initialize()
 	
 	//Export motion vectors for use by our motion detection algorithm
 	AVDictionary* CodecOptions = nullptr;
-	av_dict_set( &CodecOptions, "flags2", "+export_mvs", 0 );
+	if( StreamSetup.ExportMotionVectors )
+	{
+		av_dict_set( &CodecOptions, "flags2", "+export_mvs", 0 );
+	}
 
 	Result = avcodec_open2( ID.CodecContext, OutputCodec, &CodecOptions );
 	if( Result < 0 )
@@ -148,6 +151,8 @@ CameraStreamError InputStream::Initialize()
 
 CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter>& Filter, Stream* TargetStream )
 {
+	auto ProcessingStart = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+
 	CameraStreamError InitError = Initialize();
 	if( InitError != CameraStreamError::Success )
 	{
@@ -162,8 +167,12 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 	TimeStarted = std::chrono::high_resolution_clock::now().time_since_epoch().count();
 
 	
+	auto ReadStart = std::chrono::high_resolution_clock::now().time_since_epoch().count();
 
 	int Result = av_read_frame( m_InternalData->FormatContext, &ID.Packet );
+
+	auto ReadEnd = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+
 	IsConnecting = false;
 	if( Result == AVERROR_EOF )
 	{
@@ -176,8 +185,13 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 
 	uint64_t CurrentTime = StreamSetup.GetTimestamp();
 
+	uint64_t OutputStart = 0;
+	uint64_t OutputEnd = 0;
+
 	if( ID.Packet.stream_index == ID.ChosenStreamIndex )
 	{
+		OutputStart = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+
 		OutputStream* Output = dynamic_cast<OutputStream*>(TargetStream);
 
 		if( ID.Packet.flags & AV_PKT_FLAG_KEY )
@@ -257,6 +271,7 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 			}
 		}
 
+		OutputEnd = std::chrono::high_resolution_clock::now().time_since_epoch().count();
 	
 		Result = avcodec_send_packet( m_InternalData->CodecContext, &ID.Packet );
 		if( Result == AVERROR(EAGAIN) )
@@ -327,6 +342,16 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 	}
 
 	av_packet_unref( &ID.Packet );
+
+	auto ProcessingEnd = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+
+	uint64_t ReadDiff = ReadEnd - ReadStart;
+	uint64_t OutputDiff = OutputEnd - OutputStart;
+
+	Stats.FrameCount++;
+	Stats.DecoderTimeTotal += (ProcessingEnd - ProcessingStart) - ReadDiff - OutputDiff;
+	Stats.OutputTimeTotal += OutputDiff;
+	Stats.ReadTimeTotal += ReadDiff;
 
 	return CameraStreamError::Success;
 }

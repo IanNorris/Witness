@@ -157,21 +157,34 @@ void Command_Camera::OnEnumMessage( const GlobalContext& Context, http_request& 
 						Camera[ _T("status") ] = json::value( (*Iter).second.Status );
 						Camera[ _T("recording") ] = json::value( (*Iter).second.IsRecording );
 
-						auto Stats = Context.CommonImageProcessingJobQueue->GetStats( ID );
-						Camera[ _T("lastTimestamp") ] = json::value( Stats.LastTimestamp );
+						auto StreamStats = (*Iter).second.Worker->GetStreamStats();
 
-						if (AsAdmin && Stats.FrameCount > 0)
+						auto ImgStats = Context.CommonImageProcessingJobQueue->GetStats( ID );
+						Camera[ _T("lastTimestamp") ] = json::value( ImgStats.LastTimestamp );
+
+						if (AsAdmin && ImgStats.FrameCount > 0)
 						{
-							double Total = (double)Stats.TotalProcessingTime / ((double)Stats.FrameCount * 1000.0 * 1000.0);
-							double Scale = (double)Stats.ScaleTotalProcessingTime / ((double)Stats.FrameCount * 1000.0 * 1000.0);
-							double MD = (double)Stats.MotionDetectionTotalProcessingTime / ((double)Stats.FrameCount * 1000.0 * 1000.0);
-							double SP = (double)Stats.SecondPassFilterTotalProcessingTime / ((double)Stats.FrameCount * 1000.0 * 1000.0);
+							double Total = (double)ImgStats.TotalProcessingTime / ((double)ImgStats.FrameCount * 1000.0 * 1000.0);
+							double Scale = (double)ImgStats.ScaleTotalProcessingTime / ((double)ImgStats.FrameCount * 1000.0 * 1000.0);
+							double MD = (double)ImgStats.MotionDetectionTotalProcessingTime / ((double)ImgStats.FrameCount * 1000.0 * 1000.0);
+							double SP = (double)ImgStats.SecondPassFilterTotalProcessingTime / ((double)ImgStats.FrameCount * 1000.0 * 1000.0);
 
-							Camera[ _T("frameCount") ] = json::value( Stats.FrameCount );
+							Camera[ _T("frameCount") ] = json::value( ImgStats.FrameCount );
 							Camera[ _T("processingTimeMS") ] = json::value( Total );
 							Camera[ _T("scaleProcessingTimeMS") ] = json::value( Scale );
 							Camera[ _T("motionDetectionProcessingTimeMS") ] = json::value( MD );
 							Camera[ _T("secondPassProcessingTimeMS") ] = json::value( SP );
+						}
+
+						if (AsAdmin && StreamStats.FrameCount > 0)
+						{
+							double Decode = (double)StreamStats.DecoderTimeTotal / ((double)StreamStats.FrameCount * 1000.0 * 1000.0);
+							double Output = (double)StreamStats.OutputTimeTotal / ((double)StreamStats.FrameCount * 1000.0 * 1000.0);
+							double Read = (double)StreamStats.ReadTimeTotal / ((double)StreamStats.FrameCount * 1000.0 * 1000.0);
+
+							Camera[ _T("streamReadTimeMS") ] = json::value( Read );
+							Camera[ _T("streamDecodeTimeMS") ] = json::value( Decode );
+							Camera[ _T("streamOutputTimeMS") ] = json::value( Output );
 						}
 					}
 				}

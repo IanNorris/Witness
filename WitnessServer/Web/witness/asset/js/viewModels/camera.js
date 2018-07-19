@@ -23,6 +23,13 @@ var CameraViewModel = function( witness, id, enabled, name, description, connect
 	self.statScaleProcessingTimeMS = ko.observable(allData.scaleProcessingTimeMS).extend({numeric: 1});
 	self.statMotionDetectionProcessingTimeMS = ko.observable(allData.motionDetectionProcessingTimeMS).extend({numeric: 1});
 	self.statSecondPassProcessingTimeMS = ko.observable(allData.secondPassProcessingTimeMS).extend({numeric: 1});
+	self.statStreamReadTimeMS = ko.observable(allData.streamReadTimeMS).extend({numeric: 1});
+	self.statStreamDecodeTimeMS = ko.observable(allData.streamDecodeTimeMS).extend({numeric: 1});
+	self.statStreamOutputTimeMS = ko.observable(allData.streamOutputTimeMS).extend({numeric: 1});
+	
+	self.statActualTotalMS = ko.computed( function() {
+		return self.statProcessingTimeMS() + self.statStreamDecodeTimeMS() + self.statStreamOutputTimeMS();
+	} );
 	
 	self.isSelectedClip = ko.computed( function() {
 		return self.isSelected() && self.witness.isViewMode(VIEW_MODE_CLIPS);

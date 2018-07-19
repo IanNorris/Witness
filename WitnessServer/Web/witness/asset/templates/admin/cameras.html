@@ -67,7 +67,22 @@
 											
 											<tr>
 												<td>Total </td>
-												<td><span data-bind="text: statProcessingTimeMS"></span>ms</td>
+												<td><span data-bind="text: statActualTotalMS"></span>ms</td>
+											</tr>
+											
+											<tr>
+												<td>Stream Read </td>
+												<td><span data-bind="text: statStreamReadTimeMS"></span>ms</td>
+											</tr>
+											
+											<tr>
+												<td>Decode </td>
+												<td><span data-bind="text: statStreamDecodeTimeMS"></span>ms</td>
+											</tr>
+											
+											<tr>
+												<td>Output </td>
+												<td><span data-bind="text: statStreamOutputTimeMS"></span>ms</td>
 											</tr>
 											
 											<tr>

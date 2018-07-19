@@ -13,6 +13,7 @@ void CameraWorker::CreateInputStream()
 	Setup.MotionDetectFrameHeight = Camera.MDFrameHeight;
 	Setup.MotionDetectThreshold = Camera.MDThreshold;
 	Setup.HistoricalPacketBufferSeconds = Video.ClipHistoryPeriod;
+	Setup.ExportMotionVectors = Video.ExportMotionVectors != 0;
 
 	std::string CamPath = std::string( Camera.Path.begin(), Camera.Path.end() );
 
@@ -41,7 +42,7 @@ void CameraWorker::WorkerInit()
 	SecondPassMotionNode->InclusiveFilter = ClassificationResult::Motion_Motion;
 	SecondPassMotionNode->ExclusiveFilter = 0;*/
 
-	/*auto PersonMotionNode = make_shared<MotionChainNode>();
+	auto PersonMotionNode = make_shared<MotionChainNode>();
 	RootMotionNode->OnSuccess = PersonMotionNode;
 	//SecondPassMotionNode->OnSuccess = PersonMotionNode;
 	PersonMotionNode->Filter = make_shared<PersonRecognitionFilter>(
@@ -50,7 +51,7 @@ void CameraWorker::WorkerInit()
 	);
 	PersonMotionNode->InclusiveFilter = ClassificationResult::Motion_Person;
 	PersonMotionNode->ExclusiveFilter = 0;
-	PersonMotionNode->MinimumThreshold = 0.0f;*/
+	PersonMotionNode->MinimumThreshold = 0.0f;
 
 	Filter = make_shared<ObservingMotionFilter>( RootMotionNode, Camera.ID, MessageBusObject );
 

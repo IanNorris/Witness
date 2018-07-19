@@ -18,6 +18,7 @@ struct VideoSettings
 	, FullBodyCascadeFilter()
 	, FaceCascadeFilter()
 	, ClipHistoryPeriod( 5.0 )
+	, ExportMotionVectors( 1 )
 	{}
 
 	string_t	DataPath;
@@ -25,6 +26,7 @@ struct VideoSettings
 	string_t	FullBodyCascadeFilter;
 	string_t	FaceCascadeFilter;
 	double		ClipHistoryPeriod;
+	int			ExportMotionVectors;
 };
 
 struct CameraSettings
@@ -68,6 +70,19 @@ public:
 	, IsConnected( false )
 	, IsRTSP( false )
 	{}
+
+	InputStream::StreamStats GetStreamStats()
+	{
+		shared_ptr<InputStream> Stream = CameraStream;
+		if( Stream )
+		{
+			return Stream->GetStats();
+		}
+		else
+		{
+			return InputStream::StreamStats();
+		}
+	}
 
 private:
 
