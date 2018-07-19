@@ -1,4 +1,5 @@
 #include "CameraWorker.h"
+#include "MotionVectorFilter.h"
 #include "ObservingMotionFilter.h"
 #include "PersonRecognitionFilter.h"
 
@@ -28,21 +29,28 @@ void CameraWorker::WorkerInit()
 	UpdateLastTimedAction(_T("Creating filters..."));
 
 	auto RootMotionNode = make_shared<MotionChainNode>();
-
-	RootMotionNode->Filter = make_shared<MotionFilter>( std::string( Camera.MotionFilterName.begin(), Camera.MotionFilterName.end() ).c_str() );
-	RootMotionNode->MinimumThreshold = (float)Camera.MDThreshold;
+	RootMotionNode->Filter = make_shared<MotionVectorFilter>();
+	RootMotionNode->MinimumThreshold = 0.0f;
 	RootMotionNode->InclusiveFilter = ClassificationResult::Motion_Motion;
 	RootMotionNode->ExclusiveFilter = 0;
 
-	auto PersonMotionNode = make_shared<MotionChainNode>();
+	/*auto SecondPassMotionNode = make_shared<MotionChainNode>();
+	RootMotionNode->OnSuccess = SecondPassMotionNode;
+	SecondPassMotionNode->Filter = make_shared<MotionFilter>( std::string( Camera.MotionFilterName.begin(), Camera.MotionFilterName.end() ).c_str() );
+	SecondPassMotionNode->MinimumThreshold = (float)Camera.MDThreshold;
+	SecondPassMotionNode->InclusiveFilter = ClassificationResult::Motion_Motion;
+	SecondPassMotionNode->ExclusiveFilter = 0;*/
+
+	/*auto PersonMotionNode = make_shared<MotionChainNode>();
 	RootMotionNode->OnSuccess = PersonMotionNode;
+	//SecondPassMotionNode->OnSuccess = PersonMotionNode;
 	PersonMotionNode->Filter = make_shared<PersonRecognitionFilter>(
 		std::string( Camera.FaceCascadeFilter.begin(), Camera.FaceCascadeFilter.end() ).c_str(),
 		std::string( Camera.FullBodyCascadeFilter.begin(), Camera.FullBodyCascadeFilter.end() ).c_str()
 	);
 	PersonMotionNode->InclusiveFilter = ClassificationResult::Motion_Person;
 	PersonMotionNode->ExclusiveFilter = 0;
-	PersonMotionNode->MinimumThreshold = 0.0f;
+	PersonMotionNode->MinimumThreshold = 0.0f;*/
 
 	Filter = make_shared<ObservingMotionFilter>( RootMotionNode, Camera.ID, MessageBusObject );
 

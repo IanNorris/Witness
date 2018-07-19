@@ -30,6 +30,8 @@ using namespace std;
 #define BUCKET_SHIFT 5
 #define BUCKET_DIMENSION (1 << BUCKET_SHIFT)
 
+constexpr int BucketDistanceSquared = (2 * BUCKET_DIMENSION) * (2 * BUCKET_DIMENSION);
+
 namespace Witness{
 namespace Camera{
 
@@ -41,13 +43,38 @@ struct MotionVectorFilterData : public FilterDataBase
 		int y;
 	};
 
+	struct TrackedObject
+	{
+		cv::Rect Region;
+		int FramesSinceLastSeen;
+		int FramesTracked;
+	};
+
 	vector<Pair> Buckets;
+
+	vector<Point2i> Points;
+	vector<int> Labels;
+	vector<Point2i> CurrentCluster;
+
+	vector<TrackedObject> Objects;
 
 	int MVSinceKF;
 	int Frames;
 };
 
 PIMPL_CONSTRUCT(MotionVectorFilterData)
+
+struct EquivalentPoint {
+	bool operator()(const Point2i& a, const Point2i& b)
+	{
+		int DiffX = a.x - b.x;
+		int DiffY = a.y - b.y;
+
+		int DistanceSquared = (DiffX*DiffX) + (DiffY+DiffY);
+		
+		return (DistanceSquared <= BucketDistanceSquared);
+	}
+};
 
 MotionVectorFilter::MotionVectorFilter()
 {
@@ -94,6 +121,9 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 	const unsigned int WidthBucketWidth = GetNextPowerOfTwo( Frame->width / BUCKET_DIMENSION );
 	const unsigned int HeightBucketHeight = GetNextPowerOfTwo( Frame->height / BUCKET_DIMENSION );
 
+	const unsigned int HalfBucketWidth = WidthBucketWidth >> 2;
+	const unsigned int HalfBucketHeight = HeightBucketHeight >> 2;
+
 	const int BucketCount = WidthBucketWidth * HeightBucketHeight;
 
 	const unsigned int WidthShift = GetLog2FromPowerOfTwo(WidthBucketWidth);
@@ -122,19 +152,19 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 
 	unsigned int UsableMotionVectors = 0;
 
-	for (unsigned int i = 0; i < MotionVectors; i++)
+	for (unsigned int i = 0; i < MotionVectors; i+=8)
 	{
 		const AVMotionVector& MV = MVData[i];
 		
-		unsigned int DstBucketX = MIN( MAX(MV.dst_x,0) >> BUCKET_SHIFT, WidthBucketWidth-1);
-		unsigned int DstBucketY = MIN( MAX(MV.dst_y,0) >> BUCKET_SHIFT, HeightBucketHeight-1);
+		unsigned int DstBucketX = (unsigned int)MIN( MAX(MV.dst_x,0) >> BUCKET_SHIFT, WidthBucketWidth-1);
+		unsigned int DstBucketY = (unsigned int)MIN( MAX(MV.dst_y,0) >> BUCKET_SHIFT, HeightBucketHeight-1);
 
 		int DeltaX = MV.dst_x - MV.src_x;
 		int DeltaY = MV.dst_y - MV.src_y;
 
 		int Score = DeltaX * DeltaX + DeltaY * DeltaY;
 
-		//const int ScoreAgainst =  15;
+		//const int ScoreAgainst =  9;
 		//int Score = DeltaX * DeltaX + DeltaY * DeltaY;
 		//if (Score > ScoreAgainst * ScoreAgainst)
 		{
@@ -144,10 +174,15 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 		}		
 	}
 
-	const int RefValue = 8 * BUCKET_DIMENSION;
+	const int RefValue = 5 * BUCKET_DIMENSION;
 
 	float ScaleX = (float)InputFrame.cols / (float)Frame->width;
 	float ScaleY = (float)InputFrame.rows / (float)Frame->height;
+
+	const bool DrawClusters = false;
+
+	ID.Points.clear();
+	ID.Labels.clear();
 
 	for( unsigned int x = 0; x < WidthBucketWidth; x++ )
 	{
@@ -155,19 +190,144 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 		{
 			auto& Ref = ID.Buckets[BUCKET_INDEX(x, y)];
 
-			if( abs(Ref.x) >= RefValue || abs(Ref.y) >= RefValue )
+			if( abs(Ref.x) + abs(Ref.y) >= RefValue )
 			{
-				cv::Rect Src;
-				Src.x = (int)((float)(x << BUCKET_SHIFT) * ScaleX);
-				Src.y = (int)((float)(y << BUCKET_SHIFT) * ScaleY);
-				Src.width = (int)(BUCKET_DIMENSION * ScaleX);
-				Src.height = (int)(BUCKET_DIMENSION * ScaleY);
+				if( DrawClusters )
+				{
+					cv::Rect Src;
+					Src.x = (int)((float)(x << BUCKET_SHIFT) * ScaleX);
+					Src.y = (int)((float)(y << BUCKET_SHIFT) * ScaleY);
+					Src.width = (int)(BUCKET_DIMENSION * ScaleX);
+					Src.height = (int)(BUCKET_DIMENSION * ScaleY);
 
-				cv::rectangle( InputFrame, Src, cv::Scalar(255.0,255.0,0), CV_FILLED );
+					cv::rectangle( InputFrame, Src, cv::Scalar(255.0,255.0,0), CV_FILLED );
+				}
+
+				ID.Points.push_back( Point2i( (x << BUCKET_SHIFT) + HalfBucketWidth, (y << BUCKET_SHIFT) + HalfBucketHeight ) );
 			}
 
 			Ref.x = 0;
 			Ref.y = 0;
+		}
+	}
+
+	int MaxLabel = -1;
+
+	const int MinTrackingFrames = 5;
+
+	for (auto Iter = ID.Objects.begin(); Iter != ID.Objects.end(); ++Iter )
+	{
+		(*Iter).FramesSinceLastSeen++;
+	}
+
+	if( !ID.Points.empty() )
+	{
+		int Compactness = cv::partition<Point2i,EquivalentPoint>( ID.Points, ID.Labels );
+
+		
+		int CurrentClusterIndex = 0;
+		int ActualCluters = 0;
+		int TrackedClusters = 0;
+
+		const int MinPoints = 5;
+		do
+		{
+			int Points = 0;
+
+			MaxLabel = -1;
+			ID.CurrentCluster.clear();
+
+			for (int i = 0; i < ID.Points.size(); i++)
+			{
+				if (ID.Labels[i] == CurrentClusterIndex)
+				{
+					ID.CurrentCluster.push_back(ID.Points[i]);
+					Points++;
+				}
+
+				if (ID.Labels[i] > MaxLabel)
+				{
+					MaxLabel = ID.Labels[i];
+				}
+
+			}
+
+			if( Points >= MinPoints && Compactness < 3)
+			{
+				cv::Rect Bounds = cv::boundingRect(ID.CurrentCluster);
+
+				bool Found = false;
+				for (auto& Object : ID.Objects)
+				{
+					cv::Rect IntersectedRect = Object.Region & Bounds;
+					if (IntersectedRect.area() > MIN(Bounds.area(), Object.Region.area()) >> 1)
+					{
+						Object.Region = Bounds;
+						Object.FramesSinceLastSeen = 0;
+						Object.FramesTracked++;
+						Found = true;
+
+						if (Object.FramesTracked > MinTrackingFrames)
+						{
+							TrackedClusters++;
+						}
+
+						break;
+					}
+				}
+
+				if (!Found)
+				{
+					MotionVectorFilterData::TrackedObject Obj;
+					Obj.Region = Bounds;
+					Obj.FramesSinceLastSeen = 0;
+					Obj.FramesTracked = 1;
+
+					ID.Objects.push_back( Obj );
+				}
+
+				if( DrawClusters )
+				{
+					cv::Rect DrawBounds = Bounds;
+					DrawBounds.x = (int)((float)Bounds.x * ScaleX);
+					DrawBounds.y = (int)((float)Bounds.y * ScaleY);
+					DrawBounds.width = (int)((float)Bounds.width * ScaleX);
+					DrawBounds.height = (int)((float)Bounds.height * ScaleY);
+					cv::rectangle( InputFrame, DrawBounds, cv::Scalar(0,0,255.0), 2 );
+				}
+
+				ActualCluters++;
+			}
+		}
+		while( MaxLabel > CurrentClusterIndex++ );
+
+
+		if( DrawClusters )
+		{
+			char Buffer[128];
+			sprintf_s( Buffer, "C=%02d, L=%02d, A=%02d, T=%02d", Compactness, MaxLabel, ActualCluters, TrackedClusters );
+
+			cv::putText( InputFrame, Buffer, Point(25,75), FONT_HERSHEY_PLAIN, 3.0, Scalar(255,0,255), 3 );
+		}
+
+		if (TrackedClusters > 0)
+		{
+			Result.ClassificationSuperset |= ClassificationResult::Motion_Motion;
+		}
+	}
+
+	const int LostTrackFrames = 10;
+
+	for (auto Iter = ID.Objects.begin(); Iter != ID.Objects.end(); )
+	{
+		bool Delete = (*Iter).FramesSinceLastSeen >= LostTrackFrames;
+		if (Delete)
+		{
+			Iter = ID.Objects.erase(Iter);
+		}
+		else
+		{
+			++Iter;
 		}
 	}
 

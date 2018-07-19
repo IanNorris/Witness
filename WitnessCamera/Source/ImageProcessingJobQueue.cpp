@@ -9,6 +9,8 @@
 
 #include <minmax.h>
 
+#include <windows.h> //MemorryBarrier
+
 namespace Witness{
 namespace Camera{
 
@@ -241,13 +243,14 @@ void ImageProcessingJobQueue::WorkerThreadMain()
 
 		sws_scale( State->ConversionContext, Job->Frame->GetFrame()->data, Job->Frame->GetFrame()->linesize, 0, Job->Frame->GetHeight(), Output->GetFrame()->data, Output->GetFrame()->linesize );
 
-		auto AfterScale = std::chrono::high_resolution_clock::now();
-
 		cv::Mat MotionFrame( cv::Size( OutputWidth, OutputHeight ), CV_8UC3, Output->GetFrame()->data[0] );
 		cv::Mat MotionFrameGray;
 
 	    cvtColor( MotionFrame, MotionFrameGray, CV_RGB2GRAY );
 
+		MemoryBarrier();
+
+		auto AfterScale = std::chrono::high_resolution_clock::now();
 
 		ClassificationResult FilterResult;
 		Job->Filter->FilterFrame( Job->Frame->GetFrame(), FilterResult, MotionFrame, MotionFrameGray );
