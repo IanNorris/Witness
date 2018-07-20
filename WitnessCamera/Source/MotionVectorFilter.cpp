@@ -174,7 +174,7 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 		}		
 	}
 
-	const int RefValue = 5 * BUCKET_DIMENSION;
+	const int RefValue = 4 * BUCKET_DIMENSION;
 
 	float ScaleX = (float)InputFrame.cols / (float)Frame->width;
 	float ScaleY = (float)InputFrame.rows / (float)Frame->height;
@@ -213,7 +213,7 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 
 	int MaxLabel = -1;
 
-	const int MinTrackingFrames = 5;
+	const int MinTrackingFrames = 3;
 
 	for (auto Iter = ID.Objects.begin(); Iter != ID.Objects.end(); ++Iter )
 	{
@@ -229,7 +229,7 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 		int ActualCluters = 0;
 		int TrackedClusters = 0;
 
-		const int MinPoints = 5;
+		const int MinPoints = 3;
 		do
 		{
 			int Points = 0;
