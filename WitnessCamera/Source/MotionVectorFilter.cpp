@@ -134,7 +134,7 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 		ID.Buckets.resize( BucketCount );
 	}
 
-#define BUCKET_INDEX(x,y) ((HeightBucketHeight * y) + x)
+#define BUCKET_INDEX(x,y) ((WidthBucketWidth * y) + x)
 
 	AVFrameSideData* SideData = av_frame_get_side_data( Frame, AV_FRAME_DATA_MOTION_VECTORS );
 	if (!SideData)
@@ -156,14 +156,12 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 	{
 		const AVMotionVector& MV = MVData[i];
 		
-		unsigned int DstBucketX = (unsigned int)MIN( MAX(MV.dst_x,0) >> BUCKET_SHIFT, WidthBucketWidth-1);
-		unsigned int DstBucketY = (unsigned int)MIN( MAX(MV.dst_y,0) >> BUCKET_SHIFT, HeightBucketHeight-1);
+		unsigned int DstBucketX = (unsigned int)MIN( MAX((unsigned int)MV.dst_x,0) >> BUCKET_SHIFT, WidthBucketWidth-1);
+		unsigned int DstBucketY = (unsigned int)MIN( MAX((unsigned int)MV.dst_y,0) >> BUCKET_SHIFT, HeightBucketHeight-1);
 
-		int DeltaX = MV.dst_x - MV.src_x;
-		int DeltaY = MV.dst_y - MV.src_y;
-
-		int Score = DeltaX * DeltaX + DeltaY * DeltaY;
-
+		//int DeltaX = MV.dst_x - MV.src_x;
+		//int DeltaY = MV.dst_y - MV.src_y;
+		//int Score = DeltaX * DeltaX + DeltaY * DeltaY;
 		//const int ScoreAgainst =  9;
 		//int Score = DeltaX * DeltaX + DeltaY * DeltaY;
 		//if (Score > ScoreAgainst * ScoreAgainst)
@@ -174,7 +172,7 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 		}		
 	}
 
-	const int RefValue = 4 * BUCKET_DIMENSION;
+	const int RefValue = 5 * BUCKET_DIMENSION;
 
 	float ScaleX = (float)InputFrame.cols / (float)Frame->width;
 	float ScaleY = (float)InputFrame.rows / (float)Frame->height;
@@ -184,11 +182,12 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 	ID.Points.clear();
 	ID.Labels.clear();
 
-	for( unsigned int x = 0; x < WidthBucketWidth; x++ )
+	for( unsigned int y = 0; y < HeightBucketHeight; y++ )
 	{
-		for( unsigned int y = 0; y < HeightBucketHeight; y++ )
+		const int BucketBase = WidthBucketWidth * y;
+		for( unsigned int x = 0; x < WidthBucketWidth; x++ )
 		{
-			auto& Ref = ID.Buckets[BUCKET_INDEX(x, y)];
+			auto& Ref = ID.Buckets[BucketBase+x];
 
 			if( abs(Ref.x) + abs(Ref.y) >= RefValue )
 			{
@@ -203,7 +202,7 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 					cv::rectangle( InputFrame, Src, cv::Scalar(255.0,255.0,0), CV_FILLED );
 				}
 
-				ID.Points.push_back( Point2i( (x << BUCKET_SHIFT) + HalfBucketWidth, (y << BUCKET_SHIFT) + HalfBucketHeight ) );
+				ID.Points.push_back( Point2i( x << BUCKET_SHIFT, y << BUCKET_SHIFT ) );
 			}
 
 			Ref.x = 0;
@@ -214,17 +213,20 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 	int MaxLabel = -1;
 
 	const int MinTrackingFrames = 3;
+	const int MaxCompactness = 3;
 
 	for (auto Iter = ID.Objects.begin(); Iter != ID.Objects.end(); ++Iter )
 	{
 		(*Iter).FramesSinceLastSeen++;
 	}
 
+	int TotalArea = 0;
+	int ComparisonArea = WidthBucketWidth * BUCKET_DIMENSION * HeightBucketHeight * BUCKET_DIMENSION;
+
 	if( !ID.Points.empty() )
 	{
 		int Compactness = cv::partition<Point2i,EquivalentPoint>( ID.Points, ID.Labels );
-
-		
+				
 		int CurrentClusterIndex = 0;
 		int ActualCluters = 0;
 		int TrackedClusters = 0;
@@ -252,7 +254,7 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 
 			}
 
-			if( Points >= MinPoints && Compactness < 3)
+			if( Points >= MinPoints && Compactness < MaxCompactness)
 			{
 				cv::Rect Bounds = cv::boundingRect(ID.CurrentCluster);
 
@@ -269,6 +271,8 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 
 						if (Object.FramesTracked > MinTrackingFrames)
 						{
+							TotalArea += Object.Region.area();
+
 							TrackedClusters++;
 						}
 
@@ -305,14 +309,9 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 		if( DrawClusters )
 		{
 			char Buffer[128];
-			sprintf_s( Buffer, "C=%02d, L=%02d, A=%02d, T=%02d", Compactness, MaxLabel, ActualCluters, TrackedClusters );
+			sprintf_s( Buffer, "C=%02d,L=%02d,A=%02d,T=%02d", Compactness, MaxLabel, ActualCluters, TrackedClusters );
 
-			cv::putText( InputFrame, Buffer, Point(25,75), FONT_HERSHEY_PLAIN, 3.0, Scalar(255,0,255), 3 );
-		}
-
-		if (TrackedClusters > 0)
-		{
-			Result.ClassificationSuperset |= ClassificationResult::Motion_Motion;
+			cv::putText( InputFrame, Buffer, Point(25,75), FONT_HERSHEY_PLAIN, 2.5, Scalar(255,0,255), 3 );
 		}
 	}
 
@@ -331,15 +330,14 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 		}
 	}
 
+	if (TotalArea > 0)
+	{
+		Result.ClassificationSuperset |= ClassificationResult::Motion_Motion;
+		Result.MotionAmount = (float)TotalArea/(float)ComparisonArea;
+	}
+
 	ID.MVSinceKF += UsableMotionVectors;
 	ID.Frames++;
-
-	if (ID.Frames == 25)
-	{
-		//printf( "%d MV per second\n", ID.MVSinceKF );
-		ID.Frames = 0;
-		ID.MVSinceKF = 0;
-	}
 }
 
 }}
