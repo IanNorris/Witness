@@ -31,7 +31,7 @@ void CameraWorker::WorkerInit()
 
 	auto RootMotionNode = make_shared<MotionChainNode>();
 	RootMotionNode->Filter = make_shared<MotionVectorFilter>();
-	RootMotionNode->MinimumThreshold = 0.0f;
+	RootMotionNode->MinimumThreshold = (float)Camera.MDThreshold;
 	RootMotionNode->InclusiveFilter = ClassificationResult::Motion_Motion;
 	RootMotionNode->ExclusiveFilter = 0;
 
