@@ -26,4 +26,6 @@ public:
 	Witness::Camera::ImageProcessingJobQueue* CommonImageProcessingJobQueue;
 
 	shared_ptr<MessageBus> MessageBus;
+
+	uint16_t Port;
 };

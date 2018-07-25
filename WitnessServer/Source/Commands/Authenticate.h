@@ -18,7 +18,9 @@ public:
 		Administrator
 	};
 
-	static string_t GetSessionToken( const http_request& Message );
+	Command_Authenticate( uint16_t Port ) : Port( Port ) {}
+
+	static string_t GetSessionToken( const http_request& Message, uint16_t PortIn );
 
 	static bool IsAuthenticated( const GlobalContext& Context, http_request& Message, const json::value& Packet, Action ActionType, Privilege RequiredPrivilege );
 
@@ -30,6 +32,11 @@ public:
 	void OnEnumUsersMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost );
 	void OnNewUserMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost );
 	void OnChangePasswordMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost );
+
+private:
+
+	uint16_t Port;
+
 };
 
 string_t GetRandomToken();

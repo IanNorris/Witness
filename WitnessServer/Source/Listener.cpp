@@ -10,6 +10,7 @@
 WitnessListener::WitnessListener( utility::string_t Hostname, int Port, bool Secure )
 {
 	m_GlobalContext = make_unique<GlobalContext>();
+	m_GlobalContext->Port = Port;
 
 	web::http::experimental::listener::http_listener_config Config;
 
@@ -40,7 +41,7 @@ WitnessListener::~WitnessListener()
 
 void WitnessListener::Initialise(json::object& Config)
 {
-	m_Commands[U("auth")] = make_unique<Command_Authenticate>();
+	m_Commands[U("auth")] = make_unique<Command_Authenticate>( m_GlobalContext->Port );
 	m_Commands[U("static")] = make_unique<Command_Static>( Config );
 	m_Commands[U("camera")] = make_unique<Command_Camera>();
 	m_Commands[U("clip")] = make_unique<Command_Clip>();

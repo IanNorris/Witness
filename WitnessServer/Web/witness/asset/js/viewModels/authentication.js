@@ -7,7 +7,7 @@ var AuthenticationViewModel = function( parent ) {
 	
 	self.ready = ko.observable(false);
 	
-	self.sessionToken = getCookie('SessionToken');
+	self.sessionToken = getCookie('SessionToken-'+location.port);
 	self.csrfToken = ko.observable('');
 	self.username = ko.observable('');
 	self.admin = ko.observable(false);

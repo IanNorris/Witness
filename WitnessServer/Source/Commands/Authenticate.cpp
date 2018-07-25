@@ -7,6 +7,7 @@
 #include "sodium.h"
 
 #include <iostream>
+#include <iomanip>
 #include <chrono>
 
 #define CURRENT_HASH_METHOD 0
@@ -275,6 +276,10 @@ void Command_Authenticate::OnLoginMessage( const GlobalContext& Context, http_re
 		auto Now = chrono::system_clock::now().time_since_epoch();
 		auto UTCTimeNow = chrono::duration_cast<std::chrono::seconds>(Now).count();
 
+
+		auto ExpiryTime = chrono::system_clock::now(); // +2 Months + 1 day (to account for timezones)
+		ExpiryTime += chrono::seconds(60*60*24*((30*2)+1));
+
 		SQLiteDatabaseQueryInstance CreateSession( Context.Database, _T("CreateSession") );
 		CreateSession->Bind( "@SessionToken", SessionToken.c_str() );
 		CreateSession->Bind( "@CSRFToken", CSRFToken.c_str() );
@@ -285,7 +290,12 @@ void Command_Authenticate::OnLoginMessage( const GlobalContext& Context, http_re
 		
 		http_response Response;
 		Response.set_status_code( status_codes::OK );
-		Response.headers().add( _T("Set-Cookie"), _T("SessionToken=") + SessionToken + _T("; HttpOnly; Path=/") );
+
+		string_t PortName = to_wstring(Port);
+		string_t SessionTokenValue = _T("SessionToken-") + PortName;
+
+		string_t MaxAge = to_wstring(60*60*24*30*2); // +2 Months
+		Response.headers().add( _T("Set-Cookie"), SessionTokenValue + _T("=") + SessionToken + _T("; HttpOnly; Path=/; max-age=") + MaxAge + _T(";") );
 
 		json::value ResponseBody;
 
@@ -304,7 +314,7 @@ void Command_Authenticate::OnLogoutMessage( const GlobalContext& Context, http_r
 		return;
 	}
 
-	string_t SessionToken = GetSessionToken( Message );
+	string_t SessionToken = GetSessionToken( Message, Port );
 
 	SQLiteDatabaseQueryInstance DeleteSession( Context.Database, _T("DeleteSession") );
 	DeleteSession->Bind( "@SessionToken", SessionToken.c_str() );
@@ -314,7 +324,11 @@ void Command_Authenticate::OnLogoutMessage( const GlobalContext& Context, http_r
 
 	http_response Response;
 	Response.set_status_code( status_codes::OK );
-	Response.headers().add( _T("Set-Cookie"), _T("SessionToken=; Max-Age=0") );
+
+	string_t PortName = to_wstring(Port);
+	string_t SessionTokenValue = _T("SessionToken-") + PortName + _T("=; Max-Age=0");
+
+	Response.headers().add( _T("Set-Cookie"), SessionTokenValue );
 
 	json::value ResponseBody;
 
@@ -329,7 +343,7 @@ void Command_Authenticate::OnGetProfileMessage( const GlobalContext& Context, ht
 
 	auto Packet = Message.extract_json().get();
 
-	string_t SessionToken = GetSessionToken( Message );
+	string_t SessionToken = GetSessionToken( Message, Port );
 
 	string_t Username;
 	string_t CSRFToken;
@@ -387,9 +401,12 @@ void Command_Authenticate::OnGetProfileMessage( const GlobalContext& Context, ht
 	}
 	else
 	{
+		string_t PortName = to_wstring(Port);
+		string_t SessionTokenValue = _T("SessionToken-") + PortName + _T("=; Max-Age=0");
+
 		http_response Response;
 		Response.set_status_code( status_codes::Unauthorized );
-		Response.headers().add( _T("Set-Cookie"), _T("SessionToken=; Max-Age=0") );
+		Response.headers().add( _T("Set-Cookie"), SessionTokenValue );
 
 		json::value ResponseBody;
 
@@ -399,8 +416,11 @@ void Command_Authenticate::OnGetProfileMessage( const GlobalContext& Context, ht
 	}
 }
 
-string_t Command_Authenticate::GetSessionToken( const http_request& Message )
+string_t Command_Authenticate::GetSessionToken( const http_request& Message, uint16_t PortIn )
 {
+	string_t PortName = to_wstring(PortIn);
+	string_t SessionTokenName = _T("SessionToken-") + PortName;
+
 	string_t SessionToken;
 	const http_headers& Headers = Message.headers();
 	
@@ -415,7 +435,7 @@ string_t Command_Authenticate::GetSessionToken( const http_request& Message )
 				string_t Left = Trim(TokenSplit[0]);
 				string_t Right = Trim(TokenSplit[1]);
 
-				if( Left.compare(_T("SessionToken")) == 0 )
+				if( Left.compare(SessionTokenName.c_str()) == 0 )
 				{
 					SessionToken = Right;
 				}
@@ -436,7 +456,7 @@ bool Command_Authenticate::IsAuthenticated( const GlobalContext& Context, http_r
 
 	Success &= GetJsonField( Packet, _T("csrf"), CSRF, Errors );
 
-	string_t SessionToken = GetSessionToken( Message );
+	string_t SessionToken = GetSessionToken( Message, Context.Port );
 	string_t Username;
 
 	{
