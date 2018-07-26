@@ -201,6 +201,8 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 
 		if( Output && !ID.KeyframeStates.empty() )
 		{
+			int WrittenFrames = 0;
+
 			size_t PacketBase = 0;
 			for( auto& Keyframe : ID.KeyframeStates )
 			{
@@ -215,6 +217,8 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 
 						//printf( "BL DTS=%" PRId64 ", PTS=%" PRId64 ", Dur=%" PRId64 "\n", Packet.dts, Packet.pts, Packet.duration );
 
+						WrittenFrames++;
+
 						CameraStreamError WriteError = Output->WriteInterleavedPacket( &Packet );
 						if( WriteError != CameraStreamError::Success )
 						{
@@ -224,6 +228,11 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 				}
 
 				PacketBase += Keyframe.PacketCount;
+			}
+
+			if (WrittenFrames > 0)
+			{
+				printf("Source %d: Flushing %d frames.\n", UniqueSourceID, WrittenFrames );
 			}
 		}
 

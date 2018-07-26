@@ -71,7 +71,9 @@ void WitnessServer::MessageLoop()
 			{
 				if( Data.Record )
 				{
-					StartCameraRecording( Worker, Data.Camera, true );
+				    uint64_t Timestamp = datetime::utc_timestamp();
+
+					StartCameraRecording( Worker, Timestamp, Data.Camera, true );
 				}
 				else
 				{

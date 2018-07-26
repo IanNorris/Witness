@@ -23,7 +23,7 @@ void WitnessServer::HandleCameraBeginMotionMessage(const CameraBeginMotionMessag
 
 			if( Data.Jpeg.size() )
 			{
-				CameraState.ClipThumbnails[ Data.Timestamp ] = Data.Jpeg;
+				CameraState.ClipThumbnails[ Data.ClipStats.TimestampClipStarted ] = Data.Jpeg;
 			}
 			else
 			{
@@ -51,11 +51,11 @@ void WitnessServer::HandleCameraBeginMotionMessage(const CameraBeginMotionMessag
 	StatusMessage( Data.Camera, _T(""), Message.str() );
 
     stringstream_t ThumbPath;
-    ThumbPath << Server->GetBaseUri() << _T("clip/thumb/") << Data.Camera << _T("/") << Data.Timestamp;
+    ThumbPath << Server->GetBaseUri() << _T("clip/thumb/") << Data.Camera << _T("/") << Data.ClipStats.TimestampClipStarted;
 						
 	SendAndroidNotification( Android.ServerKey, Android.TempUserId, _T("Camera info"), CameraName, ThumbPath.str(), nullptr );
 						
-	StartCameraRecording( Worker, Data.Camera, false );
+	StartCameraRecording( Worker, Data.ClipStats.TimestampClipStarted, Data.Camera, false );
 };
 
 void WitnessServer::HandleCameraUpdateMotionMessage(const CameraUpdateMotionMessage& Data)

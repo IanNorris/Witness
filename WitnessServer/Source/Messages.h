@@ -39,10 +39,11 @@ struct CameraSnapshotMessage : public Message
 
 struct CameraBeginMotionMessage : public Message
 {
-	CameraBeginMotionMessage( int CamIndex ) : MotionPercentage( 0.0 ), Timestamp(0), Camera( CamIndex ) {}
+	CameraBeginMotionMessage( int CamIndex ) : MotionPercentage( 0.0 ), Camera( CamIndex ) {}
+
+	ClipStatistics ClipStats;
 
 	double MotionPercentage;
-	uint64_t Timestamp;
 	int Camera;
 
 	vector<unsigned char> Jpeg;

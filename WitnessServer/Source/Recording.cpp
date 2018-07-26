@@ -9,10 +9,8 @@
 
 #include <windows.h>
 
-void WitnessServer::StartCameraRecording( const shared_ptr<CameraWorker>& Worker, int CameraID, bool IsManual )
+void WitnessServer::StartCameraRecording( const shared_ptr<CameraWorker>& Worker, uint64_t Timestamp, int CameraID, bool IsManual )
 {
-	int64_t Timestamp = datetime::utc_timestamp();
-
 	CreateDirectoryW( CachePath.c_str(), nullptr );
 	stringstream_t TargetFilename;
 	TargetFilename << CachePath << _T("\\") << CameraID << (IsManual ? _T("_Manual_") : _T("_Auto_")) << Timestamp << ".mp4";
@@ -25,7 +23,7 @@ void WitnessServer::StartCameraRecording( const shared_ptr<CameraWorker>& Worker
 	}
 
 	SQLiteDatabaseQueryInstance CreateClip( Context->Database, _T("CreateClip") );
-	CreateClip->Bind( "@Timestamp", Timestamp );
+	CreateClip->Bind( "@Timestamp", (int64_t)Timestamp );
 	CreateClip->Bind( "@Camera", CameraID );
 	CreateClip->Bind( "@ActiveDuration", 0 );
 	CreateClip->Bind( "@Duration", 0 );

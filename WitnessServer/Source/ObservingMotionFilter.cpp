@@ -69,11 +69,13 @@ void ObservingMotionFilter::FilterFrame( const AVFrame* Frame, ClassificationRes
 
 			auto MotionMessage = make_shared<CameraBeginMotionMessage>( CameraID );
 
-			ClipStats.TimestampClipStarted = MotionMessage->Timestamp = ClipStats.TimestampClipStarted > 0 ? min( ClipStats.TimestampClipStarted, TimestampNow ) : TimestampNow;
+			ClipStats.TimestampClipStarted = TimestampNow;
 			ClipStats.TimestampMotionStarted = TimestampNow;
 			ClipStats.TimestampMotionEnded = INT64_MIN;
 			ClipStats.TimestampClipEnded = INT64_MIN;
 			ClipStats.LargestMotionDelta = MotionMessage->MotionPercentage = Result.MotionAmount;
+
+			MotionMessage->ClipStats = ClipStats;
 			
 			float Aspect = (float)InputFrame.cols / (float)InputFrame.rows;
 
