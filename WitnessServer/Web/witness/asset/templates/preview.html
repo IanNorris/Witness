@@ -1,8 +1,13 @@
 <div class="panel-body">
 	<div class="col-md-12 col-sm-12">
-		<h3 class="animated fadeInLeft">Cameras</h3>
+		<h3 class="animated fadeInLeft">Cameras (
+            <button class="btn btn-circle btn-mn btn-primary" data-bind="click:increaseScale"><i class="fa fa-plus"></i></button>
+            <span data-bind="text: cameraPreviewScale"></span><span>%</span>
+            <button class="btn btn-circle btn-mn btn-primary" data-bind="click:decreaseScale"><i class="fa fa-minus"></i></button>
+        )
+        </h3>
 		<div data-bind="foreach: cameras">
-			<img class="CameraPreview" data-bind="attr: { src: previewPath }, css: { 'CameraPreviewRec': isRecording }, click: toggleRecording" />
+			<img class="CameraPreview" data-bind="attr: { src: previewPath }, css: { 'CameraPreviewRec': isRecording }, click: toggleRecording, style: { 'width': witness.cameraPreviewScale() + '%' }" />
 		</div>
 	</div>
 	

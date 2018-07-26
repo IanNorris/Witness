@@ -29,7 +29,17 @@ var WitnessViewModel = function() {
 	self.cameraListReceived = ko.observable(false);
 	self.cameras = ko.observableArray([]);
 	self.cameras.extend({ rateLimit: 50 });
-	self.focusedCamera = ko.observable(null);
+    self.focusedCamera = ko.observable(null);
+
+    self.cameraPreviewScale = ko.observable(15);
+
+    self.increaseScale = function () {
+        self.cameraPreviewScale( Math.min( self.cameraPreviewScale() + 5, 100 ) );
+    }
+
+    self.decreaseScale = function () {
+        self.cameraPreviewScale( Math.max( self.cameraPreviewScale() - 5, 5) );
+    }
 	
 	self.viewMode = ko.observable(VIEW_MODE_NONE);
 	self.isViewMode = function(modeToCheck) { return self.viewMode() == modeToCheck; }

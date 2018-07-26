@@ -6537,11 +6537,6 @@ ul li a:focus {
 	height: 100px;
 }
 
-.CameraPreview {
-	width: 15%;
-	height: 15%;
-}
-
 .CameraPreviewRec {
 	border: 3px solid red;
 }
