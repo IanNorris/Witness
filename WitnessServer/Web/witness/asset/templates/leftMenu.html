@@ -17,13 +17,19 @@
 		</li>
 		<li class="ripple" data-bind="css: { active: isViewMode(VIEW_MODE_CLIPS) }">
 			<a class="tree-toggle nav-header">
-				<span class="fa-video fa"></span> Recorded clips
+				<span class="fa-archive fa"></span> Recorded clips
 				<span class="fa-angle-right fa right-arrow text-right"></span>
 			</a>
-			<ul class="nav nav-list tree" data-bind="foreach: cameras">
-				<li data-bind="css: { active: isSelectedClip }, click: selectCameraClips">
-					<a class="clickable" data-bind="text: name, attr: { name: clipName }"></a>
+			<ul class="nav nav-list tree">
+				<li data-bind="css: { active: isSelectedAllClips }, click: selectAllCameraClips">
+					<a class="clickable" name="Clip_All">All</a>
 				</li>
+
+				<!-- ko foreach: cameras -->
+					<li data-bind="css: { active: isSelectedClip }, click: selectCameraClips">
+						<a class="clickable" data-bind="text: name, attr: { name: clipName }"></a>
+					</li>
+				<!-- /ko -->
 			</ul>
 		</li>
 	</ul>

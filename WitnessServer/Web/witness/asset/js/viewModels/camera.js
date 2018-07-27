@@ -13,7 +13,7 @@ var CameraViewModel = function( witness, id, enabled, name, description, connect
 	self.previewPath = ko.observable('');
 	self.connectionString = ko.observable(connectionString);
 	self.status = ko.observable(status);
-	self.isSelected = ko.observable(id == 0);
+	self.isSelected = ko.observable(false);
 	self.isRecording = ko.observable(cameraRecording);
 	self.groups = ko.observableArray(groups);
 	
@@ -62,6 +62,7 @@ var CameraViewModel = function( witness, id, enabled, name, description, connect
 			cameras[c].isSelected(false);
 		}
 		self.isSelected(true);
+		self.witness.allClipsSelected(false);
 		return self.id;
 	};
 	

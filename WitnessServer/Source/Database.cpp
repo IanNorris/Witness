@@ -181,11 +181,29 @@ namespace Database
 		;
 	)RAW";
 
+	string_t CountClipsWithinRangeAll = LR"RAW(
+		SELECT COUNT(Timestamp) FROM Clip
+		WHERE
+				Timestamp >= @TimestampFrom
+			AND Timestamp <= @TimestampTo
+		;
+	)RAW";
+
 	string_t SelectClipsWithinRange = LR"RAW(
 		SELECT * FROM Clip
 		WHERE
 				Camera == @CameraID
 			AND	Timestamp >= @TimestampFrom
+			AND Timestamp <= @TimestampTo
+		ORDER BY Timestamp DESC
+		LIMIT @MaxCount OFFSET @PageOffset
+		;
+	)RAW";
+
+	string_t SelectClipsWithinRangeAll = LR"RAW(
+		SELECT * FROM Clip
+		WHERE
+				Timestamp >= @TimestampFrom
 			AND Timestamp <= @TimestampTo
 		ORDER BY Timestamp DESC
 		LIMIT @MaxCount OFFSET @PageOffset
@@ -261,7 +279,9 @@ namespace Database
 		CREATE_QUERY( UpdateClip );
 		CREATE_QUERY( SelectClip );
 		CREATE_QUERY( CountClipsWithinRange );
+		CREATE_QUERY( CountClipsWithinRangeAll );
 		CREATE_QUERY( SelectClipsWithinRange );
+		CREATE_QUERY( SelectClipsWithinRangeAll );
 
 		CREATE_QUERY( SelectAllGroups );
 		CREATE_QUERY( SelectGroupsForCamera );

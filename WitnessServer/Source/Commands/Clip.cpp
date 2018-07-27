@@ -196,8 +196,11 @@ void Command_Clip::OnEnumClipsMessage( const GlobalContext& Context, http_reques
 	vector<json::value> Array;
 
 	{
-		SQLiteDatabaseQueryInstance CountClipsWithinRange( Context.Database, _T("CountClipsWithinRange") );
-		CountClipsWithinRange->Bind( "@CameraID", TargetCameraInt );
+		SQLiteDatabaseQueryInstance CountClipsWithinRange( Context.Database, TargetCameraInt == -1 ? _T("CountClipsWithinRangeAll") : _T("CountClipsWithinRange") );
+		if( TargetCameraInt != -1)
+		{
+			CountClipsWithinRange->Bind( "@CameraID", TargetCameraInt );
+		}
 		CountClipsWithinRange->Bind( "@TimestampFrom", (int64_t)(StartDateInt - RangePeriodInt) );
 		CountClipsWithinRange->Bind( "@TimestampTo", (int64_t)StartDateInt );
 		CountClipsWithinRange->Bind( "@MaxCount", MaxCountInt );
@@ -214,8 +217,11 @@ void Command_Clip::OnEnumClipsMessage( const GlobalContext& Context, http_reques
 	
 	if( Count > 0 )
 	{
-		SQLiteDatabaseQueryInstance SelectClipsWithinRange( Context.Database, _T("SelectClipsWithinRange") );
-		SelectClipsWithinRange->Bind( "@CameraID", TargetCameraInt );
+		SQLiteDatabaseQueryInstance SelectClipsWithinRange( Context.Database, TargetCameraInt == -1 ? _T("SelectClipsWithinRangeAll") : _T("SelectClipsWithinRange") );
+		if( TargetCameraInt != -1)
+		{
+			SelectClipsWithinRange->Bind( "@CameraID", TargetCameraInt );
+		}
 		SelectClipsWithinRange->Bind( "@TimestampFrom", (int64_t)(StartDateInt - RangePeriodInt) );
 		SelectClipsWithinRange->Bind( "@TimestampTo", (int64_t)StartDateInt );
 		SelectClipsWithinRange->Bind( "@MaxCount", MaxCountInt );

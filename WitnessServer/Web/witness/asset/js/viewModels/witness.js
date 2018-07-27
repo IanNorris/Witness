@@ -30,6 +30,24 @@ var WitnessViewModel = function() {
 	self.cameras = ko.observableArray([]);
 	self.cameras.extend({ rateLimit: 50 });
     self.focusedCamera = ko.observable(null);
+	self.allClipsSelected = ko.observable(false);
+	
+	self.selectAllCameraClips = function() {
+		self.viewMode(VIEW_MODE_CLIPS);
+		
+		var cameraList = self.cameras();
+		for( var c = 0; c < cameraList.length; c++ ) {
+			cameraList[c].isSelected(false);
+		}
+		self.allClipsSelected(true);
+		
+		self.clipBrowser( new CameraClipsViewModel( self.witness, -1 ) );
+		window.location.hash = "#Clip_All";
+	};
+	
+	self.isSelectedAllClips = ko.computed(function(){
+		return self.allClipsSelected() && self.isViewMode(VIEW_MODE_CLIPS);
+	});
 
     self.cameraPreviewScale = ko.observable(15);
 
