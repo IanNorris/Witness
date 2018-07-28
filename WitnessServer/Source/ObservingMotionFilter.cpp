@@ -9,7 +9,7 @@
 #include <opencv2/imgproc/imgproc_c.h>
 
 const int ClipEndGracePeriodInSeconds = 10;
-const int TargetLargeThumbnailSize = 800;
+const int TargetLargeThumbnailSize = 720;
 const int TargetThumbnailSize = 400;
 const double PreviewTimeout = 3.0;
 
@@ -156,7 +156,7 @@ void ObservingMotionFilter::FilterFrame( const AVFrame* Frame, ClassificationRes
 		float Aspect = (float)InputFrame.cols / (float)InputFrame.rows;
 
 		const int TargetSize = SaveLarge ? TargetLargeThumbnailSize : TargetThumbnailSize;
-		const int Quality = SaveLarge ? 85 : 70;
+		const int Quality = SaveLarge ? 80 : 70;
 
 		cv::Mat ResizedImage;
 		resize( InputFrame, ResizedImage, cv::Size(TargetSize,(int)((float)TargetSize/Aspect)), 0, 0 );
