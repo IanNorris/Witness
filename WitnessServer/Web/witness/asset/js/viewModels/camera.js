@@ -11,6 +11,7 @@ var CameraViewModel = function( witness, id, enabled, name, description, connect
 	self.name = ko.observable(name);
 	self.description = ko.observable(description);
 	self.previewPath = ko.observable('');
+	self.livePreviewPath = ko.observable('');
 	self.connectionString = ko.observable(connectionString);
 	self.status = ko.observable(status);
 	self.isSelected = ko.observable(false);
@@ -48,12 +49,16 @@ var CameraViewModel = function( witness, id, enabled, name, description, connect
 	} );
 		
 	self.frameIndex = 0;
-	
-	
+	self.liveFrameIndex = 0;
 	
 	self.setNextCameraFrame = function() {
 		self.previewPath( '/camera/preview/' + self.id + '#' + self.frameIndex );
 		self.frameIndex++;
+	};
+	
+	self.setNextCameraLiveFrame = function() {
+		self.livePreviewPath( '/camera/preview/' + self.id + '#L' + self.liveFrameIndex );
+		self.liveFrameIndex++;
 	};
 	
 	self.selectCamera = function() {
@@ -69,6 +74,7 @@ var CameraViewModel = function( witness, id, enabled, name, description, connect
 	self.selectCameraStream = function() {
 		var cameraID = self.selectCamera();
 		self.witness.viewMode(VIEW_MODE_STREAM);
+		self.witness.stream( new CameraStreamViewModel( self.witness, self, cameraID ) );
 		window.location.hash = "#" + self.streamName();
 	};
 	
@@ -94,4 +100,9 @@ var CameraViewModel = function( witness, id, enabled, name, description, connect
 	window.setInterval( function() {
 		self.setNextCameraFrame();		
 	}, 250 );
+	
+	self.setNextCameraLiveFrame();
+	window.setInterval( function() {
+		self.setNextCameraLiveFrame();		
+	}, 40 );
 };

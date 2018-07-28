@@ -55,6 +55,8 @@
 				<div class="col-md-12" style="padding:20px;">
 					<div class="panel animated fadeIn" data-bind="with: clipBrowser, visible: isViewMode(VIEW_MODE_CLIPS)" template-path="clips.html"></div>
 					
+					<div class="panel animated fadeIn" data-bind="with: stream, visible: isViewMode(VIEW_MODE_STREAM)" template-path="stream.html"></div>
+					
 					<!-- ko with: adminController -->
 					<div class="panel animated fadeIn" data-bind="with: cameras, visible: $parent.isViewMode(VIEW_MODE_ADMIN)" template-path="admin/cameras.html"></div>
 					<div class="panel animated fadeIn" data-bind="with: groups, visible: $parent.isViewMode(VIEW_MODE_ADMIN)" template-path="admin/groups.html"></div>
@@ -117,6 +119,7 @@
 		<script src="asset/js/viewModels/authentication.js"></script>
 		<script src="asset/js/viewModels/camera.js"></script>
 		<script src="asset/js/viewModels/cameraClips.js"></script>
+		<script src="asset/js/viewModels/cameraStream.js"></script>
 		<script src="asset/js/viewModels/clip.js"></script>
 		<script src="asset/js/viewModels/witness.js"></script>
 

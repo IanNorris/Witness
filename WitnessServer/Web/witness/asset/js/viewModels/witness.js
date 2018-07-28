@@ -25,6 +25,7 @@ var WitnessViewModel = function() {
 	});
 	
 	self.clipBrowser = ko.observable(null);
+	self.stream = ko.observable(null);
 		
 	self.cameraListReceived = ko.observable(false);
 	self.cameras = ko.observableArray([]);
