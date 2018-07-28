@@ -1,5 +1,6 @@
 #include "Camera.h"
 #include "Authenticate.h"
+#include "../Messages.h"
 
 #include "cpprest/json.h"
 #include "cpprest/http_client.h"
@@ -13,7 +14,7 @@
 using namespace web::json;
 using namespace web::http::client;
 
-void Command_Camera::OnMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
+void Command_Camera::OnMessage( GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
 {
 	auto Packet = Message.extract_json().get();
 
@@ -32,9 +33,13 @@ void Command_Camera::OnMessage( const GlobalContext& Context, http_request& Mess
 	else if( ChildPath.size() == 2 && !IsPost )
 	{
 		auto Command = ChildPath.front();
-		if( Command.compare( _T("preview") ) == 0 )
+		if( Command.compare( _T("previewLarge") ) == 0 )
 		{
-			OnPreviewMessage( Context, Message, ChildPath[1], Packet );
+			OnPreviewMessage( Context, Message, ChildPath[1], Packet, true );
+		}
+		else if( Command.compare( _T("preview") ) == 0 )
+		{
+			OnPreviewMessage( Context, Message, ChildPath[1], Packet, false );
 		}
 		else
 		{
@@ -67,7 +72,7 @@ void Command_Camera::OnMessage( const GlobalContext& Context, http_request& Mess
 	}
 }
 
-void Command_Camera::OnPreviewMessage( const GlobalContext& Context, http_request& Message, const string_t& TargetCamera, const json::value& Packet )
+void Command_Camera::OnPreviewMessage( GlobalContext& Context, http_request& Message, const string_t& TargetCamera, const json::value& Packet, bool LargePreview )
 {
 	//NO CSRF!
 
@@ -83,6 +88,22 @@ void Command_Camera::OnPreviewMessage( const GlobalContext& Context, http_reques
 	auto Iter = Context.Cameras.find( TargetCameraInt );
 	if( Iter != Context.Cameras.end() )
 	{
+		if( LargePreview )
+		{
+			(*Iter).second.LastLargePreviewTimestamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+		}
+		else
+		{
+			(*Iter).second.LastSmallPreviewTimestamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+		}
+
+		auto PreviewRequest = make_shared<CameraPreviewRequestMessage>();
+		PreviewRequest->LastLargePreviewTimestamp = (*Iter).second.LastLargePreviewTimestamp;
+		PreviewRequest->LastSmallPreviewTimestamp = (*Iter).second.LastSmallPreviewTimestamp;
+		Context.MessageBus->SendToClient( (*Iter).second.Worker.get(), PreviewRequest );
+
+		
+
 		http_response Response;
 		Response.set_status_code( status_codes::OK );
 		Response.set_body( (*Iter).second.PreviewThumbnail );

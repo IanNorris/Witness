@@ -55,11 +55,21 @@ public:
 
 	void ClearStats() { ClipStats.Clear(); }
 
+	void SetPreviewTimestamps( uint64_t Large, uint64_t Small )
+	{
+		LastLargePreviewTimestamp = Large;
+		LastSmallPreviewTimestamp = Small;
+	}
+
 private:
 
 	shared_ptr<MotionChainNode>	MotionChain;
 
 	shared_ptr<MessageBus>	MessageBusPtr;
+
+	uint64_t				LastLargePreviewTimestamp;
+	uint64_t				LastSmallPreviewTimestamp;
+
 	int						CameraID;
 	int						FrameIndex;
 	int						LastMotionIndex;

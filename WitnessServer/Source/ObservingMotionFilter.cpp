@@ -9,11 +9,15 @@
 #include <opencv2/imgproc/imgproc_c.h>
 
 const int ClipEndGracePeriodInSeconds = 10;
+const int TargetLargeThumbnailSize = 800;
 const int TargetThumbnailSize = 400;
+const double PreviewTimeout = 3.0;
 
 ObservingMotionFilter::ObservingMotionFilter( const shared_ptr<MotionChainNode>& MotionChain, const int CameraID, const shared_ptr<MessageBus>& MessageBusIn )
 : MotionChain( MotionChain )
 , MessageBusPtr( MessageBusIn )
+, LastLargePreviewTimestamp(0)
+, LastSmallPreviewTimestamp(0)
 , CameraID( CameraID )
 , FrameIndex( 0 )
 , LastMotionIndex( INT_MIN )
@@ -29,7 +33,13 @@ void ObservingMotionFilter::FilterFrame( const AVFrame* Frame, ClassificationRes
 {
 	FrameIndex++;
 
-	SaveNextFrame = true;
+	const double NanoSecondsToSeconds = 1000.0 * 1000.0 * 1000.0;
+	uint64_t Now = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+	bool SaveLarge = ((double)(Now - LastLargePreviewTimestamp) / NanoSecondsToSeconds) < PreviewTimeout;
+	bool SaveSmall = ((double)(Now - LastSmallPreviewTimestamp) / NanoSecondsToSeconds) < PreviewTimeout;
+
+
+	SaveNextFrame = SaveLarge | SaveSmall;
 
 	try 
 	{
@@ -145,10 +155,13 @@ void ObservingMotionFilter::FilterFrame( const AVFrame* Frame, ClassificationRes
 		
 		float Aspect = (float)InputFrame.cols / (float)InputFrame.rows;
 
-		cv::Mat ResizedImage;
-		resize( InputFrame, ResizedImage, cv::Size(TargetThumbnailSize,(int)((float)TargetThumbnailSize/Aspect)), 0, 0 );
+		const int TargetSize = SaveLarge ? TargetLargeThumbnailSize : TargetThumbnailSize;
+		const int Quality = SaveLarge ? 85 : 70;
 
-		cv::imencode( ".jpg", ResizedImage, SaveFrameMessage->Jpeg, std::vector<int>{ CV_IMWRITE_JPEG_QUALITY, 70 } );
+		cv::Mat ResizedImage;
+		resize( InputFrame, ResizedImage, cv::Size(TargetSize,(int)((float)TargetSize/Aspect)), 0, 0 );
+
+		cv::imencode( ".jpg", ResizedImage, SaveFrameMessage->Jpeg, std::vector<int>{ CV_IMWRITE_JPEG_QUALITY, Quality } );
 
 		MessageBusPtr->SendToClient( nullptr, SaveFrameMessage );
 	}

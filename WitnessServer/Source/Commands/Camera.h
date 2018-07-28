@@ -6,9 +6,9 @@ class Command_Camera : public IListenerCommand
 {
 public:
 
-	void OnMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost ) override;
+	void OnMessage( GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost ) override;
 
-	void OnPreviewMessage( const GlobalContext& Context, http_request& Message, const string_t& TargetCamera, const json::value& Packet );
+	void OnPreviewMessage( GlobalContext& Context, http_request& Message, const string_t& TargetCamera, const json::value& Packet, bool LargePreview );
 
 	void OnEnumMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet, bool AsAdmin );
 

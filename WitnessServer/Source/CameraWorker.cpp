@@ -83,6 +83,11 @@ void CameraWorker::WorkerMain()
 			RequestShutdown();
 		});
 
+		Msg->Handle<CameraPreviewRequestMessage>([&](const CameraPreviewRequestMessage& Data)
+		{
+			Filter->SetPreviewTimestamps( Data.LastLargePreviewTimestamp, Data.LastSmallPreviewTimestamp );
+		});
+
 		Msg->Handle<CameraStartRecordMessage>([&](const CameraStartRecordMessage& Data)
 		{
 			OnClipFinished();

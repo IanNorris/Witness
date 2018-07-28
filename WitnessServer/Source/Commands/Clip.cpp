@@ -51,7 +51,7 @@ string_t GetClipName( const GlobalContext& Context, int CameraID, int64_t Timest
 	return Stream.str();
 }
 
-void Command_Clip::OnMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
+void Command_Clip::OnMessage( GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
 {
 	auto Packet = Message.extract_json().get();
 

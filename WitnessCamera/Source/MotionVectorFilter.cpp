@@ -212,7 +212,7 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 
 	int MaxLabel = -1;
 
-	const int MinTrackingFrames = 3;
+	const int MinTrackingFrames = 4;
 	const int MaxCompactness = 3;
 
 	for (auto Iter = ID.Objects.begin(); Iter != ID.Objects.end(); ++Iter )
@@ -315,7 +315,7 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 		}
 	}
 
-	const int LostTrackFrames = 10;
+	const int LostTrackFrames = 20;
 
 	for (auto Iter = ID.Objects.begin(); Iter != ID.Objects.end(); )
 	{

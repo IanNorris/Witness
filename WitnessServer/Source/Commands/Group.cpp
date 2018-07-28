@@ -12,7 +12,7 @@ using namespace web::http::client;
 
 namespace fs = std::experimental::filesystem;
 
-void Command_Group::OnMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
+void Command_Group::OnMessage( GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
 {
 	if( ChildPath.size() == 1 )
 	{

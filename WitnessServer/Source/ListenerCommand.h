@@ -16,5 +16,5 @@ using namespace http;
 class IListenerCommand
 {
 public:
-	virtual void OnMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost ) = 0;
+	virtual void OnMessage( GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost ) = 0;
 };

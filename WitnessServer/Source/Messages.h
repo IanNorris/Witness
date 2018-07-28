@@ -136,3 +136,9 @@ struct CameraWriteThumbnailMessage : public Message
 
 	int Camera;
 };
+
+struct CameraPreviewRequestMessage : public Message
+{
+	uint64_t LastLargePreviewTimestamp;
+	uint64_t LastSmallPreviewTimestamp;
+};

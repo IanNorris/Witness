@@ -124,7 +124,7 @@ void OfflineCreationForFirstUser( const GlobalContext& Context )
 	}
 }
 
-void Command_Authenticate::OnMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
+void Command_Authenticate::OnMessage( GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
 {
 	if( ChildPath.size() == 1 && IsPost )
 	{

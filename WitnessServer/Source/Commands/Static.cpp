@@ -67,7 +67,7 @@ Command_Static::Command_Static(object& Config)
 	}
 }
 
-void Command_Static::OnMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
+void Command_Static::OnMessage( GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
 {
 	string_t Joined;
 	for_each( ChildPath.begin(), ChildPath.end(),

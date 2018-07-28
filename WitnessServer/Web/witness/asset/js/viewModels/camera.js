@@ -57,7 +57,7 @@ var CameraViewModel = function( witness, id, enabled, name, description, connect
 	};
 	
 	self.setNextCameraLiveFrame = function() {
-		self.livePreviewPath( '/camera/preview/' + self.id + '#L' + self.liveFrameIndex );
+		self.livePreviewPath( '/camera/previewLarge/' + self.id + '#' + self.liveFrameIndex );
 		self.liveFrameIndex++;
 	};
 	
