@@ -76,7 +76,7 @@ void CameraWorker::WorkerMain()
 	UpdateLastTimedAction(_T("Work..."));
 
 	shared_ptr<Message> Msg;
-	if( MessageBusQueue->TryPop( Msg ) )
+	while( MessageBusQueue->TryPop( Msg ) )
 	{
 		Msg->Handle<ThreadShutdownMessage>([&](const ThreadShutdownMessage& Data)
 		{

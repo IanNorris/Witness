@@ -11,7 +11,7 @@
 const int ClipEndGracePeriodInSeconds = 10;
 const int TargetLargeThumbnailSize = 1280;
 const int TargetThumbnailSize = 300;
-const double PreviewTimeout = 3.0;
+const double PreviewTimeout = 0.5;
 
 ObservingMotionFilter::ObservingMotionFilter( const shared_ptr<MotionChainNode>& MotionChain, const int CameraID, const shared_ptr<MessageBus>& MessageBusIn )
 : MotionChain( MotionChain )
