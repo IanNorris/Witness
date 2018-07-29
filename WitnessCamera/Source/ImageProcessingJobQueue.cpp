@@ -193,11 +193,14 @@ void ImageProcessingJobQueue::WorkerThreadMain()
 		
 		AVPixelFormat OutputPixelFormat = AV_PIX_FMT_BGR24;
 
-		unsigned int OutputHeight = min( Job->TargetHeight, Job->Frame->GetHeight() );
+		/*unsigned int OutputHeight = min( Job->TargetHeight, Job->Frame->GetHeight() );
 		unsigned int OutputWidth = (int)(((float)Job->Frame->GetWidth() / (float)Job->Frame->GetHeight()) * (float)OutputHeight);
 
 		OutputHeight &= (~15);
-		OutputWidth &= (~15);
+		OutputWidth &= (~15);*/
+
+		unsigned int OutputWidth = Job->Frame->GetWidth();
+		unsigned int OutputHeight = Job->Frame->GetHeight();
 
 		AVPixelFormat InputPixelFormat = (AVPixelFormat)Job->Frame->GetFormat();
 

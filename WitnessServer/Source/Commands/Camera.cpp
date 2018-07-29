@@ -102,8 +102,6 @@ void Command_Camera::OnPreviewMessage( GlobalContext& Context, http_request& Mes
 		PreviewRequest->LastSmallPreviewTimestamp = (*Iter).second.LastSmallPreviewTimestamp;
 		Context.MessageBus->SendToClient( (*Iter).second.Worker.get(), PreviewRequest );
 
-		
-
 		http_response Response;
 		Response.set_status_code( status_codes::OK );
 		Response.set_body( (*Iter).second.PreviewThumbnail );

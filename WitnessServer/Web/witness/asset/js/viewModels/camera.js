@@ -75,12 +75,14 @@ var CameraViewModel = function( witness, id, enabled, name, description, connect
 		var cameraID = self.selectCamera();
 		self.witness.viewMode(VIEW_MODE_STREAM);
 		self.witness.stream( new CameraStreamViewModel( self.witness, self, cameraID ) );
+		self.witness.clipBrowser(null);
 		window.location.hash = "#" + self.streamName();
 	};
 	
 	self.selectCameraClips = function() {
 		var cameraID = self.selectCamera();
 		self.witness.viewMode(VIEW_MODE_CLIPS);
+		self.witness.stream(null);
 		self.witness.clipBrowser( new CameraClipsViewModel( self.witness, cameraID ) );
 		window.location.hash = "#" + self.clipName();
 	};
@@ -103,6 +105,6 @@ var CameraViewModel = function( witness, id, enabled, name, description, connect
 	
 	self.setNextCameraLiveFrame();
 	window.setInterval( function() {
-		self.setNextCameraLiveFrame();		
+		self.setNextCameraLiveFrame();
 	}, 40 );
 };

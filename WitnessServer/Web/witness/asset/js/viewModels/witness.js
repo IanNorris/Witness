@@ -35,6 +35,7 @@ var WitnessViewModel = function() {
 	
 	self.selectAllCameraClips = function() {
 		self.viewMode(VIEW_MODE_CLIPS);
+		self.stream(null);
 		
 		var cameraList = self.cameras();
 		for( var c = 0; c < cameraList.length; c++ ) {

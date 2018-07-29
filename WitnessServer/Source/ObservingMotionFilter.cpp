@@ -9,8 +9,8 @@
 #include <opencv2/imgproc/imgproc_c.h>
 
 const int ClipEndGracePeriodInSeconds = 10;
-const int TargetLargeThumbnailSize = 720;
-const int TargetThumbnailSize = 400;
+const int TargetLargeThumbnailSize = 1280;
+const int TargetThumbnailSize = 300;
 const double PreviewTimeout = 3.0;
 
 ObservingMotionFilter::ObservingMotionFilter( const shared_ptr<MotionChainNode>& MotionChain, const int CameraID, const shared_ptr<MessageBus>& MessageBusIn )
@@ -156,11 +156,16 @@ void ObservingMotionFilter::FilterFrame( const AVFrame* Frame, ClassificationRes
 		float Aspect = (float)InputFrame.cols / (float)InputFrame.rows;
 
 		const int TargetSize = SaveLarge ? TargetLargeThumbnailSize : TargetThumbnailSize;
-		const int Quality = SaveLarge ? 80 : 70;
+		const int Quality = SaveLarge ? 70 : 65;
 
 		cv::Mat ResizedImage;
 		resize( InputFrame, ResizedImage, cv::Size(TargetSize,(int)((float)TargetSize/Aspect)), 0, 0 );
 
+		int X = (int)(5.0f * cos( 0.25f * (float)FrameIndex ));
+		int Y = (int)(5.0f * sin( 0.25f * (float)FrameIndex ));
+
+		cv::line( ResizedImage, cv::Point(15 + X,15 + Y), cv::Point(15 - X, 15 - Y), Result.ClassificationSuperset == 0 ? cv::Scalar(0,255,0) : cv::Scalar(0,0,255), 2 );
+		
 		cv::imencode( ".jpg", ResizedImage, SaveFrameMessage->Jpeg, std::vector<int>{ CV_IMWRITE_JPEG_QUALITY, Quality } );
 
 		MessageBusPtr->SendToClient( nullptr, SaveFrameMessage );
