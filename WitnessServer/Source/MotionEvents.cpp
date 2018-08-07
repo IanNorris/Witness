@@ -188,7 +188,7 @@ void WitnessServer::TriggerAction( const string_t& Command, const string_t& Para
 	if (Command.compare(_T("PlaySound")) == 0)
 	{
 		std::async([=]() {
-			PlaySound( Param1.c_str(), nullptr, SND_FILENAME );
+			PlaySound( Param1.c_str(), nullptr, SND_FILENAME | SND_ASYNC );
 		});
 	}
 	else
