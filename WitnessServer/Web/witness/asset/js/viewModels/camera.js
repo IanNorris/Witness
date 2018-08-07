@@ -29,8 +29,8 @@ var CameraViewModel = function( witness, id, enabled, name, description, connect
 	self.statStreamOutputTimeMS = ko.observable(allData.streamOutputTimeMS).extend({numeric: 1});
 	
 	self.statActualTotalMS = ko.computed( function() {
-		return self.statProcessingTimeMS() + self.statStreamDecodeTimeMS() + self.statStreamOutputTimeMS();
-	} ).extend({numeric: 1});
+		return (self.statProcessingTimeMS() + self.statStreamDecodeTimeMS() + self.statStreamOutputTimeMS()).toFixed(1);
+	} );
 	
 	self.isSelectedClip = ko.computed( function() {
 		return self.isSelected() && self.witness.isViewMode(VIEW_MODE_CLIPS);

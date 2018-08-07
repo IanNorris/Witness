@@ -51,14 +51,16 @@ var WitnessViewModel = function() {
 		return self.allClipsSelected() && self.isViewMode(VIEW_MODE_CLIPS);
 	});
 
-    self.cameraPreviewScale = ko.observable(15);
+    self.cameraPreviewScale = ko.observable( localStorage.cameraPreviewScale ? parseInt(localStorage.cameraPreviewScale) : 15 );
 
     self.increaseScale = function () {
         self.cameraPreviewScale( Math.min( self.cameraPreviewScale() + 5, 100 ) );
+		localStorage.cameraPreviewScale = self.cameraPreviewScale();
     }
 
     self.decreaseScale = function () {
         self.cameraPreviewScale( Math.max( self.cameraPreviewScale() - 5, 5) );
+		localStorage.cameraPreviewScale = self.cameraPreviewScale();
     }
 	
 	self.viewMode = ko.observable(VIEW_MODE_NONE);
@@ -136,5 +138,5 @@ var WitnessViewModel = function() {
 	
 	window.setInterval( function() {
 		self.refreshCameraData();
-	}, 1000 );
+	}, 100 );
 };
