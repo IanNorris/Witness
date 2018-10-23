@@ -1,9 +1,12 @@
 #pragma once
 
+#include "Message.h"
 #include "SQLite.h"
-#include "CameraWorker.h"
 #include "cpprest/json.h"
 #include "CameraState.h"
+#include "CameraWorker.h"
+#include "SettingsMap.h"
+#include "Azure/AzureVisionAnalysisEndpointFilter.h"
 
 struct CameraStateToggleRecordMessage : public Message
 {
@@ -25,7 +28,11 @@ public:
 	unordered_map< int, CameraState> Cameras;
 	Witness::Camera::ImageProcessingJobQueue* CommonImageProcessingJobQueue;
 
+	vector<SettingsMap> AzureSettings;
+
 	shared_ptr<MessageBus> MessageBus;
+
+	shared_ptr<AzureVisionAnalysisEndpointFilter> AzureVisionEndpoint;
 
 	uint16_t Port;
 };

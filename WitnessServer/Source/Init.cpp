@@ -8,9 +8,10 @@ using namespace web::json;
 using namespace web::http::client;
 using namespace utility;
 
+#include <filesystem>
 #include <windows.h>
 
-std::tr2::sys::path GetConfigFilePath( string_t Filename )
+std::experimental::filesystem::path GetConfigFilePath( string_t Filename )
 {
 #if defined( _WINDOWS )
 
@@ -20,7 +21,7 @@ std::tr2::sys::path GetConfigFilePath( string_t Filename )
 	
 	assert( Result == S_OK );
 
-	std::tr2::sys::path ConfigPath = ProfileRoot;
+	std::experimental::filesystem::path ConfigPath = ProfileRoot;
 	ConfigPath.append( U("Witness") );
 
 	CreateDirectory( ConfigPath.c_str(), NULL );
@@ -56,21 +57,20 @@ bool WitnessServer::Initialize()
 	{
 		std::tcerr << U("Unable to parse config file ") << ConfigFile << U(" due to : ") << Exception.what() << std::endl;
 		return false;
-		
 	}
 
-	if( JsonConfig.has_object_field(U("android")) )
+	if( JsonConfig.has_field(U("android")) )
 	{
 		LoadAndroidSettings( JsonConfig.at(U("android")) );
 	}
 
-	if( !JsonConfig.has_object_field(U("server")) )
+	if( !JsonConfig.has_field(U("server")) )
 	{
 		std::tcerr << U("Missing section in config file. Expected a 'server' section.") << std::endl;
 		return false;
 	}
 
-	if( !JsonConfig.has_object_field(U("processing")) )
+	if( !JsonConfig.has_field(U("processing")) )
 	{
 		std::tcerr << U("Missing section in config file. Expected a 'processing' section.") << std::endl;
 		return false;
@@ -81,7 +81,7 @@ bool WitnessServer::Initialize()
 
 	//Process video settings
 	Video.MotionFilterName = _T("BGS_LBMixtureOfGaussians");
-	if( JsonConfig.has_object_field(U("video")) )
+	if( JsonConfig.has_field(U("video")) )
 	{
 		auto JsonVideoConfig = JsonConfig.at(U("video"));
 
@@ -117,6 +117,45 @@ bool WitnessServer::Initialize()
 
 	Context = Server->GetGlobalContext();
 	Context->CachePath = CachePath;
+
+	if( JsonConfig.has_field(U("azure")) )
+	{
+		auto AzureRoot = JsonConfig.at(U("azure")).as_object();
+		for( auto Iter = AzureRoot.cbegin(); Iter != AzureRoot.cend(); ++Iter )
+		{
+			if( (*Iter).second.is_object() )
+			{
+				Context->AzureSettings.push_back(SettingsMap());
+				auto& Settings = Context->AzureSettings.back();
+
+				Settings.Name = (*Iter).first;
+				auto Child = (*Iter).second.as_object();
+
+				for( auto ChildIter = Child.cbegin(); ChildIter != Child.cend(); ++ChildIter )
+				{
+					if( (*ChildIter).second.is_string() )
+					{
+						auto& ChildValue = (*ChildIter).second.as_string();
+
+						auto& KVP = Settings.Settings[ (*ChildIter).first ] = ChildValue;
+					}
+				}
+			}
+		}
+
+		for (auto& Settings : Context->AzureSettings)
+		{
+			if (Settings.Name.compare(_T("vision")) == 0)
+			{
+				Context->AzureVisionEndpoint = make_shared<AzureVisionAnalysisEndpointFilter>( Settings );
+			}
+			else
+			{
+				wprintf(_T("Unrecognized azure service '%s'\n"), Settings.Name.c_str());
+			}
+		}
+	}
+
 
 	if( !InitializeContext() )
 	{
@@ -273,7 +312,7 @@ void WitnessServer::StartCameraWorkers()
 			{
 				tcout << _T("Starting ") << Camera.Name << _T(" camera...") << endl;
 
-				auto Worker = make_shared<CameraWorker>( Video, Camera, Context->MessageBus );
+				auto Worker = make_shared<CameraWorker>( Video, Camera, Context->MessageBus, Context );
 				Worker->Start( WorkerBase::Priority::HighPriority );
 				Watchdog->AddTarget( Worker, Camera.Name );
 				auto& State = Context->Cameras[ Camera.ID ] = CameraState();

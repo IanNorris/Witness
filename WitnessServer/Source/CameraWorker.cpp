@@ -1,7 +1,9 @@
 #include "CameraWorker.h"
+#include "GlobalContext.h"
 #include "MotionVectorFilter.h"
 #include "ObservingMotionFilter.h"
 #include "PersonRecognitionFilter.h"
+#include "Azure/AzureVisionAnalysisEndpointFilter.h"
 
 #include <windows.h>
 
@@ -35,6 +37,29 @@ void CameraWorker::WorkerInit()
 	RootMotionNode->InclusiveFilter = ClassificationResult::Motion_Motion;
 	RootMotionNode->ExclusiveFilter = 0;
 
+	bool AllowVision = false;
+	SettingsMap VisionSettings;
+	for (auto& Settings : Context->AzureSettings)
+	{
+		if (Settings.Name.compare(_T("vision")) == 0)
+		{
+			AllowVision = true;
+			VisionSettings = Settings;
+			break;
+		}
+	}
+
+	if( AllowVision )
+	{
+		auto AzureClassifierNode = make_shared<MotionChainNode>();
+		RootMotionNode->OnSuccess = AzureClassifierNode;
+		//SecondPassMotionNode->OnSuccess = PersonMotionNode;
+		AzureClassifierNode->Filter = make_shared<AzureVisionAnalysisEndpointFilter>( VisionSettings );
+		AzureClassifierNode->InclusiveFilter = ClassificationResult::Motion_Motion;
+		AzureClassifierNode->ExclusiveFilter = 0;
+		AzureClassifierNode->MinimumThreshold = 0.0f;
+	}
+
 	/*auto SecondPassMotionNode = make_shared<MotionChainNode>();
 	RootMotionNode->OnSuccess = SecondPassMotionNode;
 	SecondPassMotionNode->Filter = make_shared<MotionFilter>( std::string( Camera.MotionFilterName.begin(), Camera.MotionFilterName.end() ).c_str() );
@@ -42,7 +67,7 @@ void CameraWorker::WorkerInit()
 	SecondPassMotionNode->InclusiveFilter = ClassificationResult::Motion_Motion;
 	SecondPassMotionNode->ExclusiveFilter = 0;*/
 
-	auto PersonMotionNode = make_shared<MotionChainNode>();
+	/*auto PersonMotionNode = make_shared<MotionChainNode>();
 	RootMotionNode->OnSuccess = PersonMotionNode;
 	//SecondPassMotionNode->OnSuccess = PersonMotionNode;
 	PersonMotionNode->Filter = make_shared<PersonRecognitionFilter>(
@@ -51,7 +76,7 @@ void CameraWorker::WorkerInit()
 	);
 	PersonMotionNode->InclusiveFilter = ClassificationResult::Motion_Person;
 	PersonMotionNode->ExclusiveFilter = 0;
-	PersonMotionNode->MinimumThreshold = 0.0f;
+	PersonMotionNode->MinimumThreshold = 0.0f;*/
 
 	Filter = make_shared<ObservingMotionFilter>( RootMotionNode, Camera.ID, MessageBusObject );
 
@@ -128,7 +153,7 @@ void CameraWorker::WorkerMain()
 
 			MillisecondsToWait = max( MillisecondsToWait - BufferPeriodInMilliseconds, 0 );
 
-			if( MillisecondsToWait > 0.0  )
+			if( MillisecondsToWait > 0.0 )
 			{
 				Sleep( (DWORD)MillisecondsToWait );
 			}

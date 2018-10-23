@@ -6,6 +6,7 @@
 #include <OutputStream.h>
 #include <MotionFilter.h>
 
+class GlobalContext;
 class ObservingMotionFilter;
 
 using namespace Witness::Camera;
@@ -62,8 +63,9 @@ struct CameraSettings
 class CameraWorker : public WorkerBase
 {
 public:
-	CameraWorker( const VideoSettings& Video, const CameraSettings& Camera, const shared_ptr<MessageBus>& MessageBus)
+	CameraWorker( const VideoSettings& Video, const CameraSettings& Camera, const shared_ptr<MessageBus>& MessageBus, const shared_ptr<GlobalContext>& Context )
 	: WorkerBase( MessageBus )
+	, Context( Context )
 	, Video( Video )
 	, Camera( Camera )
 	, LastFrameTime( 0 )
@@ -98,6 +100,8 @@ private:
 
 	shared_ptr<InputStream> CameraStream;
 	shared_ptr<ObservingMotionFilter> Filter;
+
+	const shared_ptr<GlobalContext> Context;
 
 	VideoSettings Video;
 	CameraSettings Camera;

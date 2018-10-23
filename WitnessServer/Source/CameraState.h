@@ -1,5 +1,7 @@
 #pragma once
 
+class CameraWorker;
+
 struct CameraState
 {
 	CameraState()

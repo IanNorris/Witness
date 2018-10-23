@@ -27,5 +27,12 @@
 		"face_recognition_cascade_name": "mallick_haarcascade_frontalface_default",
 		"body_recognition_cascade_name": "haarcascade_fullbody",
 		"export_motion_vectors": 1
+	},
+	"azure": {
+		"vision": {
+			"endpoint": "Endpoint Uri",
+			"key": "API Key",
+			"min_frame_distance": "0.1"
+		}
 	}
 }

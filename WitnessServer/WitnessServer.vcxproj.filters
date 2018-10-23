@@ -25,6 +25,12 @@
     <Filter Include="Header Files\Android">
       <UniqueIdentifier>{3f5407cc-e738-43bc-9a5d-01ff60c2bdaf}</UniqueIdentifier>
     </Filter>
+    <Filter Include="Source Files\Azure">
+      <UniqueIdentifier>{d72d439d-d556-44cc-9b85-6537fd7d2c42}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="Header Files\Azure">
+      <UniqueIdentifier>{c65082ea-3bf1-477d-a898-cdde95f5ece5}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Source\Main.cpp">
@@ -105,6 +111,12 @@
     <ClCompile Include="Source\ImageProcessorWorker.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Azure\AzureVisionAnalysisEndpointFilter.cpp">
+      <Filter>Source Files\Azure</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\Azure\AzureEndpoint.cpp">
+      <Filter>Source Files\Azure</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Source\Listener.h">
@@ -179,5 +191,17 @@
     <ClInclude Include="Source\CameraState.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Source\Azure\AzureEndpoint.h">
+      <Filter>Header Files\Azure</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Azure\AzureVisionAnalysisEndpointFilter.h">
+      <Filter>Header Files\Azure</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\SettingsMap.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="packages.config" />
   </ItemGroup>
 </Project>
