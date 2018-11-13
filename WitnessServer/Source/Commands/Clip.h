@@ -11,6 +11,11 @@ public:
 	void OnThumbnailMessage( const GlobalContext& Context, http_request& Message, bool Video, const string_t& TargetCamera, const string_t& TargetClip, const json::value& Packet );
 
 	void OnEnumClipsMessage( const GlobalContext& Context, http_request& Message, const string_t& TargetCamera, const string_t& MaxCount, const string_t& StartDate, const string_t& RangePeriod, const string_t& PageOffset, const json::value& Packet );
+
+	void OnToggleSaveMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet );
+	void OnDeleteMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet );
+
+	static void DeleteOldClips( const GlobalContext& Context, int DaysToDelete );
 };
 
 string_t GetClipName( const GlobalContext& Context, int CameraID, int64_t Timestamp, bool Manual, bool Video);

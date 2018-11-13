@@ -60,7 +60,8 @@ namespace Database
 			Duration		INT,
 			RecordMode		INT,
 			MaxMotion		FLOAT,
-			Description		TEXT
+			Description		TEXT,
+			Save			INT
 		);
 
 		CREATE UNIQUE INDEX IF NOT EXISTS ClipIndex ON Clip (Timestamp,Camera);
@@ -155,8 +156,8 @@ namespace Database
 	)RAW";
 
 	string_t CreateClip = LR"RAW(
-		INSERT INTO Clip (Timestamp,Camera,MotionTimestamp,ActiveDuration,Duration,RecordMode,MaxMotion,Description)
-		VALUES(@Timestamp,@Camera,@MotionTimestamp,@ActiveDuration,@Duration,@RecordMode,@MaxMotion,@Description);
+		INSERT INTO Clip (Timestamp,Camera,MotionTimestamp,ActiveDuration,Duration,RecordMode,MaxMotion,Description,Save)
+		VALUES(@Timestamp,@Camera,@MotionTimestamp,@ActiveDuration,@Duration,@RecordMode,@MaxMotion,@Description,@Save);
 	)RAW";
 
 	string_t UpdateClip = LR"RAW(
@@ -169,6 +170,29 @@ namespace Database
 		WHERE 
 				Timestamp == @Timestamp 
 			AND Camera == @Camera
+		;
+	)RAW";
+
+	string_t SetClipSaveState = LR"RAW(
+		UPDATE Clip 
+		SET
+			Save = @Save
+		WHERE 
+				ClipUID == @ClipUID
+		;
+	)RAW";
+
+	string_t FindClipByUID = LR"RAW(
+		SELECT * FROM Clip 
+		WHERE 
+			ClipUID == @ClipUID 
+		;
+	)RAW";
+	
+	string_t DeleteClip = LR"RAW(
+		DELETE FROM Clip 
+		WHERE 
+				ClipUID == @ClipUID 
 		;
 	)RAW";
 
@@ -216,6 +240,14 @@ namespace Database
 				Camera == @CameraID
 			AND	Timestamp == @Timestamp
 		;
+	)RAW";
+
+	string_t SelectClipsToDelete = LR"RAW(
+		SELECT * FROM Clip
+		WHERE
+			Timestamp < @Timestamp
+			AND (Save == 0 OR Save IS NULL)
+		LIMIT 500;
 	)RAW";
 
 	string_t SelectAllGroups = LR"RAW(
@@ -277,7 +309,11 @@ namespace Database
 
 		CREATE_QUERY( CreateClip );
 		CREATE_QUERY( UpdateClip );
+		CREATE_QUERY( DeleteClip );
 		CREATE_QUERY( SelectClip );
+		CREATE_QUERY( SelectClipsToDelete );
+		CREATE_QUERY( SetClipSaveState );
+		CREATE_QUERY( FindClipByUID );
 		CREATE_QUERY( CountClipsWithinRange );
 		CREATE_QUERY( CountClipsWithinRangeAll );
 		CREATE_QUERY( SelectClipsWithinRange );

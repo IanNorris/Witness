@@ -1,9 +1,11 @@
-var CameraClipsViewModel = function( parent, cameraID ) {
+var CameraClipsViewModel = function( parent, authentication, cameraID ) {
 	"use strict";
 	
 	var self = this;
+	self.isBusy = ko.observable(false);
 		
 	self.parent = parent;
+	self.authentication = authentication;
 	self.cameraID = ko.observable(cameraID);
 	
 	self.totalClipsInRange = ko.observable(0);
@@ -18,6 +20,52 @@ var CameraClipsViewModel = function( parent, cameraID ) {
 	self.visiblePages = ko.observableArray([]);
 	
 	self.clips = ko.observableArray([]);
+	
+	self.idToDelete = 0;
+	self.showDeleteDialog = function( id ) {
+		self.idToDelete = id;
+		$('#deleteClip').modal('toggle');
+	};
+	
+	self.toggleSave = function( id, newValue ) {	
+		if( !self.isBusy() ){
+			var clipToToggleSave = {
+				'csrf': self.authentication.csrfToken(),
+				id: id,
+				value: newValue
+			};
+			makeQuery( clipToToggleSave, '/clip/toggleSave/', true, "error|Error toggling save on clip.",
+				function(result){
+				},
+				function(result){ /*finally*/
+					self.isBusy(false);
+				}
+			);
+		}
+	};
+	
+	self.deleteClip = function(){
+		self.isBusy(true);
+		var clipToDelete = {
+			'csrf': self.authentication.csrfToken(),
+			id: self.idToDelete
+		};
+		makeQuery( clipToDelete, '/clip/delete/', true, "error|Error deleting clip.",
+			function(result){
+				self.clips.remove( function( item ) {
+						return item.clipUID() == self.idToDelete;
+				} );
+				
+				$('#deleteClip').modal('toggle');
+				self.idToDelete = 0;
+				
+				self.isBusy(false);
+			},
+			function(result){ /*finally*/
+				self.isBusy(false);
+			}
+		);
+	};
 	
 	self.page = ko.computed( function() {
 		return Math.floor( self.pageOffset() / self.maxCount() );
@@ -154,6 +202,7 @@ var CameraClipsViewModel = function( parent, cameraID ) {
 			
 			for( var clip = 0; clip < result.clips.length; clip++ ) {
 				
+				var newClipUID = result.clips[clip].clipUID;
 				var newTimestamp = result.clips[clip].timestamp;
 				var newCameraID = result.clips[clip].cameraID;
 				var newMotionTimestamp = result.clips[clip].motionTimestamp;
@@ -162,6 +211,7 @@ var CameraClipsViewModel = function( parent, cameraID ) {
 				var newRecordMode = result.clips[clip].recordMode;
 				var newMaxMotion = result.clips[clip].maxMotion;
 				var newDescription = result.clips[clip].description;
+				var newSaved = result.clips[clip].saved;
 
 				var existing = null;
 				
@@ -174,6 +224,7 @@ var CameraClipsViewModel = function( parent, cameraID ) {
 				}
 				
 				if( existing ){
+					existing.clipUID(newClipUID);
 					existing.cameraID(newCameraID);
 					existing.motionTimestamp(newMotionTimestamp);
 					existing.activeDuration(newActiveDuration);
@@ -181,9 +232,10 @@ var CameraClipsViewModel = function( parent, cameraID ) {
 					existing.recordMode(newRecordMode);
 					existing.maxMotion(newMaxMotion);
 					existing.description(newDescription);
+					existing.saved(newSaved);
 				}
 				else {
-					self.clips.push(  new ClipViewModel( self, newTimestamp, newCameraID, newMotionTimestamp, newActiveDuration, newDuration, newRecordMode, newMaxMotion, newDescription ) );
+					self.clips.push(  new ClipViewModel( self, newClipUID, newTimestamp, newCameraID, newMotionTimestamp, newActiveDuration, newDuration, newRecordMode, newMaxMotion, newDescription, newSaved ) );
 				}
 				
 				self.clips.sort( function( left, right ) {

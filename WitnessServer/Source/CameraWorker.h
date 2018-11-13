@@ -69,6 +69,7 @@ public:
 	, Video( Video )
 	, Camera( Camera )
 	, LastFrameTime( 0 )
+	, LastDeleteTime( 0 )
 	, IsConnected( false )
 	, IsRTSP( false )
 	{}
@@ -107,6 +108,7 @@ private:
 	CameraSettings Camera;
 
 	uint64_t LastFrameTime;
+	uint64_t LastDeleteTime;
 
 	bool IsConnected;
 	bool IsRTSP;

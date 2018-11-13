@@ -43,7 +43,7 @@ var WitnessViewModel = function() {
 		}
 		self.allClipsSelected(true);
 		
-		self.clipBrowser( new CameraClipsViewModel( self.witness, -1 ) );
+		self.clipBrowser( new CameraClipsViewModel( self.witness, self.authentication, -1 ) );
 		window.location.hash = "#Clip_All";
 	};
 	

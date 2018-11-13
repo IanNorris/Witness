@@ -3,6 +3,7 @@
 #include "Common.h"
 #include "Messages.h"
 #include "AsyncWorker.h"
+#include "TimerWorker.h"
 #include "ImageProcessorWorker.h"
 #include "CameraWorker.h"
 #include "WatchdogWorker.h"
@@ -63,6 +64,7 @@ private:
 
 	unique_ptr<AsyncWorker> Worker;
 	unique_ptr<WatchdogWorker> Watchdog;
+	unique_ptr<TimerWorker> Timer;
 	unique_ptr<WitnessListener>	Server;
 	shared_ptr<GlobalContext> Context;
 	shared_ptr<MessageBusQueue> MessageClient;

@@ -90,7 +90,6 @@
       <AdditionalDependencies>$(SolutionDir)\ThirdParty\SubModules\libsodium\Build\ReleaseDLL\x64\libsodium.lib;$(SolutionDir)\ThirdParty\SubModules\opencv\bin\install\x64\vc15\lib\opencv_world400.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
-      <Command>cmd /C robocopy /njh /njs /np /nfl /ndl $(SolutionDir)\ThirdParty\SubModules\cpprestsdk\Binaries\x64\Release $(OutputPath) cpprest140_2_10.* &amp;&amp; robocopy /njh /njs /np /nfl /ndl $(SolutionDir)\ThirdParty\SubModules\libsodium\Build\ReleaseDLL\x64 $(OutputPath) libsodium.* &amp;&amp; robocopy /njh /njs /np /nfl /ndl $(SolutionDir)\ThirdParty\SubModules\opencv\bin\install\x64\vc15\bin $(OutputPath) opencv_world400*.*</Command>
       <Command>robocopy /njh /njs /np /nfl /ndl $(SolutionDir)\ThirdParty\SubModules\libsodium\Build\ReleaseDLL\x64 $(OutputPath) libsodium.* &amp;&amp; robocopy /njh /njs /np /nfl /ndl $(SolutionDir)\ThirdParty\SubModules\opencv\bin\install\x64\vc15\bin $(OutputPath) opencv_world400*.*</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
@@ -123,6 +122,7 @@
     <ClCompile Include="Source\Shutdown.cpp" />
     <ClCompile Include="Source\SQLite.cpp" />
     <ClCompile Include="Source\StatusEvents.cpp" />
+    <ClCompile Include="Source\TimerWorker.cpp" />
     <ClCompile Include="Source\WatchdogWorker.cpp" />
     <ClCompile Include="Source\WorkerBase.cpp" />
   </ItemGroup>
@@ -156,6 +156,7 @@
     <ClInclude Include="Source\ObservingMotionFilter.h" />
     <ClInclude Include="Source\SettingsMap.h" />
     <ClInclude Include="Source\SQLite.h" />
+    <ClInclude Include="Source\TimerWorker.h" />
     <ClInclude Include="Source\WatchdogWorker.h" />
     <ClInclude Include="Source\Witness.h" />
     <ClInclude Include="Source\WorkerBase.h" />

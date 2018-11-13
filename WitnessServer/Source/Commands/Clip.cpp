@@ -51,9 +51,35 @@ string_t GetClipName( const GlobalContext& Context, int CameraID, int64_t Timest
 	return Stream.str();
 }
 
+void DeleteClip( const GlobalContext& Context, int CameraID, int64_t Timestamp, bool Manual )
+{
+	auto ThumbnailPath = GetClipName( Context, CameraID, Timestamp, Manual, false );
+	auto VideoPath = GetClipName( Context, CameraID, Timestamp, Manual, true );
+	
+	std::experimental::filesystem::remove( ThumbnailPath );
+	std::experimental::filesystem::remove( VideoPath );
+}
+
 void Command_Clip::OnMessage( GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
 {
 	auto Packet = Message.extract_json().get();
+
+	if( ChildPath.size() == 1 && IsPost )
+	{
+		auto Command = ChildPath.front();
+		if( Command.compare( _T("toggleSave") ) == 0 )
+		{
+			OnToggleSaveMessage( Context, Message, Packet );
+		}
+		else if( Command.compare( _T("delete") ) == 0 )
+		{
+			OnDeleteMessage( Context, Message, Packet );
+		}
+		else
+		{
+			Message.reply( status_codes::NotFound );
+		}
+	}
 
 	if( ChildPath.size() == 3 && !IsPost )
 	{
@@ -239,8 +265,10 @@ void Command_Clip::OnEnumClipsMessage( const GlobalContext& Context, http_reques
 				int RecordMode = query.GetColumnValueInt(6);
 				double MaxMotion = query.GetColumnValueDouble(7);
 				string_t Description = query.GetColumnValueText(8);
+				int Saved = query.GetColumnValueInt(9);
 			
 				json::value Camera;
+				Camera[ _T("clipUID") ] = json::value(ClipID);
 				Camera[ _T("timestamp") ] = json::value(Timestamp);
 				Camera[ _T("cameraID") ] = json::value(CameraID);
 				Camera[ _T("motionTimestamp") ] = json::value(MotionTimestamp);
@@ -249,6 +277,7 @@ void Command_Clip::OnEnumClipsMessage( const GlobalContext& Context, http_reques
 				Camera[ _T("recordMode") ] = json::value(RecordMode);
 				Camera[ _T("maxMotion") ] = json::value(MaxMotion);
 				Camera[ _T("description") ] = json::value(Description);
+				Camera[ _T("saved") ] = json::value(Saved);
 
 				Array.push_back( Camera );
 				
@@ -261,4 +290,151 @@ void Command_Clip::OnEnumClipsMessage( const GlobalContext& Context, http_reques
 	Data[ _T("clips") ] = json::value::array(Array);
 
 	Message.reply( status_codes::OK, Data );
+}
+
+void Command_Clip::OnToggleSaveMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet )
+{
+	if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::ReadWrite, Command_Authenticate::Privilege::Normal ) )
+	{
+		return;
+	}
+
+	string_t Errors;
+	int ClipUID = 0;
+	bool Value = false;
+
+	bool Success = GetJsonField( Packet, _T("id"), ClipUID, Errors );
+	Success &= GetJsonField( Packet, _T("value"), Value, Errors );
+
+	if( !Success )
+	{
+		Message.reply( status_codes::BadRequest, Errors );
+		return;
+	}
+
+	SQLiteDatabaseQueryInstance SetClipSaveState( Context.Database, _T("SetClipSaveState") );
+	SetClipSaveState->Bind( "@ClipUID", ClipUID );
+	SetClipSaveState->Bind( "@Save", Value ? 1 : 0 );
+
+	SetClipSaveState->Execute( 
+		[&]( const SQLiteDatabaseQuery& query )
+		{
+			return true;
+		}
+	);
+
+	json::value Data;
+	Message.reply( status_codes::OK, Data );
+}
+
+void Command_Clip::OnDeleteMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet )
+{
+	if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::ReadWrite, Command_Authenticate::Privilege::Normal ) )
+	{
+		return;
+	}
+
+	string_t Errors;
+	int ClipUID = 0;
+
+	bool Success = GetJsonField( Packet, _T("id"), ClipUID, Errors );
+
+	if( !Success )
+	{
+		Message.reply( status_codes::BadRequest, Errors );
+		return;
+	}
+
+	SQLiteDatabaseQueryInstance FindClipByUID( Context.Database, _T("FindClipByUID") );
+	FindClipByUID->Bind( "@ClipUID", ClipUID );
+
+	int CameraID;
+	int64_t Timestamp;
+	bool Manual;
+	
+	FindClipByUID->Execute( 
+		[&]( const SQLiteDatabaseQuery& query )
+		{
+			uint64_t ClipID = query.GetColumnValueInt64(0);
+			Timestamp = query.GetColumnValueInt64(1);
+			CameraID = query.GetColumnValueInt(2);
+			Manual = query.GetColumnValueInt(6) == 0;
+			
+			return true;
+		}
+	);
+
+	DeleteClip( Context, CameraID, Timestamp, Manual );
+
+	SQLiteDatabaseQueryInstance DeleteClipQuery( Context.Database, _T("DeleteClip") );
+	DeleteClipQuery->Bind( "@ClipUID", ClipUID );
+
+	DeleteClipQuery->Execute( 
+		[&]( const SQLiteDatabaseQuery& query )
+		{
+			return true;
+		}
+	);
+
+	json::value Data;
+	Message.reply( status_codes::OK, Data );
+}
+
+struct ClipToDelete
+{
+	int64_t ClipID;
+	int CameraID;
+	int64_t Timestamp;
+	bool Manual;
+};
+
+void Command_Clip::DeleteOldClips( const GlobalContext& Context, int DaysToDelete )
+{
+	const static int SecondsInDay = 60 * 60 * 24;
+	int64_t Timestamp = datetime::utc_timestamp() - (DaysToDelete * SecondsInDay);
+
+	SQLiteDatabaseQueryInstance SelectClipsToDelete( Context.Database, _T("SelectClipsToDelete") );
+	SelectClipsToDelete->Bind( "@Timestamp", Timestamp );
+
+	std::vector<ClipToDelete> ClipsToDelete;
+
+	SelectClipsToDelete->Execute( 
+		[&]( const SQLiteDatabaseQuery& query )
+		{
+			uint64_t ClipID = query.GetColumnValueInt64(0);
+			int64_t Timestamp = query.GetColumnValueInt64(1);
+			int CameraID = query.GetColumnValueInt(2);
+			bool Manual = query.GetColumnValueInt(6) == 0;
+
+			ClipToDelete Clip;
+			Clip.ClipID = ClipID;
+			Clip.CameraID = CameraID;
+			Clip.Manual = Manual;
+			Clip.Timestamp = Timestamp;
+
+			ClipsToDelete.push_back(Clip);
+			
+			return true;
+		}
+	);
+
+	if( ClipsToDelete.size() )
+	{
+		tcout << _T("Deleting ") << ClipsToDelete.size() << _T(" clips as they were more than ") << DaysToDelete << _T(" days old.") << endl;
+	}
+
+	for( auto& Clip : ClipsToDelete )
+	{
+		SQLiteDatabaseQueryInstance DeleteClipQuery( Context.Database, _T("DeleteClip") );
+		DeleteClipQuery->Bind( "@ClipUID", Clip.ClipID );
+
+		DeleteClipQuery->Execute( 
+			[&]( const SQLiteDatabaseQuery& query )
+			{
+				return true;
+			}
+		);
+
+		DeleteClip( Context, Clip.CameraID, Clip.Timestamp, Clip.Manual );
+	}
 }

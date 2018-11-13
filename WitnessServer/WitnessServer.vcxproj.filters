@@ -117,6 +117,9 @@
     <ClCompile Include="Source\Azure\AzureEndpoint.cpp">
       <Filter>Source Files\Azure</Filter>
     </ClCompile>
+    <ClCompile Include="Source\TimerWorker.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Source\Listener.h">
@@ -198,6 +201,9 @@
       <Filter>Header Files\Azure</Filter>
     </ClInclude>
     <ClInclude Include="Source\SettingsMap.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\TimerWorker.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

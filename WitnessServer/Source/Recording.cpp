@@ -30,6 +30,7 @@ void WitnessServer::StartCameraRecording( const shared_ptr<CameraWorker>& Worker
 	CreateClip->Bind( "@RecordMode", IsManual ? 0 : 1 );
 	CreateClip->Bind( "@MaxMotion", 0.0f );
 	CreateClip->Bind( "@Description", _T("") );
+	CreateClip->Bind( "@Save", 0 );
 	CreateClip->Execute( nullptr );
 }
 

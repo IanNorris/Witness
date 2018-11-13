@@ -1,10 +1,11 @@
-var ClipViewModel = function( parent, newTimestamp, newCameraID, newMotionTimestamp, newActiveDuration, newDuration, newRecordMode, newMaxMotion, newDescription ) {
+var ClipViewModel = function( parent, newClipUID, newTimestamp, newCameraID, newMotionTimestamp, newActiveDuration, newDuration, newRecordMode, newMaxMotion, newDescription, newSaved ) {
 	"use strict";
 	
 	var self = this;
 		
 	self.parent = parent;
 	
+	self.clipUID = ko.observable(newClipUID);
 	self.timestamp = ko.observable(newTimestamp);
 	self.cameraID = ko.observable(newCameraID);
 	self.motionTimestamp = ko.observable(newMotionTimestamp);
@@ -13,6 +14,18 @@ var ClipViewModel = function( parent, newTimestamp, newCameraID, newMotionTimest
 	self.recordMode = ko.observable(newRecordMode);
 	self.maxMotion = ko.observable(newMaxMotion);
 	self.description = ko.observable(newDescription);
+	self.saved = ko.observable(newSaved);
+	
+	self.recursing = false;
+	
+	self.toggleSaved = function(){
+		self.parent.toggleSave(self.clipUID(), self.saved());
+		return true;
+	};
+	
+	self.deleteClip = function(){
+		self.parent.showDeleteDialog(self.clipUID());
+	};
 	
 	self.thumbnail = ko.computed( function() {
 		return "/clip/thumb/" + self.cameraID() + "/" + self.timestamp();

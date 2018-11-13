@@ -13,6 +13,9 @@ void WitnessServer::Shutdown()
 	Watchdog->RequestShutdown();
 	Watchdog = nullptr;
 
+	Timer->RequestShutdown();
+	Timer = nullptr;
+
 	for (auto& Worker : ImageWorkers)
 	{
 		Worker->RequestShutdown();

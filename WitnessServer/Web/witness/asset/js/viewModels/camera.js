@@ -83,7 +83,7 @@ var CameraViewModel = function( witness, id, enabled, name, description, connect
 		var cameraID = self.selectCamera();
 		self.witness.viewMode(VIEW_MODE_CLIPS);
 		self.witness.stream(null);
-		self.witness.clipBrowser( new CameraClipsViewModel( self.witness, cameraID ) );
+		self.witness.clipBrowser( new CameraClipsViewModel( self.witness, self.witness.authentication, cameraID ) );
 		window.location.hash = "#" + self.clipName();
 	};
 	

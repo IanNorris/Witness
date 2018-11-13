@@ -4,6 +4,7 @@
 #include "ObservingMotionFilter.h"
 #include "PersonRecognitionFilter.h"
 #include "Azure/AzureVisionAnalysisEndpointFilter.h"
+#include "Commands/Clip.h"
 
 #include <windows.h>
 
@@ -140,6 +141,7 @@ void CameraWorker::WorkerMain()
 	double FrameRate = CameraStream->GetFramerateDouble();
 	double FrameTime = 1.0f / FrameRate;
 
+	const double DeletetionCheckPeriod = 120.0;
 	const double BufferPeriodInMilliseconds = 0.0;
 	const double NanoSecondsToSeconds = 1000.0 * 1000.0 * 1000.0;
 	uint64_t Start = std::chrono::high_resolution_clock::now().time_since_epoch().count();

@@ -2,6 +2,7 @@
 #include "Witness.h"
 #include "Listener.h"
 #include "Commands/Authenticate.h"
+#include "Commands/Clip.h"
 #include "Database.h"
 
 using namespace web::json;
@@ -181,6 +182,13 @@ bool WitnessServer::Initialize()
 	tcout << _T("Starting web server...") << endl;
 
 	Server->Initialise( JsonServerConfig.as_object() );
+
+	Timer = make_unique<TimerWorker>( Context->MessageBus );
+	Timer->Start( WorkerBase::Priority::Normal );
+
+	Timer->AddTimer( [&](){
+		Command_Clip::DeleteOldClips( *Context, 14 /*days*/ );
+	}, 5 * 60 );
 
 	try
 	{
