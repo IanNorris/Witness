@@ -23,29 +23,32 @@ void SendAndroidNotification( utility::string_t ServerKey, utility::string_t Tar
 	PostParameters[U("data")] = Data;
 	PostParameters[U("priority")] = value::string( U("high") );
 	PostParameters[U("time_to_live")] = value::number(TimeToLive);
-	
-	http_client client( U("https://fcm.googleapis.com") );
-	
-	http_request Request( methods::POST );
-	Request.headers().set_content_type( U("application/json") );
-	Request.headers().add( U("Authorization"), U("key=") + ServerKey );
-	Request.set_request_uri( U("/fcm/send") );
-	
-	string_t PostData = PostParameters.serialize();
 
-	Request.set_body( PostData );
-
-	auto Response = client.request( Request );
-
-	if( OnComplete )
+	try
 	{
+		http_client client( U("https://fcm.googleapis.com") );
+	
+		http_request Request( methods::POST );
+		Request.headers().set_content_type( U("application/json") );
+		Request.headers().add( U("Authorization"), U("key=") + ServerKey );
+		Request.set_request_uri( U("/fcm/send") );
+	
+		string_t PostData = PostParameters.serialize();
+
+		Request.set_body( PostData );
+
+		auto Response = client.request( Request );
+
 		Response.then( [=](pplx::task<http_response> ResponseAsync)
 		{		
 			try
 			{
 				auto ResponseValue = Response.get();
 
-				OnComplete( ResponseValue );
+				if( OnComplete )
+				{
+					OnComplete( ResponseValue );
+				}
 			}
 			catch (web::http::http_exception e)
 			{
@@ -58,5 +61,13 @@ void SendAndroidNotification( utility::string_t ServerKey, utility::string_t Tar
 				std::cerr << "Error connecting to: " << std::string(ExceptionString.begin(), ExceptionString.end()) << ": " << e.what() << std::endl;
 			}
 		} );
+	}
+	catch (web::http::http_exception e)
+	{
+		std::cerr << "Error connecting to: " << std::string(e.what()) << std::endl;
+	}
+	catch (std::exception e)
+	{
+		std::cerr << "Error connecting to: " << std::string(e.what()) << std::endl;
 	}
 }
