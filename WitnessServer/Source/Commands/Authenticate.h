@@ -32,6 +32,9 @@ public:
 	void OnEnumUsersMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost );
 	void OnNewUserMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost );
 	void OnChangePasswordMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost );
+	void OnToggleEnabledMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet );
+	void OnToggleAdminMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet );
+	void OnSetDisplayNameMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet );
 
 private:
 

@@ -12,12 +12,19 @@ var AdminUserViewModel = function( parent, username, enabled, admin, displayName
 	self.userGroups = ko.observable(groups);
 	
 	self.toggleEnabled = function(){
+		self.parent.toggleEnabled(self.username(), self.enabled());
 		return true;
 	};
 	
 	self.toggleAdmin = function(){
+		self.parent.toggleAdmin(self.username(), self.admin());
 		return true;
 	};
+	
+	self.displayName.subscribe( function( newValue ){
+		self.parent.setDisplayName(self.username(), newValue);
+		return true;
+	} );
 	
 	self.isSelf = ko.computed( function() {
 		return self.username() == self.parent.currentUsername;

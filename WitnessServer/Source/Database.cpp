@@ -122,6 +122,33 @@ namespace Database
 		VALUES(@Username,@DisplayName,@PasswordHash,@HashMethod,@Enabled,@Admin);
 	)RAW";
 
+	string_t SetUserEnabledState = LR"RAW(
+		UPDATE User 
+		SET
+			Enabled = @Enabled
+		WHERE 
+			Username == @Username
+		;
+	)RAW";
+
+	string_t SetUserAdminState = LR"RAW(
+		UPDATE User 
+		SET
+			Admin = @Admin
+		WHERE 
+			Username == @Username
+		;
+	)RAW";
+
+	string_t SetUserDisplayName = LR"RAW(
+		UPDATE User 
+		SET
+			DisplayName = @DisplayName
+		WHERE 
+			Username == @Username
+		;
+	)RAW";
+
 	string_t FindSession = LR"RAW(
 		SELECT * FROM Session 
 		WHERE SessionToken = @SessionToken
@@ -296,6 +323,9 @@ namespace Database
 		CREATE_QUERY( FindUserForAuth );
 		CREATE_QUERY( FindUsers );
 		CREATE_QUERY( CreateUser );
+		CREATE_QUERY( SetUserEnabledState );
+		CREATE_QUERY( SetUserAdminState );
+		CREATE_QUERY( SetUserDisplayName );
 
 		CREATE_QUERY( FindSession );
 		CREATE_QUERY( VerifySession );

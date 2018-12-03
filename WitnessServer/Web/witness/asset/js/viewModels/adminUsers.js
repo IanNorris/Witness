@@ -5,7 +5,7 @@ var AdminUsersViewModel = function( authentication, groups ) {
 	self.groups = groups;
 	self.authentication = authentication;
 	
-	self.currentUsername = authentication.currentUsername;
+	self.currentUsername = authentication.username();
 	self.users = ko.observableArray([]);
 	
 	self.isBusy = ko.observable(false);
@@ -36,6 +36,57 @@ var AdminUsersViewModel = function( authentication, groups ) {
 				self.isBusy(false);
 			}
 		);
+	};
+	
+	self.toggleEnabled = function( username, newValue ) {	
+		if( !self.isBusy() ){
+			var data = {
+				'csrf': self.authentication.csrfToken(),
+				username: username,
+				value: newValue
+			};
+			makeQuery( data, '/auth/toggle_enabled/', true, "error|Error toggling account enabled for " + username + ".",
+				function(result){
+				},
+				function(result){ /*finally*/
+					self.isBusy(false);
+				}
+			);
+		}
+	};
+	
+	self.toggleAdmin = function( username, newValue ) {	
+		if( !self.isBusy() ){
+			var data = {
+				'csrf': self.authentication.csrfToken(),
+				username: username,
+				value: newValue
+			};
+			makeQuery( data, '/auth/toggle_admin/', true, "error|Error toggling account admin for " + username + ".",
+				function(result){
+				},
+				function(result){ /*finally*/
+					self.isBusy(false);
+				}
+			);
+		}
+	};
+	
+	self.setDisplayName = function( username, newValue ) {	
+		if( !self.isBusy() ){
+			var data = {
+				'csrf': self.authentication.csrfToken(),
+				username: username,
+				value: newValue
+			};
+			makeQuery( data, '/auth/set_display_name/', true, "error|Error setting account display name for " + username + ".",
+				function(result){
+				},
+				function(result){ /*finally*/
+					self.isBusy(false);
+				}
+			);
+		}
 	};
 	
 	self.refreshUsersAsAdmin = function() {	

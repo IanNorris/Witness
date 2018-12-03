@@ -149,6 +149,21 @@ void Command_Authenticate::OnMessage( GlobalContext& Context, http_request& Mess
 		{
 			OnChangePasswordMessage( Context, Message, CurrentCommand, ChildPath, IsPost );
 		}
+		else if( Command.compare( _T("toggle_enabled") ) == 0 )
+		{
+			auto Packet = Message.extract_json().get();
+			OnToggleEnabledMessage( Context, Message, Packet );
+		}
+		else if( Command.compare( _T("toggle_admin") ) == 0 )
+		{
+			auto Packet = Message.extract_json().get();
+			OnToggleAdminMessage( Context, Message, Packet );
+		}
+		else if( Command.compare( _T("set_display_name") ) == 0 )
+		{
+			auto Packet = Message.extract_json().get();
+			OnSetDisplayNameMessage( Context, Message, Packet );
+		}
 		else
 		{
 			Message.reply( status_codes::NotFound );
@@ -662,5 +677,134 @@ void Command_Authenticate::OnChangePasswordMessage(const GlobalContext& Context,
 	if( !IsAuthenticated( Context, Message, Packet, Action::ReadWrite, Privilege::Administrator ) )
 	{
 		return;
+	}
+}
+
+void Command_Authenticate::OnToggleEnabledMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet )
+{
+	if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::ReadWrite, Command_Authenticate::Privilege::Administrator ) )
+	{
+		return;
+	}
+
+	string_t Errors;
+	string_t Username;
+	bool Value = false;
+
+	bool Success = GetJsonField( Packet, _T("username"), Username, Errors );
+	Success &= GetJsonField( Packet, _T("value"), Value, Errors );
+
+	if( !Success )
+	{
+		Message.reply( status_codes::BadRequest, Errors );
+		return;
+	}
+
+	SQLiteDatabaseQueryInstance SetUserEnabledState( Context.Database, _T("SetUserEnabledState") );
+	SetUserEnabledState->Bind( "@Username", Username.c_str() );
+	SetUserEnabledState->Bind( "@Enabled", Value ? 1 : 0 );
+
+	int Result = SetUserEnabledState->Execute( 
+		[&]( const SQLiteDatabaseQuery& query )
+		{
+			return true;
+		}
+	);
+
+	if( Result >= 0 )
+	{
+		json::value Data;
+		Message.reply( status_codes::OK, Data );
+	}
+	else
+	{
+		json::value Data;
+		Message.reply( status_codes::InternalError, SetUserEnabledState->GetLastError() );
+	}
+}
+
+void Command_Authenticate::OnToggleAdminMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet )
+{
+	if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::ReadWrite, Command_Authenticate::Privilege::Administrator ) )
+	{
+		return;
+	}
+
+	string_t Errors;
+	string_t Username;
+	bool Value = false;
+
+	bool Success = GetJsonField( Packet, _T("username"), Username, Errors );
+	Success &= GetJsonField( Packet, _T("value"), Value, Errors );
+
+	if( !Success )
+	{
+		Message.reply( status_codes::BadRequest, Errors );
+		return;
+	}
+
+	SQLiteDatabaseQueryInstance SetUserAdminState( Context.Database, _T("SetUserAdminState") );
+	SetUserAdminState->Bind( "@Username", Username.c_str() );
+	SetUserAdminState->Bind( "@Admin", Value ? 1 : 0 );
+
+	int Result = SetUserAdminState->Execute( 
+		[&]( const SQLiteDatabaseQuery& query )
+		{
+			return true;
+		}
+	);
+
+	if( Result >= 0 )
+	{
+		json::value Data;
+		Message.reply( status_codes::OK, Data );
+	}
+	else
+	{
+		json::value Data;
+		Message.reply( status_codes::InternalError, SetUserAdminState->GetLastError() );
+	}
+}
+
+void Command_Authenticate::OnSetDisplayNameMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet )
+{
+	if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::ReadWrite, Command_Authenticate::Privilege::Administrator ) )
+	{
+		return;
+	}
+
+	string_t Errors;
+	string_t Username;
+	string_t DisplayName;
+
+	bool Success = GetJsonField( Packet, _T("username"), Username, Errors );
+	Success &= GetJsonField( Packet, _T("value"), DisplayName, Errors );
+
+	if( !Success )
+	{
+		Message.reply( status_codes::BadRequest, Errors );
+		return;
+	}
+
+	SQLiteDatabaseQueryInstance SetUserDisplayName( Context.Database, _T("SetUserDisplayName") );
+	SetUserDisplayName->Bind( "@Username", Username.c_str() );
+	SetUserDisplayName->Bind( "@DisplayName", DisplayName.c_str() );
+
+	int Result = SetUserDisplayName->Execute( 
+		[&]( const SQLiteDatabaseQuery& query )
+		{
+			return true;
+		}
+	);
+
+	if( Result >= 0 )
+	{
+		json::value Data;
+		Message.reply( status_codes::OK, Data );
+	}
+	else
+	{
+		json::value Data;
+		Message.reply( status_codes::InternalError, SetUserDisplayName->GetLastError() );
 	}
 }
