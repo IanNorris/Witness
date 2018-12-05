@@ -116,7 +116,7 @@ void CameraWorker::WorkerMain()
 
 		Msg->Handle<CameraStartRecordMessage>([&](const CameraStartRecordMessage& Data)
 		{
-			OnClipFinished();
+			OnClipFinished(false);
 				
 			Filter->SetManualClipStart( Data.Timestamp );
 			RecordStream = make_shared<OutputStream>( string( Data.Path.begin(), Data.Path.end() ), CameraStream.get() );
@@ -125,7 +125,12 @@ void CameraWorker::WorkerMain()
 
 		Msg->Handle<CameraStopRecordMessage>([&](const CameraStopRecordMessage& Data)
 		{
-			OnClipFinished();
+			OnClipFinished(Data.ManualStop);
+
+			if( Data.ManualStop )
+			{
+				Filter->ClearState();
+			}
 		});
 	}
 
@@ -179,7 +184,7 @@ void CameraWorker::WorkerMain()
 	{
 		IsConnected = false;
 
-		OnClipFinished();
+		OnClipFinished(false);
 
 		string_t ErrorStr = GetCameraStreamErrorMessage(Error);
 		if( CameraStream->GetFFMPEGErrorMessage()[0] != '\0')
@@ -204,13 +209,13 @@ void CameraWorker::WorkerMain()
 	}
 }
 
-void CameraWorker::OnClipFinished()
+void CameraWorker::OnClipFinished(bool ManualStop)
 {
 	if (RecordStream)
 	{
 		Filter->SetManualClipEnd( datetime::utc_timestamp() );
 
-		auto FinishedMessage = make_shared<CameraClipFinishedMessage>( Camera.ID );
+		auto FinishedMessage = make_shared<CameraClipFinishedMessage>( Camera.ID, ManualStop );
 		FinishedMessage->ClipStats = Filter->GetClipStatistics();
 		MessageBusObject->SendToClient( nullptr, FinishedMessage );
 		Filter->ClearStats();

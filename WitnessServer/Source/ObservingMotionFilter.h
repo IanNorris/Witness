@@ -45,6 +45,9 @@ public:
 	virtual ~ObservingMotionFilter();
 
 	virtual void FilterFrame( const AVFrame* Frame, ClassificationResult& Result, cv::Mat& InputFrame, cv::Mat& GrayscaleInputFrame ) override;
+	virtual void ClearState() override;
+
+	void ClearState( MotionChainNode* Node );
 
 	bool FlagToSaveNextFrame() { SaveNextFrame = true; }
 

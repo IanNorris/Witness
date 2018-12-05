@@ -340,4 +340,10 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 	ID.Frames++;
 }
 
+void MotionVectorFilter::ClearState()
+{
+	auto& ID = GetData();
+	ID.Objects.clear();
+}
+
 }}

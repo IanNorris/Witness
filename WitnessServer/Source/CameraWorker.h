@@ -93,7 +93,7 @@ private:
 	virtual void WorkerShutdown() override;
 	virtual void WorkerMain() override;
 
-	void OnClipFinished();
+	void OnClipFinished(bool ManualStop);
 
 	void CreateInputStream();
 

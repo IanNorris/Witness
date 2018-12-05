@@ -76,6 +76,7 @@ public:
 	virtual ~IRecordFilter(){}
 	
 	virtual void FilterFrame( const AVFrame* Frame, ClassificationResult& Result, cv::Mat& InputFrame, cv::Mat& GrayscaleInputFrame ) = 0;
+	virtual void ClearState() {};
 };
 
 }}

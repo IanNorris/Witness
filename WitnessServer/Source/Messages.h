@@ -85,20 +85,22 @@ struct CameraStartRecordMessage : public Message
 
 struct CameraStopRecordMessage : public Message
 {
-	CameraStopRecordMessage( int CamIndex ) : Camera( CamIndex )  {}
+	CameraStopRecordMessage( int CamIndex, bool ManualStop ) : Camera( CamIndex ), ManualStop( ManualStop )  {}
 
 	ClipStatistics ClipStats;
 
 	int Camera;
+	bool ManualStop;
 };
 
 struct CameraClipFinishedMessage : public Message
 {
-	CameraClipFinishedMessage( int CamIndex ) : Camera( CamIndex )  {}
+	CameraClipFinishedMessage( int CamIndex, bool ManualStop ) : Camera( CamIndex ), ManualStop( ManualStop )  {}
 
 	ClipStatistics ClipStats;
 
 	int Camera;
+	bool ManualStop;
 };
 
 struct CameraStartupMessage : public Message

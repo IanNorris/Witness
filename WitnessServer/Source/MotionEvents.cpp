@@ -79,7 +79,7 @@ void WitnessServer::HandleCameraEndMotionMessage(const CameraEndMotionMessage& D
 {
 	StatusMessage( Data.Camera, _T(""), _T("End Motion") );
 
-	auto StopRecord = make_shared<CameraStopRecordMessage>( Data.Camera );
+	auto StopRecord = make_shared<CameraStopRecordMessage>( Data.Camera, false );
 
 	shared_ptr<CameraWorker> Worker;
 

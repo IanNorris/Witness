@@ -77,7 +77,7 @@ void WitnessServer::MessageLoop()
 				}
 				else
 				{
-					auto StopRecord = make_shared<CameraStopRecordMessage>( Data.Camera );
+					auto StopRecord = make_shared<CameraStopRecordMessage>( Data.Camera, true );
 					Context->MessageBus->SendToClient( Worker.get(), StopRecord );
 				}
 			}

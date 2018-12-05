@@ -171,3 +171,29 @@ void ObservingMotionFilter::FilterFrame( const AVFrame* Frame, ClassificationRes
 		MessageBusPtr->SendToClient( nullptr, SaveFrameMessage );
 	}
 }
+
+void ObservingMotionFilter::ClearState()
+{
+	ClearState( MotionChain.get());
+}
+
+void ObservingMotionFilter::ClearState( MotionChainNode* Node )
+{
+	MotionChainNode* Next = MotionChain.get();
+	if (Next)
+	{
+		Next->Filter->ClearState();
+
+		MotionChainNode* S = Next->OnSuccess.get();
+		if(S)
+		{
+			ClearState(S);
+		}
+
+		MotionChainNode* F = Next->OnFailure.get();
+		if(F)
+		{
+			ClearState(F);
+		}
+	}
+}
