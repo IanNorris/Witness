@@ -221,7 +221,7 @@ shared_ptr<SQLiteDatabaseQuery> SQLiteDatabase::CreateQuery( const string_t& que
 	const TCHAR* nextStatement = newQuery.c_str();
 	do{
 		sqlite3_stmt* newStatement = nullptr;
-		newQuery = Trim(newQuery);
+		newQuery = Trim(nextStatement);
 		if( newQuery.length() )
 		{
 			int result = sqlite3_prepare16_v2( m_database, newQuery.c_str(), -1, &newStatement, (const void**)&nextStatement );
