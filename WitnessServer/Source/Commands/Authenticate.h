@@ -22,7 +22,9 @@ public:
 
 	static string_t GetSessionToken( const http_request& Message, uint16_t PortIn );
 
-	static bool IsAuthenticated( const GlobalContext& Context, http_request& Message, const json::value& Packet, Action ActionType, Privilege RequiredPrivilege );
+	static int IsAuthenticated( const GlobalContext& Context, http_request& Message, const json::value& Packet, Action ActionType, Privilege RequiredPrivilege );
+
+	static int IsCameraAuthenticated( const GlobalContext& Context, http_request& Message, const json::value& Packet, Action ActionType, Privilege RequiredPrivilege, int CameraUID );
 
 	void OnMessage( GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost ) override;
 
@@ -35,6 +37,7 @@ public:
 	void OnToggleEnabledMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet );
 	void OnToggleAdminMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet );
 	void OnSetDisplayNameMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet );
+	void OnSetUserGroupsMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet );
 
 private:
 

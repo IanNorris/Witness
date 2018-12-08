@@ -87,6 +87,18 @@ var CameraViewModel = function( witness, id, enabled, name, description, connect
 		window.location.hash = "#" + self.clipName();
 	};
 	
+	self.groups.subscribe(  function( newValue ){	
+		var data = { 
+			'csrf': self.witness.authentication.csrfToken(),
+			camera: self.id,
+			value: newValue.map(Number)
+		};
+		
+		makeQuery( data, '/camera/set_groups/' , true, "warning|Error while setting camera groups.", function(result) {} );
+		
+		return true;
+	} );
+	
 	self.toggleRecording = function() {
 		self.isRecording( !self.isRecording() );
 		

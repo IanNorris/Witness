@@ -32,6 +32,7 @@ var WitnessViewModel = function() {
 	self.cameras.extend({ rateLimit: 50 });
     self.focusedCamera = ko.observable(null);
 	self.allClipsSelected = ko.observable(false);
+	self.sentReady = ko.observable(false);
 	
 	self.selectAllCameraClips = function() {
 		self.viewMode(VIEW_MODE_CLIPS);
@@ -69,8 +70,12 @@ var WitnessViewModel = function() {
 	self.ready = ko.computed( function() {
 		var isReady = self.authentication.ready()
 				   && self.cameraListReceived();
-						
-		setTimeout( self.onFinishdRender, anchorClickDelay );
+
+		if( isReady && !self.sentReady() ){
+			setTimeout( self.onFinishdRender, anchorClickDelay );
+			self.sentReady(true);
+		}
+		
 						
 		return isReady;
 	} );

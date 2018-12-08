@@ -121,17 +121,13 @@ void Command_Clip::OnMessage( GlobalContext& Context, http_request& Message, con
 
 void Command_Clip::OnThumbnailMessage( const GlobalContext& Context, http_request& Message, bool Video, const string_t& TargetCamera, const string_t& TargetClip, const json::value& Packet )
 {
-	//NO CSRF!
-
-	//TODO: Check user has access to camera
-
 	int TargetCameraInt = _wtoi( TargetCamera.c_str() );
 	uint64_t TargetCameraTimestamp = _wtoll( TargetClip.c_str() );
 
-	/*if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, false ) )
+	if( !Command_Authenticate::IsCameraAuthenticated( Context, Message, Packet, Command_Authenticate::Action::Read, Command_Authenticate::Privilege::Normal, TargetCameraInt ) )
 	{
 		return;
-	}*/
+	}
 
 	if( !Video )
 	{
@@ -200,10 +196,6 @@ void Command_Clip::OnThumbnailMessage( const GlobalContext& Context, http_reques
 
 void Command_Clip::OnEnumClipsMessage( const GlobalContext& Context, http_request& Message, const string_t& TargetCamera, const string_t& MaxCount, const string_t& StartDate, const string_t& RangePeriod, const string_t& PageOffset, const json::value& Packet )
 {
-	//NO CSRF!
-
-	//TODO: Check user has access to camera
-
 	int TargetCameraInt = _wtoi( TargetCamera.c_str() );
 	int MaxCountInt = _wtoi( MaxCount.c_str() );
 	uint64_t StartDateInt = _wtoll( StartDate.c_str() );
@@ -212,10 +204,25 @@ void Command_Clip::OnEnumClipsMessage( const GlobalContext& Context, http_reques
 
 	MaxCountInt = min( MaxCountInt, MaxClipsPerQuery );
 
-	if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::Read, Command_Authenticate::Privilege::Normal ) )
+	int UserUID = 0;
+	if( TargetCameraInt == -1 )
 	{
-		return;
+		UserUID = Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::Read, Command_Authenticate::Privilege::Normal );
+		if( !UserUID )
+		{
+			return;
+		}
 	}
+	else
+	{
+		UserUID = Command_Authenticate::IsCameraAuthenticated( Context, Message, Packet, Command_Authenticate::Action::Read, Command_Authenticate::Privilege::Normal, TargetCameraInt );
+		if( !UserUID )
+		{
+			return;
+		}
+	}
+
+	
 
 	int Count = 0;
 	json::value Data;
@@ -223,7 +230,11 @@ void Command_Clip::OnEnumClipsMessage( const GlobalContext& Context, http_reques
 
 	{
 		SQLiteDatabaseQueryInstance CountClipsWithinRange( Context.Database, TargetCameraInt == -1 ? _T("CountClipsWithinRangeAll") : _T("CountClipsWithinRange") );
-		if( TargetCameraInt != -1)
+		if( TargetCameraInt == -1)
+		{
+			CountClipsWithinRange->Bind( "@UserUID", UserUID );
+		}
+		else
 		{
 			CountClipsWithinRange->Bind( "@CameraID", TargetCameraInt );
 		}
@@ -244,7 +255,11 @@ void Command_Clip::OnEnumClipsMessage( const GlobalContext& Context, http_reques
 	if( Count > 0 )
 	{
 		SQLiteDatabaseQueryInstance SelectClipsWithinRange( Context.Database, TargetCameraInt == -1 ? _T("SelectClipsWithinRangeAll") : _T("SelectClipsWithinRange") );
-		if( TargetCameraInt != -1)
+		if( TargetCameraInt == -1)
+		{
+			SelectClipsWithinRange->Bind( "@UserUID", UserUID );
+		}
+		else
 		{
 			SelectClipsWithinRange->Bind( "@CameraID", TargetCameraInt );
 		}
@@ -264,7 +279,10 @@ void Command_Clip::OnEnumClipsMessage( const GlobalContext& Context, http_reques
 				int Duration = query.GetColumnValueInt(5);
 				int RecordMode = query.GetColumnValueInt(6);
 				double MaxMotion = query.GetColumnValueDouble(7);
-				string_t Description = query.GetColumnValueText(8);
+
+				const wchar_t* DescriptionStr = query.GetColumnValueText(8);
+				string_t Description = DescriptionStr ? DescriptionStr : _T("");
+
 				int Saved = query.GetColumnValueInt(9);
 			
 				json::value Camera;
@@ -294,11 +312,6 @@ void Command_Clip::OnEnumClipsMessage( const GlobalContext& Context, http_reques
 
 void Command_Clip::OnToggleSaveMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet )
 {
-	if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::ReadWrite, Command_Authenticate::Privilege::Normal ) )
-	{
-		return;
-	}
-
 	string_t Errors;
 	int ClipUID = 0;
 	bool Value = false;
@@ -309,6 +322,27 @@ void Command_Clip::OnToggleSaveMessage( const GlobalContext& Context, http_reque
 	if( !Success )
 	{
 		Message.reply( status_codes::BadRequest, Errors );
+		return;
+	}
+
+	int TargetCameraInt = 0;
+	{
+		SQLiteDatabaseQueryInstance SelectClipID( Context.Database, _T("SelectClipID") );
+		SelectClipID->Bind( "@ClipUID", ClipUID );
+
+		bool Success = false;
+		SelectClipID->Execute( 
+			[&]( const SQLiteDatabaseQuery& query )
+			{
+				TargetCameraInt = query.GetColumnValueInt(2);
+				Success = true;
+				return true;
+			}
+		);
+	}
+
+	if( !Command_Authenticate::IsCameraAuthenticated( Context, Message, Packet, Command_Authenticate::Action::ReadWrite, Command_Authenticate::Privilege::Normal, TargetCameraInt ) )
+	{
 		return;
 	}
 
@@ -329,11 +363,6 @@ void Command_Clip::OnToggleSaveMessage( const GlobalContext& Context, http_reque
 
 void Command_Clip::OnDeleteMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet )
 {
-	if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::ReadWrite, Command_Authenticate::Privilege::Normal ) )
-	{
-		return;
-	}
-
 	string_t Errors;
 	int ClipUID = 0;
 
@@ -342,6 +371,27 @@ void Command_Clip::OnDeleteMessage( const GlobalContext& Context, http_request& 
 	if( !Success )
 	{
 		Message.reply( status_codes::BadRequest, Errors );
+		return;
+	}
+
+	int TargetCameraInt = 0;
+	{
+		SQLiteDatabaseQueryInstance SelectClipID( Context.Database, _T("SelectClipID") );
+		SelectClipID->Bind( "@ClipUID", ClipUID );
+
+		bool Success = false;
+		SelectClipID->Execute( 
+			[&]( const SQLiteDatabaseQuery& query )
+			{
+				TargetCameraInt = query.GetColumnValueInt(2);
+				Success = true;
+				return true;
+			}
+		);
+	}
+
+	if( !Command_Authenticate::IsCameraAuthenticated( Context, Message, Packet, Command_Authenticate::Action::ReadWrite, Command_Authenticate::Privilege::Normal, TargetCameraInt ) )
+	{
 		return;
 	}
 

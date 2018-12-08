@@ -26,7 +26,7 @@ var AdminUsersViewModel = function( authentication, groups ) {
 		};
 		makeQuery( newUser, '/auth/new_user/', true, "error|Error creating user.",
 			function(result){
-				self.users.push(  new AdminUserViewModel( self, result.username, true, false, result.displayName, [] ) );
+				self.users.push( new AdminUserViewModel( self, result.username, true, false, result.displayName, [] ) );
 				$('#addUserAdmin').modal('toggle');
 				
 				self.newPassword( result.password );
@@ -89,55 +89,43 @@ var AdminUsersViewModel = function( authentication, groups ) {
 		}
 	};
 	
+	self.setUserGroups = function( userID, username, newValue ) {	
+		if( !self.isBusy() ){
+			var data = {
+				'csrf': self.authentication.csrfToken(),
+				userid: userID,
+				value: newValue
+			};
+			makeQuery( data, '/auth/set_user_groups/', true, "error|Error setting user groups for " + username + ".",
+				function(result){
+				},
+				function(result){ /*finally*/
+					self.isBusy(false);
+				}
+			);
+		}
+	};
+	
 	self.refreshUsersAsAdmin = function() {	
 		makeQuery( null, '/auth/admin_enum/', true, "error|Error fetching user list.",
 			function(result){
-			self.users.remove( function( item ) {
-				var found = false;
-				for( var user = 0; user < result.length; user++ ) {
-					if( item.username() == result[user].username ) {
-						found = true;
-						break;
-					}
-				}
-				
-				return !found;
-			} );
+			self.users([]);
 			
 			for( var user = 0; user < result.length; user++ ) {
 				
+				var newUserID = result[user].userid;
 				var newUsername = result[user].username;
 				var newEnabled = result[user].enabled;
 				var newAdmin = result[user].admin;
 				var newDisplayName = result[user].displayName;
+				var newGroups = result[user].groups;
 				
-				result[user].userGroups = [0,1];
-				var newGroups = result[user].userGroups;
-
-				var existing = null;
-				
-				for( var existingUser = 0; existingUser < self.users().length; existingUser++ )
-				{
-					if( self.users()[ existingUser ].username() == newUsername ) {
-						existing = self.users()[ existingUser ];
-						break;
-					}
-				}
-				
-				if( existing ){
-					existing.admin(newAdmin);
-					existing.enabled(newEnabled);
-					existing.displayName(newDisplayName);
-					existing.userGroups(newGroups);
-				}
-				else {
-					self.users.push(  new AdminUserViewModel( self, newUsername, newEnabled, newAdmin, newDisplayName, newGroups ) );
-				}
-				
-				self.users.sort( function( left, right ) {
-					return left.username() < right.username();
-				} );
+				self.users.push(  new AdminUserViewModel( self, newUserID, newUsername, newEnabled, newAdmin, newDisplayName, newGroups ) );
 			}
+			
+			self.users.sort( function( left, right ) {
+				return left.username() < right.username();
+			} );
 		} );
 	};
 	

@@ -164,6 +164,11 @@ void Command_Authenticate::OnMessage( GlobalContext& Context, http_request& Mess
 			auto Packet = Message.extract_json().get();
 			OnSetDisplayNameMessage( Context, Message, Packet );
 		}
+		else if( Command.compare( _T("set_user_groups") ) == 0 )
+		{
+			auto Packet = Message.extract_json().get();
+			OnSetUserGroupsMessage( Context, Message, Packet );
+		}
 		else
 		{
 			Message.reply( status_codes::NotFound );
@@ -198,6 +203,7 @@ void Command_Authenticate::OnLoginMessage( const GlobalContext& Context, http_re
 	string_t Errors;
 	
 	bool Success = true;
+	int UserUID;
 	string_t Username;
 	string_t Password;
 
@@ -221,10 +227,11 @@ void Command_Authenticate::OnLoginMessage( const GlobalContext& Context, http_re
 
 		bool Success = false;
 		int Result = FindUser->Execute( 
-			[&Success,&PasswordHash,&PasswordAlgorithm]( const SQLiteDatabaseQuery& query )
+			[&UserUID,&Success,&PasswordHash,&PasswordAlgorithm]( const SQLiteDatabaseQuery& query )
 			{
-				PasswordHash = query.GetColumnValueText( 1 );
-				PasswordAlgorithm = query.GetColumnValueInt( 2 );
+				UserUID = query.GetColumnValueInt( 0 );
+				PasswordHash = query.GetColumnValueText( 2 );
+				PasswordAlgorithm = query.GetColumnValueInt( 3 );
 				Success = true;
 				
 				return true;
@@ -264,13 +271,13 @@ void Command_Authenticate::OnLoginMessage( const GlobalContext& Context, http_re
 		Success = false;
 
 		SQLiteDatabaseQueryInstance FindUserForAuth( Context.Database, _T("FindUserForAuth") );
-		FindUserForAuth->Bind( "@Username", Username.c_str() );
+		FindUserForAuth->Bind( "@UserUID", UserUID );
 
 		int Result = FindUserForAuth->Execute( 
 			[&]( const SQLiteDatabaseQuery& query )
 			{
-				Enabled = query.GetColumnValueInt( 1 );
-				Admin = query.GetColumnValueInt( 2 );
+				Enabled = query.GetColumnValueInt( 3 );
+				Admin = query.GetColumnValueInt( 4 );
 				Success = true;
 				
 				return true;
@@ -298,7 +305,7 @@ void Command_Authenticate::OnLoginMessage( const GlobalContext& Context, http_re
 		SQLiteDatabaseQueryInstance CreateSession( Context.Database, _T("CreateSession") );
 		CreateSession->Bind( "@SessionToken", SessionToken.c_str() );
 		CreateSession->Bind( "@CSRFToken", CSRFToken.c_str() );
-		CreateSession->Bind( "@Username", Username.c_str() );
+		CreateSession->Bind( "@UserUID", UserUID );
 		CreateSession->Bind( "@LastUsed", (int64_t)UTCTimeNow );
 		
 		CreateSession->Execute( nullptr );
@@ -360,6 +367,7 @@ void Command_Authenticate::OnGetProfileMessage( const GlobalContext& Context, ht
 
 	string_t SessionToken = GetSessionToken( Message, Port );
 
+	int UserUID;
 	string_t Username;
 	string_t CSRFToken;
 
@@ -373,7 +381,7 @@ void Command_Authenticate::OnGetProfileMessage( const GlobalContext& Context, ht
 			[&]( const SQLiteDatabaseQuery& query )
 			{
 				CSRFToken = query.GetColumnValueText( 1 );
-				Username = query.GetColumnValueText( 2 );
+				UserUID = query.GetColumnValueInt( 2 );
 				Success = true;
 				
 				return true;
@@ -389,14 +397,15 @@ void Command_Authenticate::OnGetProfileMessage( const GlobalContext& Context, ht
 		Success = false;
 
 		SQLiteDatabaseQueryInstance FindUserForAuth( Context.Database, _T("FindUserForAuth") );
-		FindUserForAuth->Bind( "@Username", Username.c_str() );
+		FindUserForAuth->Bind( "@UserUID", UserUID );
 
 		int Result = FindUserForAuth->Execute( 
 			[&]( const SQLiteDatabaseQuery& query )
 			{
-				DisplayName = query.GetColumnValueText( 0 );
-				Enabled = query.GetColumnValueInt( 1 );
-				Admin = query.GetColumnValueInt( 2 );
+				Username = query.GetColumnValueText( 1 );
+				DisplayName = query.GetColumnValueText( 2 );
+				Enabled = query.GetColumnValueInt( 3 );
+				Admin = query.GetColumnValueInt( 4 );
 				Success = true;
 				
 				return true;
@@ -409,6 +418,7 @@ void Command_Authenticate::OnGetProfileMessage( const GlobalContext& Context, ht
 		json::value ResponseBody;
 		ResponseBody[_T("csrf")] = json::value(CSRFToken);
 		ResponseBody[_T("username")] = json::value(Username);
+		ResponseBody[_T("userUid")] = json::value(UserUID);
 		ResponseBody[_T("admin")] = json::value(Admin);
 		ResponseBody[_T("displayName")] = json::value(DisplayName);
 
@@ -462,7 +472,7 @@ string_t Command_Authenticate::GetSessionToken( const http_request& Message, uin
 	return SessionToken;
 }
 
-bool Command_Authenticate::IsAuthenticated( const GlobalContext& Context, http_request& Message, const json::value& Packet, Action ActionType, Privilege RequiredPrivilege )
+int Command_Authenticate::IsAuthenticated( const GlobalContext& Context, http_request& Message, const json::value& Packet, Action ActionType, Privilege RequiredPrivilege )
 {
 	string_t Errors;
 	
@@ -472,7 +482,7 @@ bool Command_Authenticate::IsAuthenticated( const GlobalContext& Context, http_r
 	Success &= GetJsonField( Packet, _T("csrf"), CSRF, Errors );
 
 	string_t SessionToken = GetSessionToken( Message, Context.Port );
-	string_t Username;
+	int UserUID = 0;
 
 	{
 		bool QuerySuccess = false;
@@ -487,7 +497,7 @@ bool Command_Authenticate::IsAuthenticated( const GlobalContext& Context, http_r
 			int Count = VerifySessionAndCSRF->Execute( 
 				[&]( const SQLiteDatabaseQuery& query )
 				{
-					Username = query.GetColumnValueText( 2 );
+					UserUID = query.GetColumnValueInt( 0 );
 					QuerySuccess = true;
 				
 					return true;
@@ -496,7 +506,7 @@ bool Command_Authenticate::IsAuthenticated( const GlobalContext& Context, http_r
 			if( Count != 1 || !QuerySuccess )
 			{
 				Message.reply( status_codes::BadRequest );
-				return false;
+				return 0;
 			}
 		}
 		else
@@ -507,7 +517,7 @@ bool Command_Authenticate::IsAuthenticated( const GlobalContext& Context, http_r
 			int Count = VerifySession->Execute( 
 				[&]( const SQLiteDatabaseQuery& query )
 				{
-					Username = query.GetColumnValueText( 2 );
+					UserUID = query.GetColumnValueInt( 0 );
 					QuerySuccess = true;
 				
 					return true;
@@ -516,7 +526,7 @@ bool Command_Authenticate::IsAuthenticated( const GlobalContext& Context, http_r
 			if( Count != 1 || !QuerySuccess )
 			{
 				Message.reply( status_codes::BadRequest );
-				return false;
+				return 0;
 			}
 		}
 	}
@@ -528,14 +538,14 @@ bool Command_Authenticate::IsAuthenticated( const GlobalContext& Context, http_r
 		Success = false;
 
 		SQLiteDatabaseQueryInstance FindUserForAuth( Context.Database, _T("FindUserForAuth") );
-		FindUserForAuth->Bind( "@Username", Username.c_str() );
+		FindUserForAuth->Bind( "@UserUID", UserUID );
 
 		bool Success = false;
 		int Result = FindUserForAuth->Execute( 
 			[&]( const SQLiteDatabaseQuery& query )
 			{
-				Enabled = query.GetColumnValueInt( 1 );
-				Admin = query.GetColumnValueInt( 2 );
+				Enabled = query.GetColumnValueInt( 3 );
+				Admin = query.GetColumnValueInt( 4 );
 				Success = true;
 				
 				return true;
@@ -546,16 +556,42 @@ bool Command_Authenticate::IsAuthenticated( const GlobalContext& Context, http_r
 	if ( !Admin && RequiredPrivilege == Privilege::Administrator)
 	{
 		Message.reply( status_codes::Forbidden );
-		return false;
+		return 0;
 	}
 
 	if( !Enabled )
 	{
 		Message.reply( status_codes::Forbidden );
-		return false;
+		return 0;
 	}
 
-	return true;
+	return UserUID;
+}
+
+int Command_Authenticate::IsCameraAuthenticated( const GlobalContext& Context, http_request& Message, const json::value& Packet, Action ActionType, Privilege RequiredPrivilege, int CameraUID )
+{
+	int UserUID = IsAuthenticated( Context, Message, Packet, ActionType, RequiredPrivilege );
+	if( !UserUID )
+	{
+		Message.reply( status_codes::Forbidden );
+		return 0;
+	}
+
+	SQLiteDatabaseQueryInstance GetCamerasDetailsForUser( Context.Database, _T("GetCamerasDetailsForUser") );
+	GetCamerasDetailsForUser->Bind( "@User", UserUID );
+	GetCamerasDetailsForUser->Bind( "@Camera", CameraUID );
+
+	bool Success = false;
+	int Result = GetCamerasDetailsForUser->Execute( 
+		[&]( const SQLiteDatabaseQuery& query )
+		{
+			Success = true;
+				
+			return true;
+		} 
+	);
+
+	return Success ? UserUID : 0;
 }
 
 void Command_Authenticate::OnEnumUsersMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
@@ -567,7 +603,14 @@ void Command_Authenticate::OnEnumUsersMessage( const GlobalContext& Context, htt
 		return;
 	}
 
+	struct UserLookup
+	{
+		int UserUID;
+		int ArrayIndex;
+	};
+
 	vector<json::value> Array;
+	vector<UserLookup> LookupArray;
 
 	SQLiteDatabaseQueryInstance FindUsers( Context.Database, _T("FindUsers") );
 
@@ -575,16 +618,55 @@ void Command_Authenticate::OnEnumUsersMessage( const GlobalContext& Context, htt
 		[&]( const SQLiteDatabaseQuery& query )
 		{
 			json::value User;
-			User[ _T("username") ] = json::value(query.GetColumnValueText( 0 ));
-			User[ _T("displayName") ] = json::value(query.GetColumnValueText( 1 ));
-			User[ _T("enabled") ] = json::value(query.GetColumnValueInt( 2 ));
-			User[ _T("admin") ] = json::value(query.GetColumnValueInt( 3 ));
+			int UserUID = query.GetColumnValueInt( 0 );
+			User[ _T("userid") ] = json::value(UserUID);
+			User[ _T("username") ] = json::value(query.GetColumnValueText( 1 ));
+			User[ _T("displayName") ] = json::value(query.GetColumnValueText( 2 ));
+			User[ _T("enabled") ] = json::value(query.GetColumnValueInt( 3 ));
+			User[ _T("admin") ] = json::value(query.GetColumnValueInt( 4 ));
 			
 			Array.push_back(User);
+			LookupArray.push_back(UserLookup{ UserUID, (int)Array.size()-1 });
 
 			return true;
 		} 
 	);
+
+	if( Result < 0 )
+	{
+		Message.reply( status_codes::InternalError, FindUsers->GetLastError() );
+		return;
+	}
+
+	for( auto& Lookup : LookupArray )
+	{
+		SQLiteDatabaseQueryInstance SelectGroupsForUser( Context.Database, _T("SelectGroupsForUser") );
+		SelectGroupsForUser->Bind( "@User", Lookup.UserUID );
+
+		vector<json::value> Groups;
+
+		int UserResult = SelectGroupsForUser->Execute( 
+			[&]( const SQLiteDatabaseQuery& query )
+			{
+				json::value User;
+				int UserUID = query.GetColumnValueInt( 0 );
+				int Group = query.GetColumnValueInt( 1 );
+			
+				Groups.push_back(json::value(Group));
+
+				return true;
+			} 
+		);
+
+		if( UserResult < 0 )
+		{
+			Message.reply( status_codes::InternalError, SelectGroupsForUser->GetLastError() );
+			return;
+		}
+
+		auto& UserData = Array[Lookup.ArrayIndex];
+		UserData[ _T("groups") ] = json::value::array(Groups);
+	}
 
 	Message.reply( status_codes::OK, json::value::array(Array) );
 }
@@ -807,4 +889,126 @@ void Command_Authenticate::OnSetDisplayNameMessage( const GlobalContext& Context
 		json::value Data;
 		Message.reply( status_codes::InternalError, SetUserDisplayName->GetLastError() );
 	}
+}
+
+void Command_Authenticate::OnSetUserGroupsMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet )
+{
+	int LoggedInUserUID = Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::ReadWrite, Command_Authenticate::Privilege::Administrator );
+	if( !LoggedInUserUID )
+	{
+		return;
+	}
+
+	string_t Errors;
+	int UserUID;
+	
+	vector<int> UserGroupsRequested;
+	vector<int> UserGroupsCurrent;
+
+	vector<int> UserGroupsToAdd;
+	vector<int> UserGroupsToRemove;
+
+	bool Success = GetJsonField( Packet, _T("userid"), UserUID, Errors );
+
+	if( !Packet.has_array_field(_T("value")) || !Success )
+	{
+		Errors += _T("value is not an array");
+		Message.reply( status_codes::BadRequest, Errors );
+		return;
+	}
+
+	auto& Array = Packet.at(_T("value")).as_array();
+	for( auto& Element : Array )
+	{
+		if( !Element.is_integer() )
+		{
+			Errors += _T("Element in array is not an integer");
+			Message.reply( status_codes::BadRequest, Errors );
+			return;
+		}
+
+		UserGroupsRequested.push_back( Element.as_integer() );
+	}
+
+	SQLiteDatabaseQueryInstance SelectGroupsForUser( Context.Database, _T("SelectGroupsForUser") );
+	SelectGroupsForUser->Bind( "@User", UserUID );
+	
+	int UserResult = SelectGroupsForUser->Execute( 
+		[&]( const SQLiteDatabaseQuery& query )
+		{
+			int Group = query.GetColumnValueInt( 1 );
+			
+			UserGroupsCurrent.push_back(Group);
+
+			return true;
+		} 
+	);
+
+	if( UserResult < 0 )
+	{
+		json::value Data;
+		Message.reply( status_codes::InternalError, SelectGroupsForUser->GetLastError() );
+		return;
+	}
+
+	for( int Value : UserGroupsRequested )
+	{
+		if( find( UserGroupsCurrent.begin(), UserGroupsCurrent.end(), Value ) == UserGroupsCurrent.end() )
+		{
+			UserGroupsToAdd.push_back(Value);
+		}
+	}
+
+	for( int Value : UserGroupsCurrent )
+	{
+		if( find( UserGroupsRequested.begin(), UserGroupsRequested.end(), Value ) == UserGroupsRequested.end() )
+		{
+			UserGroupsToRemove.push_back(Value);
+		}
+	}
+
+	for( int Value : UserGroupsToAdd )
+	{
+		SQLiteDatabaseQueryInstance CreateUserGroupMapping( Context.Database, _T("CreateUserGroupMapping") );
+		CreateUserGroupMapping->Bind( "@UserUID", UserUID );
+		CreateUserGroupMapping->Bind( "@Group", Value );
+
+		int Result = CreateUserGroupMapping->Execute( 
+			[&]( const SQLiteDatabaseQuery& query )
+			{
+				return true;
+			}
+		);
+
+		if( Result < 0 )
+		{
+			json::value Data;
+			Message.reply( status_codes::InternalError, CreateUserGroupMapping->GetLastError() );
+			return;
+		}
+	}
+
+	for( int Value : UserGroupsToRemove )
+	{
+		SQLiteDatabaseQueryInstance DeleteUserGroupMapping( Context.Database, _T("DeleteUserGroupMapping") );
+		DeleteUserGroupMapping->Bind( "@UserUID", UserUID );
+		DeleteUserGroupMapping->Bind( "@Group", Value );
+
+		int Result = DeleteUserGroupMapping->Execute( 
+			[&]( const SQLiteDatabaseQuery& query )
+			{
+				return true;
+			}
+		);
+
+		if( Result < 0 )
+		{
+			json::value Data;
+			Message.reply( status_codes::InternalError, DeleteUserGroupMapping->GetLastError() );
+			return;
+		}
+	}
+
+	json::value Data;
+	Message.reply( status_codes::OK, Data );
 }

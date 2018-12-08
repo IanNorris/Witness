@@ -30,6 +30,18 @@ void Command_Camera::OnMessage( GlobalContext& Context, http_request& Message, c
 			Message.reply( status_codes::NotFound );
 		}
 	}
+	if( ChildPath.size() == 1 && IsPost )
+	{
+		auto Command = ChildPath.front();
+		if( Command.compare( _T("set_groups") ) == 0 )
+		{
+			OnSetGroupsMessage( Context, Message, Packet );
+		}
+		else
+		{
+			Message.reply( status_codes::NotFound );
+		}
+	}
 	else if( ChildPath.size() == 2 && !IsPost )
 	{
 		auto Command = ChildPath.front();
@@ -74,11 +86,9 @@ void Command_Camera::OnMessage( GlobalContext& Context, http_request& Message, c
 
 void Command_Camera::OnPreviewMessage( GlobalContext& Context, http_request& Message, const string_t& TargetCamera, const json::value& Packet, bool LargePreview )
 {
-	//NO CSRF!
-
 	int TargetCameraInt = _wtoi( TargetCamera.c_str() );
-
-	if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::Read, Command_Authenticate::Privilege::Normal ) )
+	int UserUID = Command_Authenticate::IsCameraAuthenticated( Context, Message, Packet, Command_Authenticate::Action::Read, Command_Authenticate::Privilege::Normal, TargetCameraInt );
+	if( !UserUID )
 	{
 		return;
 	}
@@ -118,16 +128,18 @@ void Command_Camera::OnPreviewMessage( GlobalContext& Context, http_request& Mes
 
 void Command_Camera::OnEnumMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet, bool AsAdmin )
 {
-	if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::Read, AsAdmin ? Command_Authenticate::Privilege::Administrator : Command_Authenticate::Privilege::Normal ) )
+	int UserUID = Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::Read, AsAdmin ? Command_Authenticate::Privilege::Administrator : Command_Authenticate::Privilege::Normal );
+	if( !UserUID )
 	{
 		return;
 	}
 
 	vector<json::value> Array;
 	
-	SQLiteDatabaseQueryInstance GetCameras( Context.Database, _T("GetCameras") );
+	SQLiteDatabaseQueryInstance GetCamerasForUser( Context.Database, AsAdmin ? _T("GetCameras") : _T("GetCamerasForUser") );
+	GetCamerasForUser->Bind( "@User", UserUID );
 
-	GetCameras->Execute( 
+	GetCamerasForUser->Execute( 
 		[&Array, &Context, AsAdmin]( const SQLiteDatabaseQuery& query )
 		{
 			int ID = query.GetColumnValueInt(0);
@@ -220,12 +232,12 @@ void Command_Camera::OnEnumMessage( const GlobalContext& Context, http_request& 
 
 void Command_Camera::OnRecordMessage( const GlobalContext& Context, http_request& Message, const string_t& TargetCamera, const json::value& Packet )
 {
-	if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::ReadWrite, Command_Authenticate::Privilege::Normal ) )
+	int TargetCameraInt = _wtoi( TargetCamera.c_str() );
+	int UserUID = Command_Authenticate::IsCameraAuthenticated( Context, Message, Packet, Command_Authenticate::Action::Read, Command_Authenticate::Privilege::Normal, TargetCameraInt );
+	if( !UserUID )
 	{
 		return;
 	}
-
-	int TargetCameraInt = _wtoi( TargetCamera.c_str() );
 
 	bool Success = true;
 	bool Record = false;
@@ -257,4 +269,126 @@ void Command_Camera::OnRecordMessage( const GlobalContext& Context, http_request
 	Context.MessageBus->SendToClient( nullptr, ToggleRecord );
 
 	Message.reply( status_codes::OK, json::value(_T("OK")) );
+}
+
+void Command_Camera::OnSetGroupsMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet )
+{
+	int UserUID = Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::ReadWrite, Command_Authenticate::Privilege::Administrator );
+	if( !UserUID )
+	{
+		return;
+	}
+
+	string_t Errors;
+	int CameraID;
+	
+	vector<int> CameraGroupsRequested;
+	vector<int> CameraGroupsCurrent;
+
+	vector<int> CameraGroupsToAdd;
+	vector<int> CameraGroupsToRemove;
+
+	bool Success = GetJsonField( Packet, _T("camera"), CameraID, Errors );
+
+	if( !Packet.has_array_field(_T("value")) || !Success )
+	{
+		Errors += _T("value is not an array");
+		Message.reply( status_codes::BadRequest, Errors );
+		return;
+	}
+
+	auto& Array = Packet.at(_T("value")).as_array();
+	for( auto& Element : Array )
+	{
+		if( !Element.is_integer() )
+		{
+			Errors += _T("Element in array is not an integer");
+			Message.reply( status_codes::BadRequest, Errors );
+			return;
+		}
+
+		CameraGroupsRequested.push_back( Element.as_integer() );
+	}
+
+	SQLiteDatabaseQueryInstance SelectGroupsForCamera( Context.Database, _T("SelectGroupsForCamera") );
+	SelectGroupsForCamera->Bind( "@Camera", CameraID );
+	
+	int UserResult = SelectGroupsForCamera->Execute( 
+		[&]( const SQLiteDatabaseQuery& query )
+		{
+			int Group = query.GetColumnValueInt( 1 );
+			
+			CameraGroupsCurrent.push_back(Group);
+
+			return true;
+		} 
+	);
+
+	if( UserResult < 0 )
+	{
+		json::value Data;
+		Message.reply( status_codes::InternalError, SelectGroupsForCamera->GetLastError() );
+		return;
+	}
+
+	for( int Value : CameraGroupsRequested )
+	{
+		if( find( CameraGroupsCurrent.begin(), CameraGroupsCurrent.end(), Value ) == CameraGroupsCurrent.end() )
+		{
+			CameraGroupsToAdd.push_back(Value);
+		}
+	}
+
+	for( int Value : CameraGroupsCurrent )
+	{
+		if( find( CameraGroupsRequested.begin(), CameraGroupsRequested.end(), Value ) == CameraGroupsRequested.end() )
+		{
+			CameraGroupsToRemove.push_back(Value);
+		}
+	}
+
+	for( int Value : CameraGroupsToAdd )
+	{
+		SQLiteDatabaseQueryInstance CreateCameraGroupMapping( Context.Database, _T("CreateCameraGroupMapping") );
+		CreateCameraGroupMapping->Bind( "@Camera", CameraID );
+		CreateCameraGroupMapping->Bind( "@Group", Value );
+
+		int Result = CreateCameraGroupMapping->Execute( 
+			[&]( const SQLiteDatabaseQuery& query )
+			{
+				return true;
+			}
+		);
+
+		if( Result < 0 )
+		{
+			json::value Data;
+			Message.reply( status_codes::InternalError, CreateCameraGroupMapping->GetLastError() );
+			return;
+		}
+	}
+
+	for( int Value : CameraGroupsToRemove )
+	{
+		SQLiteDatabaseQueryInstance DeleteCameraGroupMapping( Context.Database, _T("DeleteCameraGroupMapping") );
+		DeleteCameraGroupMapping->Bind( "@Camera", CameraID );
+		DeleteCameraGroupMapping->Bind( "@Group", Value );
+
+		int Result = DeleteCameraGroupMapping->Execute( 
+			[&]( const SQLiteDatabaseQuery& query )
+			{
+				return true;
+			}
+		);
+
+		if( Result < 0 )
+		{
+			json::value Data;
+			Message.reply( status_codes::InternalError, DeleteCameraGroupMapping->GetLastError() );
+			return;
+		}
+	}
+
+	json::value Data;
+	Message.reply( status_codes::OK, Data );
 }

@@ -20,7 +20,7 @@ namespace Database
 		CREATE TABLE IF NOT EXISTS Session(
 			SessionToken	CHAR(64)							NOT NULL,
 			CSRFToken		CHAR(64)							NOT NULL,
-			Username		CHAR(64)							NOT NULL,
+			UserUID			INTEGER								NOT NULL,
 			LastUsed		DATETIME							NOT NULL
 		);
 
@@ -45,11 +45,18 @@ namespace Database
 		);
 
 		CREATE TABLE IF NOT EXISTS CameraGroupMapping (
-			Camera	INTEGER										NOT NULL,
-			`Group`	INTEGER										NOT NULL
+			Camera		INTEGER									NOT NULL,
+			`Group`		INTEGER									NOT NULL
 		);
 
 		CREATE UNIQUE INDEX IF NOT EXISTS CameraGroupMappingIndex ON CameraGroupMapping (Camera,`Group`);
+
+		CREATE TABLE IF NOT EXISTS UserGroupMapping (
+			UserUID		INTEGER										NOT NULL,
+			`Group`		INTEGER										NOT NULL
+		);
+
+		CREATE UNIQUE INDEX IF NOT EXISTS UserGroupMappingIndex ON UserGroupMapping (UserUID,`Group`);
 
 		CREATE TABLE IF NOT EXISTS Clip(
 			ClipUID			INTEGER PRIMARY KEY	AUTOINCREMENT,
@@ -104,22 +111,31 @@ namespace Database
 	)RAW";
 
 	string_t FindUser = LR"RAW(
-		SELECT Username, PasswordHash, HashMethod FROM User 
+		SELECT UserUID, Username, PasswordHash, HashMethod FROM User 
 		WHERE Username = @Username
 	)RAW";
 
 	string_t FindUserForAuth = LR"RAW(
-		SELECT DisplayName, Enabled, Admin FROM User 
-		WHERE Username = @Username
+		SELECT UserUID, Username, DisplayName, Enabled, Admin FROM User 
+		WHERE UserUID = @UserUID
 	)RAW";
 
 	string_t FindUsers = LR"RAW(
-		SELECT Username, DisplayName, Enabled, Admin FROM User 
+		SELECT UserUID, Username, DisplayName, Enabled, Admin FROM User 
 	)RAW";
 
 	string_t CreateUser = LR"RAW(
 		INSERT INTO User (Username,DisplayName,PasswordHash,HashMethod,Enabled,Admin)
 		VALUES(@Username,@DisplayName,@PasswordHash,@HashMethod,@Enabled,@Admin);
+	)RAW";
+
+	string_t DeleteUser = LR"RAW(
+		DELETE FROM UserGroupMapping
+			WHERE UserUID = @UserUID;
+		DELETE FROM Session
+			WHERE UserUID = @UserUID;
+		DELETE FROM User
+			WHERE UserUID = @UserUID;
 	)RAW";
 
 	string_t SetUserEnabledState = LR"RAW(
@@ -155,19 +171,21 @@ namespace Database
 	)RAW";
 
 	string_t VerifySessionAndCSRF = LR"RAW(
-		SELECT * FROM Session 
-		WHERE SessionToken = @SessionToken
-		AND CSRFToken = @CSRFToken
+		SELECT UserUID FROM Session 
+		WHERE 
+			SessionToken = @SessionToken
+		AND	CSRFToken = @CSRFToken
 	)RAW";
 
 	string_t VerifySession = LR"RAW(
-		SELECT * FROM Session 
-		WHERE SessionToken = @SessionToken
+		SELECT UserUID FROM Session 
+		WHERE 
+			SessionToken = @SessionToken
 	)RAW";
 
 	string_t CreateSession = LR"RAW(
-		INSERT INTO Session (SessionToken,CSRFToken,Username,LastUsed)
-		VALUES(@SessionToken,@CSRFToken,@Username,@LastUsed);
+		INSERT INTO Session (SessionToken,CSRFToken,UserUID,LastUsed)
+		VALUES(@SessionToken,@CSRFToken,@UserUID,@LastUsed);
 	)RAW";
 
 	string_t DeleteSession = LR"RAW(
@@ -182,9 +200,29 @@ namespace Database
 		ORDER BY CameraUID
 	)RAW";
 
+	string_t GetCamerasForUser = LR"RAW(
+		SELECT * FROM Camera C
+		INNER JOIN CameraGroupMapping CGM ON CGM.Camera = C.CameraUID
+		INNER JOIN UserGroupMapping UGM ON UGM.`Group` = CGM.`Group`
+		WHERE UGM.UserUID = @User
+	)RAW";
+
+	string_t GetCamerasDetailsForUser = LR"RAW(
+		SELECT * FROM Camera C
+		INNER JOIN CameraGroupMapping CGM ON CGM.Camera = C.CameraUID
+		INNER JOIN UserGroupMapping UGM ON UGM.`Group` = CGM.`Group`
+		WHERE UGM.UserUID = @User
+		AND C.CameraUID = @Camera
+	)RAW";
+
 	string_t CreateClip = LR"RAW(
 		INSERT INTO Clip (Timestamp,Camera,MotionTimestamp,ActiveDuration,Duration,RecordMode,MaxMotion,Description,Save)
 		VALUES(@Timestamp,@Camera,@MotionTimestamp,@ActiveDuration,@Duration,@RecordMode,@MaxMotion,@Description,@Save);
+	)RAW";
+
+	string_t SelectClipID = LR"RAW(
+		SELECT * FROM Clip
+		WHERE Clip.ClipUID = @ClipUID
 	)RAW";
 
 	string_t UpdateClip = LR"RAW(
@@ -234,10 +272,13 @@ namespace Database
 
 	string_t CountClipsWithinRangeAll = LR"RAW(
 		SELECT COUNT(Timestamp) FROM Clip
+			INNER JOIN Camera C ON C.CameraUID = Clip.Camera
+			INNER JOIN CameraGroupMapping CGM ON CGM.Camera = C.CameraUID
+			INNER JOIN UserGroupMapping UGM ON UGM.`Group` = CGM.`Group`
 		WHERE
 				Timestamp >= @TimestampFrom
 			AND Timestamp <= @TimestampTo
-		;
+			AND UGM.UserUID == @UserUID
 	)RAW";
 
 	string_t SelectClipsWithinRange = LR"RAW(
@@ -252,10 +293,14 @@ namespace Database
 	)RAW";
 
 	string_t SelectClipsWithinRangeAll = LR"RAW(
-		SELECT * FROM Clip
+		SELECT Clip.* FROM Clip
+			INNER JOIN Camera C ON C.CameraUID = Clip.Camera
+			INNER JOIN CameraGroupMapping CGM ON CGM.Camera = C.CameraUID
+			INNER JOIN UserGroupMapping UGM ON UGM.`Group` = CGM.`Group`
 		WHERE
 				Timestamp >= @TimestampFrom
 			AND Timestamp <= @TimestampTo
+			AND UGM.UserUID == @UserUID
 		ORDER BY Timestamp DESC
 		LIMIT @MaxCount OFFSET @PageOffset
 		;
@@ -304,8 +349,40 @@ namespace Database
 	)RAW";
 
 	string_t DeleteGroup = LR"RAW(
+		DELETE FROM CameraGroupMapping
+			WHERE `Group` = @Group;
+		DELETE FROM UserGroupMapping
+			WHERE `Group` = @Group;
 		DELETE FROM CameraGroup
-		WHERE GroupUID = @GroupUID;
+			WHERE GroupUID = @GroupUID;
+	)RAW";
+
+	string_t SelectGroupsForUser = LR"RAW(
+		SELECT * FROM UserGroupMapping
+		WHERE UserUID == @User
+		;
+	)RAW";
+
+	string_t CreateUserGroupMapping = LR"RAW(
+		INSERT INTO UserGroupMapping (UserUID,`Group`)
+		VALUES(@UserUID,@Group);
+	)RAW";
+
+	string_t DeleteUserGroupMapping = LR"RAW(
+		DELETE FROM UserGroupMapping
+		WHERE UserUID = @UserUID
+		AND `Group` = @Group;
+	)RAW";
+
+	string_t CreateCameraGroupMapping = LR"RAW(
+		INSERT INTO CameraGroupMapping (Camera,`Group`)
+		VALUES(@Camera,@Group);
+	)RAW";
+
+	string_t DeleteCameraGroupMapping = LR"RAW(
+		DELETE FROM CameraGroupMapping
+		WHERE Camera = @Camera
+		AND `Group` = @Group;
 	)RAW";
 
 #define CREATE_QUERY( X ) DB->CreateQuery( _T(#X), X )
@@ -323,6 +400,7 @@ namespace Database
 		CREATE_QUERY( FindUserForAuth );
 		CREATE_QUERY( FindUsers );
 		CREATE_QUERY( CreateUser );
+		CREATE_QUERY( DeleteUser );
 		CREATE_QUERY( SetUserEnabledState );
 		CREATE_QUERY( SetUserAdminState );
 		CREATE_QUERY( SetUserDisplayName );
@@ -336,8 +414,11 @@ namespace Database
 		CREATE_QUERY( GetUserCount );
 
 		CREATE_QUERY( GetCameras );
+		CREATE_QUERY( GetCamerasForUser );
+		CREATE_QUERY( GetCamerasDetailsForUser );
 
 		CREATE_QUERY( CreateClip );
+		CREATE_QUERY( SelectClipID );
 		CREATE_QUERY( UpdateClip );
 		CREATE_QUERY( DeleteClip );
 		CREATE_QUERY( SelectClip );
@@ -354,6 +435,12 @@ namespace Database
 		CREATE_QUERY( CreateGroup );
 		CREATE_QUERY( UpdateGroup );
 		CREATE_QUERY( DeleteGroup );
+		CREATE_QUERY( CreateUserGroupMapping );
+		CREATE_QUERY( DeleteUserGroupMapping );
+		CREATE_QUERY( CreateCameraGroupMapping );
+		CREATE_QUERY( DeleteCameraGroupMapping );
+
+		CREATE_QUERY( SelectGroupsForUser );
 
 		CREATE_QUERY( FindActions );
 		CREATE_QUERY( GetAction );

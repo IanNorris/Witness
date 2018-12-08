@@ -1,10 +1,11 @@
-var AdminUserViewModel = function( parent, username, enabled, admin, displayName, groups ) {
+var AdminUserViewModel = function( parent, userID, username, enabled, admin, displayName, groups ) {
 	"use strict";
 	
 	var self = this;	
 	
 	self.parent = parent;
 	
+	self.userID = userID;
 	self.username = ko.observable(username);
 	self.enabled = ko.observable(enabled);
 	self.admin = ko.observable(admin);
@@ -23,6 +24,11 @@ var AdminUserViewModel = function( parent, username, enabled, admin, displayName
 	
 	self.displayName.subscribe( function( newValue ){
 		self.parent.setDisplayName(self.username(), newValue);
+		return true;
+	} );
+	
+	self.userGroups.subscribe(  function( newValue ){
+		self.parent.setUserGroups(self.userID, self.username(), newValue.map(Number));
 		return true;
 	} );
 	
