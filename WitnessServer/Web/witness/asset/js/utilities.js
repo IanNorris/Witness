@@ -52,21 +52,23 @@ var makeQuery = function( postData, queryString, redirectOnFail, messageOnFail, 
 			}
 		}
 		
-		var messageSplit = messageOnFail.split("|");
-		var messageType = messageSplit[0];
-		var message = messageSplit[1];
-		
-		if( result.responseJSON && result.responseJSON.errorMessage ) {
+		if( messageOnFail ) {	
+			var messageSplit = messageOnFail.split("|");
+			var messageType = messageSplit[0];
+			var message = messageSplit[1];
 			
-			var error = result.responseJSON.errorMessage;
-			if( error.includes("UNIQUE ") ) {
-				message += "<br/>Item is not unique.";
+			if( result.responseJSON && result.responseJSON.errorMessage ) {
+				
+				var error = result.responseJSON.errorMessage;
+				if( error.includes("UNIQUE ") ) {
+					message += "<br/>Item is not unique.";
+				}
+				else {
+					message += "<br/>" + result.responseJSON.errorMessage;
+				}
 			}
-			else {
-				message += "<br/>" + result.responseJSON.errorMessage;
-			}
+			
+			makeToast( message, messageType );
 		}
-		
-		makeToast( message, messageType );
 	} );
 };

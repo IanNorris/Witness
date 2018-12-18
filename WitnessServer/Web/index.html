@@ -21,9 +21,14 @@
       <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
       <![endif]-->
     </head>
-
+	
     <body class="dashboard form-signin-wrapper">
-		<div class="signin-outer">
+		<div class="spinner-background">
+			<div class="spinner-container"></div>
+			<div class="spinner-container2"></div>
+		</div>
+	
+		<div class="signin-outer" style="display:none">
 			<div class="signin-middle">
 				<div class="signin-inner">
 					<form id="loginForm" class="form-signin" data-bind="fadeVisible: loginVisible" style="display:none">
@@ -66,6 +71,8 @@
 
       <script src="witness/asset/js/plugins/moment.min.js"></script>
       <script src="witness/asset/js/plugins/icheck.min.js"></script>
+	  
+	  <script src="witness/asset/js/utilities.js"></script>
 	  
 	  <script src="witness/asset/js/login.js"></script>
    </body>

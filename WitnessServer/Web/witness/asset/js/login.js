@@ -78,18 +78,20 @@ var LoginViewModel = function() {
 
 var g_viewModel = null;
 
-var sessionCookie = getCookie('SessionToken');
-if( sessionCookie )
-{
-	window.location.replace( "/witness/" );
-}
-else
-{
-	$(document).ready(function() {
-		g_viewModel = new LoginViewModel();
-		
-		ko.applyBindings(g_viewModel);
-		
-		g_viewModel.loginVisible(true);
-	});
-}
+makeQuery( {}, '/auth/profile', false, null, function(result) {
+	if( result.csrf != null ) {
+		window.location.replace( "/witness/" );
+	}
+	else {
+		$(document).ready(function() {
+			g_viewModel = new LoginViewModel();
+			
+			ko.applyBindings(g_viewModel);
+			
+			g_viewModel.loginVisible(true);
+			
+			$('.spinner-background').hide();
+			$('.signin-outer').show();
+		});
+	}
+} );
