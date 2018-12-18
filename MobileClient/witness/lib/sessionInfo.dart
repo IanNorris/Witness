@@ -8,11 +8,23 @@ import 'package:dio/dio.dart';
 import 'package:cookie_jar/cookie_jar.dart';
 import 'package:path_provider/path_provider.dart';
 
+enum ViewMode{
+  Grid,
+  Live,
+  Recording,
+}
+
+class SelectedView{
+  ViewMode view = ViewMode.Grid;
+  int cameraIndex = 0;
+}
+
 class SessionData{
   LoginData loginData = new LoginData('',11236,'','');
   WitnessProfile profile;
   String sessionToken;
   bool loadedPrefs = false;
+  SelectedView view = new SelectedView();
 
   CookieJar cookies;
   SharedPreferences prefs;

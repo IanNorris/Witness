@@ -1,5 +1,4 @@
 import 'package:Witness/loading.dart';
-import 'package:Witness/logoWidget.dart';
 import 'package:flutter/material.dart';
 import 'package:Witness/sessionInfo.dart';
 

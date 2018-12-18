@@ -124,8 +124,7 @@ class LoginState extends State<Login> {
 
     sessionData.setProfile(profile);
 
-    Navigator.pushReplacement(
-          context, MaterialPageRoute(builder: (context) => Home()));
+    Navigator.push( context, MaterialPageRoute(builder: (context) => Home()));
   }
 
   void signIn(BuildContext context) {
