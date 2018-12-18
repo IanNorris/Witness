@@ -12,7 +12,7 @@ class LogoWidget extends StatelessWidget {
         children: <Widget>[
           CircleAvatar(child: logo, backgroundColor: Colors.transparent),
           Padding(padding: const EdgeInsets.only(right: 16.0)),
-          Text("Witness", style: TextStyle(fontSize: 48.0))
+          Text("Witness", style: TextStyle(fontSize: 40.0),)
         ]);
   }
 }

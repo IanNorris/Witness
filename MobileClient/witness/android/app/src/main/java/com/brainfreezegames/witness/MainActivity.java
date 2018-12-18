@@ -1,4 +1,4 @@
-package com.example.witness;
+package com.brainfreezegames.witness;
 
 import android.os.Bundle;
 import io.flutter.app.FlutterActivity;
