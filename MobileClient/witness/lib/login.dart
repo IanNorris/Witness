@@ -30,6 +30,7 @@ class Login extends StatefulWidget {
 }
 
 class LoginState extends State<Login> {
+  bool once = true;
   final _formKey = GlobalKey<FormState>();
   final TextEditingController _controllerHostname = new TextEditingController();
   final TextEditingController _controllerPort = new TextEditingController();
@@ -39,6 +40,12 @@ class LoginState extends State<Login> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+
+    if( !once ){
+      return;
+    }
+
+    once = false;
 
     var sessionData = SessionDataContainer.of(context);
     _controllerHostname.text = sessionData.state.loginData.hostname;
