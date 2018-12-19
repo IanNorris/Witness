@@ -186,8 +186,11 @@ bool WitnessServer::Initialize()
 	Timer = make_unique<TimerWorker>( Context->MessageBus );
 	Timer->Start( WorkerBase::Priority::Normal );
 
+	const int DaysToDelete = 10;
+
+	Command_Clip::DeleteOldClips( *Context, DaysToDelete );
 	Timer->AddTimer( [&](){
-		Command_Clip::DeleteOldClips( *Context, 14 /*days*/ );
+		Command_Clip::DeleteOldClips( *Context, DaysToDelete );
 	}, 5 * 60 );
 
 	try
