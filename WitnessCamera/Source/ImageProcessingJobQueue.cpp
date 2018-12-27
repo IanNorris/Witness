@@ -249,7 +249,7 @@ void ImageProcessingJobQueue::WorkerThreadMain()
 		cv::Mat MotionFrame( cv::Size( OutputWidth, OutputHeight ), CV_8UC3, Output->GetFrame()->data[0] );
 		cv::Mat MotionFrameGray;
 
-	    cvtColor( MotionFrame, MotionFrameGray, CV_RGB2GRAY );
+	    //cvtColor( MotionFrame, MotionFrameGray, CV_RGB2GRAY );
 
 		MemoryBarrier();
 
