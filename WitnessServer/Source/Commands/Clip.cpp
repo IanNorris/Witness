@@ -13,6 +13,10 @@
 #include <iostream>
 #include <experimental/filesystem>
 
+#ifdef _WIN32
+#include <winerror.h>
+#endif
+
 using namespace web::json;
 using namespace web::http::client;
 
@@ -51,13 +55,29 @@ string_t GetClipName( const GlobalContext& Context, int CameraID, int64_t Timest
 	return Stream.str();
 }
 
-void DeleteClip( const GlobalContext& Context, int CameraID, int64_t Timestamp, bool Manual )
+bool DeleteClip( const GlobalContext& Context, int CameraID, int64_t Timestamp, bool Manual )
 {
 	auto ThumbnailPath = GetClipName( Context, CameraID, Timestamp, Manual, false );
 	auto VideoPath = GetClipName( Context, CameraID, Timestamp, Manual, true );
 	
-	std::experimental::filesystem::remove( ThumbnailPath );
-	std::experimental::filesystem::remove( VideoPath );
+	std::error_code error;
+	if( !std::experimental::filesystem::remove( ThumbnailPath, error) )
+	{
+		if( error.value() == E_ACCESSDENIED )
+		{
+			return false;
+		}
+	}
+
+	if( !std::experimental::filesystem::remove( VideoPath, error ) )
+	{
+		if( error.value() == E_ACCESSDENIED )
+		{
+			return false;
+		}
+	}
+
+	return true;
 }
 
 void Command_Clip::OnMessage( GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
@@ -414,7 +434,11 @@ void Command_Clip::OnDeleteMessage( const GlobalContext& Context, http_request& 
 		}
 	);
 
-	DeleteClip( Context, CameraID, Timestamp, Manual );
+	if( !DeleteClip( Context, CameraID, Timestamp, Manual ) )
+	{
+		Message.reply( status_codes::NotFound );
+		return;
+	}
 
 	SQLiteDatabaseQueryInstance DeleteClipQuery( Context.Database, _T("DeleteClip") );
 	DeleteClipQuery->Bind( "@ClipUID", ClipUID );
@@ -478,13 +502,14 @@ void Command_Clip::DeleteOldClips( const GlobalContext& Context, int DaysToDelet
 		SQLiteDatabaseQueryInstance DeleteClipQuery( Context.Database, _T("DeleteClip") );
 		DeleteClipQuery->Bind( "@ClipUID", Clip.ClipID );
 
-		DeleteClipQuery->Execute( 
+		if( DeleteClip( Context, Clip.CameraID, Clip.Timestamp, Clip.Manual ) )
+		{
+			DeleteClipQuery->Execute( 
 			[&]( const SQLiteDatabaseQuery& query )
 			{
 				return true;
 			}
 		);
-
-		DeleteClip( Context, Clip.CameraID, Clip.Timestamp, Clip.Manual );
+		}
 	}
 }
