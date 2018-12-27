@@ -61,6 +61,7 @@ public class MainActivity extends AppCompatActivity
         WebSettings webSettings = webView.getSettings();
         webSettings.setJavaScriptEnabled(true);
 
+        webView.loadUrl( "https://testdomain:4672/" );
 
         // TODO: GoogleApiAvailability.getInstance().makeGooglePlayServicesAvailable( someActivity );
     }
