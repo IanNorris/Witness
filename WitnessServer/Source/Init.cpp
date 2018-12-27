@@ -305,7 +305,11 @@ void WitnessServer::StartCameraWorkers()
 			Camera.MDFrameHeight = query.GetColumnValueInt( 6 );
 			Camera.MDThreshold = query.GetColumnValueDouble( 7 );
 			const wchar_t* MotionFilterName = query.GetColumnValueText( 8 );
+			const wchar_t* BlackoutMaskPath = query.GetColumnValueText( 9 );
+			const wchar_t* FocusMaskPath = query.GetColumnValueText( 10 );
 
+			Camera.BlackoutMaskPath = BlackoutMaskPath ? BlackoutMaskPath : L"";
+			Camera.FocusMaskPath = FocusMaskPath ? FocusMaskPath : L"";
 
 			Camera.MotionFilterName = MotionFilterName && wcslen(MotionFilterName) ? MotionFilterName : Video.MotionFilterName.c_str();
 

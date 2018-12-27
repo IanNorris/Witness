@@ -11,8 +11,10 @@ class CAMERA_API MotionVectorFilter : public RecordFilterBase<MotionVectorFilter
 {
 public:
 
-	MotionVectorFilter();
+	MotionVectorFilter( const wchar_t* BlackoutMaskPath, const wchar_t* FocusMaskPath );
 	virtual ~MotionVectorFilter();
+
+	void UpdateMasks( unsigned int Width, unsigned int Height );
 
 	virtual void FilterFrame( const AVFrame* Frame, ClassificationResult& Result, cv::Mat& InputFrame, cv::Mat& GrayscaleInputFrame );
 	virtual void ClearState() override;

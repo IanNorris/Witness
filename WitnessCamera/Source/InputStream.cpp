@@ -362,6 +362,8 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 	Stats.OutputTimeTotal += OutputDiff;
 	Stats.ReadTimeTotal += ReadDiff;
 
+	//Sleep(10);
+
 	return CameraStreamError::Success;
 }
 

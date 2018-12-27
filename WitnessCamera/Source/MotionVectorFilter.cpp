@@ -30,7 +30,7 @@ using namespace std;
 #define BUCKET_SHIFT 5
 #define BUCKET_DIMENSION (1 << BUCKET_SHIFT)
 
-constexpr int BucketDistanceSquared = (2 * BUCKET_DIMENSION) * (2 * BUCKET_DIMENSION);
+constexpr int BucketDistanceSquared = 2;
 
 namespace Witness{
 namespace Camera{
@@ -39,8 +39,10 @@ struct MotionVectorFilterData : public FilterDataBase
 {
 	struct Pair
 	{
+		float Mask;
 		int x;
 		int y;
+		int c;
 	};
 
 	struct TrackedObject
@@ -52,11 +54,19 @@ struct MotionVectorFilterData : public FilterDataBase
 
 	vector<Pair> Buckets;
 
-	vector<Point2i> Points;
+	vector<Point2f> Points;
 	vector<int> Labels;
 	vector<Point2i> CurrentCluster;
 
 	vector<TrackedObject> Objects;
+
+	Mat blackoutMaskOriginal;
+	Mat focusMaskOriginal;
+	Mat blackoutMask;
+	Mat focusMask;
+
+	bool hasBlackoutMask;
+	bool hasFocusMask;
 
 	int MVSinceKF;
 	int Frames;
@@ -70,17 +80,31 @@ struct EquivalentPoint {
 		int DiffX = a.x - b.x;
 		int DiffY = a.y - b.y;
 
-		int DistanceSquared = (DiffX*DiffX) + (DiffY+DiffY);
+		int DistanceSquared = (DiffX*DiffX) + (DiffY*DiffY);
 		
 		return (DistanceSquared <= BucketDistanceSquared);
 	}
 };
 
-MotionVectorFilter::MotionVectorFilter()
+MotionVectorFilter::MotionVectorFilter( const wchar_t* BlackoutMaskPath, const wchar_t* FocusMaskPath )
 {
 	auto& ID = GetData();
 
-	ID.Buckets.resize( BUCKET_DIMENSION * BUCKET_DIMENSION );
+	wstring BlackoutMaskPathANSI(BlackoutMaskPath);
+	wstring FocusMaskPathANSI(FocusMaskPath);
+
+	ID.hasBlackoutMask = BlackoutMaskPathANSI.length() > 0;
+	ID.hasFocusMask = FocusMaskPathANSI.length() > 0;
+
+	if( ID.hasBlackoutMask )
+	{
+		ID.blackoutMaskOriginal = cv::imread( string(BlackoutMaskPathANSI.begin(), BlackoutMaskPathANSI.end()), IMREAD_GRAYSCALE );
+	}
+
+	if( ID.hasFocusMask )
+	{
+		ID.focusMaskOriginal = cv::imread( string(FocusMaskPathANSI.begin(), FocusMaskPathANSI.end()), IMREAD_GRAYSCALE );	
+	}
 
 	ID.MVSinceKF = 0;
 	ID.Frames = 0;
@@ -114,24 +138,50 @@ unsigned int GetLog2FromPowerOfTwo(unsigned int v)
 	return MultiplyDeBruijnBitPosition2[(uint32_t)(v * 0x077CB531U) >> 27];
 }
 
+void MotionVectorFilter::UpdateMasks( unsigned int Width, unsigned int Height )
+{
+	auto& ID = GetData();
+
+	if( ID.hasBlackoutMask )
+	{
+		cv::resize( ID.blackoutMaskOriginal, ID.blackoutMask, cv::Size(Width, Height), 0.0, 0.0, INTER_AREA );
+	}
+
+	if( ID.hasFocusMask )
+	{
+		cv::resize( ID.focusMaskOriginal, ID.focusMask, cv::Size(Width, Height), 0.0, 0.0, INTER_AREA );
+	}
+
+	const float FocusMaskMultiplier = 3.0f - 1.0f;
+
+	for( unsigned int x = 0; x < Width; x++ )
+	{
+		for( unsigned int y = 0; y < Height; y++ )
+		{
+			uchar blackoutValue = ID.hasBlackoutMask ? ID.blackoutMask.at<uchar>(Point2i(x,y)) : 255;
+			uchar focusValue = ID.hasFocusMask ? ID.focusMask.at<uchar>(Point2i(x,y)) : 0;
+
+			float Mask = (float)focusValue / 255.0f;
+			float BlackoutMask = (float)blackoutValue / 255.0f;
+
+			ID.Buckets[(Width * y) + x].Mask = (1.0f + (FocusMaskMultiplier * Mask)) * BlackoutMask;
+		}
+	}
+}
+
 void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult& Result, cv::Mat& InputFrame, cv::Mat& GrayscaleInputFrame )
 {
 	auto& ID = GetData();
 
-	const unsigned int WidthBucketWidth = GetNextPowerOfTwo( Frame->width / BUCKET_DIMENSION );
-	const unsigned int HeightBucketHeight = GetNextPowerOfTwo( Frame->height / BUCKET_DIMENSION );
+	const unsigned int WidthBucketWidth = Frame->width / BUCKET_DIMENSION;
+	const unsigned int HeightBucketHeight = Frame->height / BUCKET_DIMENSION;
 
-	const unsigned int HalfBucketWidth = WidthBucketWidth >> 2;
-	const unsigned int HalfBucketHeight = HeightBucketHeight >> 2;
-
-	const int BucketCount = WidthBucketWidth * HeightBucketHeight;
-
-	const unsigned int WidthShift = GetLog2FromPowerOfTwo(WidthBucketWidth);
-	const unsigned int HeightShift = GetLog2FromPowerOfTwo(HeightBucketHeight);
-
+	const unsigned int BucketCount = (WidthBucketWidth) * (HeightBucketHeight);
+	
 	if (BucketCount != ID.Buckets.size())
 	{
 		ID.Buckets.resize( BucketCount );
+		UpdateMasks( WidthBucketWidth, HeightBucketHeight );
 	}
 
 #define BUCKET_INDEX(x,y) ((WidthBucketWidth * y) + x)
@@ -147,73 +197,130 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 		return;
 	}
 
+	const bool DrawClusters = false;
+	const bool DrawMask = false;
+	const bool DrawVectors = false;
+	const bool DrawSummaryVectors = false;
+
 	const  AVMotionVector* MVData = (const AVMotionVector*)SideData->data;
 	const unsigned int MotionVectors = SideData->size / sizeof(*MVData);
 
 	unsigned int UsableMotionVectors = 0;
 
-	for (unsigned int i = 0; i < MotionVectors; i+=8)
+	const unsigned int MotionVectorSkipFactor = 2;
+	for (unsigned int i = 0; i < MotionVectors; i+=MotionVectorSkipFactor)
 	{
 		const AVMotionVector& MV = MVData[i];
 		
-		unsigned int DstBucketX = (unsigned int)MIN( MAX((unsigned int)MV.dst_x,0) >> BUCKET_SHIFT, WidthBucketWidth-1);
-		unsigned int DstBucketY = (unsigned int)MIN( MAX((unsigned int)MV.dst_y,0) >> BUCKET_SHIFT, HeightBucketHeight-1);
-
-		//int DeltaX = MV.dst_x - MV.src_x;
-		//int DeltaY = MV.dst_y - MV.src_y;
-		//int Score = DeltaX * DeltaX + DeltaY * DeltaY;
-		//const int ScoreAgainst =  9;
-		//int Score = DeltaX * DeltaX + DeltaY * DeltaY;
-		//if (Score > ScoreAgainst * ScoreAgainst)
+		const int Motion = (MV.motion_x * MV.motion_x) + (MV.motion_y * MV.motion_y);
+		
+		if( Motion >= 8 )
 		{
+			unsigned int DstBucketX = (unsigned int)MIN( MAX(MV.dst_x,0) / BUCKET_DIMENSION, (int)WidthBucketWidth-1);
+			unsigned int DstBucketY = (unsigned int)MIN( MAX(MV.dst_y,0) / BUCKET_DIMENSION, (int)HeightBucketHeight-1);
+
 			auto& Ref = ID.Buckets[BUCKET_INDEX(DstBucketX, DstBucketY)];
+
+			if( Ref.Mask == 0.0f )
+			{
+				continue;
+			}
+
+			Ref.c += 1;
 			Ref.x += MV.motion_x;
 			Ref.y += MV.motion_y;
-		}		
+
+			UsableMotionVectors++;
+
+			if( DrawVectors )
+			{
+				cv::arrowedLine( InputFrame, cv::Point( MV.src_x, MV.src_y ), cv::Point( MV.dst_x, MV.dst_y ), cv::Scalar(255.0,255.0,255.0) );
+			}
+
+			
+		}
 	}
 
-	const int RefValue = 4 * BUCKET_DIMENSION;
+	const int RefValue = 64 * BUCKET_DIMENSION * BUCKET_DIMENSION / MotionVectorSkipFactor;
+	//const int RefValue = 50;
 
 	float ScaleX = (float)InputFrame.cols / (float)Frame->width;
 	float ScaleY = (float)InputFrame.rows / (float)Frame->height;
-
-	const bool DrawClusters = false;
+	float RescaleX = (float)Frame->width / (float)(WidthBucketWidth);
+	float RescaleY = (float)Frame->height / (float)(HeightBucketHeight);
 
 	ID.Points.clear();
 	ID.Labels.clear();
 
 	for( unsigned int y = 0; y < HeightBucketHeight; y++ )
 	{
-		const int BucketBase = WidthBucketWidth * y;
+		const unsigned int BucketBase = WidthBucketWidth * y;
 		for( unsigned int x = 0; x < WidthBucketWidth; x++ )
 		{
 			auto& Ref = ID.Buckets[BucketBase+x];
 
-			if( abs(Ref.x) + abs(Ref.y) >= RefValue )
+			float Score = ((Ref.x*Ref.x) + (Ref.y*Ref.y)) * Ref.Mask / (float)(Ref.c+1);
+			//float Score = Ref.x * Mask;
+
+			bool thresholdReached = Score >= RefValue;
+
+			if( thresholdReached )
 			{
-				if( DrawClusters )
-				{
-					cv::Rect Src;
-					Src.x = (int)((float)(x << BUCKET_SHIFT) * ScaleX);
-					Src.y = (int)((float)(y << BUCKET_SHIFT) * ScaleY);
-					Src.width = (int)(BUCKET_DIMENSION * ScaleX);
-					Src.height = (int)(BUCKET_DIMENSION * ScaleY);
-
-					cv::rectangle( InputFrame, Src, cv::Scalar(255.0,255.0,0), CV_FILLED );
-				}
-
-				ID.Points.push_back( Point2i( x << BUCKET_SHIFT, y << BUCKET_SHIFT ) );
+				ID.Points.push_back( Point2f( (float)x, (float)y ) );
 			}
 
+			if( DrawSummaryVectors && Score > 1.0 )
+			{
+				float NewX = ((float)x+0.5f) * RescaleX * ScaleX;
+				float NewY = ((float)y+0.5f) * RescaleY * ScaleY;
+
+				const float SummaryScale = 8.0f;
+
+				cv::arrowedLine( InputFrame, cv::Point2f( NewX, NewY ), cv::Point2f( NewX + (Ref.x / SummaryScale), NewY + (Ref.y / SummaryScale) ), cv::Scalar(0.0,255.0,255.0), 3 );
+
+				char Buffer[128];
+				sprintf_s( Buffer, "%4.0f", Score );
+
+				cv::putText( InputFrame, Buffer, Point((int)NewX,(int)NewY), FONT_HERSHEY_PLAIN, 1.0, Scalar(0,255,255), 2 );
+			}
+
+			if( DrawClusters )
+			{
+				cv::Rect Src;
+				Src.x = (int)((float)(x * RescaleX) * ScaleX);
+				Src.y = (int)((float)(y * RescaleY) * ScaleY);
+				Src.width = (int)(RescaleX * ScaleX);
+				Src.height = (int)(RescaleY * ScaleY);
+
+				bool isBlackout = Ref.Mask < 0.5f;
+				bool isFocus = Ref.Mask > 1.1f;
+
+				if( thresholdReached )
+				{
+					cv::rectangle( InputFrame, Src, cvScalar(0.0,0.0,255.0), CV_FILLED );
+				}
+				else if( isBlackout && DrawMask )
+				{
+					cv::rectangle( InputFrame, Src, cvScalar(0.0,0.0,60.0 - (60.0 * Ref.Mask)), CV_FILLED );
+				}
+				else if( isFocus && DrawMask )
+				{
+					cv::rectangle( InputFrame, Src, cvScalar(0.0,60.0 * Ref.Mask / 5.0,0.0), CV_FILLED );
+				}
+			}
+
+			Ref.c = 0;
 			Ref.x = 0;
 			Ref.y = 0;
 		}
 	}
 
+	ID.Labels.resize(ID.Points.size());
+
 	int MaxLabel = -1;
 
 	const int MinTrackingFrames = 4;
-	const int MaxCompactness = 3;
+	const int MaxCompactness = 0;
 
 	for (auto Iter = ID.Objects.begin(); Iter != ID.Objects.end(); ++Iter )
 	{
@@ -221,17 +328,21 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 	}
 
 	int TotalArea = 0;
-	int ComparisonArea = WidthBucketWidth * BUCKET_DIMENSION * HeightBucketHeight * BUCKET_DIMENSION;
+	int ComparisonArea = WidthBucketWidth * HeightBucketHeight;
+
+	const int TargetClusters = 2;
+	const int MaxClusters = 5;
 
 	if( !ID.Points.empty() )
 	{
-		int Compactness = cv::partition<Point2i,EquivalentPoint>( ID.Points, ID.Labels );
+		cv::partition<Point2f,EquivalentPoint>( ID.Points, ID.Labels );
+		//double Compactness = cv::kmeans( cv::Mat(ID.Points).reshape(1, ID.Points.size()), TargetClusters, ID.Labels, cv::TermCriteria( TermCriteria::EPS+TermCriteria::COUNT, MaxClusters, 1.0 ), 3, KMEANS_PP_CENTERS );
 				
 		int CurrentClusterIndex = 0;
 		int ActualCluters = 0;
 		int TrackedClusters = 0;
 
-		const int MinPoints = 3;
+		const int MinPoints = 2;
 		do
 		{
 			int Points = 0;
@@ -254,7 +365,7 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 
 			}
 
-			if( Points >= MinPoints && Compactness < MaxCompactness)
+			if( Points >= MinPoints)
 			{
 				cv::Rect Bounds = cv::boundingRect(ID.CurrentCluster);
 
@@ -293,10 +404,10 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 				if( DrawClusters )
 				{
 					cv::Rect DrawBounds = Bounds;
-					DrawBounds.x = (int)((float)Bounds.x * ScaleX);
-					DrawBounds.y = (int)((float)Bounds.y * ScaleY);
-					DrawBounds.width = (int)((float)Bounds.width * ScaleX);
-					DrawBounds.height = (int)((float)Bounds.height * ScaleY);
+					DrawBounds.x = (int)((float)Bounds.x * RescaleX * ScaleX);
+					DrawBounds.y = (int)((float)Bounds.y * RescaleY * ScaleY);
+					DrawBounds.width = (int)((float)Bounds.width * RescaleX * ScaleX);
+					DrawBounds.height = (int)((float)Bounds.height * RescaleY * ScaleY);
 					cv::rectangle( InputFrame, DrawBounds, cv::Scalar(0,0,255.0), 2 );
 				}
 
@@ -309,7 +420,7 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 		if( DrawClusters )
 		{
 			char Buffer[128];
-			sprintf_s( Buffer, "C=%02d,L=%02d,A=%02d,T=%02d", Compactness, MaxLabel, ActualCluters, TrackedClusters );
+			sprintf_s( Buffer, "MVU=%04d,MVF=%04d,L=%02d,A=%02d,T=%02d", MotionVectors, UsableMotionVectors, MaxLabel, ActualCluters, TrackedClusters );
 
 			cv::putText( InputFrame, Buffer, Point(25,75), FONT_HERSHEY_PLAIN, 2.5, Scalar(255,0,255), 3 );
 		}

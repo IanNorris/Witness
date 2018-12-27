@@ -24,6 +24,8 @@ public:
 
 	bool IsAllowedToProcessFrame();
 
+	virtual void ClearState() override {}
+
 protected:
 
 	virtual const string_t CommandTypeToEndpoint( int CommandType ) = 0;

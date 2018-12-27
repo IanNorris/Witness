@@ -18,6 +18,8 @@ public:
 
 	virtual void FilterFrame( const AVFrame* Frame, Witness::Camera::ClassificationResult& Result, cv::Mat& InputFrame, cv::Mat& GrayscaleInputFrame ) override;
 
+	virtual void ClearState() override {}
+
 private:
 
 	virtual const string_t CommandTypeToEndpoint( int CommandType );

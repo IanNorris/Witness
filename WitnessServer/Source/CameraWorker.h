@@ -39,6 +39,8 @@ struct CameraSettings
 	, MotionFilterName()
 	, FullBodyCascadeFilter()
 	, FaceCascadeFilter()
+	, BlackoutMaskPath()
+	, FocusMaskPath()
 	, MDThreshold( 0.05 )
 	, ID( 0 )
 	, Enabled( 1 )
@@ -53,6 +55,8 @@ struct CameraSettings
 	string_t MotionFilterName;
 	string_t FullBodyCascadeFilter;
 	string_t FaceCascadeFilter;
+	string_t BlackoutMaskPath;
+	string_t FocusMaskPath;
 	double MDThreshold;
 	int ID;
 	int Enabled;
