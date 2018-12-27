@@ -40,7 +40,7 @@ std::experimental::filesystem::path GetConfigFilePath( string_t Filename )
 
 bool WitnessServer::Initialize()
 {
-	auto ConfigFile = GetConfigFilePath( U("server.json") );
+	auto ConfigFile = GetConfigFilePath( L"server.json" );
 
 	std::ifstream ConfigFileStream(ConfigFile);
 	if( !ConfigFileStream )
@@ -60,31 +60,32 @@ bool WitnessServer::Initialize()
 		return false;
 	}
 
-	if( JsonConfig.has_field(U("android")) )
+	if( JsonConfig.has_object_field(L"android") )
 	{
-		LoadAndroidSettings( JsonConfig.at(U("android")) );
+		LoadAndroidSettings( JsonConfig.at(L"android") );
 	}
 
-	if( !JsonConfig.has_field(U("server")) )
+	const wstring ServerString = _T("server");
+	if( !JsonConfig.has_object_field(ServerString) )
 	{
 		std::tcerr << U("Missing section in config file. Expected a 'server' section.") << std::endl;
 		return false;
 	}
 
-	if( !JsonConfig.has_field(U("processing")) )
+	if( !JsonConfig.has_object_field(L"processing") )
 	{
 		std::tcerr << U("Missing section in config file. Expected a 'processing' section.") << std::endl;
 		return false;
 	}
 	
-	auto JsonServerConfig = JsonConfig.at(U("server"));
-	auto JsonProcessingConfig = JsonConfig.at(U("processing"));
+	auto JsonServerConfig = JsonConfig.at(L"server");
+	auto JsonProcessingConfig = JsonConfig.at(L"processing");
 
 	//Process video settings
 	Video.MotionFilterName = _T("BGS_LBMixtureOfGaussians");
-	if( JsonConfig.has_field(U("video")) )
+	if( JsonConfig.has_object_field(L"video") )
 	{
-		auto JsonVideoConfig = JsonConfig.at(U("video"));
+		auto JsonVideoConfig = JsonConfig.at(L"video");
 
 		bool Success = true;
 		string_t Errors;
@@ -119,9 +120,9 @@ bool WitnessServer::Initialize()
 	Context = Server->GetGlobalContext();
 	Context->CachePath = CachePath;
 
-	if( JsonConfig.has_field(U("azure")) )
+	if( JsonConfig.has_object_field(L"azure") )
 	{
-		auto AzureRoot = JsonConfig.at(U("azure")).as_object();
+		auto AzureRoot = JsonConfig.at(L"azure").as_object();
 		for( auto Iter = AzureRoot.cbegin(); Iter != AzureRoot.cend(); ++Iter )
 		{
 			if( (*Iter).second.is_object() )
