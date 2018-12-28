@@ -148,7 +148,11 @@ CameraStreamError OutputStream::Initialize()
 	if( m_InputStream )
 	{
 		AVCodecParameters* Params = avcodec_parameters_alloc();
-		avcodec_parameters_from_context( Params, m_InputStream->GetData().CodecContext );
+		Result = avcodec_parameters_from_context( Params, m_InputStream->GetData().CodecContext );
+		if( Result < 0 )
+		{
+			STREAM_ERROR( DecoderReceiverError, Result );
+		}
 
 		int OutputPixelFormat = Params->format;
 
@@ -175,7 +179,11 @@ CameraStreamError OutputStream::Initialize()
 		Params->format = OutputPixelFormat;
 		Params->codec_tag = 0;
 		Params->codec_id = ID.CodecID;
-		avcodec_parameters_to_context( ID.CodecContext, Params );
+		Result = avcodec_parameters_to_context( ID.CodecContext, Params );
+		if( Result < 0 )
+		{
+			STREAM_ERROR( DecoderReceiverError, Result );
+		}
 		avcodec_parameters_free( &Params );
 	}
 	else
