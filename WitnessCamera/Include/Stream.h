@@ -3,6 +3,7 @@
 #include "Export.h"
 #include "Pimpl.h"
 #include "RecordFilter.h"
+#include "DebugBind.h"
 
 #include <string>
 #include <memory>
@@ -10,6 +11,8 @@
 
 namespace Witness{
 namespace Camera{
+
+CAMERA_API extern DebugConsole* TargetDebugConsole;
 
 enum class CameraStreamError
 {

@@ -10,12 +10,14 @@
 
 #include "ListenerCommand.h"
 
+#include "DebugBind.h"
+
 using namespace http::experimental::listener;
 
 class WitnessListener
 {
 public:
-	WitnessListener( utility::string_t Hostname, int Port, bool Secure );
+	WitnessListener( utility::string_t Hostname, int Port, bool Secure, DebugConsole* DebugConsoleInstance );
 	virtual ~WitnessListener();
 
 	void Initialise( json::object& Config );
@@ -34,6 +36,8 @@ private:
 
 	unique_ptr<http_listener> m_Listener;
 	shared_ptr<GlobalContext> m_GlobalContext;
+
+	DebugConsole* DebugConsoleInstance;
 
 	unordered_map<string_t, unique_ptr<IListenerCommand>> m_Commands;
 

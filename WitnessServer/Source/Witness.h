@@ -31,7 +31,7 @@ class WitnessServer
 {
 public:
 
-	bool Initialize();
+	bool Initialize( DebugConsole* DebugConsoleInstance );
 
 	void MessageLoop();
 
@@ -68,6 +68,8 @@ private:
 	unique_ptr<WitnessListener>	Server;
 	shared_ptr<GlobalContext> Context;
 	shared_ptr<MessageBusQueue> MessageClient;
+
+	DebugConsole* DebugConsoleInstance;
 
 	vector<shared_ptr<ImageProcessorWorker>> ImageWorkers;
 

@@ -1,8 +1,11 @@
 #include "OutputStream.h"
 #include "StreamManager.h"
+#include "DebugBind.h"
 
 namespace Witness{
 namespace Camera{
+
+CAMERA_API DebugConsole* TargetDebugConsole = nullptr;
 
 StreamManager::StreamManager()
 : m_DiagnosticStream( nullptr )

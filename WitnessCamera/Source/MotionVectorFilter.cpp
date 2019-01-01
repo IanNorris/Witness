@@ -30,13 +30,28 @@ using namespace std;
 #define BUCKET_SHIFT 5
 #define BUCKET_DIMENSION (1 << BUCKET_SHIFT)
 
-constexpr int BucketDistanceSquared = 2;
+int FirstCameraOnly = 0;
+
+int BucketDistanceSquared = 1;
 
 namespace Witness{
 namespace Camera{
 
 struct MotionVectorFilterData : public FilterDataBase
 {
+	DebugBind<int> BucketDistance;
+
+	MotionVectorFilterData()
+	: BucketDistance( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Bucket Distance Squared", &BucketDistanceSquared )
+	{
+		FirstCameraOnly++;
+	}
+
+	~MotionVectorFilterData()
+	{
+		FirstCameraOnly--;
+	}
+
 	struct Pair
 	{
 		float Mask;
@@ -279,7 +294,7 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 				cv::arrowedLine( InputFrame, cv::Point2f( NewX, NewY ), cv::Point2f( NewX + (Ref.x / SummaryScale), NewY + (Ref.y / SummaryScale) ), cv::Scalar(0.0,255.0,255.0), 3 );
 
 				char Buffer[128];
-				sprintf_s( Buffer, "%4.0f", Score );
+				sprintf_s( Buffer, "%.0f", Score );
 
 				cv::putText( InputFrame, Buffer, Point((int)NewX,(int)NewY), FONT_HERSHEY_PLAIN, 1.0, Scalar(0,255,255), 2 );
 			}

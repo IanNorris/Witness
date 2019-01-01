@@ -120,6 +120,9 @@
     <ClCompile Include="Source\TimerWorker.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Source\Commands\Debug.cpp">
+      <Filter>Source Files\Commands</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Source\Listener.h">
@@ -205,6 +208,9 @@
     </ClInclude>
     <ClInclude Include="Source\TimerWorker.h">
       <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\Commands\Debug.h">
+      <Filter>Header Files\Commands</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

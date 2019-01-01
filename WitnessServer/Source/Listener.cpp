@@ -6,8 +6,10 @@
 #include "Commands/Camera.h"
 #include "Commands/Clip.h"
 #include "Commands/Group.h"
+#include "Commands/Debug.h"
 
-WitnessListener::WitnessListener( utility::string_t Hostname, int Port, bool Secure )
+WitnessListener::WitnessListener( utility::string_t Hostname, int Port, bool Secure, DebugConsole* DebugConsoleInstance )
+: DebugConsoleInstance( DebugConsoleInstance )
 {
 	m_GlobalContext = make_unique<GlobalContext>();
 	m_GlobalContext->Port = Port;
@@ -46,6 +48,7 @@ void WitnessListener::Initialise(json::object& Config)
 	m_Commands[U("camera")] = make_unique<Command_Camera>();
 	m_Commands[U("clip")] = make_unique<Command_Clip>();
 	m_Commands[U("group")] = make_unique<Command_Group>();
+	m_Commands[U("debug")] = make_unique<Command_Debug>( DebugConsoleInstance );
 }
 
 void WitnessListener::Start()

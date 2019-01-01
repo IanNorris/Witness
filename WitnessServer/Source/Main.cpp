@@ -6,6 +6,7 @@
 #include "sodium.h"
 #include "ObservingMotionFilter.h"
 #include "Witness.h"
+#include <Stream.h>
 
 #include <windows.h>
 #include <minmax.h>
@@ -39,6 +40,9 @@ int wmain( int argc, wchar_t* argv[] )
 
 	ScopedTimePeriod TimePeriod( Resolution );
 
+	DebugConsole DebugConsoleInstance;
+	Witness::Camera::TargetDebugConsole = &DebugConsoleInstance;
+
 	WitnessServer Server;
 
 	if( sodium_init() == -1 )
@@ -47,13 +51,15 @@ int wmain( int argc, wchar_t* argv[] )
         return 1;
     }
 
-	if (!Server.Initialize())
+	if (!Server.Initialize( &DebugConsoleInstance ))
 	{
 		return 1;
 	}
 
 	Server.MessageLoop();
 	Server.Shutdown();
+
+	Witness::Camera::TargetDebugConsole = nullptr;
 
 	return 0;
 }

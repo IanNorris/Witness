@@ -295,6 +295,11 @@ ThirdParty/ffmpeg-4.0-win64-shared/
 ThirdParty/ffmpeg-4.0-win64-dev/
 ThirdParty/ffmpeg-4.1-win64-shared/
 ThirdParty/ffmpeg-4.1-win64-dev/
+ThirdParty/ffmpeg-4.1-win64-custom/
 ThirdParty/opencv-3.4.2/
 WitnessServer/Data/Cascades/
 enc_temp_folder/
+ThirdParty/ffmpeg-20181226-d702600-custom-win64-dev/
+ThirdParty/ffmpeg-20181226-d702600-win64-dev/
+ThirdParty/ffmpeg-20181226-d702600-win64-shared/
+*.dmp

@@ -38,8 +38,10 @@ std::experimental::filesystem::path GetConfigFilePath( string_t Filename )
 	return ConfigPath;
 }
 
-bool WitnessServer::Initialize()
+bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 {
+	this->DebugConsoleInstance = DebugConsoleInstance;
+
 	auto ConfigFile = GetConfigFilePath( L"server.json" );
 
 	std::ifstream ConfigFileStream(ConfigFile);
@@ -243,7 +245,7 @@ bool WitnessServer::CreateListener( const json::value& JsonServerSettings )
 		return false;
 	}
 
-	Server = make_unique<WitnessListener>( Hostname, Port, Secure );
+	Server = make_unique<WitnessListener>( Hostname, Port, Secure, DebugConsoleInstance );
 
 	return true;
 }

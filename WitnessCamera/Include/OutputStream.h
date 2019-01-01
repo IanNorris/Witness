@@ -42,6 +42,8 @@ private:
 	int FrameIndex;
 
 	int StreamIndex;
+
+	bool m_FileOpened;
 };
 
 }}

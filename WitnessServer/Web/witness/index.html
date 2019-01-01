@@ -56,6 +56,7 @@
 					<div class="panel animated fadeIn" data-bind="with: cameras, visible: $parent.isViewMode(VIEW_MODE_ADMIN)" template-path="admin/cameras.html"></div>
 					<div class="panel animated fadeIn" data-bind="with: groups, visible: $parent.isViewMode(VIEW_MODE_ADMIN)" template-path="admin/groups.html"></div>
 					<div class="panel animated fadeIn" data-bind="with: users, visible: $parent.isViewMode(VIEW_MODE_ADMIN)" template-path="admin/users.html"></div>
+					<div class="panel animated fadeIn" data-bind="with: debug, visible: $parent.isViewMode(VIEW_MODE_ADMIN)" template-path="admin/debug.html"></div>
 					<!-- /ko -->
 				</div>
 			</div>
@@ -112,6 +113,8 @@
 		<script src="asset/js/viewModels/adminGroups.js"></script>
 		<script src="asset/js/viewModels/adminUser.js"></script>
 		<script src="asset/js/viewModels/adminUsers.js"></script>
+		<script src="asset/js/viewModels/adminDebugValue.js"></script>
+		<script src="asset/js/viewModels/adminDebug.js"></script>
 		<script src="asset/js/viewModels/authentication.js"></script>
 		<script src="asset/js/viewModels/camera.js"></script>
 		<script src="asset/js/viewModels/cameraClips.js"></script>

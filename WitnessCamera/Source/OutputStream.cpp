@@ -12,6 +12,7 @@ OutputStream::OutputStream( const std::string& Path, InputStream * InputStream )
 , m_InputStream( InputStream )
 , FrameIndex( 0 )
 , StreamIndex( GlobalOutputStreamIndex++ )
+, m_FileOpened( false )
 {
 	m_InputStream->Initialize();
 
@@ -46,6 +47,7 @@ OutputStream::OutputStream( const std::string& Path, unsigned int Width, unsigne
 : Stream()
 , m_InputStream( nullptr )
 , FrameIndex( 0 )
+, m_FileOpened( false )
 {
 	auto& ID = *m_InternalData;
 
@@ -253,6 +255,7 @@ CameraStreamError OutputStream::Initialize()
 		{
 			STREAM_ERROR( FileNotWriteable, Result );
 		}
+		m_FileOpened = true;
 	}
 
 	Result = avformat_write_header( ID.FormatContext, nullptr );
@@ -479,6 +482,12 @@ CameraStreamError OutputStream::CloseFile()
 			CameraStreamError StrError = SendAll();
 			if( StrError != CameraStreamError::Success )
 			{
+				if( !(ID.FormatContext->oformat->flags& AVFMT_NOFILE) || m_FileOpened )
+				{
+					m_FileOpened = false;
+					avio_close( ID.FormatContext->pb );
+				}
+
 				return StrError;
 			}
 		}
@@ -498,8 +507,9 @@ CameraStreamError OutputStream::CloseFile()
 		STREAM_ERROR( WriteFailed, Result );
 	}
 
-	if( !(ID.FormatContext->oformat->flags& AVFMT_NOFILE) )
+	if( !(ID.FormatContext->oformat->flags& AVFMT_NOFILE) || m_FileOpened )
 	{
+		m_FileOpened = false;
 		Result = avio_close( ID.FormatContext->pb );
 		if( Result < 0 )
 		{

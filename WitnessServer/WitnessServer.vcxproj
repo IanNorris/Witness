@@ -103,6 +103,7 @@
     <ClCompile Include="Source\Commands\Authenticate.cpp" />
     <ClCompile Include="Source\Commands\Camera.cpp" />
     <ClCompile Include="Source\Commands\Clip.cpp" />
+    <ClCompile Include="Source\Commands\Debug.cpp" />
     <ClCompile Include="Source\Commands\Group.cpp" />
     <ClCompile Include="Source\Commands\Static.cpp" />
     <ClCompile Include="Source\Common.cpp" />
@@ -142,6 +143,7 @@
     <ClInclude Include="Source\Commands\Authenticate.h" />
     <ClInclude Include="Source\Commands\Camera.h" />
     <ClInclude Include="Source\Commands\Clip.h" />
+    <ClInclude Include="Source\Commands\Debug.h" />
     <ClInclude Include="Source\Commands\Group.h" />
     <ClInclude Include="Source\Commands\Static.h" />
     <ClInclude Include="Source\Common.h" />
