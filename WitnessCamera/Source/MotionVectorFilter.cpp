@@ -32,19 +32,64 @@ using namespace std;
 
 int FirstCameraOnly = 0;
 
-int BucketDistanceSquared = 1;
+int BucketDistanceSquared = 3;
+float MinSummaryPrintout = 1000.0f;
+float MinRatioOfBounds = 0.3f;
+
+int DrawClusters = true;
+int DrawStats = true;
+int DrawMask = false;
+int DrawVectors = false;
+int DrawSummaryVectors = true;
+int BucketRefValue = 16;
+int MinBlockMoveDistance = 4;
+int MaxBlockMoveDistance = 512000;
+int MinVectorCount = 2;
+int MinClusterPoints = 2;
+int LostTrackFrames = 8;
+int MinTrackingFrames = 2;
 
 namespace Witness{
 namespace Camera{
 
 struct MotionVectorFilterData : public FilterDataBase
 {
-	DebugBind<int> BucketDistance;
+	DebugBind<int> DB_BucketDistance;
+	DebugBind<int> DB_DrawClusters;
+	DebugBind<int> DB_DrawStats;
+	DebugBind<int> DB_DrawMask;
+	DebugBind<int> DB_DrawVectors;
+	DebugBind<int> DB_DrawSummaryVectors;
+	DebugBind<int> DB_BucketRefValue;
+	DebugBind<float> DB_MinSummaryPrintout;
+	DebugBind<int> DB_MinBlockMoveDistance;
+	DebugBind<int> DB_MaxBlockMoveDistance;
+	DebugBind<int> DB_MinVectorCount;
+	DebugBind<float> DB_MinRatioOfBounds;
+	DebugBind<int> DB_MinClusterPoints;
+	DebugBind<int> DB_LostTrackFrames;
+	DebugBind<int> DB_MinTrackingFrames;
 
 	MotionVectorFilterData()
-	: BucketDistance( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Bucket Distance Squared", &BucketDistanceSquared )
+	: DB_BucketDistance( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Bucket Distance Squared", &BucketDistanceSquared )
+	, DB_DrawClusters( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Draw Clusters", &DrawClusters )
+	, DB_DrawStats( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Draw Stats", &DrawStats )
+	, DB_DrawMask( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Draw Mask", &DrawMask )
+	, DB_DrawVectors( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Draw Vectors", &DrawVectors )
+	, DB_DrawSummaryVectors( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Draw Summary Vectors", &DrawSummaryVectors )
+	, DB_BucketRefValue( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Bucket Ref Value", &BucketRefValue )
+	, DB_MinSummaryPrintout( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Min Summary Printout", &MinSummaryPrintout )
+	, DB_MinBlockMoveDistance( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Min Block Move Distance", &MinBlockMoveDistance )
+	, DB_MaxBlockMoveDistance( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Max Block Move Distance", &MaxBlockMoveDistance )
+	, DB_MinVectorCount( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Min Vector Count", &MinVectorCount )
+	, DB_MinRatioOfBounds( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Min Ratio Of Bounds", &MinRatioOfBounds )
+	, DB_MinClusterPoints( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Min Cluster Points", &MinClusterPoints )
+	, DB_LostTrackFrames( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Lost Track Frames", &LostTrackFrames )
+	, DB_MinTrackingFrames( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Min Tracking Frames", &MinTrackingFrames )
 	{
 		FirstCameraOnly++;
+
+		BucketRefValue = 64;
 	}
 
 	~MotionVectorFilterData()
@@ -67,11 +112,18 @@ struct MotionVectorFilterData : public FilterDataBase
 		int FramesTracked;
 	};
 
+	struct LabelGroup
+	{
+		Point2f TopLeft;
+		Point2f BottomRight;
+		int Points;
+	};
+
 	vector<Pair> Buckets;
 
 	vector<Point2f> Points;
 	vector<int> Labels;
-	vector<Point2i> CurrentCluster;
+	vector<LabelGroup> LabelGroups;
 
 	vector<TrackedObject> Objects;
 
@@ -212,24 +264,19 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 		return;
 	}
 
-	const bool DrawClusters = false;
-	const bool DrawMask = false;
-	const bool DrawVectors = false;
-	const bool DrawSummaryVectors = false;
-
 	const  AVMotionVector* MVData = (const AVMotionVector*)SideData->data;
 	const unsigned int MotionVectors = SideData->size / sizeof(*MVData);
 
 	unsigned int UsableMotionVectors = 0;
 
-	const unsigned int MotionVectorSkipFactor = 2;
+	const unsigned int MotionVectorSkipFactor = 8;
 	for (unsigned int i = 0; i < MotionVectors; i+=MotionVectorSkipFactor)
 	{
 		const AVMotionVector& MV = MVData[i];
 		
 		const int Motion = (MV.motion_x * MV.motion_x) + (MV.motion_y * MV.motion_y);
 		
-		if( Motion >= 8 )
+		if( Motion >= (float)MinBlockMoveDistance && Motion <= (float)MaxBlockMoveDistance )
 		{
 			unsigned int DstBucketX = (unsigned int)MIN( MAX(MV.dst_x,0) / BUCKET_DIMENSION, (int)WidthBucketWidth-1);
 			unsigned int DstBucketY = (unsigned int)MIN( MAX(MV.dst_y,0) / BUCKET_DIMENSION, (int)HeightBucketHeight-1);
@@ -256,7 +303,7 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 		}
 	}
 
-	const int RefValue = 64 * BUCKET_DIMENSION * BUCKET_DIMENSION / MotionVectorSkipFactor;
+	int RefValue = BucketRefValue * BUCKET_DIMENSION * BUCKET_DIMENSION / MotionVectorSkipFactor;
 	//const int RefValue = 50;
 
 	float ScaleX = (float)InputFrame.cols / (float)Frame->width;
@@ -277,14 +324,14 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 			float Score = ((Ref.x*Ref.x) + (Ref.y*Ref.y)) * Ref.Mask / (float)(Ref.c+1);
 			//float Score = Ref.x * Mask;
 
-			bool thresholdReached = Score >= RefValue;
+			bool thresholdReached = Score >= RefValue && Ref.c >= MinVectorCount;
 
 			if( thresholdReached )
 			{
 				ID.Points.push_back( Point2f( (float)x, (float)y ) );
 			}
 
-			if( DrawSummaryVectors && Score > 1.0 )
+			if( DrawSummaryVectors && Score > MinSummaryPrintout && Ref.c >= MinVectorCount )
 			{
 				float NewX = ((float)x+0.5f) * RescaleX * ScaleX;
 				float NewY = ((float)y+0.5f) * RescaleY * ScaleY;
@@ -330,12 +377,11 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 		}
 	}
 
+	ID.LabelGroups.clear();
+
 	ID.Labels.resize(ID.Points.size());
 
 	int MaxLabel = -1;
-
-	const int MinTrackingFrames = 4;
-	const int MaxCompactness = 0;
 
 	for (auto Iter = ID.Objects.begin(); Iter != ID.Objects.end(); ++Iter )
 	{
@@ -348,100 +394,111 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 	const int TargetClusters = 2;
 	const int MaxClusters = 5;
 
+	int CurrentClusterIndex = 0;
+	int ActualCluters = 0;
+	int TrackedClusters = 0;
+	
 	if( !ID.Points.empty() )
 	{
 		cv::partition<Point2f,EquivalentPoint>( ID.Points, ID.Labels );
 		//double Compactness = cv::kmeans( cv::Mat(ID.Points).reshape(1, ID.Points.size()), TargetClusters, ID.Labels, cv::TermCriteria( TermCriteria::EPS+TermCriteria::COUNT, MaxClusters, 1.0 ), 3, KMEANS_PP_CENTERS );
-				
-		int CurrentClusterIndex = 0;
-		int ActualCluters = 0;
-		int TrackedClusters = 0;
 
-		const int MinPoints = 2;
-		do
+		size_t PointsCount = ID.Points.size();
+		for (size_t i = 0; i < PointsCount; i++)
 		{
-			int Points = 0;
+			size_t Label = ID.Labels[i];
+			MaxLabel = max<int>( MaxLabel, (int)Label );
 
-			MaxLabel = -1;
-			ID.CurrentCluster.clear();
-
-			for (int i = 0; i < ID.Points.size(); i++)
+			if( Label >= ID.LabelGroups.size() || ID.LabelGroups[Label].Points == 0 )
 			{
-				if (ID.Labels[i] == CurrentClusterIndex)
-				{
-					ID.CurrentCluster.push_back(ID.Points[i]);
-					Points++;
-				}
+				size_t NewSize = std::max<size_t>(Label+1, ID.LabelGroups.capacity());
+				ID.LabelGroups.resize(NewSize);
 
-				if (ID.Labels[i] > MaxLabel)
-				{
-					MaxLabel = ID.Labels[i];
-				}
+				auto& LabelGroup = ID.LabelGroups[Label];
 
+				LabelGroup.Points = 1;
+				LabelGroup.TopLeft = ID.Points[i];
+				LabelGroup.BottomRight = ID.Points[i];
 			}
-
-			if( Points >= MinPoints)
+			else
 			{
-				cv::Rect Bounds = cv::boundingRect(ID.CurrentCluster);
+				auto& LabelGroup = ID.LabelGroups[Label];
 
-				bool Found = false;
-				for (auto& Object : ID.Objects)
-				{
-					cv::Rect IntersectedRect = Object.Region & Bounds;
-					if (IntersectedRect.area() > MIN(Bounds.area(), Object.Region.area()) >> 1)
-					{
-						Object.Region = Bounds;
-						Object.FramesSinceLastSeen = 0;
-						Object.FramesTracked++;
-						Found = true;
+				LabelGroup.Points++;
 
-						if (Object.FramesTracked > MinTrackingFrames)
-						{
-							TotalArea += Object.Region.area();
-
-							TrackedClusters++;
-						}
-
-						break;
-					}
-				}
-
-				if (!Found)
-				{
-					MotionVectorFilterData::TrackedObject Obj;
-					Obj.Region = Bounds;
-					Obj.FramesSinceLastSeen = 0;
-					Obj.FramesTracked = 1;
-
-					ID.Objects.push_back( Obj );
-				}
-
-				if( DrawClusters )
-				{
-					cv::Rect DrawBounds = Bounds;
-					DrawBounds.x = (int)((float)Bounds.x * RescaleX * ScaleX);
-					DrawBounds.y = (int)((float)Bounds.y * RescaleY * ScaleY);
-					DrawBounds.width = (int)((float)Bounds.width * RescaleX * ScaleX);
-					DrawBounds.height = (int)((float)Bounds.height * RescaleY * ScaleY);
-					cv::rectangle( InputFrame, DrawBounds, cv::Scalar(0,0,255.0), 2 );
-				}
-
-				ActualCluters++;
+				LabelGroup.TopLeft.x = min( LabelGroup.TopLeft.x, ID.Points[i].x );
+				LabelGroup.TopLeft.y = min( LabelGroup.TopLeft.y, ID.Points[i].y );
+				LabelGroup.BottomRight.x = max( LabelGroup.BottomRight.x, ID.Points[i].x );
+				LabelGroup.BottomRight.y = max( LabelGroup.BottomRight.y, ID.Points[i].y );
 			}
 		}
-		while( MaxLabel > CurrentClusterIndex++ );
 
-
-		if( DrawClusters )
+		for (size_t i = 0; i <= MaxLabel; i++)
 		{
-			char Buffer[128];
-			sprintf_s( Buffer, "MVU=%04d,MVF=%04d,L=%02d,A=%02d,T=%02d", MotionVectors, UsableMotionVectors, MaxLabel, ActualCluters, TrackedClusters );
+			const auto& LabelGroup = ID.LabelGroups[i];
+			if( LabelGroup.Points > MinClusterPoints )
+			{
+				cv::Rect Bounds( LabelGroup.TopLeft, LabelGroup.BottomRight );
 
-			cv::putText( InputFrame, Buffer, Point(25,75), FONT_HERSHEY_PLAIN, 2.5, Scalar(255,0,255), 3 );
+				float ClusterArea = (float)(LabelGroup.Points);
+
+				if( ClusterArea > (float)Bounds.area() * MinRatioOfBounds )
+				{
+					bool Found = false;
+					for (auto& Object : ID.Objects)
+					{
+						cv::Rect IntersectedRect = Object.Region & Bounds;
+						if (IntersectedRect.area() > MIN(Bounds.area(), Object.Region.area()) >> 1)
+						{
+							Object.Region = Bounds;
+							Object.FramesSinceLastSeen = 0;
+							Object.FramesTracked++;
+							Found = true;
+
+							if (Object.FramesTracked > MinTrackingFrames)
+							{
+								TotalArea += Object.Region.area();
+
+								TrackedClusters++;
+							}
+
+							break;
+						}
+					}
+
+					if (!Found)
+					{
+						MotionVectorFilterData::TrackedObject Obj;
+						Obj.Region = Bounds;
+						Obj.FramesSinceLastSeen = 0;
+						Obj.FramesTracked = 1;
+
+						ID.Objects.push_back( Obj );
+					}
+
+					if( DrawClusters )
+					{
+						cv::Rect DrawBounds = Bounds;
+						DrawBounds.x = (int)((float)Bounds.x * RescaleX * ScaleX);
+						DrawBounds.y = (int)((float)Bounds.y * RescaleY * ScaleY);
+						DrawBounds.width = (int)((float)Bounds.width * RescaleX * ScaleX);
+						DrawBounds.height = (int)((float)Bounds.height * RescaleY * ScaleY);
+						cv::rectangle( InputFrame, DrawBounds, cv::Scalar(0,0,255.0), 2 );
+					}
+
+					ActualCluters++;
+				}
+			}
 		}
 	}
 
-	const int LostTrackFrames = 20;
+	if( DrawStats )
+	{
+		char Buffer[128];
+		sprintf_s( Buffer, "MVU=%04d,MVF=%04d,L=%02d,A=%02d,T=%02d", MotionVectors, UsableMotionVectors, MaxLabel, ActualCluters, TrackedClusters );
+
+		cv::putText( InputFrame, Buffer, Point(25,75), FONT_HERSHEY_PLAIN, 2.5, Scalar(255,0,255), 3 );
+	}
 
 	for (auto Iter = ID.Objects.begin(); Iter != ID.Objects.end(); )
 	{

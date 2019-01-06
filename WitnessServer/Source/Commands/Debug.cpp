@@ -120,7 +120,7 @@ void Command_Debug::OnSetMessage( const GlobalContext& Context, http_request& Me
 		json::value ValueOut;
 
 		const string NameStr = Value->GetName();
-		const string_t NameWide = string_t( Name.begin(), Name.end() );
+		const string_t NameWide = string_t( NameStr.begin(), NameStr.end() );
 
 		if( NameWide.compare( Name ) == 0 )
 		{
