@@ -117,10 +117,6 @@ var WitnessViewModel = function() {
 							
 							self.cameras()[ existingCamera ].lastTimestamp( result[camera].lastTimestamp );
 							self.cameras()[ existingCamera ].statFrameCount( result[camera].frameCount );
-							self.cameras()[ existingCamera ].statProcessingTimeMS( result[camera].processingTimeMS );
-							self.cameras()[ existingCamera ].statScaleProcessingTimeMS( result[camera].scaleProcessingTimeMS );
-							self.cameras()[ existingCamera ].statMotionDetectionProcessingTimeMS( result[camera].motionDetectionProcessingTimeMS );
-							self.cameras()[ existingCamera ].statSecondPassProcessingTimeMS( result[camera].secondPassProcessingTimeMS );
 							
 							found = true;
 						}

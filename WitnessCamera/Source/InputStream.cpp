@@ -327,17 +327,17 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 					{
 						auto Stats = CommonJobQueue->GetData().GetStatsForSource(UniqueSourceID);		
 
-						double Total = (double)Stats.TotalProcessingTime / ((double)Stats.FrameCount * 1000.0 * 1000.0);
+						/*double Total = (double)Stats.TotalProcessingTime / ((double)Stats.FrameCount * 1000.0 * 1000.0);
 						double Scale = (double)Stats.ScaleTotalProcessingTime / ((double)Stats.FrameCount * 1000.0 * 1000.0);
 						double MD = (double)Stats.MotionDetectionTotalProcessingTime / ((double)Stats.FrameCount * 1000.0 * 1000.0);
 						double SP = Stats.SecondPassFrameCount ? (double)Stats.SecondPassFilterTotalProcessingTime / ((double)Stats.SecondPassFrameCount * 1000.0 * 1000.0) : 0.0;
 						printf("Source %d: Total %.2fms, Scale: %.2fms, MD: %.2fms, 2p: %.2fms\n", UniqueSourceID, (float)Total, (float)Scale, (float)MD, (float)SP );
+						*/
+
+						printf("Backlog full for source %d\n", UniqueSourceID);
 
 						CommonJobQueue->RemoveAllForSource(UniqueSourceID);
-						CommonJobQueue->ResetStats(UniqueSourceID);
-
-						//av_packet_unref( &ID.Packet );
-						//STREAM_ERROR( ProcessingQueueFull, 0 );
+						//CommonJobQueue->ResetStats(UniqueSourceID);
 					}
 				
 					ID.Input = std::make_shared<FFMPEG::Frame>( ID.CodecContext->width, ID.CodecContext->height, ID.CodecContext->pix_fmt );

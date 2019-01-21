@@ -16,7 +16,7 @@ public:
 	{
 	}
 
-	virtual void FilterFrame( const AVFrame* Frame, Witness::Camera::ClassificationResult& Result, cv::Mat& InputFrame, cv::Mat& GrayscaleInputFrame ) override;
+	virtual void ClassifyFrame( FilterFrame& Frame, ClassificationResult& Result ) override;
 
 	virtual void ClearState() override {}
 

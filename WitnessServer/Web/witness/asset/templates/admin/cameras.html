@@ -8,9 +8,9 @@
 				<button class=" btn btn-sm btn-circle btn-info" data-bind="click: refreshCamerasAsAdmin">
 					<span class="fa fa-refresh"></span>
 				</button>
-				
-				<button class=" btn btn-sm btn-circle btn-primary" value="primary" data-toggle="modal" data-target="#addCameraAdmin">
-					<span class="fa fa-plus"></span>
+								
+				<button class=" btn btn-sm btn-circle btn-info" data-bind="click: resetStats">
+					<span class="fa fa-eraser"></span>
 				</button>
 			</div>
 		</div>
@@ -53,52 +53,29 @@
 											<tr>
 												<td>Status</td>
 												<td><span data-bind="text: status"></span></td>
+												<td></td>
 											</tr>
 											
 											<tr>
 												<td>Last Update </td>
 												<td data-bind="text: moment(lastTimestamp()*1000).fromNow()"></td>
+												<td></td>
 											</tr>
 											
 											<tr>
 												<td>Frames </td>
 												<td data-bind="text: statFrameCount"></td>
+												<td></td>
 											</tr>
 											
-											<tr>
-												<td>Total </td>
-												<td><span data-bind="text: statActualTotalMS"></span>ms</td>
-											</tr>
+											<!-- ko foreach: stats -->
+												<tr>
+													<td data-bind="text: name"/>
+													<td>Each: <span data-bind="text: each"></span>ms</td>
+													<td>Total: <span data-bind="text: total"></span>ms</td>
+												</tr>
+											<!-- /ko -->
 											
-											<tr>
-												<td>Stream Read </td>
-												<td><span data-bind="text: statStreamReadTimeMS"></span>ms</td>
-											</tr>
-											
-											<tr>
-												<td>Decode </td>
-												<td><span data-bind="text: statStreamDecodeTimeMS"></span>ms</td>
-											</tr>
-											
-											<tr>
-												<td>Output </td>
-												<td><span data-bind="text: statStreamOutputTimeMS"></span>ms</td>
-											</tr>
-											
-											<tr>
-												<td>Scale </td>
-												<td><span data-bind="text: statScaleProcessingTimeMS"></span>ms</td>
-											</tr>
-											
-											<tr>
-												<td>1st Filter </td>
-												<td><span data-bind="text: statMotionDetectionProcessingTimeMS"></span>ms</td>
-											</tr>
-											
-											<tr>
-												<td>2nd Filter </td>
-												<td><span data-bind="text: statSecondPassProcessingTimeMS"></span>ms</td>
-											</tr>
 										</table>
 									</td>
 									<td nowrap>

@@ -1,10 +1,11 @@
-#include "Frame.h"
+#include "FFMPEG/Frame.h"
+#include "Common.h"
 
 namespace Witness{
 namespace Camera{
 namespace FFMPEG{
 
-Frame::Frame( unsigned int Width, unsigned int Height, AVPixelFormat Format, unsigned int Alignment )
+Frame::Frame( unsigned int Width, unsigned int Height, unsigned int Format, unsigned int Alignment )
 : m_Frame( nullptr )
 , m_Width( Width )
 , m_Height( Height )
@@ -34,8 +35,8 @@ Frame::~Frame()
 void Frame::Prepare()
 {
 	av_frame_get_buffer( m_Frame, m_Alignment );
-	av_image_alloc( m_Frame->data, m_Frame->linesize, m_Width, m_Height, m_Format, m_Alignment );
-	av_image_fill_linesizes( m_Frame->linesize, m_Format, m_Width );
+	av_image_alloc( m_Frame->data, m_Frame->linesize, m_Width, m_Height, (AVPixelFormat)m_Format, m_Alignment );
+	av_image_fill_linesizes( m_Frame->linesize, (AVPixelFormat)m_Format, m_Width );
 
 	m_Frame->sample_aspect_ratio.num = 1;
 	m_Frame->sample_aspect_ratio.den = 1;

@@ -1,16 +1,18 @@
 #pragma once
 
-#include "Common.h"
+#include "Export.h"
+
+struct AVFrame;
 
 namespace Witness{
 namespace Camera{
 namespace FFMPEG{
 
-class Frame
+class CAMERA_API Frame
 {
 public:
 	
-	Frame( unsigned int Width, unsigned int Height, AVPixelFormat Format, unsigned int Alignment = 1 );
+	Frame( unsigned int Width, unsigned int Height, unsigned int Format, unsigned int Alignment = 1 );
 	virtual ~Frame();
 
 	void Prepare();
@@ -33,7 +35,7 @@ private:
 	unsigned int	m_Width;
 	unsigned int	m_Height;
 	unsigned int	m_Alignment;
-	AVPixelFormat	m_Format;
+	unsigned int	m_Format;
 	
 	bool			m_Prepared;
 };

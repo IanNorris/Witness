@@ -1,4 +1,5 @@
 #include "FFMPEG/Frame.h"
+#include "FFMPEG/Common.h"
 #include "ImageProcessingData.h"
 #include "ImageProcessingJob.h"
 #include "MotionFilter.h"
@@ -8,8 +9,6 @@
 #include <opencv2/imgproc/imgproc_c.h>
 
 #include <minmax.h>
-
-#include <windows.h> //MemorryBarrier
 
 namespace Witness{
 namespace Camera{
@@ -187,107 +186,45 @@ void ImageProcessingJobQueue::WorkerThreadMain()
 
 	if( Job )
 	{
-		auto Start = std::chrono::high_resolution_clock::now();
-
 		auto State = ID.GetStateForSource( Job->SourceID );
-		
-		AVPixelFormat OutputPixelFormat = AV_PIX_FMT_BGR24;
 
-		/*unsigned int OutputHeight = min( Job->TargetHeight, Job->Frame->GetHeight() );
-		unsigned int OutputWidth = (int)(((float)Job->Frame->GetWidth() / (float)Job->Frame->GetHeight()) * (float)OutputHeight);
-
-		OutputHeight &= (~15);
-		OutputWidth &= (~15);*/
-
-		unsigned int OutputWidth = Job->Frame->GetWidth();
-		unsigned int OutputHeight = Job->Frame->GetHeight();
-
-		AVPixelFormat InputPixelFormat = (AVPixelFormat)Job->Frame->GetFormat();
-
-		//Remap deprecated formats to avoid the warning output.
-		switch(InputPixelFormat)
 		{
-		case AV_PIX_FMT_YUVJ420P:
-			InputPixelFormat = AV_PIX_FMT_YUV420P;
-			break;
+			FilterFrameOwner Frame( Job->Frame, State->ConversionContext );
 
-		case AV_PIX_FMT_YUVJ422P:
-			InputPixelFormat = AV_PIX_FMT_YUV422P;
-			break;
+			FilterFrame InterfaceFrame = Frame.GetFilterFrame();
 
-		case AV_PIX_FMT_YUVJ444P:
-			InputPixelFormat = AV_PIX_FMT_YUV444P;
-			break;
+			FilterFrameStatScope Scope( InterfaceFrame.Stats, FilterStat_Process_Total );
 
-		case AV_PIX_FMT_YUVJ440P:
-			InputPixelFormat = AV_PIX_FMT_YUV440P;
-			break;
-		}
-
-
-		auto Output = std::make_shared<FFMPEG::Frame>( OutputWidth, OutputHeight, OutputPixelFormat );
-		Output->Prepare();
-
-		//int ScaleMethod = SWS_BICUBIC;
-		int ScaleMethod = SWS_FAST_BILINEAR;
-
-		State->ConversionContext = sws_getCachedContext(
-			State->ConversionContext,
-			Job->Frame->GetWidth(),
-			Job->Frame->GetHeight(),
-			InputPixelFormat,
-			OutputWidth,
-			OutputHeight,
-			OutputPixelFormat,
-			ScaleMethod,
-			NULL,
-			NULL,
-			NULL );
-
-		sws_scale( State->ConversionContext, Job->Frame->GetFrame()->data, Job->Frame->GetFrame()->linesize, 0, Job->Frame->GetHeight(), Output->GetFrame()->data, Output->GetFrame()->linesize );
-
-		cv::Mat MotionFrame( cv::Size( OutputWidth, OutputHeight ), CV_8UC3, Output->GetFrame()->data[0] );
-		cv::Mat MotionFrameGray;
-
-	    //cvtColor( MotionFrame, MotionFrameGray, CV_RGB2GRAY );
-
-		MemoryBarrier();
-
-		auto AfterScale = std::chrono::high_resolution_clock::now();
-
-		ClassificationResult FilterResult;
-		Job->Filter->FilterFrame( Job->Frame->GetFrame(), FilterResult, MotionFrame, MotionFrameGray );
-
-		bool Used2P = false;
-		auto AfterMD = std::chrono::high_resolution_clock::now();
-
-		/*if( FilterResult.ResultString )
-		{
-			Used2P = true;
-			ClassificationResult ResultNew = Job->Filter->PostSuccessChildVisitor( OutputWidth, OutputHeight, Output->GetFrame()->data[0], nullptr );
-			if( ResultNew.ResultString )
+			ClassificationResult FilterResult;
 			{
-				FilterResult = ResultNew;
+				Job->Filter->ClassifyFrame( InterfaceFrame, FilterResult );
 			}
-		}*/
+
+			bool Used2P = false;
+
+			/*if( FilterResult.ResultString )
+			{
+				Used2P = true;
+				ClassificationResult ResultNew = Job->Filter->PostSuccessChildVisitor( OutputWidth, OutputHeight, Output->GetFrame()->data[0], nullptr );
+				if( ResultNew.ResultString )
+				{
+					FilterResult = ResultNew;
+				}
+			}*/
 		
-		Job->Frame->Unref();
+			Job->Frame->Unref();
 
-		auto End = std::chrono::high_resolution_clock::now();
+			//Conversion context can get created or updated if the size changes
+			State->ConversionContext = Frame.ConversionContext;
 
-		ID.AddFrame( 
-			Job->SourceID, 
-			Job->Timestamp,
-			AfterScale.time_since_epoch().count() - Start.time_since_epoch().count(),
-			AfterMD.time_since_epoch().count() - AfterScale.time_since_epoch().count(),
-			Used2P ? (End.time_since_epoch().count() - AfterMD.time_since_epoch().count()) : 0
-		);
+			ID.AddFrame( Job->SourceID, Job->Timestamp,	Frame.Stats	);
+		}
 
 		CompletedJob( Job->SourceID );
 	}
 }
 
-void ImageProcessingJobQueueData::AddFrame(int Source, int64_t Timestamp, int64_t ScaleProcessingTime, int64_t MDProcessingTime, int64_t SecondPassProcessingTime)
+void ImageProcessingJobQueueData::AddFrame(int Source, int64_t Timestamp, const FilterFrameStats& StatsIn )
 {
 	std::lock_guard<std::mutex> Lock(StatsMutex);
 
@@ -295,25 +232,13 @@ void ImageProcessingJobQueueData::AddFrame(int Source, int64_t Timestamp, int64_
 
 	Ref.FrameCount++;
 
-	if (SecondPassProcessingTime > 0)
-	{
-		Ref.SecondPassFrameCount++;
-	}
-
 	Ref.LastTimestamp = Timestamp;
-	Ref.ScaleTotalProcessingTime += ScaleProcessingTime;
-	Ref.MotionDetectionTotalProcessingTime += MDProcessingTime;
-	Ref.SecondPassFilterTotalProcessingTime += SecondPassProcessingTime;
-	Ref.TotalProcessingTime += ScaleProcessingTime + MDProcessingTime + SecondPassProcessingTime;
 
-	/*if (Ref.FrameCount % 1000 == 999)
+	for( unsigned int Stat = 0; Stat < FilterStat_Max; Stat++ )
 	{
-		double Total = (double)Ref.TotalProcessingTime / ((double)Ref.FrameCount * 1000.0 * 1000.0);
-		double Scale = (double)Ref.ScaleTotalProcessingTime / ((double)Ref.FrameCount * 1000.0 * 1000.0);
-		double MD = (double)Ref.MotionDetectionTotalProcessingTime / ((double)Ref.FrameCount * 1000.0 * 1000.0);
-		double SP = (double)Ref.SecondPassFilterTotalProcessingTime / ((double)Ref.SecondPassFrameCount * 1000.0 * 1000.0);
-		printf("Source %d: Total %.2fms, Scale: %.2fms, MD: %.2fms, 2p: %.2fms\n", Source, (float)Total, (float)Scale, (float)MD, (float)SP );
-	}*/
+		Ref.Stats.Stats[Stat] += StatsIn.Stats[Stat];
+		Ref.Stats.FrameCount[Stat] += StatsIn.WasHit[Stat] ? 1 : 0;
+	}
 }
 
 void ImageProcessingJobQueueData::ResetStats(int Source)
@@ -321,13 +246,7 @@ void ImageProcessingJobQueueData::ResetStats(int Source)
 	std::lock_guard<std::mutex> Lock(StatsMutex);
 
 	auto& Ref = Stats[Source];
-
-	Ref.FrameCount = 0;
-	Ref.LastTimestamp = 0;
-	Ref.ScaleTotalProcessingTime = 0;
-	Ref.MotionDetectionTotalProcessingTime = 0;
-	Ref.SecondPassFilterTotalProcessingTime = 0;
-	Ref.TotalProcessingTime = 0;
+	Ref.Reset();
 }
 
 SourceState::SourceState()

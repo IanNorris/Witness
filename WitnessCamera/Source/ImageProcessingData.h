@@ -8,6 +8,8 @@
 
 #include "SourceStats.h"
 
+struct SwsContext;
+
 namespace Witness{
 namespace Camera{
 
@@ -45,7 +47,7 @@ struct ImageProcessingJobQueueData
 	std::mutex											StatsMutex;
 	std::unordered_map<int, SourceStats>				Stats;
 
-	void AddFrame(int Source, int64_t Timestamp, int64_t ScaleProcessingTime, int64_t MDProcessingTime, int64_t SecondPassProcessingTime);
+	void AddFrame(int Source, int64_t Timestamp, const FilterFrameStats& StatsIn );
 	void ResetStats(int Source);
 
 	std::shared_ptr<SourceState> GetStateForSource(int Source)

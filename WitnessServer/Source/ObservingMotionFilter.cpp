@@ -29,17 +29,22 @@ ObservingMotionFilter::ObservingMotionFilter( const shared_ptr<MotionChainNode>&
 ObservingMotionFilter::~ObservingMotionFilter()
 {}
 
-void ObservingMotionFilter::FilterFrame( const AVFrame* Frame, ClassificationResult& Result, cv::Mat& InputFrame, cv::Mat& GrayscaleInputFrame )
+void ObservingMotionFilter::ClassifyFrame( FilterFrame& Frame, ClassificationResult& Result )
 {
 	FrameIndex++;
 
+	const int DefaultQuality = 70;
 	const double NanoSecondsToSeconds = 1000.0 * 1000.0 * 1000.0;
 	uint64_t Now = std::chrono::high_resolution_clock::now().time_since_epoch().count();
 	bool SaveLarge = ((double)(Now - LastLargePreviewTimestamp) / NanoSecondsToSeconds) < PreviewTimeout;
 	bool SaveSmall = ((double)(Now - LastSmallPreviewTimestamp) / NanoSecondsToSeconds) < PreviewTimeout;
 
-
 	SaveNextFrame = SaveLarge | SaveSmall;
+
+	Frame.WantFullSizeOutput |= SaveLarge;
+	Frame.WantSmallOutput |= SaveSmall;
+
+	int FilterIndex = 0;
 
 	try 
 	{
@@ -48,7 +53,12 @@ void ObservingMotionFilter::FilterFrame( const AVFrame* Frame, ClassificationRes
 		{
 			unsigned int ClassificationSuperset = Result.ClassificationSuperset;
 
-			Next->Filter->FilterFrame( Frame, Result, InputFrame, GrayscaleInputFrame );
+			{
+				FilterStat Stat = (FilterStat)min<int>( FilterStat_ThirdPassFilter, FilterStat_FirstPassFilter + FilterIndex );
+				FilterFrameStatScope Scope( Frame.Stats, Stat );
+
+				Next->Filter->ClassifyFrame( Frame, Result );
+			}
 
 			if (	(Result.ClassificationSuperset & Next->InclusiveFilter) != 0
 				&&	(Result.ClassificationSuperset & Next->ExclusiveFilter) == 0
@@ -61,6 +71,8 @@ void ObservingMotionFilter::FilterFrame( const AVFrame* Frame, ClassificationRes
 				Result.ClassificationSuperset = ClassificationSuperset;
 				Next = Next->OnFailure.get();
 			}
+
+			FilterIndex++;
 		}
 	}
 	catch (cv::Exception& e)
@@ -68,6 +80,8 @@ void ObservingMotionFilter::FilterFrame( const AVFrame* Frame, ClassificationRes
 		printf("OpenCV error: %s\n", e.what());
 		abort();
 	}
+
+	FilterFrameStatScope Scope( Frame.Stats, FilterStat_ObserverFilter );
 	
 	uint64_t TimestampNow = datetime::utc_timestamp();
 
@@ -86,13 +100,8 @@ void ObservingMotionFilter::FilterFrame( const AVFrame* Frame, ClassificationRes
 			ClipStats.LargestMotionDelta = MotionMessage->MotionPercentage = Result.MotionAmount;
 
 			MotionMessage->ClipStats = ClipStats;
-			
-			float Aspect = (float)InputFrame.cols / (float)InputFrame.rows;
 
-			cv::Mat ResizedImage;
-			resize( InputFrame, ResizedImage, cv::Size(TargetThumbnailSize,(int)((float)TargetThumbnailSize/Aspect)), 0, 0 );
-
-			cv::imencode( ".jpg", ResizedImage, MotionMessage->Jpeg, std::vector<int>{ CV_IMWRITE_JPEG_QUALITY, 70 } );
+			CreateJpegPreview( Frame, MotionMessage->Jpeg, TargetThumbnailSize, DefaultQuality, nullptr );
 
 			MessageBusPtr->SendToClient( nullptr, MotionMessage );
 		}
@@ -112,14 +121,9 @@ void ObservingMotionFilter::FilterFrame( const AVFrame* Frame, ClassificationRes
 				auto MotionMessage = make_shared<CameraUpdateMotionMessage>( CameraID );
 
 				MotionMessage->ClipStats = ClipStats;
+
+				CreateJpegPreview( Frame, MotionMessage->Jpeg, TargetThumbnailSize, DefaultQuality, nullptr );
 				
-				float Aspect = (float)InputFrame.cols / (float)InputFrame.rows;
-
-				cv::Mat ResizedImage;
-				resize( InputFrame, ResizedImage, cv::Size(TargetThumbnailSize,(int)((float)TargetThumbnailSize/Aspect)), 0, 0 );
-
-				cv::imencode( ".jpg", ResizedImage, MotionMessage->Jpeg, std::vector<int>{ CV_IMWRITE_JPEG_QUALITY, 70 } );
-
 				MessageBusPtr->SendToClient( nullptr, MotionMessage );
 			}
 		}
@@ -152,21 +156,17 @@ void ObservingMotionFilter::FilterFrame( const AVFrame* Frame, ClassificationRes
 		SaveNextFrame = false;
 
 		auto SaveFrameMessage = make_shared<CameraSnapshotMessage>( CameraID );
-		
-		float Aspect = (float)InputFrame.cols / (float)InputFrame.rows;
 
 		const int TargetSize = SaveLarge ? TargetLargeThumbnailSize : TargetThumbnailSize;
 		const int Quality = SaveLarge ? 70 : 65;
 
-		cv::Mat ResizedImage;
-		resize( InputFrame, ResizedImage, cv::Size(TargetSize,(int)((float)TargetSize/Aspect)), 0, 0 );
+		CreateJpegPreview( Frame, SaveFrameMessage->Jpeg, TargetSize, Quality, [=](cv::Mat& OutputFrame)
+		{
+			int X = (int)(5.0f * cos( 0.25f * (float)FrameIndex ));
+			int Y = (int)(5.0f * sin( 0.25f * (float)FrameIndex ));
 
-		int X = (int)(5.0f * cos( 0.25f * (float)FrameIndex ));
-		int Y = (int)(5.0f * sin( 0.25f * (float)FrameIndex ));
-
-		cv::line( ResizedImage, cv::Point(15 + X,15 + Y), cv::Point(15 - X, 15 - Y), Result.ClassificationSuperset == 0 ? cv::Scalar(0,255,0) : cv::Scalar(0,0,255), 2 );
-		
-		cv::imencode( ".jpg", ResizedImage, SaveFrameMessage->Jpeg, std::vector<int>{ CV_IMWRITE_JPEG_QUALITY, Quality } );
+			cv::line( OutputFrame, cv::Point(15 + X,15 + Y), cv::Point(15 - X, 15 - Y), Result.ClassificationSuperset == 0 ? cv::Scalar(0,255,0) : cv::Scalar(0,0,255), 2 );
+		} );
 
 		MessageBusPtr->SendToClient( nullptr, SaveFrameMessage );
 	}
@@ -196,4 +196,23 @@ void ObservingMotionFilter::ClearState( MotionChainNode* Node )
 			ClearState(F);
 		}
 	}
+}
+
+void ObservingMotionFilter::CreateJpegPreview( FilterFrame& Frame, vector<unsigned char>& OutputBuffer, unsigned int OutputWidth, int OutputQuality, std::function<void(cv::Mat&)> Action )
+{
+	FilterFrameStatScope Scope( Frame.Stats, FilterStat_JpegEncoding );
+
+	cv::Mat& InputFrame = Frame.GetOrDecodeFrame();
+
+	float Aspect = (float)InputFrame.cols / (float)InputFrame.rows;
+
+	cv::Mat ResizedImage;
+	resize( InputFrame, ResizedImage, cv::Size(OutputWidth,(int)((float)OutputWidth/Aspect)), 0, 0 );
+
+	if( Action )
+	{
+		Action( ResizedImage );
+	}
+
+	cv::imencode( ".jpg", ResizedImage, OutputBuffer, std::vector<int>{ CV_IMWRITE_JPEG_QUALITY, OutputQuality } );
 }

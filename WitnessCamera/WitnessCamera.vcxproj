@@ -95,6 +95,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="Source\DebugBind.cpp" />
+    <ClCompile Include="Source\FilterFrame.cpp" />
     <ClCompile Include="Source\MotionVectorFilter.cpp" />
     <ClCompile Include="Source\PersonRecognitionFilter.cpp" />
     <ClCompile Include="Source\FFMPEG\Frame.cpp" />
@@ -108,6 +109,7 @@
   <ItemGroup>
     <ClInclude Include="Include\DebugBind.h" />
     <ClInclude Include="Include\Export.h" />
+    <ClInclude Include="Include\FFMPEG\Frame.h" />
     <ClInclude Include="Include\MotionVectorFilter.h" />
     <ClInclude Include="Include\PersonRecognitionFilter.h" />
     <ClInclude Include="Include\ImageProcessingJob.h" />
@@ -120,7 +122,6 @@
     <ClInclude Include="Include\SourceStats.h" />
     <ClInclude Include="Include\Stream.h" />
     <ClInclude Include="Source\FFMPEG\Common.h" />
-    <ClInclude Include="Source\FFMPEG\Frame.h" />
     <ClInclude Include="Source\FilterData.h" />
     <ClInclude Include="Source\ImageProcessingData.h" />
     <ClInclude Include="Source\StreamData.h" />

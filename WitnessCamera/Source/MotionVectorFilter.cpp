@@ -1,6 +1,7 @@
 #include "MotionVectorFilter.h"
 #include "OutputStream.h"
 #include "FFMPEG/Frame.h"
+#include "FFMPEG/Common.h"
 
 #include <libavformat/avformat.h>
 #include <libavutil/motion_vector.h>
@@ -236,12 +237,21 @@ void MotionVectorFilter::UpdateMasks( unsigned int Width, unsigned int Height )
 	}
 }
 
-void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult& Result, cv::Mat& InputFrame, cv::Mat& GrayscaleInputFrame )
+void MotionVectorFilter::ClassifyFrame( FilterFrame& Frame, ClassificationResult& Result )
 {
+	FilterFrameStatScope Scope( Frame.Stats, FilterStat_MVF_Internal );
+
 	auto& ID = GetData();
 
-	const unsigned int WidthBucketWidth = Frame->width / BUCKET_DIMENSION;
-	const unsigned int HeightBucketHeight = Frame->height / BUCKET_DIMENSION;
+	bool WantDebuggingInfo = Frame.WantFullSizeOutput | Frame.WantSmallOutput;
+
+	FilterFrameStatExcludeScope ScaleScope( Frame.Stats, FilterStat_MVF_Internal );
+		cv::Mat Dummy;
+		cv::Mat& InputFrame = WantDebuggingInfo ? Frame.GetOrDecodeFrame() : Dummy;
+	ScaleScope.Stop();
+
+	const unsigned int WidthBucketWidth = Frame.InputFrame->GetWidth() / BUCKET_DIMENSION;
+	const unsigned int HeightBucketHeight = Frame.InputFrame->GetHeight() / BUCKET_DIMENSION;
 
 	const unsigned int BucketCount = (WidthBucketWidth) * (HeightBucketHeight);
 	
@@ -253,7 +263,14 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 
 #define BUCKET_INDEX(x,y) ((WidthBucketWidth * y) + x)
 
-	AVFrameSideData* SideData = av_frame_get_side_data( Frame, AV_FRAME_DATA_MOTION_VECTORS );
+	AVFrameSideData* SideData = nullptr;
+	
+	{
+		FilterFrameStatScope Scope( Frame.Stats, FilterStat_MVF_SideData );
+
+		SideData = av_frame_get_side_data( Frame.InputFrame->GetFrame(), AV_FRAME_DATA_MOTION_VECTORS );
+	}
+
 	if (!SideData)
 	{
 		//No data == key frame, no actual motion, but can't make an assessment
@@ -270,110 +287,122 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 	unsigned int UsableMotionVectors = 0;
 
 	const unsigned int MotionVectorSkipFactor = 8;
-	for (unsigned int i = 0; i < MotionVectors; i+=MotionVectorSkipFactor)
 	{
-		const AVMotionVector& MV = MVData[i];
-		
-		const int Motion = (MV.motion_x * MV.motion_x) + (MV.motion_y * MV.motion_y);
-		
-		if( Motion >= (float)MinBlockMoveDistance && Motion <= (float)MaxBlockMoveDistance )
+		FilterFrameStatScope Scope( Frame.Stats, FilterStat_MVF_VectorPass );
+
+		for (unsigned int i = 0; i < MotionVectors; i+=MotionVectorSkipFactor)
 		{
-			unsigned int DstBucketX = (unsigned int)MIN( MAX(MV.dst_x,0) / BUCKET_DIMENSION, (int)WidthBucketWidth-1);
-			unsigned int DstBucketY = (unsigned int)MIN( MAX(MV.dst_y,0) / BUCKET_DIMENSION, (int)HeightBucketHeight-1);
-
-			auto& Ref = ID.Buckets[BUCKET_INDEX(DstBucketX, DstBucketY)];
-
-			if( Ref.Mask == 0.0f )
+			const AVMotionVector& MV = MVData[i];
+		
+			const int Motion = (MV.motion_x * MV.motion_x) + (MV.motion_y * MV.motion_y);
+		
+			if( Motion >= (float)MinBlockMoveDistance && Motion <= (float)MaxBlockMoveDistance )
 			{
-				continue;
-			}
+				unsigned int DstBucketX = (unsigned int)MIN( MAX(MV.dst_x,0) / BUCKET_DIMENSION, (int)WidthBucketWidth-1);
+				unsigned int DstBucketY = (unsigned int)MIN( MAX(MV.dst_y,0) / BUCKET_DIMENSION, (int)HeightBucketHeight-1);
 
-			Ref.c += 1;
-			Ref.x += MV.motion_x;
-			Ref.y += MV.motion_y;
+				auto& Ref = ID.Buckets[BUCKET_INDEX(DstBucketX, DstBucketY)];
 
-			UsableMotionVectors++;
+				if( Ref.Mask == 0.0f )
+				{
+					continue;
+				}
 
-			if( DrawVectors )
-			{
-				cv::arrowedLine( InputFrame, cv::Point( MV.src_x, MV.src_y ), cv::Point( MV.dst_x, MV.dst_y ), cv::Scalar(255.0,255.0,255.0) );
-			}
+				Ref.c += 1;
+				Ref.x += MV.motion_x;
+				Ref.y += MV.motion_y;
+
+				UsableMotionVectors++;
+
+				if( WantDebuggingInfo && DrawVectors )
+				{
+					FilterFrameStatScope Scope( Frame.Stats, FilterStat_Debug );
+
+					cv::arrowedLine( InputFrame, cv::Point( MV.src_x, MV.src_y ), cv::Point( MV.dst_x, MV.dst_y ), cv::Scalar(255.0,255.0,255.0) );
+				}
 
 			
+			}
 		}
 	}
 
 	int RefValue = BucketRefValue * BUCKET_DIMENSION * BUCKET_DIMENSION / MotionVectorSkipFactor;
 	//const int RefValue = 50;
 
-	float ScaleX = (float)InputFrame.cols / (float)Frame->width;
-	float ScaleY = (float)InputFrame.rows / (float)Frame->height;
-	float RescaleX = (float)Frame->width / (float)(WidthBucketWidth);
-	float RescaleY = (float)Frame->height / (float)(HeightBucketHeight);
+	float RescaleX = (float)InputFrame.cols / (float)(WidthBucketWidth);
+	float RescaleY = (float)InputFrame.rows / (float)(HeightBucketHeight);
 
 	ID.Points.clear();
 	ID.Labels.clear();
 
-	for( unsigned int y = 0; y < HeightBucketHeight; y++ )
 	{
-		const unsigned int BucketBase = WidthBucketWidth * y;
-		for( unsigned int x = 0; x < WidthBucketWidth; x++ )
+		FilterFrameStatScope Scope( Frame.Stats, FilterStat_MVF_ClusterPass );
+
+		for( unsigned int y = 0; y < HeightBucketHeight; y++ )
 		{
-			auto& Ref = ID.Buckets[BucketBase+x];
-
-			float Score = ((Ref.x*Ref.x) + (Ref.y*Ref.y)) * Ref.Mask / (float)(Ref.c+1);
-			//float Score = Ref.x * Mask;
-
-			bool thresholdReached = Score >= RefValue && Ref.c >= MinVectorCount;
-
-			if( thresholdReached )
+			const unsigned int BucketBase = WidthBucketWidth * y;
+			for( unsigned int x = 0; x < WidthBucketWidth; x++ )
 			{
-				ID.Points.push_back( Point2f( (float)x, (float)y ) );
-			}
+				auto& Ref = ID.Buckets[BucketBase+x];
 
-			if( DrawSummaryVectors && Score > MinSummaryPrintout && Ref.c >= MinVectorCount )
-			{
-				float NewX = ((float)x+0.5f) * RescaleX * ScaleX;
-				float NewY = ((float)y+0.5f) * RescaleY * ScaleY;
+				float Score = ((Ref.x*Ref.x) + (Ref.y*Ref.y)) * Ref.Mask / (float)(Ref.c+1);
+				//float Score = Ref.x * Mask;
 
-				const float SummaryScale = 8.0f;
-
-				cv::arrowedLine( InputFrame, cv::Point2f( NewX, NewY ), cv::Point2f( NewX + (Ref.x / SummaryScale), NewY + (Ref.y / SummaryScale) ), cv::Scalar(0.0,255.0,255.0), 3 );
-
-				char Buffer[128];
-				sprintf_s( Buffer, "%.0f", Score );
-
-				cv::putText( InputFrame, Buffer, Point((int)NewX,(int)NewY), FONT_HERSHEY_PLAIN, 1.0, Scalar(0,255,255), 2 );
-			}
-
-			if( DrawClusters )
-			{
-				cv::Rect Src;
-				Src.x = (int)((float)(x * RescaleX) * ScaleX);
-				Src.y = (int)((float)(y * RescaleY) * ScaleY);
-				Src.width = (int)(RescaleX * ScaleX);
-				Src.height = (int)(RescaleY * ScaleY);
-
-				bool isBlackout = Ref.Mask < 0.5f;
-				bool isFocus = Ref.Mask > 1.1f;
+				bool thresholdReached = Score >= RefValue && Ref.c >= MinVectorCount;
 
 				if( thresholdReached )
 				{
-					cv::rectangle( InputFrame, Src, cvScalar(0.0,0.0,255.0), CV_FILLED );
+					ID.Points.push_back( Point2f( (float)x, (float)y ) );
 				}
-				else if( isBlackout && DrawMask )
-				{
-					cv::rectangle( InputFrame, Src, cvScalar(0.0,0.0,60.0 - (60.0 * Ref.Mask)), CV_FILLED );
-				}
-				else if( isFocus && DrawMask )
-				{
-					cv::rectangle( InputFrame, Src, cvScalar(0.0,60.0 * Ref.Mask / 5.0,0.0), CV_FILLED );
-				}
-			}
 
-			Ref.c = 0;
-			Ref.x = 0;
-			Ref.y = 0;
+				if( WantDebuggingInfo && DrawSummaryVectors && Score > MinSummaryPrintout && Ref.c >= MinVectorCount )
+				{
+					FilterFrameStatScope Scope( Frame.Stats, FilterStat_Debug );
+
+					float NewX = ((float)x+0.5f) * RescaleX;
+					float NewY = ((float)y+0.5f) * RescaleY;
+
+					const float SummaryScale = 8.0f;
+
+					cv::arrowedLine( InputFrame, cv::Point2f( NewX, NewY ), cv::Point2f( NewX + (Ref.x / SummaryScale), NewY + (Ref.y / SummaryScale) ), cv::Scalar(0.0,255.0,255.0), 3 );
+
+					char Buffer[128];
+					sprintf_s( Buffer, "%.0f", Score );
+
+					cv::putText( InputFrame, Buffer, Point((int)NewX,(int)NewY), FONT_HERSHEY_PLAIN, 1.0, Scalar(0,255,255), 2 );
+				}
+
+				if( WantDebuggingInfo && DrawClusters )
+				{
+					FilterFrameStatScope Scope( Frame.Stats, FilterStat_Debug );
+
+					cv::Rect Src;
+					Src.x = (int)((float)(x * RescaleX));
+					Src.y = (int)((float)(y * RescaleY));
+					Src.width = (int)(RescaleX);
+					Src.height = (int)(RescaleY);
+
+					bool isBlackout = Ref.Mask < 0.5f;
+					bool isFocus = Ref.Mask > 1.1f;
+
+					if( thresholdReached )
+					{
+						cv::rectangle( InputFrame, Src, cvScalar(0.0,0.0,255.0), CV_FILLED );
+					}
+					else if( isBlackout && DrawMask )
+					{
+						cv::rectangle( InputFrame, Src, cvScalar(0.0,0.0,60.0 - (60.0 * Ref.Mask)), CV_FILLED );
+					}
+					else if( isFocus && DrawMask )
+					{
+						cv::rectangle( InputFrame, Src, cvScalar(0.0,60.0 * Ref.Mask / 5.0,0.0), CV_FILLED );
+					}
+				}
+
+				Ref.c = 0;
+				Ref.x = 0;
+				Ref.y = 0;
+			}
 		}
 	}
 
@@ -400,6 +429,8 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 	
 	if( !ID.Points.empty() )
 	{
+		FilterFrameStatScope Scope( Frame.Stats, FilterStat_MVF_ObjectPass );
+
 		cv::partition<Point2f,EquivalentPoint>( ID.Points, ID.Labels );
 		//double Compactness = cv::kmeans( cv::Mat(ID.Points).reshape(1, ID.Points.size()), TargetClusters, ID.Labels, cv::TermCriteria( TermCriteria::EPS+TermCriteria::COUNT, MaxClusters, 1.0 ), 3, KMEANS_PP_CENTERS );
 
@@ -476,13 +507,15 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 						ID.Objects.push_back( Obj );
 					}
 
-					if( DrawClusters )
+					if( WantDebuggingInfo && DrawClusters )
 					{
+						FilterFrameStatScope Scope( Frame.Stats, FilterStat_Debug );
+
 						cv::Rect DrawBounds = Bounds;
-						DrawBounds.x = (int)((float)Bounds.x * RescaleX * ScaleX);
-						DrawBounds.y = (int)((float)Bounds.y * RescaleY * ScaleY);
-						DrawBounds.width = (int)((float)Bounds.width * RescaleX * ScaleX);
-						DrawBounds.height = (int)((float)Bounds.height * RescaleY * ScaleY);
+						DrawBounds.x = (int)((float)Bounds.x * RescaleX);
+						DrawBounds.y = (int)((float)Bounds.y * RescaleY);
+						DrawBounds.width = (int)((float)Bounds.width * RescaleX);
+						DrawBounds.height = (int)((float)Bounds.height * RescaleY);
 						cv::rectangle( InputFrame, DrawBounds, cv::Scalar(0,0,255.0), 2 );
 					}
 
@@ -492,8 +525,10 @@ void MotionVectorFilter::FilterFrame( const AVFrame* Frame, ClassificationResult
 		}
 	}
 
-	if( DrawStats )
+	if( WantDebuggingInfo && DrawStats )
 	{
+		FilterFrameStatScope Scope( Frame.Stats, FilterStat_Debug );
+
 		char Buffer[128];
 		sprintf_s( Buffer, "MVU=%04d,MVF=%04d,L=%02d,A=%02d,T=%02d", MotionVectors, UsableMotionVectors, MaxLabel, ActualCluters, TrackedClusters );
 

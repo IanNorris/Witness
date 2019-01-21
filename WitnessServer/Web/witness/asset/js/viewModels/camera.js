@@ -1,3 +1,19 @@
+var DebugCameraStats = [ 
+	[ "processing", "Processing" ],
+	[ "scale", "Scale" ],
+	[ "jpegEncoding", "Jpeg Encoding" ],
+	[ "observer", "Observer Filter" ],
+	[ "firstPassFilter", "First Pass Filter" ],
+	[ "secondPassFilter", "Second Pass Filter" ],
+	[ "thirdPassFilter", "Third Pass Filter" ],
+	[ "debug", "Debug" ],
+	[ "mvfInternal", "MVF Internal" ],
+	[ "mvfSideData", "MVF Side Data" ],
+	[ "mvfVectorPass", "MVF Vector Pass" ],
+	[ "mvfClusterPass", "MVF Cluster Pass" ],
+	[ "mvfObjectPass", "MVF Object Pass" ]
+];
+
 var CameraViewModel = function( witness, id, enabled, name, description, connectionString, groups, status, cameraRecording, allData ) {
 	"use strict";
 	
@@ -20,17 +36,20 @@ var CameraViewModel = function( witness, id, enabled, name, description, connect
 	
 	self.lastTimestamp = ko.observable(allData.lastTimestamp);
 	self.statFrameCount = ko.observable(allData.frameCount).extend({numeric: 1});
-	self.statProcessingTimeMS = ko.observable(allData.processingTimeMS).extend({numeric: 1});
-	self.statScaleProcessingTimeMS = ko.observable(allData.scaleProcessingTimeMS).extend({numeric: 1});
-	self.statMotionDetectionProcessingTimeMS = ko.observable(allData.motionDetectionProcessingTimeMS).extend({numeric: 1});
-	self.statSecondPassProcessingTimeMS = ko.observable(allData.secondPassProcessingTimeMS).extend({numeric: 1});
-	self.statStreamReadTimeMS = ko.observable(allData.streamReadTimeMS).extend({numeric: 1});
-	self.statStreamDecodeTimeMS = ko.observable(allData.streamDecodeTimeMS).extend({numeric: 1});
-	self.statStreamOutputTimeMS = ko.observable(allData.streamOutputTimeMS).extend({numeric: 1});
 	
-	self.statActualTotalMS = ko.computed( function() {
-		return (self.statProcessingTimeMS() + self.statStreamDecodeTimeMS() + self.statStreamOutputTimeMS()).toFixed(1);
-	} );
+	self.stats = ko.observableArray([]);
+	
+	self.populateStats = function( cameraObject ) {
+		self.stats.removeAll();
+		for( var stat = 0; stat < DebugCameraStats.length; stat++ ) {
+			self.stats.push( { 
+				name: ko.observable( DebugCameraStats[stat][1] ),
+				each: ko.observable( cameraObject[DebugCameraStats[stat][0]+"TimeOfEachMS"]).extend({numeric: 1}),
+				total: ko.observable( cameraObject[DebugCameraStats[stat][0]+"ActualMS"]).extend({numeric: 1}),
+			} );
+		}
+	};
+	self.populateStats( allData );
 	
 	self.isSelectedClip = ko.computed( function() {
 		return self.isSelected() && self.witness.isViewMode(VIEW_MODE_CLIPS);

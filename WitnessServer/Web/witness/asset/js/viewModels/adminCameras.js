@@ -42,6 +42,17 @@ var AdminCamerasViewModel = function( authentication, groups, witness ) {
 		} );
 	};
 	
+	self.resetStats = function() {
+		var query = {
+			'csrf': self.authentication.csrfToken()
+		}
+		makeQuery( query, '/camera/admin_reset_stats/', true, "error|Error fetching cameras list.",
+			function(result){
+				self.refreshCamerasAsAdmin();
+			} 
+		);
+	}
+	
 	self.refreshCamerasAsAdmin = function() {	
 		makeQuery( null, '/camera/admin_enum/', true, "error|Error fetching cameras list.",
 			function(result){
@@ -90,10 +101,8 @@ var AdminCamerasViewModel = function( authentication, groups, witness ) {
 							
 							existing.lastTimestamp( cameraList[camera].lastTimestamp );
 							existing.statFrameCount( cameraList[camera].frameCount );
-							existing.statProcessingTimeMS( cameraList[camera].processingTimeMS );
-							existing.statScaleProcessingTimeMS( cameraList[camera].scaleProcessingTimeMS );
-							existing.statMotionDetectionProcessingTimeMS( cameraList[camera].motionDetectionProcessingTimeMS );
-							existing.statSecondPassProcessingTimeMS( cameraList[camera].secondPassProcessingTimeMS );
+							
+							existing.populateStats( cameraList[camera] );
 						}
 						else {
 							self.cameras.push(  new CameraViewModel( self.witness, newId, newEnabled, newName, newDescription, newConnectionString, newGroups, newStatus, false, cameraList[camera] ) );

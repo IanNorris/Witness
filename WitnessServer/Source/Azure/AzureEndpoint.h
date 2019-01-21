@@ -6,6 +6,8 @@
 
 #include <cpprest/http_client.h>
 
+using namespace Witness::Camera;
+
 class AzureEndpointFilter : public Witness::Camera::IRecordFilter
 {
 public:
@@ -18,7 +20,7 @@ public:
 
 	pplx::task<web::http::http_response> SendCommand( int CommandType, const json::value& RequestData, const QueryPairs& QueryValues, const vector<unsigned char>& Data );
 
-	virtual void FilterFrame( const AVFrame* Frame, Witness::Camera::ClassificationResult& Result, cv::Mat& InputFrame, cv::Mat& GrayscaleInputFrame ) = 0;
+	virtual void ClassifyFrame( FilterFrame& Frame, ClassificationResult& Result ) = 0;
 
 	void PrepareImage( const cv::Mat& InputFrame, vector<unsigned char>& Data );
 

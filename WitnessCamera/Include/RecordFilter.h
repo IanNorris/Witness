@@ -2,19 +2,90 @@
 
 #include "Export.h"
 #include "Pimpl.h"
+#include "FFMPEG/Frame.h"
+
+#include "SourceStats.h"
 
 #include <opencv2/core/mat.hpp>
 
 #include <memory>
 #include <type_traits>
+#include <memory>
 
 struct AVFrame;
+struct SwsContext;
 
 namespace Witness{
 namespace Camera{
 
 struct FilterData;
 class StreamManager;
+
+class CAMERA_API FilterFrame
+{
+public:
+
+	FilterFrame( 
+		FilterFrameStats& StatsIn, 
+		std::shared_ptr<FFMPEG::Frame>& InputFrameIn,
+		std::shared_ptr<FFMPEG::Frame>& OutputFrameIn,
+		cv::Mat& DecodedFrameIn,
+		cv::Mat& GrayscaleDecodedFrameIn,
+		SwsContext*& ConversionContextIn )
+	: Stats( StatsIn )
+	, InputFrame( InputFrameIn )
+	, WantFullSizeOutput( false )
+	, WantSmallOutput( false )
+	, OutputFrame( OutputFrameIn )
+	, DecodedFrame( DecodedFrameIn )
+	, GrayscaleDecodedFrame( GrayscaleDecodedFrameIn )
+	, ConversionContext( ConversionContextIn )
+	{}
+
+	cv::Mat& GetOrDecodeFrame();
+	cv::Mat& GetOrDecodeGrayscaleInputFrame();
+
+	FilterFrameStats& Stats;
+
+	std::shared_ptr<FFMPEG::Frame>& InputFrame;
+
+	bool WantFullSizeOutput;
+	bool WantSmallOutput;
+
+private:
+
+	std::shared_ptr<FFMPEG::Frame>& OutputFrame;
+
+	cv::Mat& DecodedFrame;
+	cv::Mat& GrayscaleDecodedFrame;
+
+	SwsContext*& ConversionContext;
+};
+
+class FilterFrameOwner
+{
+public:
+
+	FilterFrameOwner( const std::shared_ptr<FFMPEG::Frame>& InputFrameIn, SwsContext* ConversionContextIn )
+	: InputFrame( InputFrameIn )
+	, ConversionContext( ConversionContextIn )
+	{}
+
+	FilterFrame GetFilterFrame()
+	{
+		return FilterFrame( Stats, InputFrame, OutputFrame, DecodedFrame, GrayscaleDecodedFrame, ConversionContext );
+	}
+
+	std::shared_ptr<FFMPEG::Frame> InputFrame;
+	std::shared_ptr<FFMPEG::Frame> OutputFrame;
+
+	cv::Mat DecodedFrame;
+	cv::Mat GrayscaleDecodedFrame;
+
+	FilterFrameStats Stats;
+
+	SwsContext* ConversionContext;
+};
 
 struct ClassificationResult
 {
@@ -75,7 +146,7 @@ public:
 
 	virtual ~IRecordFilter(){}
 	
-	virtual void FilterFrame( const AVFrame* Frame, ClassificationResult& Result, cv::Mat& InputFrame, cv::Mat& GrayscaleInputFrame ) = 0;
+	virtual void ClassifyFrame( FilterFrame& Frame, ClassificationResult& Result ) = 0;
 	virtual void ClearState() {};
 };
 

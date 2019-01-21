@@ -13,6 +13,9 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
+    <Filter Include="Header Files\FFMPEG">
+      <UniqueIdentifier>{307713bd-0b28-4a70-a1d8-80c3116084b2}</UniqueIdentifier>
+    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="Source\FFMPEG\Frame.cpp">
@@ -45,6 +48,9 @@
     <ClCompile Include="Source\DebugBind.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Source\FilterFrame.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Include\Export.h">
@@ -52,12 +58,6 @@
     </ClInclude>
     <ClInclude Include="Source\StreamData.h">
       <Filter>Source Files</Filter>
-    </ClInclude>
-    <ClInclude Include="Source\FFMPEG\Frame.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
-    <ClInclude Include="Source\FFMPEG\Common.h">
-      <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="Include\InputStream.h">
       <Filter>Header Files</Filter>
@@ -103,6 +103,12 @@
     </ClInclude>
     <ClInclude Include="Include\DebugBind.h">
       <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Include\FFMPEG\Frame.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Source\FFMPEG\Common.h">
+      <Filter>Header Files\FFMPEG</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

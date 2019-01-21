@@ -37,6 +37,10 @@ void Command_Camera::OnMessage( GlobalContext& Context, http_request& Message, c
 		{
 			OnSetGroupsMessage( Context, Message, Packet );
 		}
+		else if( Command.compare( _T("admin_reset_stats") ) == 0 )
+		{
+			OnResetStatsMessage( Context, Message, Packet );
+		}
 		else
 		{
 			Message.reply( status_codes::NotFound );
@@ -195,16 +199,28 @@ void Command_Camera::OnEnumMessage( const GlobalContext& Context, http_request& 
 
 						if (AsAdmin && ImgStats.FrameCount > 0)
 						{
-							double Total = (double)ImgStats.TotalProcessingTime / ((double)ImgStats.FrameCount * 1000.0 * 1000.0);
-							double Scale = (double)ImgStats.ScaleTotalProcessingTime / ((double)ImgStats.FrameCount * 1000.0 * 1000.0);
-							double MD = (double)ImgStats.MotionDetectionTotalProcessingTime / ((double)ImgStats.FrameCount * 1000.0 * 1000.0);
-							double SP = (double)ImgStats.SecondPassFilterTotalProcessingTime / ((double)ImgStats.FrameCount * 1000.0 * 1000.0);
-
 							Camera[ _T("frameCount") ] = json::value( ImgStats.FrameCount );
-							Camera[ _T("processingTimeMS") ] = json::value( Total );
-							Camera[ _T("scaleProcessingTimeMS") ] = json::value( Scale );
-							Camera[ _T("motionDetectionProcessingTimeMS") ] = json::value( MD );
-							Camera[ _T("secondPassProcessingTimeMS") ] = json::value( SP );
+
+#define GET_STAT(OutputPrefix, StatName) \
+	Camera[ _T(OutputPrefix "TimeOfEachMS") ] = json::value( (double)ImgStats.Stats.FrameCount[StatName] ? ((double)ImgStats.Stats.Stats[StatName] / ((double)ImgStats.Stats.FrameCount[StatName] * 1000.0 * 1000.0)) : 0.0 );\
+	Camera[ _T(OutputPrefix "ActualMS") ] = json::value( ImgStats.FrameCount ? (double)ImgStats.Stats.Stats[StatName] / ((double)ImgStats.FrameCount * 1000.0 * 1000.0) : 0 )
+
+							GET_STAT("processing",		FilterStat_Process_Total);
+							GET_STAT("scale",			FilterStat_Scale);
+							GET_STAT("jpegEncoding",	FilterStat_JpegEncoding);
+							GET_STAT("observer",		FilterStat_ObserverFilter);
+							GET_STAT("firstPassFilter",	FilterStat_FirstPassFilter);
+							GET_STAT("secondPassFilter",FilterStat_SecondPassFilter);
+							GET_STAT("thirdPassFilter", FilterStat_ThirdPassFilter);
+							GET_STAT("debug",			FilterStat_Debug);
+
+							GET_STAT("mvfInternal",		FilterStat_MVF_Internal);
+							GET_STAT("mvfSideData",		FilterStat_MVF_SideData);
+							GET_STAT("mvfVectorPass",	FilterStat_MVF_VectorPass);
+							GET_STAT("mvfClusterPass",	FilterStat_MVF_ClusterPass);
+							GET_STAT("mvfObjectPass",	FilterStat_MVF_ObjectPass);
+
+#undef GET_STAT
 						}
 
 						if (AsAdmin && StreamStats.FrameCount > 0)
@@ -267,6 +283,26 @@ void Command_Camera::OnRecordMessage( const GlobalContext& Context, http_request
 	auto ToggleRecord = make_shared<CameraStateToggleRecordMessage>( TargetCameraInt, Record );
 
 	Context.MessageBus->SendToClient( nullptr, ToggleRecord );
+
+	Message.reply( status_codes::OK, json::value(_T("OK")) );
+}
+
+void Command_Camera::OnResetStatsMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet )
+{
+	int UserUID = Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::ReadWrite, Command_Authenticate::Privilege::Administrator );
+	if( !UserUID )
+	{
+		return;
+	}
+
+	{
+		lock_guard<mutex> Lock( Context.Mutex );
+
+		for( auto Camera : Context.Cameras )
+		{
+			Context.CommonImageProcessingJobQueue->ResetStats( Camera.first );
+		}
+	}
 
 	Message.reply( status_codes::OK, json::value(_T("OK")) );
 }

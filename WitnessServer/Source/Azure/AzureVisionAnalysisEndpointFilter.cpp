@@ -1,6 +1,6 @@
 #include "AzureVisionAnalysisEndpointFilter.h"
 
-void AzureVisionAnalysisEndpointFilter::FilterFrame(const AVFrame* Frame, Witness::Camera::ClassificationResult& Result, cv::Mat& InputFrame, cv::Mat& GrayscaleInputFrame)
+void AzureVisionAnalysisEndpointFilter::ClassifyFrame( FilterFrame& Frame, ClassificationResult& Result )
 {
 	if (!IsAllowedToProcessFrame())
 	{
@@ -11,7 +11,7 @@ void AzureVisionAnalysisEndpointFilter::FilterFrame(const AVFrame* Frame, Witnes
 	QueryPairs Query;
 	std::vector<unsigned char> Data;
 
-	PrepareImage( InputFrame, Data );
+	PrepareImage( Frame.GetOrDecodeFrame(), Data );
 
 	Query.push_back( QueryPair( _T("visualFeatures"), _T("Faces,Tags") ) );
 

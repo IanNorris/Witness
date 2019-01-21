@@ -44,7 +44,7 @@ public:
 	ObservingMotionFilter( const shared_ptr<MotionChainNode>& MotionChain, const int CameraID, const shared_ptr<MessageBus>& MessageBusIn );
 	virtual ~ObservingMotionFilter();
 
-	virtual void FilterFrame( const AVFrame* Frame, ClassificationResult& Result, cv::Mat& InputFrame, cv::Mat& GrayscaleInputFrame ) override;
+	virtual void ClassifyFrame( FilterFrame& Frame, ClassificationResult& Result ) override;
 	virtual void ClearState() override;
 
 	void ClearState( MotionChainNode* Node );
@@ -63,6 +63,8 @@ public:
 		LastLargePreviewTimestamp = Large;
 		LastSmallPreviewTimestamp = Small;
 	}
+
+	void CreateJpegPreview( FilterFrame& Frame, vector<unsigned char>& OutputBuffer, unsigned int OutputWidth, int OutputQuality, std::function<void(cv::Mat&)> Action );
 
 private:
 

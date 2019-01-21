@@ -16,7 +16,7 @@ public:
 
 	void UpdateMasks( unsigned int Width, unsigned int Height );
 
-	virtual void FilterFrame( const AVFrame* Frame, ClassificationResult& Result, cv::Mat& InputFrame, cv::Mat& GrayscaleInputFrame );
+	virtual void ClassifyFrame( FilterFrame& Frame, ClassificationResult& Result ) override;
 	virtual void ClearState() override;
 };
 
