@@ -36,9 +36,12 @@ int FirstCameraOnly = 0;
 int BucketDistanceSquared = 3;
 float MinSummaryPrintout = 1000.0f;
 float MinRatioOfBounds = 0.3f;
+float ClusterBoundaryGrowth = 0.5f;
 
-int DrawClusters = true;
-int DrawStats = true;
+int DrawClusters = false;
+int DrawTrackedObjects = true;
+int DrawPreTrackedObjects = true;
+int DrawStats = false;
 int DrawMask = false;
 int DrawVectors = false;
 int DrawSummaryVectors = false;
@@ -56,12 +59,15 @@ namespace Camera{
 struct MotionVectorFilterData : public FilterDataBase
 {
 	DebugBind<int> DB_BucketDistance;
+	DebugBind<int> DB_DrawTrackedObjects;
+	DebugBind<int> DB_DrawPreTrackedObjects;
 	DebugBind<int> DB_DrawClusters;
 	DebugBind<int> DB_DrawStats;
 	DebugBind<int> DB_DrawMask;
 	DebugBind<int> DB_DrawVectors;
 	DebugBind<int> DB_DrawSummaryVectors;
 	DebugBind<int> DB_BucketRefValue;
+	DebugBind<float> DB_ClusterBoundaryGrowth;
 	DebugBind<float> DB_MinSummaryPrintout;
 	DebugBind<int> DB_MinBlockMoveDistance;
 	DebugBind<int> DB_MaxBlockMoveDistance;
@@ -73,12 +79,15 @@ struct MotionVectorFilterData : public FilterDataBase
 
 	MotionVectorFilterData()
 	: DB_BucketDistance( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Bucket Distance Squared", &BucketDistanceSquared )
+	, DB_DrawTrackedObjects( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Draw Tracked Objects", &DrawTrackedObjects )
+	, DB_DrawPreTrackedObjects( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Draw Pre-Tracked Objects", &DrawPreTrackedObjects )
 	, DB_DrawClusters( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Draw Clusters", &DrawClusters )
 	, DB_DrawStats( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Draw Stats", &DrawStats )
 	, DB_DrawMask( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Draw Mask", &DrawMask )
 	, DB_DrawVectors( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Draw Vectors", &DrawVectors )
 	, DB_DrawSummaryVectors( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Draw Summary Vectors", &DrawSummaryVectors )
 	, DB_BucketRefValue( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Bucket Ref Value", &BucketRefValue )
+	, DB_ClusterBoundaryGrowth( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Cluster Boundary Growth", &ClusterBoundaryGrowth )
 	, DB_MinSummaryPrintout( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Min Summary Printout", &MinSummaryPrintout )
 	, DB_MinBlockMoveDistance( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Min Block Move Distance", &MinBlockMoveDistance )
 	, DB_MaxBlockMoveDistance( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Max Block Move Distance", &MaxBlockMoveDistance )
@@ -89,8 +98,6 @@ struct MotionVectorFilterData : public FilterDataBase
 	, DB_MinTrackingFrames( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Min Tracking Frames", &MinTrackingFrames )
 	{
 		FirstCameraOnly++;
-
-		BucketRefValue = 64;
 	}
 
 	~MotionVectorFilterData()
@@ -108,6 +115,8 @@ struct MotionVectorFilterData : public FilterDataBase
 
 	struct TrackedObject
 	{
+		vector<cv::Point2f> PreviousPoints;
+
 		cv::Rect Region;
 		int FramesSinceLastSeen;
 		int FramesTracked;
@@ -464,6 +473,8 @@ void MotionVectorFilter::ClassifyFrame( FilterFrame& Frame, ClassificationResult
 			}
 		}
 
+		const float HalfClusterBoundaryGrowth = ClusterBoundaryGrowth * 0.5f;
+
 		for (size_t i = 0; i <= MaxLabel; i++)
 		{
 			const auto& LabelGroup = ID.LabelGroups[i];
@@ -471,15 +482,26 @@ void MotionVectorFilter::ClassifyFrame( FilterFrame& Frame, ClassificationResult
 			{
 				cv::Rect Bounds( LabelGroup.TopLeft, LabelGroup.BottomRight );
 
+				int BoundsArea = Bounds.area();
+				
+				//Expand the cluster to allow overlaps
+				float Width = (LabelGroup.BottomRight.x - LabelGroup.TopLeft.x) * ClusterBoundaryGrowth;
+				float Height = (LabelGroup.BottomRight.y - LabelGroup.TopLeft.y) * ClusterBoundaryGrowth;
+				Bounds.x -= (int)(Width * 0.5f);
+				Bounds.y -= (int)(Height * 0.5f);
+				Bounds.width += (int)Width;
+				Bounds.height +=(int)Height;
+
 				float ClusterArea = (float)(LabelGroup.Points);
 
-				if( ClusterArea > (float)Bounds.area() * MinRatioOfBounds )
+				if( ClusterArea > (float)BoundsArea * MinRatioOfBounds )
 				{
 					bool Found = false;
 					for (auto& Object : ID.Objects)
 					{
 						cv::Rect IntersectedRect = Object.Region & Bounds;
-						if (IntersectedRect.area() > MIN(Bounds.area(), Object.Region.area()) >> 1)
+						//if (IntersectedRect.area() > MIN(Bounds.area(), Object.Region.area()) >> 1)
+						if (IntersectedRect.area() > 0)
 						{
 							Object.Region = Bounds;
 							Object.FramesSinceLastSeen = 0;
@@ -507,19 +529,87 @@ void MotionVectorFilter::ClassifyFrame( FilterFrame& Frame, ClassificationResult
 						ID.Objects.push_back( Obj );
 					}
 
-					if( WantDebuggingInfo && DrawClusters )
-					{
-						FilterFrameStatScope Scope( Frame.Stats, FilterStat_Debug );
-
-						cv::Rect DrawBounds = Bounds;
-						DrawBounds.x = (int)((float)Bounds.x * RescaleX);
-						DrawBounds.y = (int)((float)Bounds.y * RescaleY);
-						DrawBounds.width = (int)((float)Bounds.width * RescaleX);
-						DrawBounds.height = (int)((float)Bounds.height * RescaleY);
-						cv::rectangle( InputFrame, DrawBounds, cv::Scalar(0,0,255.0), 2 );
-					}
-
 					ActualCluters++;
+				}
+			}
+		}
+	}
+
+	//Merge clusters
+	for (auto Iter = ID.Objects.begin(); Iter != ID.Objects.end(); Iter++ )
+	{
+		cv::Rect ExpandedObject1 = (*Iter).Region;
+		ExpandedObject1.x -= (int)(ExpandedObject1.width * ClusterBoundaryGrowth * 0.5f);
+		ExpandedObject1.y -= (int)(ExpandedObject1.height * ClusterBoundaryGrowth * 0.5f);
+		ExpandedObject1.width = (int)(ExpandedObject1.width * (1.0f + ClusterBoundaryGrowth));
+		ExpandedObject1.height = (int)(ExpandedObject1.height * (1.0f + ClusterBoundaryGrowth));
+
+		bool Overlapped = false;
+		for (auto Iter2 = ID.Objects.begin(); Iter2 != ID.Objects.end(); Iter2++ )
+		{
+			if( Iter == Iter2 )
+			{
+				continue;
+			}
+
+			cv::Rect ExpandedObject2 = (*Iter2).Region;
+			ExpandedObject2.x -= (int)(ExpandedObject2.width * ClusterBoundaryGrowth * 0.5f);
+			ExpandedObject2.y -= (int)(ExpandedObject2.height * ClusterBoundaryGrowth * 0.5f);
+			ExpandedObject2.width = (int)(ExpandedObject2.width * (1.0f + ClusterBoundaryGrowth));
+			ExpandedObject2.height = (int)(ExpandedObject2.height * (1.0f + ClusterBoundaryGrowth));
+
+			if( (ExpandedObject1 & ExpandedObject2).area() > 0 )
+			{
+				(*Iter).Region = (*Iter).Region | (*Iter2).Region;
+				(*Iter).FramesSinceLastSeen = min<int>( (*Iter).FramesSinceLastSeen, (*Iter2).FramesSinceLastSeen);
+				(*Iter).FramesTracked = max<int>( (*Iter).FramesTracked, (*Iter2).FramesTracked);
+				(*Iter2).FramesSinceLastSeen = INT_MAX;
+			}
+		}
+
+		float X = ((float)(*Iter).Region.x + ((float)(*Iter).Region.width * 0.5f)) * RescaleX;
+		float Y = ((float)(*Iter).Region.y + ((float)(*Iter).Region.height * 0.5f)) * RescaleY;
+
+		(*Iter).PreviousPoints.push_back( Point2f(X,Y) );
+
+		if( WantDebuggingInfo && DrawTrackedObjects )
+		{
+			FilterFrameStatScope Scope( Frame.Stats, FilterStat_Debug );
+
+			cv::Rect DrawBounds;
+			DrawBounds.x = (int)((float)ExpandedObject1.x * RescaleX);
+			DrawBounds.y = (int)((float)ExpandedObject1.y * RescaleY);
+			DrawBounds.width = (int)((float)ExpandedObject1.width * RescaleX);
+			DrawBounds.height = (int)((float)ExpandedObject1.height * RescaleY);
+
+			for( int Point = 0; Point < Iter->PreviousPoints.size(); Point++ )
+			{
+				if( Point != 0 )
+				{
+					cv::line( InputFrame, Iter->PreviousPoints[Point], Iter->PreviousPoints[Point-1], cv::Scalar(0,0.0,255.0), 2 );
+				}
+			}
+
+			if( Iter->FramesTracked > MinTrackingFrames )
+			{
+				if( Iter->FramesSinceLastSeen < LostTrackFrames / 2 )
+				{
+					cv::rectangle( InputFrame, DrawBounds, cv::Scalar(0,255.0,0.0), 2 );
+				}
+				else if( Iter->FramesSinceLastSeen >  LostTrackFrames / 2 )
+				{
+					cv::rectangle( InputFrame, DrawBounds, cv::Scalar(0,150.0,255.0), 2 );
+				}
+				else
+				{
+					cv::rectangle( InputFrame, DrawBounds, cv::Scalar(0,0.0,255.0), 2 );
+				}
+			}
+			else
+			{
+				if( Iter->FramesSinceLastSeen < LostTrackFrames / 2 && DrawPreTrackedObjects )
+				{
+					cv::rectangle( InputFrame, DrawBounds, cv::Scalar(255.0,0.0,0.0), 2 );
 				}
 			}
 		}
