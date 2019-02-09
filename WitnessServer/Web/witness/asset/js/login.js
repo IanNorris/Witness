@@ -78,7 +78,7 @@ var LoginViewModel = function() {
 
 var g_viewModel = null;
 
-makeQuery( {}, '/auth/profile', false, null, function(result) {
+makeQuery( {}, '/auth/profile', false, null, null, function(result) {
 	if( result.csrf != null ) {
 		window.location.replace( "/witness/" );
 	}

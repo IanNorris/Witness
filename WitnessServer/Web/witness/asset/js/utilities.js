@@ -36,7 +36,9 @@ var makeQuery = function( postData, queryString, redirectOnFail, messageOnFail, 
 	};
 	
 	$.ajax(queryData).done( function( result ) {
-		onSuccess( result );
+		if( onSuccess ) {
+			onSuccess( result );
+		}
 		if( onAlways ) {
 			onAlways( result );
 		}
