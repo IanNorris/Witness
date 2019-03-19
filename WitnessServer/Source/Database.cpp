@@ -295,7 +295,7 @@ namespace Database
 	)RAW";
 
 	string_t SelectClipsWithinRangeAll = LR"RAW(
-		SELECT Clip.* FROM Clip
+		SELECT DISTINCT Clip.* FROM Clip
 			INNER JOIN Camera C ON C.CameraUID = Clip.Camera
 			INNER JOIN CameraGroupMapping CGM ON CGM.Camera = C.CameraUID
 			INNER JOIN UserGroupMapping UGM ON UGM.`Group` = CGM.`Group`
