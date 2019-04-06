@@ -191,7 +191,7 @@ var CameraClipsViewModel = function( parent, authentication, cameraID ) {
 			self.clips.remove( function( item ) {
 				var found = false;
 				for( var clip = 0; clip < result.clips.length; clip++ ) {
-					if( item.timestamp() == result.clips[clip].timestamp ) {
+					if( item.clipUID() == result.clips[clip].clipUID ) {
 						found = true;
 						break;
 					}
@@ -217,7 +217,7 @@ var CameraClipsViewModel = function( parent, authentication, cameraID ) {
 				
 				for( var existingClip = 0; existingClip < self.clips().length; existingClip++ )
 				{
-					if( self.clips()[ existingClip ].timestamp() == newTimestamp ) {
+					if( self.clips()[ existingClip ].clipUID() == newClipUID ) {
 						existing = self.clips()[ existingClip ];
 						break;
 					}
