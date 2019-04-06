@@ -14,3 +14,6 @@ netsh http add urlacl url=https://yoururl:port/ user=DOMAIN\user
 Your username is probably YourMachineName\YourUsername
 
 Finally: add the port via the advanced firewall tool, specifying the port as a Local port, and specifying All programs (as the server doesn't actually open the port...)
+
+
+.\SetupTLSCertificate.ps1 -PfxCertificate "Path\To\Pfx.pfx" -Hostname my.hostname.com -Port 11235 -ServerUsernameWithDomain domain\username
