@@ -11,10 +11,10 @@ class CAMERA_API MotionFilter : public RecordFilterBase<MotionFilterData>
 {
 public:
 
-	MotionFilter( const char* FilterName );
+	MotionFilter( const MotionChainNode& Chain, const char* FilterName );
 	virtual ~MotionFilter();
 
-	virtual void FilterFrame( const AVFrame* Frame, ClassificationResult& Result, cv::Mat& InputFrame, cv::Mat& GrayscaleInputFrame );
+	virtual bool ProcessFrame( SharedClassificationTask TaskData );
 };
 
 }}

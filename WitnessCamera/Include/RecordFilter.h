@@ -11,6 +11,8 @@
 #include <memory>
 #include <type_traits>
 #include <memory>
+#include <string>
+#include <functional>
 
 struct AVFrame;
 struct SwsContext;
@@ -20,6 +22,7 @@ namespace Camera{
 
 struct FilterData;
 class StreamManager;
+class IRecordFilter;
 
 class CAMERA_API FilterFrame
 {
@@ -49,6 +52,10 @@ public:
 
 	std::shared_ptr<FFMPEG::Frame>& InputFrame;
 
+	int64_t							Timestamp;
+	unsigned int					TargetHeight;
+	int								SourceID;
+
 	bool WantFullSizeOutput;
 	bool WantSmallOutput;
 
@@ -69,6 +76,7 @@ public:
 	FilterFrameOwner( const std::shared_ptr<FFMPEG::Frame>& InputFrameIn, SwsContext* ConversionContextIn )
 	: InputFrame( InputFrameIn )
 	, ConversionContext( ConversionContextIn )
+	, HasLiveViewer( false )
 	{}
 
 	FilterFrame GetFilterFrame()
@@ -85,6 +93,8 @@ public:
 	FilterFrameStats Stats;
 
 	SwsContext* ConversionContext;
+
+	bool HasLiveViewer;
 };
 
 struct ClassificationResult
@@ -97,28 +107,36 @@ struct ClassificationResult
 		Motion_Animal				= 1 << 1,
 		Motion_Animal_Cat			= 1 << 2,
 		Motion_Animal_Dog			= 1 << 3,
-		Motion_Animal_Other			= 1 << 4,
 
 		Motion_Vehicle				= 1 << 8,
-		Motion_Vehicle_Unrecognized	= 1 << 9,
 		Motion_Vehicle_Recognized	= 1 << 10,
+		Motion_Vehicle_HighRisk		= 1 << 11,
 
 		Motion_Person				= 1 << 15,
-		Motion_Person_Unrecognized	= 1 << 16,
 		Motion_Person_Recognized	= 1 << 17,
 		Motion_Person_HighRisk		= 1 << 18,
+
+		Motion_CustomTag			= 1 << 31
 	};
 
 	struct RegionOfInterest
 	{
 		RegionOfInterest()
-		: Left( 0 )
+		: Filter( nullptr )
+		, TrackingID( 0 )
+		, Left( 0 )
 		, Top( 0 )
 		, Width( 0 )
 		, Height( 0 )
 		, Classification( 0 )
 		, ClassificationGroup( 0 )
+		, ClassificationConfidence( 0.0 )
 		{}
+
+		std::string	CustomLabel;
+
+		IRecordFilter* Filter;
+		unsigned int TrackingID;
 
 		unsigned int Left;
 		unsigned int Top;
@@ -127,6 +145,8 @@ struct ClassificationResult
 
 		unsigned int Classification;
 		unsigned int ClassificationGroup;
+
+		float ClassificationConfidence;
 	};
 	
 	ClassificationResult()
@@ -140,14 +160,141 @@ struct ClassificationResult
 	float MotionAmount;
 };
 
-class CAMERA_API IRecordFilter
+class ClassificationTask;
+class CAMERA_API IRecordFilter;
+
+typedef std::shared_ptr<ClassificationTask> SharedClassificationTask;
+
+class ClassificationTask
 {
 public:
 
-	virtual ~IRecordFilter(){}
+	ClassificationTask( const std::shared_ptr<FilterFrameOwner>& FrameOwnerIn )
+	: FrameOwner( FrameOwnerIn )
+	, Frame( FrameOwnerIn->GetFilterFrame() )
+	, Result()
+	{}
 	
-	virtual void ClassifyFrame( FilterFrame& Frame, ClassificationResult& Result ) = 0;
-	virtual void ClearState() {};
+	std::shared_ptr<FilterFrameOwner> FrameOwner;
+
+	std::shared_ptr<IRecordFilter> Origin;
+	std::shared_ptr<IRecordFilter> Next;
+
+	std::function<void(SharedClassificationTask,bool)> InsertToQueue;
+
+	FilterFrame Frame;
+	ClassificationResult Result;
+};
+
+enum class ETaskType
+{
+	AutoContinuation,
+	ManualContinuation,
+};
+
+struct MotionChainNode;
+
+struct MotionChainNode
+{
+	MotionChainNode()
+	{
+		InclusiveFilter = ~0U;
+		ExclusiveFilter = 0;
+		MinimumThreshold = 0.0f;
+	}
+
+	std::shared_ptr<IRecordFilter> OnSuccess;
+	std::shared_ptr<IRecordFilter> OnFailure;
+
+	unsigned int InclusiveFilter; //Mask that must be matched for success
+	unsigned int ExclusiveFilter; //Mask that must not be matched for success
+
+	float MinimumThreshold;
+};
+
+class CAMERA_API IRecordFilter
+{
+public:
+	
+	IRecordFilter( const MotionChainNode& NextChain )
+	{
+		Chain = new MotionChainNode();
+		*Chain = NextChain;
+	}
+
+	virtual ~IRecordFilter()
+	{
+		delete Chain;
+		Chain = nullptr;
+	}
+
+	virtual ETaskType GetTaskType() { return ETaskType::AutoContinuation; }
+
+	void Continue( SharedClassificationTask TaskData, bool Success )
+	{
+		bool MotionSuccess = (TaskData->Result.ClassificationSuperset & Chain->InclusiveFilter) != 0
+					&&	(TaskData->Result.ClassificationSuperset & Chain->ExclusiveFilter) == 0
+					&&	TaskData->Result.MotionAmount >= Chain->MinimumThreshold;
+		
+		TaskData->Next = MotionSuccess ? Chain->OnSuccess : Chain->OnFailure;
+
+		if( TaskData->Result.ClassificationSuperset > ClassificationResult::Motion_Motion )
+		{
+			TaskData->Origin->UpdateROITree( TaskData );
+		}
+
+		TaskData->InsertToQueue( TaskData, true );
+	}
+
+	void DoWork( SharedClassificationTask TaskData )
+	{
+		bool Result = ProcessFrame( TaskData );
+
+		if( GetTaskType() == ETaskType::AutoContinuation )
+		{
+			Continue( TaskData, Result );
+		}
+	}
+	
+	virtual bool ProcessFrame( SharedClassificationTask TaskData ) = 0;
+
+	virtual void ClearStateThis() {};
+
+	virtual void UpdateROI( SharedClassificationTask TaskData ) {}
+
+	void UpdateROITree( SharedClassificationTask TaskData )
+	{
+		UpdateROI( TaskData );
+
+		if( Chain->OnSuccess )
+		{
+			Chain->OnSuccess->UpdateROITree( TaskData );
+		}
+
+		if( Chain->OnFailure )
+		{
+			Chain->OnFailure->UpdateROITree( TaskData );
+		}
+	}
+	
+	void ClearState()
+	{
+		ClearStateThis();
+
+		if( Chain->OnSuccess )
+		{
+			Chain->OnSuccess->ClearState();
+		}
+
+		if( Chain->OnFailure )
+		{
+			Chain->OnFailure->ClearState();
+		}
+	}
+
+private:
+
+	MotionChainNode* Chain;
 };
 
 }}

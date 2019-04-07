@@ -2,13 +2,8 @@
 #include <cpprest/uri.h> 
 #include <cpprest/http_client.h>
 
-#include <opencv2/imgcodecs.hpp>
-#include <opencv2/imgcodecs/imgcodecs_c.h>
-#include <opencv2/core/core_c.h>
-#include <opencv2/imgproc.hpp>
-#include <opencv2/imgproc/imgproc_c.h>
-
-AzureEndpointFilter::AzureEndpointFilter( const SettingsMap& Settings )
+AzureEndpointFilter::AzureEndpointFilter( const MotionChainNode& Chain, const SettingsMap& Settings )
+: IRecordFilter( Chain )
 {
 	string_t EndpointName = _T("endpoint");
 	string_t KeyName = _T("key");
@@ -104,17 +99,4 @@ bool AzureEndpointFilter::IsAllowedToProcessFrame()
 	}
 
 	return false;
-}
-
-void AzureEndpointFilter::PrepareImage(const cv::Mat& InputFrame, vector<unsigned char>& Data)
-{
-	float Aspect = (float)InputFrame.cols / (float)InputFrame.rows;
-
-	const int TargetSize = 1280;
-	const int Quality = 70;
-
-	cv::Mat ResizedImage;
-	cv::resize( InputFrame, ResizedImage, cv::Size(TargetSize,(int)((float)TargetSize/Aspect)), 0, 0 );
-	
-	cv::imencode( ".jpg", InputFrame, Data, std::vector<int>{ CV_IMWRITE_JPEG_QUALITY, Quality } );
 }

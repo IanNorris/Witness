@@ -17,19 +17,6 @@ class MessageBus;
 
 using namespace Witness::Camera;
 
-struct MotionChainNode
-{
-	shared_ptr<MotionChainNode> OnSuccess;
-	shared_ptr<MotionChainNode> OnFailure;
-
-	shared_ptr<IRecordFilter> Filter;
-
-	unsigned int InclusiveFilter; //Mask that must be matched for success
-	unsigned int ExclusiveFilter; //Mask that must not be matched for success
-
-	float MinimumThreshold;
-};
-
 class ObservingMotionFilter : public IRecordFilter
 {
 public:
@@ -41,22 +28,20 @@ public:
 		GracePeriod,
 	};
 
-	ObservingMotionFilter( const shared_ptr<MotionChainNode>& MotionChain, const int CameraID, const shared_ptr<MessageBus>& MessageBusIn );
+	ObservingMotionFilter( const MotionChainNode& NextChain, const int CameraID, const shared_ptr<MessageBus>& MessageBusIn );
 	virtual ~ObservingMotionFilter();
-
-	virtual void ClassifyFrame( FilterFrame& Frame, ClassificationResult& Result ) override;
-	virtual void ClearState() override;
-
-	void ClearState( MotionChainNode* Node );
+	
+	virtual bool ProcessFrame( SharedClassificationTask TaskData ) override;
 
 	bool FlagToSaveNextFrame() { SaveNextFrame = true; }
+	bool HasViewer() { return SaveNextFrame; }
 
 	const ClipStatistics& GetClipStatistics() const { return ClipStats; }
 
 	void SetManualClipStart( uint64_t ClipStart ) { ClipStats.TimestampClipStarted = min( ClipStart, ClipStats.TimestampClipStarted ); }
 	void SetManualClipEnd( uint64_t ClipEnd ) { ClipStats.TimestampClipEnded = max( ClipEnd, ClipStats.TimestampClipEnded ); }
 
-	void ClearStats() { ClipStats.Clear(); }
+	virtual void ClearStateThis() override { ClipStats.Clear(); }
 
 	void SetPreviewTimestamps( uint64_t Large, uint64_t Small )
 	{
@@ -75,6 +60,7 @@ private:
 	uint64_t				LastLargePreviewTimestamp;
 	uint64_t				LastSmallPreviewTimestamp;
 
+	int64_t					LastPresentedTimestamp;
 	int						CameraID;
 	int						FrameIndex;
 	int						LastMotionIndex;

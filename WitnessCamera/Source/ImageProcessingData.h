@@ -6,6 +6,7 @@
 #include <memory>
 #include <unordered_map>
 
+#include "RecordFilter.h"
 #include "SourceStats.h"
 
 struct SwsContext;
@@ -15,30 +16,22 @@ namespace Camera{
 
 class IRecordFilter;
 
-struct ImageProcessingJob
-{
-	std::shared_ptr<FFMPEG::Frame>	Frame;
-	std::shared_ptr<IRecordFilter>	Filter;
-
-	int64_t							Timestamp;
-
-	unsigned int					TargetHeight;
-	int								SourceID;
-};
-
 struct SourceState
 {
 	SourceState();
 	~SourceState();
 
 	SwsContext* ConversionContext;
+	bool HasViewerFullSize;
+	bool HasViewerPreviewSize;
 };
 
 struct ImageProcessingJobQueueData
 {
 	std::mutex											QueueMutex;
 	std::condition_variable								Condition;
-	std::vector<std::shared_ptr<ImageProcessingJob>>	Queue;
+	std::vector<SharedClassificationTask>				Queue;
+	std::vector<SharedClassificationTask>				HighPriorityAsyncQueue;
 	std::vector<int>									ActiveSources;
 
 	std::mutex											StateMutex;

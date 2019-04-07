@@ -20,29 +20,75 @@ const static int MaxCameraDelaySeconds = 1;
 const static int ExpectedCameraFPS = 25;
 const static int MaxQueueDepth = MaxCameras * MaxCameraDelaySeconds * ExpectedCameraFPS;
 
-bool ImageProcessingJobQueue::Push(const std::shared_ptr<ImageProcessingJob>& Job)
+bool ImageProcessingJobQueue::Push(const SharedClassificationTask& Job, bool HighPriority)
 {
 	auto& ID = *m_InternalData;
 
 	std::unique_lock<std::mutex> Lock( ID.QueueMutex );
 
-	if (ID.Queue.size() > MaxQueueDepth )
+	if( HighPriority )
 	{
-		return false;
+		if (ID.HighPriorityAsyncQueue.size() > MaxQueueDepth )
+		{
+			return false;
+		}
+
+		ID.HighPriorityAsyncQueue.push_back( Job );
+
+		ID.Condition.notify_one();
 	}
+	else
+	{
+		if (ID.Queue.size() > MaxQueueDepth )
+		{
+			return false;
+		}
 
-	ID.Queue.push_back( Job );
+		ID.Queue.push_back( Job );
 
-	ID.Condition.notify_one();
+		ID.Condition.notify_one();
+	}
 
 	return true;
 }
 
-bool ImageProcessingJobQueue::TryPop(std::shared_ptr<ImageProcessingJob>& Job)
+bool ImageProcessingJobQueue::TryPop(SharedClassificationTask& Job)
 {
 	auto& ID = *m_InternalData;
 
 	std::unique_lock<std::mutex> Lock( ID.QueueMutex );
+
+	if( !ID.HighPriorityAsyncQueue.empty() )
+	{
+		auto Iter = ID.HighPriorityAsyncQueue.begin();
+		while( Iter != ID.HighPriorityAsyncQueue.end() )
+		{
+			auto& JobRef = *Iter;
+
+			bool ActiveJob = false;
+			size_t Count = ID.ActiveSources.size();
+			for( int Index = 0; Index < Count; Index++ )
+			{
+				if( ID.ActiveSources[Index] == JobRef->Frame.SourceID )
+				{
+					ActiveJob = true;
+					break;
+				}
+			}
+
+			if( !ActiveJob )
+			{
+				ID.ActiveSources.push_back( JobRef->Frame.SourceID );
+
+				Job = *Iter;
+				ID.HighPriorityAsyncQueue.erase( Iter );
+
+				return true;
+			}
+
+			++Iter;
+		}
+	}
 
 	if( !ID.Queue.empty() )
 	{
@@ -55,7 +101,7 @@ bool ImageProcessingJobQueue::TryPop(std::shared_ptr<ImageProcessingJob>& Job)
 			size_t Count = ID.ActiveSources.size();
 			for( int Index = 0; Index < Count; Index++ )
 			{
-				if( ID.ActiveSources[Index] == JobRef->SourceID )
+				if( ID.ActiveSources[Index] == JobRef->Frame.SourceID )
 				{
 					ActiveJob = true;
 					break;
@@ -64,7 +110,7 @@ bool ImageProcessingJobQueue::TryPop(std::shared_ptr<ImageProcessingJob>& Job)
 
 			if( !ActiveJob )
 			{
-				ID.ActiveSources.push_back( JobRef->SourceID );
+				ID.ActiveSources.push_back( JobRef->Frame.SourceID );
 
 				Job = *Iter;
 				ID.Queue.erase( Iter );
@@ -79,7 +125,7 @@ bool ImageProcessingJobQueue::TryPop(std::shared_ptr<ImageProcessingJob>& Job)
 	return false;
 }
 
-void ImageProcessingJobQueue::Pop(std::shared_ptr<ImageProcessingJob>& Job)
+void ImageProcessingJobQueue::Pop(SharedClassificationTask& Job)
 {
 	auto& ID = *m_InternalData;
 
@@ -87,40 +133,77 @@ void ImageProcessingJobQueue::Pop(std::shared_ptr<ImageProcessingJob>& Job)
 
 	while( true )
 	{
-		while( ID.Queue.empty() )
+		while( ID.Queue.empty() && ID.HighPriorityAsyncQueue.empty() )
 		{
 			ID.Condition.wait( Lock );
 		}
 
-		auto Iter = ID.Queue.begin();
-		while( Iter != ID.Queue.end() )
+		if( !ID.HighPriorityAsyncQueue.empty() )
 		{
-			auto& JobRef = *Iter;
-			int CurrentSource = JobRef->SourceID;
-
-			bool ActiveJob = false;
-			size_t Count = ID.ActiveSources.size();
-			for( int Index = 0; Index < Count; Index++ )
+			auto Iter = ID.HighPriorityAsyncQueue.begin();
+			while( Iter != ID.HighPriorityAsyncQueue.end() )
 			{
-				if( ID.ActiveSources[Index] == CurrentSource )
+				auto& JobRef = *Iter;
+				int CurrentSource = JobRef->Frame.SourceID;
+
+				bool ActiveJob = false;
+				size_t Count = ID.ActiveSources.size();
+				for( int Index = 0; Index < Count; Index++ )
 				{
-					ActiveJob = true;
-					break;
+					if( ID.ActiveSources[Index] == CurrentSource )
+					{
+						ActiveJob = true;
+						break;
+					}
 				}
+
+				if( !ActiveJob )
+				{
+					ID.ActiveSources.push_back( JobRef->Frame.SourceID );
+
+					Job = *Iter;
+					ID.HighPriorityAsyncQueue.erase( Iter );
+
+					return;
+				}
+
+				++Iter;
 			}
-
-			if( !ActiveJob )
-			{
-				ID.ActiveSources.push_back( JobRef->SourceID );
-
-				Job = *Iter;
-				ID.Queue.erase( Iter );
-
-				return;
-			}
-
-			++Iter;
 		}
+		else
+		{
+			auto Iter = ID.Queue.begin();
+			while( Iter != ID.Queue.end() )
+			{
+				auto& JobRef = *Iter;
+				int CurrentSource = JobRef->Frame.SourceID;
+
+				bool ActiveJob = false;
+				size_t Count = ID.ActiveSources.size();
+				for( int Index = 0; Index < Count; Index++ )
+				{
+					if( ID.ActiveSources[Index] == CurrentSource )
+					{
+						ActiveJob = true;
+						break;
+					}
+				}
+
+				if( !ActiveJob )
+				{
+					ID.ActiveSources.push_back( JobRef->Frame.SourceID );
+
+					Job = *Iter;
+					ID.Queue.erase( Iter );
+
+					return;
+				}
+
+				++Iter;
+			}
+		}
+
+		
 
 		ID.Condition.wait( Lock );
 	}
@@ -135,7 +218,7 @@ void ImageProcessingJobQueue::RemoveAllForSource(int SourceID)
 	for( auto Iter = ID.Queue.begin(); Iter != ID.Queue.end(); )
 	{
 		auto& IterRef = *Iter;
-		if (IterRef->SourceID == SourceID)
+		if (IterRef->Frame.SourceID == SourceID)
 		{
 			Iter = ID.Queue.erase(Iter);
 		}
@@ -180,47 +263,39 @@ void ImageProcessingJobQueue::WorkerThreadMain()
 {
 	auto& ID = *m_InternalData;
 
-	std::shared_ptr<ImageProcessingJob> Job;
+	SharedClassificationTask Job;
 
 	Pop(Job);
 
 	if( Job )
 	{
-		auto State = ID.GetStateForSource( Job->SourceID );
+		uint64_t TaskTimestamp = Job->Frame.Timestamp;
+		int TaskSourceID = Job->Frame.SourceID;
 
+		if( Job->Next )
 		{
-			FilterFrameOwner Frame( Job->Frame, State->ConversionContext );
+			auto& ID = *m_InternalData;
+			auto StateInternal = ID.GetStateForSource( TaskSourceID );
+			
+			Job->Frame.WantFullSizeOutput = StateInternal->HasViewerFullSize;
+			Job->Frame.WantSmallOutput = StateInternal->HasViewerPreviewSize;
 
-			FilterFrame InterfaceFrame = Frame.GetFilterFrame();
+			Job->Next->DoWork( Job );
 
-			FilterFrameStatScope Scope( InterfaceFrame.Stats, FilterStat_Process_Total );
-
-			ClassificationResult FilterResult;
-			{
-				Job->Filter->ClassifyFrame( InterfaceFrame, FilterResult );
-			}
-
-			bool Used2P = false;
-
-			/*if( FilterResult.ResultString )
-			{
-				Used2P = true;
-				ClassificationResult ResultNew = Job->Filter->PostSuccessChildVisitor( OutputWidth, OutputHeight, Output->GetFrame()->data[0], nullptr );
-				if( ResultNew.ResultString )
-				{
-					FilterResult = ResultNew;
-				}
-			}*/
+			StateInternal->HasViewerFullSize = Job->Frame.WantFullSizeOutput;
+			StateInternal->HasViewerPreviewSize = Job->Frame.WantSmallOutput;
 		
-			Job->Frame->Unref();
-
 			//Conversion context can get created or updated if the size changes
-			State->ConversionContext = Frame.ConversionContext;
+			StateInternal->ConversionContext = Job->FrameOwner->ConversionContext;
+		}
+		else
+		{
+			Job->FrameOwner->InputFrame->Unref();
 
-			ID.AddFrame( Job->SourceID, Job->Timestamp,	Frame.Stats	);
+			ID.AddFrame( TaskSourceID, TaskTimestamp, Job->Frame.Stats );
 		}
 
-		CompletedJob( Job->SourceID );
+		CompletedJob( TaskSourceID );
 	}
 }
 
@@ -251,6 +326,8 @@ void ImageProcessingJobQueueData::ResetStats(int Source)
 
 SourceState::SourceState()
 	: ConversionContext( nullptr )
+	, HasViewerFullSize( false )
+	, HasViewerPreviewSize( false )
 {
 
 }

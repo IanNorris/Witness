@@ -11,14 +11,12 @@ public:
 		Analysis
 	};
 
-	AzureVisionAnalysisEndpointFilter(const SettingsMap& Settings)
-	: AzureEndpointFilter(Settings)
+	AzureVisionAnalysisEndpointFilter(const MotionChainNode& Chain, const SettingsMap& Settings)
+	: AzureEndpointFilter(Chain, Settings)
 	{
 	}
 
-	virtual void ClassifyFrame( FilterFrame& Frame, ClassificationResult& Result ) override;
-
-	virtual void ClearState() override {}
+	virtual bool ProcessFrame( SharedClassificationTask TaskData ) override;
 
 private:
 

@@ -8,16 +8,21 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/imgproc/imgproc_c.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 const int ClipEndGracePeriodInSeconds = 10;
 const int TargetLargeThumbnailSize = 1280;
 const int TargetThumbnailSize = 300;
 const double PreviewTimeout = 0.5;
 
-ObservingMotionFilter::ObservingMotionFilter( const shared_ptr<MotionChainNode>& MotionChain, const int CameraID, const shared_ptr<MessageBus>& MessageBusIn )
-: MotionChain( MotionChain )
+ObservingMotionFilter::ObservingMotionFilter( const MotionChainNode& Chain, const int CameraID, const shared_ptr<MessageBus>& MessageBusIn )
+: IRecordFilter( Chain )
 , MessageBusPtr( MessageBusIn )
 , LastLargePreviewTimestamp(0)
 , LastSmallPreviewTimestamp(0)
+, LastPresentedTimestamp( 0 )
 , CameraID( CameraID )
 , FrameIndex( 0 )
 , LastMotionIndex( INT_MIN )
@@ -29,64 +34,121 @@ ObservingMotionFilter::ObservingMotionFilter( const shared_ptr<MotionChainNode>&
 ObservingMotionFilter::~ObservingMotionFilter()
 {}
 
-void ObservingMotionFilter::ClassifyFrame( FilterFrame& Frame, ClassificationResult& Result )
+bool ObservingMotionFilter::ProcessFrame( SharedClassificationTask TaskData )
 {
+	if( TaskData->Frame.Timestamp < LastPresentedTimestamp )
+	{
+		return TaskData->Result.ClassificationSuperset != 0;
+	}
+	LastPresentedTimestamp = TaskData->Frame.Timestamp;
+
 	FrameIndex++;
+
+	int FilterIndex = 0;
 
 	const int DefaultQuality = 70;
 	const double NanoSecondsToSeconds = 1000.0 * 1000.0 * 1000.0;
+
 	uint64_t Now = std::chrono::high_resolution_clock::now().time_since_epoch().count();
 	bool SaveLarge = ((double)(Now - LastLargePreviewTimestamp) / NanoSecondsToSeconds) < PreviewTimeout;
 	bool SaveSmall = ((double)(Now - LastSmallPreviewTimestamp) / NanoSecondsToSeconds) < PreviewTimeout;
 
 	SaveNextFrame = SaveLarge | SaveSmall;
 
-	Frame.WantFullSizeOutput |= SaveLarge;
-	Frame.WantSmallOutput |= SaveSmall;
+	TaskData->Frame.WantFullSizeOutput |= SaveLarge;
+	TaskData->Frame.WantSmallOutput |= SaveSmall;
 
-	int FilterIndex = 0;
-
-	try 
-	{
-		MotionChainNode* Next = MotionChain.get();
-		while (Next)
-		{
-			unsigned int ClassificationSuperset = Result.ClassificationSuperset;
-
-			{
-				FilterStat Stat = (FilterStat)min<int>( FilterStat_ThirdPassFilter, FilterStat_FirstPassFilter + FilterIndex );
-				FilterFrameStatScope Scope( Frame.Stats, Stat );
-
-				Next->Filter->ClassifyFrame( Frame, Result );
-			}
-
-			if (	(Result.ClassificationSuperset & Next->InclusiveFilter) != 0
-				&&	(Result.ClassificationSuperset & Next->ExclusiveFilter) == 0
-				&&	Result.MotionAmount >= Next->MinimumThreshold )
-			{
-				Next = Next->OnSuccess.get();
-			}
-			else
-			{
-				Result.ClassificationSuperset = ClassificationSuperset;
-				Next = Next->OnFailure.get();
-			}
-
-			FilterIndex++;
-		}
-	}
-	catch (cv::Exception& e)
-	{
-		printf("OpenCV error: %s\n", e.what());
-		abort();
-	}
-
-	FilterFrameStatScope Scope( Frame.Stats, FilterStat_ObserverFilter );
+	FilterFrameStatScope Scope( TaskData->Frame.Stats, FilterStat_ObserverFilter );
 	
 	uint64_t TimestampNow = datetime::utc_timestamp();
 
-	if (Result.ClassificationSuperset )
+	if (TaskData->Result.ClassificationSuperset )
 	{
+		if( SaveNextFrame && true )
+		{
+			for( auto& ROI : TaskData->Result.ROI )
+			{
+				cv::Rect DrawBounds;
+				DrawBounds.x = ROI.Left;
+				DrawBounds.y = ROI.Top;
+				DrawBounds.width = ROI.Width;
+				DrawBounds.height = ROI.Height;
+
+				string Label = ROI.CustomLabel;
+				if( Label.empty() )
+				{
+					if( (ROI.Classification & ClassificationResult::Motion_Person) != 0 )
+					{
+						if( (ROI.Classification & ClassificationResult::Motion_Person_Recognized) != 0 )
+						{
+							Label = "Known Person";
+						}
+						else if( (ROI.Classification & ClassificationResult::Motion_Person_HighRisk) != 0 )
+						{
+							Label = "PERSON";
+						}
+						else
+						{
+							Label = "Person";
+						}
+					}
+					else if( (ROI.Classification & ClassificationResult::Motion_Animal) != 0 )
+					{
+						if( (ROI.Classification & ClassificationResult::Motion_Animal_Cat) != 0 )
+						{
+							Label = "Cat";
+						}
+						else if( (ROI.Classification & ClassificationResult::Motion_Animal_Dog) != 0 )
+						{
+							Label = "Dog";
+						}
+						else
+						{
+							Label = "Animal";
+						}
+					}
+					else if( (ROI.Classification & ClassificationResult::Motion_Vehicle) != 0 )
+					{
+						if( (ROI.Classification & ClassificationResult::Motion_Vehicle_Recognized) != 0 )
+						{
+							Label = "Known Vehicle";
+						}
+						else if( (ROI.Classification & ClassificationResult::Motion_Vehicle_HighRisk) != 0 )
+						{
+							Label = "VEHICLE";
+						}
+						else
+						{
+							Label = "Vehicle";
+						}
+					}
+				}
+
+				//if( Label.size() )
+				{
+					char Buffer[128];
+					if( Label.size() )
+					{
+						sprintf_s( Buffer, "TID=%d Class=%s (%.0f%%)", ROI.TrackingID, Label.c_str(), ROI.ClassificationConfidence * 100.0f );
+					}
+					else
+					{
+						sprintf_s( Buffer, "TID=%d", ROI.TrackingID );
+					}
+
+					cv::Point2i LabelPos = DrawBounds.tl();
+
+					if( LabelPos.y > 50 )
+					{
+						LabelPos.y -= 50;
+					}
+					
+
+					cv::putText( TaskData->Frame.GetOrDecodeFrame(), Buffer, LabelPos, cv::FONT_HERSHEY_PLAIN, 2.0, cv::Scalar(0,255,0), 2 );
+				}
+			}
+		}
+
 		if( State == MotionState::None )
 		{
 			State = MotionState::Current;
@@ -97,11 +159,11 @@ void ObservingMotionFilter::ClassifyFrame( FilterFrame& Frame, ClassificationRes
 			ClipStats.TimestampMotionStarted = TimestampNow;
 			ClipStats.TimestampMotionEnded = INT64_MIN;
 			ClipStats.TimestampClipEnded = INT64_MIN;
-			ClipStats.LargestMotionDelta = MotionMessage->MotionPercentage = Result.MotionAmount;
+			ClipStats.LargestMotionDelta = MotionMessage->MotionPercentage = TaskData->Result.MotionAmount;
 
 			MotionMessage->ClipStats = ClipStats;
 
-			CreateJpegPreview( Frame, MotionMessage->Jpeg, TargetThumbnailSize, DefaultQuality, nullptr );
+			CreateJpegPreview( TaskData->Frame, MotionMessage->Jpeg, TargetThumbnailSize, DefaultQuality, nullptr );
 
 			MessageBusPtr->SendToClient( nullptr, MotionMessage );
 		}
@@ -114,15 +176,15 @@ void ObservingMotionFilter::ClassifyFrame( FilterFrame& Frame, ClassificationRes
 				ClipStats.TimestampClipEnded = TimestampNow;
 			}
 
-			if( Result.MotionAmount > ClipStats.LargestMotionDelta )
+			if( TaskData->Result.MotionAmount > ClipStats.LargestMotionDelta )
 			{
-				ClipStats.LargestMotionDelta = Result.MotionAmount;
+				ClipStats.LargestMotionDelta = TaskData->Result.MotionAmount;
 
 				auto MotionMessage = make_shared<CameraUpdateMotionMessage>( CameraID );
 
 				MotionMessage->ClipStats = ClipStats;
 
-				CreateJpegPreview( Frame, MotionMessage->Jpeg, TargetThumbnailSize, DefaultQuality, nullptr );
+				CreateJpegPreview( TaskData->Frame, MotionMessage->Jpeg, TargetThumbnailSize, DefaultQuality, nullptr );
 				
 				MessageBusPtr->SendToClient( nullptr, MotionMessage );
 			}
@@ -160,42 +222,18 @@ void ObservingMotionFilter::ClassifyFrame( FilterFrame& Frame, ClassificationRes
 		const int TargetSize = SaveLarge ? TargetLargeThumbnailSize : TargetThumbnailSize;
 		const int Quality = SaveLarge ? 70 : 65;
 
-		CreateJpegPreview( Frame, SaveFrameMessage->Jpeg, TargetSize, Quality, [=](cv::Mat& OutputFrame)
+		CreateJpegPreview( TaskData->Frame, SaveFrameMessage->Jpeg, TargetSize, Quality, [=](cv::Mat& OutputFrame)
 		{
 			int X = (int)(5.0f * cos( 0.25f * (float)FrameIndex ));
 			int Y = (int)(5.0f * sin( 0.25f * (float)FrameIndex ));
 
-			cv::line( OutputFrame, cv::Point(15 + X,15 + Y), cv::Point(15 - X, 15 - Y), Result.ClassificationSuperset == 0 ? cv::Scalar(0,255,0) : cv::Scalar(0,0,255), 2 );
+			cv::line( OutputFrame, cv::Point(15 + X,15 + Y), cv::Point(15 - X, 15 - Y), TaskData->Result.ClassificationSuperset == 0 ? cv::Scalar(0,255,0) : cv::Scalar(0,0,255), 2 );
 		} );
 
 		MessageBusPtr->SendToClient( nullptr, SaveFrameMessage );
 	}
-}
 
-void ObservingMotionFilter::ClearState()
-{
-	ClearState( MotionChain.get());
-}
-
-void ObservingMotionFilter::ClearState( MotionChainNode* Node )
-{
-	MotionChainNode* Next = MotionChain.get();
-	if (Next)
-	{
-		Next->Filter->ClearState();
-
-		MotionChainNode* S = Next->OnSuccess.get();
-		if(S)
-		{
-			ClearState(S);
-		}
-
-		MotionChainNode* F = Next->OnFailure.get();
-		if(F)
-		{
-			ClearState(F);
-		}
-	}
+	return TaskData->Result.ClassificationSuperset != 0;
 }
 
 void ObservingMotionFilter::CreateJpegPreview( FilterFrame& Frame, vector<unsigned char>& OutputBuffer, unsigned int OutputWidth, int OutputQuality, std::function<void(cv::Mat&)> Action )

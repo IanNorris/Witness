@@ -146,18 +146,6 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 				}
 			}
 		}
-
-		for (auto& Settings : Context->AzureSettings)
-		{
-			if (Settings.Name.compare(_T("vision")) == 0)
-			{
-				Context->AzureVisionEndpoint = make_shared<AzureVisionAnalysisEndpointFilter>( Settings );
-			}
-			else
-			{
-				wprintf(_T("Unrecognized azure service '%s'\n"), Settings.Name.c_str());
-			}
-		}
 	}
 
 

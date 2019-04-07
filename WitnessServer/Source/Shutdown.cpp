@@ -22,7 +22,7 @@ void WitnessServer::Shutdown()
 	}
 	for (auto& Worker : ImageWorkers)
 	{
-		CommonImageProcessingJobQueue.Push(nullptr);
+		CommonImageProcessingJobQueue.Push(nullptr, true);
 	};
 	ImageWorkers.clear();
 

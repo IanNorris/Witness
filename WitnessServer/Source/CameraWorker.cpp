@@ -32,11 +32,13 @@ void CameraWorker::WorkerInit()
 {
 	UpdateLastTimedAction(_T("Creating filters..."));
 
-	auto RootMotionNode = make_shared<MotionChainNode>();
-	RootMotionNode->Filter = make_shared<MotionVectorFilter>( Camera.BlackoutMaskPath.c_str(), Camera.FocusMaskPath.c_str() );
-	RootMotionNode->MinimumThreshold = (float)Camera.MDThreshold;
-	RootMotionNode->InclusiveFilter = ClassificationResult::Motion_Motion;
-	RootMotionNode->ExclusiveFilter = 0;
+	MotionChainNode NoContinuation;
+	
+	Observer = make_shared<ObservingMotionFilter>( NoContinuation, Camera.ID, MessageBusObject );
+
+	MotionChainNode Observing;
+	Observing.OnSuccess = Observer;
+	Observing.OnFailure = Observer;
 
 	bool AllowVision = false;
 	SettingsMap VisionSettings;
@@ -50,17 +52,28 @@ void CameraWorker::WorkerInit()
 		}
 	}
 
+	MotionChainNode MVF;
+	MVF.OnSuccess = Observer;
+	MVF.OnFailure = Observer;
+	MVF.MinimumThreshold = (float)Camera.MDThreshold;
+	MVF.InclusiveFilter = ClassificationResult::Motion_Motion;
+	MVF.ExclusiveFilter = 0;
+
+	MotionChainNode Azure;
+
 	if( AllowVision )
 	{
-		auto AzureClassifierNode = make_shared<MotionChainNode>();
-		RootMotionNode->OnSuccess = AzureClassifierNode;
-		//SecondPassMotionNode->OnSuccess = PersonMotionNode;
-		AzureClassifierNode->Filter = make_shared<AzureVisionAnalysisEndpointFilter>( VisionSettings );
-		AzureClassifierNode->InclusiveFilter = ClassificationResult::Motion_Motion;
-		AzureClassifierNode->ExclusiveFilter = 0;
-		AzureClassifierNode->MinimumThreshold = 0.0f;
+		Azure.OnSuccess = Observer;
+		Azure.OnFailure = Observer;
+		Azure.InclusiveFilter = ClassificationResult::Motion_Motion;
+		Azure.ExclusiveFilter = 0;
+		Azure.MinimumThreshold = 0.0f;
+
+		MVF.OnSuccess = make_shared<AzureVisionAnalysisEndpointFilter>( Azure, VisionSettings );
 	}
 
+	shared_ptr<MotionVectorFilter> RootFilter = make_shared<MotionVectorFilter>( MVF, Camera.BlackoutMaskPath.c_str(), Camera.FocusMaskPath.c_str() );
+	
 	/*auto SecondPassMotionNode = make_shared<MotionChainNode>();
 	RootMotionNode->OnSuccess = SecondPassMotionNode;
 	SecondPassMotionNode->Filter = make_shared<MotionFilter>( std::string( Camera.MotionFilterName.begin(), Camera.MotionFilterName.end() ).c_str() );
@@ -79,7 +92,7 @@ void CameraWorker::WorkerInit()
 	PersonMotionNode->ExclusiveFilter = 0;
 	PersonMotionNode->MinimumThreshold = 0.0f;*/
 
-	Filter = make_shared<ObservingMotionFilter>( RootMotionNode, Camera.ID, MessageBusObject );
+	Filter = RootFilter;
 
 	MessageBusObject->SendToClient( nullptr, make_shared<CameraStartupMessage>( Camera.ID ) );
 
@@ -111,14 +124,14 @@ void CameraWorker::WorkerMain()
 
 		Msg->Handle<CameraPreviewRequestMessage>([&](const CameraPreviewRequestMessage& Data)
 		{
-			Filter->SetPreviewTimestamps( Data.LastLargePreviewTimestamp, Data.LastSmallPreviewTimestamp );
+			Observer->SetPreviewTimestamps( Data.LastLargePreviewTimestamp, Data.LastSmallPreviewTimestamp );
 		});
 
 		Msg->Handle<CameraStartRecordMessage>([&](const CameraStartRecordMessage& Data)
 		{
 			OnClipFinished(false);
 				
-			Filter->SetManualClipStart( Data.Timestamp );
+			Observer->SetManualClipStart( Data.Timestamp );
 			RecordStream = make_shared<OutputStream>( string( Data.Path.begin(), Data.Path.end() ), CameraStream.get() );
 			RecordStream->Initialize();
 		});
@@ -150,26 +163,8 @@ void CameraWorker::WorkerMain()
 	const double BufferPeriodInMilliseconds = 0.0;
 	const double NanoSecondsToSeconds = 1000.0 * 1000.0 * 1000.0;
 	uint64_t Start = std::chrono::high_resolution_clock::now().time_since_epoch().count();
-
-	if (LastFrameTime > 0 && !IsRTSP)
-	{
-		double Duration = (double)(Start - LastFrameTime) / NanoSecondsToSeconds;
-		if (Duration < FrameTime)
-		{
-			double MillisecondsToWait = ((FrameTime - Duration) * 1000.0);
-
-			MillisecondsToWait = max( MillisecondsToWait - BufferPeriodInMilliseconds, 0 );
-
-			if( MillisecondsToWait > 0.0 )
-			{
-				Sleep( (DWORD)MillisecondsToWait );
-			}
-		}
-	}
 	
 	CameraStreamError Error = CameraStream->ProcessFrame( static_pointer_cast<IRecordFilter>(Filter), RecordStream.get() );
-
-	LastFrameTime = Start;
 
 	if( Error == CameraStreamError::Success )
 	{
@@ -207,18 +202,38 @@ void CameraWorker::WorkerMain()
 			Sleep( 3000 );
 		}
 	}
+
+	uint64_t End = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+
+	if (!IsRTSP && IsConnected)
+	{
+		double Duration = (double)(End - Start) / NanoSecondsToSeconds;
+		if (Duration < FrameTime)
+		{
+			double MillisecondsToWait = ((FrameTime - Duration) * 1000.0);
+
+			MillisecondsToWait = max( MillisecondsToWait - BufferPeriodInMilliseconds, 0 );
+
+			if( MillisecondsToWait > 0.0 )
+			{
+				Sleep( (DWORD)MillisecondsToWait );
+			}
+		}
+	}
+
+	LastFrameTime = Start;
 }
 
 void CameraWorker::OnClipFinished(bool ManualStop)
 {
 	if (RecordStream)
 	{
-		Filter->SetManualClipEnd( datetime::utc_timestamp() );
+		Observer->SetManualClipEnd( datetime::utc_timestamp() );
 
 		auto FinishedMessage = make_shared<CameraClipFinishedMessage>( Camera.ID, ManualStop );
-		FinishedMessage->ClipStats = Filter->GetClipStatistics();
+		FinishedMessage->ClipStats = Observer->GetClipStatistics();
 		MessageBusObject->SendToClient( nullptr, FinishedMessage );
-		Filter->ClearStats();
+		Filter->ClearState();
 
 		RecordStream->CloseFile();
 		RecordStream.reset();

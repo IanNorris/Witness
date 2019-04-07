@@ -11,10 +11,10 @@ class CAMERA_API PersonRecognitionFilter : public RecordFilterBase<PersonRecogni
 {
 public:
 
-	PersonRecognitionFilter( const char* FaceCascadeDataFilename, const char* FullBodyCascadeDataFilename );
+	PersonRecognitionFilter( const MotionChainNode& Chain, const char* FaceCascadeDataFilename, const char* FullBodyCascadeDataFilename );
 	virtual ~PersonRecognitionFilter();
 
-	virtual void FilterFrame( const AVFrame* Frame, ClassificationResult& Result, cv::Mat& InputFrame, cv::Mat& GrayscaleInputFrame );
+	virtual bool ProcessFrame( SharedClassificationTask TaskData );
 };
 
 }}

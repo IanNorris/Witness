@@ -16,17 +16,13 @@ public:
 	typedef vector<QueryPair> QueryPairs;
 
 
-	AzureEndpointFilter( const SettingsMap& Settings );
+	AzureEndpointFilter( const MotionChainNode& Chain, const SettingsMap& Settings );
 
 	pplx::task<web::http::http_response> SendCommand( int CommandType, const json::value& RequestData, const QueryPairs& QueryValues, const vector<unsigned char>& Data );
 
-	virtual void ClassifyFrame( FilterFrame& Frame, ClassificationResult& Result ) = 0;
-
-	void PrepareImage( const cv::Mat& InputFrame, vector<unsigned char>& Data );
+	virtual ETaskType GetTaskType() { return ETaskType::ManualContinuation; }
 
 	bool IsAllowedToProcessFrame();
-
-	virtual void ClearState() override {}
 
 protected:
 

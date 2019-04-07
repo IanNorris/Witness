@@ -45,7 +45,8 @@ struct PersonRecognitionFilterData : public FilterDataBase
 
 PIMPL_CONSTRUCT(PersonRecognitionFilterData)
 
-PersonRecognitionFilter::PersonRecognitionFilter( const char* FaceCascadeDataFilename, const char* FullBodyCascadeDataFilename )
+PersonRecognitionFilter::PersonRecognitionFilter( const MotionChainNode& Chain, const char* FaceCascadeDataFilename, const char* FullBodyCascadeDataFilename )
+: RecordFilterBase( Chain )
 {
 	auto& ID = GetData();
 
@@ -63,7 +64,7 @@ PersonRecognitionFilter::PersonRecognitionFilter( const char* FaceCascadeDataFil
 PersonRecognitionFilter::~PersonRecognitionFilter()
 {}
 
-void PersonRecognitionFilter::FilterFrame( const AVFrame* Frame, ClassificationResult& Result, cv::Mat& InputFrame, cv::Mat& GrayscaleInputFrame )
+bool PersonRecognitionFilter::ProcessFrame( SharedClassificationTask TaskData )
 {
 	auto& ID = GetData();
 
@@ -76,15 +77,15 @@ void PersonRecognitionFilter::FilterFrame( const AVFrame* Frame, ClassificationR
 
 	if( ChooseFace )
 	{
-		ID.FaceCascade.detectMultiScale( GrayscaleInputFrame, faces );
+		ID.FaceCascade.detectMultiScale( TaskData->Frame.GetOrDecodeGrayscaleInputFrame(), faces );
 	}
 	else
 	{
-		ID.BodyCascade.detectMultiScale( GrayscaleInputFrame, faces );
+		ID.BodyCascade.detectMultiScale( TaskData->Frame.GetOrDecodeGrayscaleInputFrame(), faces );
 	}
 	
 	for(int j=0;j<faces.size();j++){
-		cv::rectangle(InputFrame, faces[j], cv::Scalar(255,0,255), 4);
+		cv::rectangle( TaskData->Frame.GetOrDecodeFrame(), faces[j], cv::Scalar(255,0,255), 4);
 
 		ClassificationResult::RegionOfInterest ROI;
 		ROI.Classification = ClassificationResult::Motion_Person;
@@ -93,15 +94,19 @@ void PersonRecognitionFilter::FilterFrame( const AVFrame* Frame, ClassificationR
 		ROI.Top = faces[j].y;
 		ROI.Width = faces[j].width;
 		ROI.Height = faces[j].height;
-		Result.ROI.push_back( ROI );
+		TaskData->Result.ROI.push_back( ROI );
 	}
 
 	if( faces.size() >= 1 )
 	{
 		printf("%d %s detected.\n", (int)faces.size(), ChooseFace ? "face(s)" : "body(s)" );
 
-		Result.ClassificationSuperset |= ClassificationResult::Motion_Person;
+		TaskData->Result.ClassificationSuperset |= ClassificationResult::Motion_Person;
+
+		return true;
 	}
+
+	return false;
 }
 
 }}

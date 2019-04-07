@@ -107,7 +107,8 @@ void MotionFilterData::CreateFilter( const char* Name )
 #undef CREATE_FILTER
 }
 
-MotionFilter::MotionFilter( const char* FilterName )
+MotionFilter::MotionFilter( const MotionChainNode& Chain, const char* FilterName )
+	: RecordFilterBase( Chain )
 {
  auto& ID = GetData();
  ID.CreateFilter( FilterName );
@@ -116,13 +117,13 @@ MotionFilter::MotionFilter( const char* FilterName )
 MotionFilter::~MotionFilter()
 {}
 
-void MotionFilter::FilterFrame( const AVFrame* Frame, ClassificationResult& Result, cv::Mat& InputFrame, cv::Mat& GrayscaleInputFrame )
+bool MotionFilter::ProcessFrame( SharedClassificationTask TaskData )
 {
 	auto& ID = GetData();
 
 	if (!ID.BackgroundFilter)
 	{
-		return;
+		return false;
 	}
 
 	/*if( !ID.DiagFrame )
@@ -130,13 +131,15 @@ void MotionFilter::FilterFrame( const AVFrame* Frame, ClassificationResult& Resu
 		ID.DiagFrame = make_shared<FFMPEG::Frame>( Width, Height, AV_PIX_FMT_BGR24, 1 );
 		ID.DiagFrame->Prepare();
 	}*/
+
+	cv::Mat& InputFrame = TaskData->Frame.GetOrDecodeFrame();
 	
 	ID.BackgroundFilter->process( InputFrame, ID.ForegroundMask, ID.Background );
 
 	if( ID.InitialFrameFilter > 0 )
 	{
 		ID.InitialFrameFilter--;
-		return;
+		return false;
 	}
 
 	/*(if( ID.PreviousMask.rows != Height && ID.PreviousMask.cols!= Width )
@@ -168,9 +171,11 @@ void MotionFilter::FilterFrame( const AVFrame* Frame, ClassificationResult& Resu
 
 	if( Percentage > 0.0 )
 	{
-		Result.ClassificationSuperset |= ClassificationResult::Motion_Motion;
+		TaskData->Result.ClassificationSuperset |= ClassificationResult::Motion_Motion;
 	}
-	Result.MotionAmount = (float)Percentage;
+	TaskData->Result.MotionAmount = (float)Percentage;
+
+	return Percentage > 0.0f;
 
 	//if( Percentage > MotionThreshold )
 	{

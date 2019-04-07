@@ -316,14 +316,38 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 			{
 				if( (FrameIndex++ % StreamSetup.MotionFilterFrameSkip) == 0 )
 				{
-					auto Job = std::make_shared<ImageProcessingJob>();
-					Job->Frame.swap(ID.Input);
-					Job->SourceID = UniqueSourceID;
-					Job->TargetHeight = StreamSetup.MotionDetectFrameHeight;
-					Job->Timestamp = CurrentTime;
-					Job->Filter = Filter;
+					auto Job = std::make_shared<ClassificationTask>( std::make_shared<FilterFrameOwner>( ID.Input, m_InternalData->ConversionContext ));
+					ID.Input.reset();
 
-					if (!CommonJobQueue->Push(Job))
+					Job->Frame.SourceID = UniqueSourceID;
+					Job->Frame.TargetHeight = StreamSetup.MotionDetectFrameHeight;
+					Job->Frame.Timestamp = CurrentTime;
+
+					Job->Origin = Filter;
+					Job->Next = Filter;
+					
+					auto Queue = CommonJobQueue;
+					Job->InsertToQueue = [Queue](SharedClassificationTask JobIn, bool HighPriority)
+					{
+						if( !Queue->Push(JobIn, HighPriority) )
+						{
+							auto Stats = Queue->GetData().GetStatsForSource(JobIn->Frame.SourceID);		
+
+							/*double Total = (double)Stats.TotalProcessingTime / ((double)Stats.FrameCount * 1000.0 * 1000.0);
+							double Scale = (double)Stats.ScaleTotalProcessingTime / ((double)Stats.FrameCount * 1000.0 * 1000.0);
+							double MD = (double)Stats.MotionDetectionTotalProcessingTime / ((double)Stats.FrameCount * 1000.0 * 1000.0);
+							double SP = Stats.SecondPassFrameCount ? (double)Stats.SecondPassFilterTotalProcessingTime / ((double)Stats.SecondPassFrameCount * 1000.0 * 1000.0) : 0.0;
+							printf("Source %d: Total %.2fms, Scale: %.2fms, MD: %.2fms, 2p: %.2fms\n", UniqueSourceID, (float)Total, (float)Scale, (float)MD, (float)SP );
+							*/
+
+							printf("Backlog full for source %d\n", JobIn->Frame.SourceID);
+
+							Queue->RemoveAllForSource(JobIn->Frame.SourceID);
+							//CommonJobQueue->ResetStats(UniqueSourceID);
+						}
+					};
+
+					if (!CommonJobQueue->Push(Job, false))
 					{
 						auto Stats = CommonJobQueue->GetData().GetStatsForSource(UniqueSourceID);		
 
@@ -447,7 +471,7 @@ double InputStream::GetFramerateDouble()
 	}
 	else
 	{
-		return 1.0/25.0;
+		return 25.0;
 	}
 }
 

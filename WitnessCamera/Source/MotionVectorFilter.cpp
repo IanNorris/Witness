@@ -1,3 +1,9 @@
+
+// IMPORTANT NOTICE:
+//  Various concepts used within this code are being pursued in a patent
+//  application and may be patented.
+// IMPORTANT NOTICE
+
 #include "MotionVectorFilter.h"
 #include "OutputStream.h"
 #include "FFMPEG/Frame.h"
@@ -36,16 +42,18 @@ int FirstCameraOnly = 0;
 int BucketDistanceSquared = 3;
 float MinSummaryPrintout = 1000.0f;
 float MinRatioOfBounds = 0.3f;
-float ClusterBoundaryGrowth = 0.5f;
+float ClusterBoundaryGrowth = 0.20f;
 
 int DrawClusters = false;
 int DrawTrackedObjects = true;
-int DrawPreTrackedObjects = true;
+int DrawTrackedObjectLabels = true;
+int DrawPreTrackedObjects = false;
+int DrawTrackedObjectPredictions = false;
 int DrawStats = false;
 int DrawMask = false;
 int DrawVectors = false;
-int DrawSummaryVectors = false;
-int BucketRefValue = 16;
+int DrawSummaryVectors = true;
+int BucketRefValue = 12;
 int MinBlockMoveDistance = 4;
 int MaxBlockMoveDistance = 512000;
 int MinVectorCount = 2;
@@ -61,6 +69,8 @@ struct MotionVectorFilterData : public FilterDataBase
 	DebugBind<int> DB_BucketDistance;
 	DebugBind<int> DB_DrawTrackedObjects;
 	DebugBind<int> DB_DrawPreTrackedObjects;
+	DebugBind<int> DB_DrawTrackedObjectLabels;
+	DebugBind<int> DB_DrawTrackedObjectPredictions;
 	DebugBind<int> DB_DrawClusters;
 	DebugBind<int> DB_DrawStats;
 	DebugBind<int> DB_DrawMask;
@@ -80,7 +90,9 @@ struct MotionVectorFilterData : public FilterDataBase
 	MotionVectorFilterData()
 	: DB_BucketDistance( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Bucket Distance Squared", &BucketDistanceSquared )
 	, DB_DrawTrackedObjects( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Draw Tracked Objects", &DrawTrackedObjects )
+	, DB_DrawTrackedObjectLabels( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Draw Tracked Object Labels", &DrawTrackedObjectLabels )
 	, DB_DrawPreTrackedObjects( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Draw Pre-Tracked Objects", &DrawPreTrackedObjects )
+	, DB_DrawTrackedObjectPredictions( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Draw Tracked Object Predictions", &DrawTrackedObjectPredictions )
 	, DB_DrawClusters( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Draw Clusters", &DrawClusters )
 	, DB_DrawStats( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Draw Stats", &DrawStats )
 	, DB_DrawMask( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Draw Mask", &DrawMask )
@@ -96,6 +108,7 @@ struct MotionVectorFilterData : public FilterDataBase
 	, DB_MinClusterPoints( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Min Cluster Points", &MinClusterPoints )
 	, DB_LostTrackFrames( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Lost Track Frames", &LostTrackFrames )
 	, DB_MinTrackingFrames( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Min Tracking Frames", &MinTrackingFrames )
+	, ObjectIDCounter( 0 )
 	{
 		FirstCameraOnly++;
 	}
@@ -115,9 +128,24 @@ struct MotionVectorFilterData : public FilterDataBase
 
 	struct TrackedObject
 	{
+		TrackedObject()
+			: ObjectID( 0 )
+			, Classification( 0 )
+			, ClassificationGroup( 0 )
+			, ClassificationConfidence( 0.0f )
+			, FramesSinceLastSeen( INT_MAX )
+			, FramesTracked( 0 )
+		{}
+
 		vector<cv::Point2f> PreviousPoints;
 
+		string CustomLabel;
+
 		cv::Rect Region;
+		unsigned int ObjectID;
+		unsigned int Classification;
+		unsigned int ClassificationGroup;
+		float ClassificationConfidence;
 		int FramesSinceLastSeen;
 		int FramesTracked;
 	};
@@ -145,6 +173,8 @@ struct MotionVectorFilterData : public FilterDataBase
 	bool hasBlackoutMask;
 	bool hasFocusMask;
 
+	unsigned int ObjectIDCounter;
+
 	int MVSinceKF;
 	int Frames;
 };
@@ -163,7 +193,8 @@ struct EquivalentPoint {
 	}
 };
 
-MotionVectorFilter::MotionVectorFilter( const wchar_t* BlackoutMaskPath, const wchar_t* FocusMaskPath )
+MotionVectorFilter::MotionVectorFilter( const MotionChainNode& Chain, const wchar_t* BlackoutMaskPath, const wchar_t* FocusMaskPath )
+	: RecordFilterBase( Chain )
 {
 	auto& ID = GetData();
 
@@ -246,21 +277,21 @@ void MotionVectorFilter::UpdateMasks( unsigned int Width, unsigned int Height )
 	}
 }
 
-void MotionVectorFilter::ClassifyFrame( FilterFrame& Frame, ClassificationResult& Result )
+bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 {
-	FilterFrameStatScope Scope( Frame.Stats, FilterStat_MVF_Internal );
+	FilterFrameStatScope Scope( TaskData->Frame.Stats, FilterStat_MVF_Internal );
 
 	auto& ID = GetData();
 
-	bool WantDebuggingInfo = Frame.WantFullSizeOutput | Frame.WantSmallOutput;
+	bool WantDebuggingInfo = TaskData->Frame.WantFullSizeOutput | TaskData->Frame.WantSmallOutput;
 
-	FilterFrameStatExcludeScope ScaleScope( Frame.Stats, FilterStat_MVF_Internal );
+	FilterFrameStatExcludeScope ScaleScope( TaskData->Frame.Stats, FilterStat_MVF_Internal );
 		cv::Mat Dummy;
-		cv::Mat& InputFrame = WantDebuggingInfo ? Frame.GetOrDecodeFrame() : Dummy;
+		cv::Mat& InputFrame = WantDebuggingInfo ? TaskData->Frame.GetOrDecodeFrame() : Dummy;
 	ScaleScope.Stop();
 
-	const unsigned int WidthBucketWidth = Frame.InputFrame->GetWidth() / BUCKET_DIMENSION;
-	const unsigned int HeightBucketHeight = Frame.InputFrame->GetHeight() / BUCKET_DIMENSION;
+	const unsigned int WidthBucketWidth = TaskData->Frame.InputFrame->GetWidth() / BUCKET_DIMENSION;
+	const unsigned int HeightBucketHeight = TaskData->Frame.InputFrame->GetHeight() / BUCKET_DIMENSION;
 
 	const unsigned int BucketCount = (WidthBucketWidth) * (HeightBucketHeight);
 	
@@ -275,9 +306,9 @@ void MotionVectorFilter::ClassifyFrame( FilterFrame& Frame, ClassificationResult
 	AVFrameSideData* SideData = nullptr;
 	
 	{
-		FilterFrameStatScope Scope( Frame.Stats, FilterStat_MVF_SideData );
+		FilterFrameStatScope Scope( TaskData->Frame.Stats, FilterStat_MVF_SideData );
 
-		SideData = av_frame_get_side_data( Frame.InputFrame->GetFrame(), AV_FRAME_DATA_MOTION_VECTORS );
+		SideData = av_frame_get_side_data( TaskData->Frame.InputFrame->GetFrame(), AV_FRAME_DATA_MOTION_VECTORS );
 	}
 
 	if (!SideData)
@@ -287,7 +318,7 @@ void MotionVectorFilter::ClassifyFrame( FilterFrame& Frame, ClassificationResult
 		//Result.MotionAmount = 0;
 		//Result.ClassificationSuperset |= ClassificationResult::Motion_Motion;
 
-		return;
+		return true;
 	}
 
 	const  AVMotionVector* MVData = (const AVMotionVector*)SideData->data;
@@ -297,7 +328,7 @@ void MotionVectorFilter::ClassifyFrame( FilterFrame& Frame, ClassificationResult
 
 	const unsigned int MotionVectorSkipFactor = 8;
 	{
-		FilterFrameStatScope Scope( Frame.Stats, FilterStat_MVF_VectorPass );
+		FilterFrameStatScope Scope( TaskData->Frame.Stats, FilterStat_MVF_VectorPass );
 
 		for (unsigned int i = 0; i < MotionVectors; i+=MotionVectorSkipFactor)
 		{
@@ -325,7 +356,7 @@ void MotionVectorFilter::ClassifyFrame( FilterFrame& Frame, ClassificationResult
 
 				if( WantDebuggingInfo && DrawVectors )
 				{
-					FilterFrameStatScope Scope( Frame.Stats, FilterStat_Debug );
+					FilterFrameStatScope Scope( TaskData->Frame.Stats, FilterStat_Debug );
 
 					cv::arrowedLine( InputFrame, cv::Point( MV.src_x, MV.src_y ), cv::Point( MV.dst_x, MV.dst_y ), cv::Scalar(255.0,255.0,255.0) );
 				}
@@ -338,14 +369,14 @@ void MotionVectorFilter::ClassifyFrame( FilterFrame& Frame, ClassificationResult
 	int RefValue = BucketRefValue * BUCKET_DIMENSION * BUCKET_DIMENSION / MotionVectorSkipFactor;
 	//const int RefValue = 50;
 
-	float RescaleX = (float)InputFrame.cols / (float)(WidthBucketWidth);
-	float RescaleY = (float)InputFrame.rows / (float)(HeightBucketHeight);
+	float RescaleX = (float)TaskData->Frame.InputFrame->GetWidth() / (float)(WidthBucketWidth);
+	float RescaleY = (float)TaskData->Frame.InputFrame->GetHeight() / (float)(HeightBucketHeight);
 
 	ID.Points.clear();
 	ID.Labels.clear();
 
 	{
-		FilterFrameStatScope Scope( Frame.Stats, FilterStat_MVF_ClusterPass );
+		FilterFrameStatScope Scope( TaskData->Frame.Stats, FilterStat_MVF_ClusterPass );
 
 		for( unsigned int y = 0; y < HeightBucketHeight; y++ )
 		{
@@ -366,7 +397,7 @@ void MotionVectorFilter::ClassifyFrame( FilterFrame& Frame, ClassificationResult
 
 				if( WantDebuggingInfo && DrawSummaryVectors && Score > MinSummaryPrintout && Ref.c >= MinVectorCount )
 				{
-					FilterFrameStatScope Scope( Frame.Stats, FilterStat_Debug );
+					FilterFrameStatScope Scope( TaskData->Frame.Stats, FilterStat_Debug );
 
 					float NewX = ((float)x+0.5f) * RescaleX;
 					float NewY = ((float)y+0.5f) * RescaleY;
@@ -383,7 +414,7 @@ void MotionVectorFilter::ClassifyFrame( FilterFrame& Frame, ClassificationResult
 
 				if( WantDebuggingInfo && DrawClusters )
 				{
-					FilterFrameStatScope Scope( Frame.Stats, FilterStat_Debug );
+					FilterFrameStatScope Scope( TaskData->Frame.Stats, FilterStat_Debug );
 
 					cv::Rect Src;
 					Src.x = (int)((float)(x * RescaleX));
@@ -438,7 +469,7 @@ void MotionVectorFilter::ClassifyFrame( FilterFrame& Frame, ClassificationResult
 	
 	if( !ID.Points.empty() )
 	{
-		FilterFrameStatScope Scope( Frame.Stats, FilterStat_MVF_ObjectPass );
+		FilterFrameStatScope Scope( TaskData->Frame.Stats, FilterStat_MVF_ObjectPass );
 
 		cv::partition<Point2f,EquivalentPoint>( ID.Points, ID.Labels );
 		//double Compactness = cv::kmeans( cv::Mat(ID.Points).reshape(1, ID.Points.size()), TargetClusters, ID.Labels, cv::TermCriteria( TermCriteria::EPS+TermCriteria::COUNT, MaxClusters, 1.0 ), 3, KMEANS_PP_CENTERS );
@@ -466,10 +497,10 @@ void MotionVectorFilter::ClassifyFrame( FilterFrame& Frame, ClassificationResult
 
 				LabelGroup.Points++;
 
-				LabelGroup.TopLeft.x = min( LabelGroup.TopLeft.x, ID.Points[i].x );
-				LabelGroup.TopLeft.y = min( LabelGroup.TopLeft.y, ID.Points[i].y );
-				LabelGroup.BottomRight.x = max( LabelGroup.BottomRight.x, ID.Points[i].x );
-				LabelGroup.BottomRight.y = max( LabelGroup.BottomRight.y, ID.Points[i].y );
+				LabelGroup.TopLeft.x = min( LabelGroup.TopLeft.x, ID.Points[i].x - 1 );
+				LabelGroup.TopLeft.y = min( LabelGroup.TopLeft.y, ID.Points[i].y - 1 );
+				LabelGroup.BottomRight.x = max( LabelGroup.BottomRight.x, ID.Points[i].x + 1 );
+				LabelGroup.BottomRight.y = max( LabelGroup.BottomRight.y, ID.Points[i].y + 1 );
 			}
 		}
 
@@ -485,8 +516,8 @@ void MotionVectorFilter::ClassifyFrame( FilterFrame& Frame, ClassificationResult
 				int BoundsArea = Bounds.area();
 				
 				//Expand the cluster to allow overlaps
-				float Width = (LabelGroup.BottomRight.x - LabelGroup.TopLeft.x) * ClusterBoundaryGrowth;
-				float Height = (LabelGroup.BottomRight.y - LabelGroup.TopLeft.y) * ClusterBoundaryGrowth;
+				float Width = (LabelGroup.BottomRight.x - LabelGroup.TopLeft.x) * (1.0f + ClusterBoundaryGrowth);
+				float Height = (LabelGroup.BottomRight.y - LabelGroup.TopLeft.y) * (1.0f + ClusterBoundaryGrowth);
 				Bounds.x -= (int)(Width * 0.5f);
 				Bounds.y -= (int)(Height * 0.5f);
 				Bounds.width += (int)Width;
@@ -525,8 +556,14 @@ void MotionVectorFilter::ClassifyFrame( FilterFrame& Frame, ClassificationResult
 						Obj.Region = Bounds;
 						Obj.FramesSinceLastSeen = 0;
 						Obj.FramesTracked = 1;
+						Obj.ObjectID = ++ID.ObjectIDCounter;
+						Obj.Classification = ClassificationResult::Motion_Motion;
+						Obj.ClassificationGroup = 0;
 
-						ID.Objects.push_back( Obj );
+						if( Obj.Region.width > 0 && Obj.Region.height > 0 )
+						{
+							ID.Objects.push_back( Obj );
+						}
 					}
 
 					ActualCluters++;
@@ -539,10 +576,43 @@ void MotionVectorFilter::ClassifyFrame( FilterFrame& Frame, ClassificationResult
 	for (auto Iter = ID.Objects.begin(); Iter != ID.Objects.end(); Iter++ )
 	{
 		cv::Rect ExpandedObject1 = (*Iter).Region;
-		ExpandedObject1.x -= (int)(ExpandedObject1.width * ClusterBoundaryGrowth * 0.5f);
-		ExpandedObject1.y -= (int)(ExpandedObject1.height * ClusterBoundaryGrowth * 0.5f);
+		ExpandedObject1.x -= (int)(ExpandedObject1.width * (1.0f + ClusterBoundaryGrowth) * 0.5f);
+		ExpandedObject1.y -= (int)(ExpandedObject1.height * (1.0f + ClusterBoundaryGrowth) * 0.5f);
 		ExpandedObject1.width = (int)(ExpandedObject1.width * (1.0f + ClusterBoundaryGrowth));
 		ExpandedObject1.height = (int)(ExpandedObject1.height * (1.0f + ClusterBoundaryGrowth));
+
+		const int TotalFrames = 30;
+		int Frames = 0;
+		bool HasPrevious = false;
+		cv::Point2f Velocity;
+		cv::Point2f PreviousPoint;
+		for( auto PointIter = (*Iter).PreviousPoints.crbegin(); PointIter != (*Iter).PreviousPoints.crend(); ++PointIter )
+		{
+			if( Frames >= TotalFrames )
+			{
+				break;
+			}
+
+			if( HasPrevious )
+			{
+				Velocity += PreviousPoint - (*PointIter);
+				Frames++;
+			}
+			PreviousPoint = *PointIter;
+
+			HasPrevious = true;
+		}
+
+		if( Frames > 5 )
+		{
+			Velocity.x /= (float)Frames;
+			Velocity.y /= (float)Frames;
+		}
+
+		cv::Rect ExpandedObjectPrediction = ExpandedObject1;
+		ExpandedObjectPrediction.x += (int)(Velocity.x);
+		ExpandedObjectPrediction.y += (int)(Velocity.y);
+
 
 		bool Overlapped = false;
 		for (auto Iter2 = ID.Objects.begin(); Iter2 != ID.Objects.end(); Iter2++ )
@@ -553,8 +623,8 @@ void MotionVectorFilter::ClassifyFrame( FilterFrame& Frame, ClassificationResult
 			}
 
 			cv::Rect ExpandedObject2 = (*Iter2).Region;
-			ExpandedObject2.x -= (int)(ExpandedObject2.width * ClusterBoundaryGrowth * 0.5f);
-			ExpandedObject2.y -= (int)(ExpandedObject2.height * ClusterBoundaryGrowth * 0.5f);
+			ExpandedObject2.x -= (int)(ExpandedObject2.width * (1.0f + ClusterBoundaryGrowth) * 0.5f);
+			ExpandedObject2.y -= (int)(ExpandedObject2.height * (1.0f + ClusterBoundaryGrowth) * 0.5f);
 			ExpandedObject2.width = (int)(ExpandedObject2.width * (1.0f + ClusterBoundaryGrowth));
 			ExpandedObject2.height = (int)(ExpandedObject2.height * (1.0f + ClusterBoundaryGrowth));
 
@@ -564,17 +634,49 @@ void MotionVectorFilter::ClassifyFrame( FilterFrame& Frame, ClassificationResult
 				(*Iter).FramesSinceLastSeen = min<int>( (*Iter).FramesSinceLastSeen, (*Iter2).FramesSinceLastSeen);
 				(*Iter).FramesTracked = max<int>( (*Iter).FramesTracked, (*Iter2).FramesTracked);
 				(*Iter2).FramesSinceLastSeen = INT_MAX;
+				Overlapped = true;
+
+				//TODO: Merge classifications
+				if( ((*Iter2).Classification & (~ClassificationResult::Motion_Motion)) != 0 )
+				{
+					(*Iter).Classification |= (*Iter2).Classification;
+					(*Iter).ClassificationGroup |= (*Iter2).ClassificationGroup;
+					(*Iter).ClassificationConfidence += (*Iter2).ClassificationConfidence;
+					(*Iter).CustomLabel = (*Iter2).CustomLabel;
+					(*Iter).ObjectID = (*Iter2).ObjectID;
+				}
+			}
+			else if( (ExpandedObjectPrediction & ExpandedObject2).area() > 0 )
+			{
+				(*Iter).Region = (*Iter).Region | (*Iter2).Region;
+				(*Iter).FramesSinceLastSeen = min<int>( (*Iter).FramesSinceLastSeen, (*Iter2).FramesSinceLastSeen);
+				(*Iter).FramesTracked = max<int>( (*Iter).FramesTracked, (*Iter2).FramesTracked);
+				(*Iter2).FramesSinceLastSeen = INT_MAX;
+				Overlapped = true;
+
+				//TODO: Merge classifications
+				if( ((*Iter2).Classification & (~ClassificationResult::Motion_Motion)) != 0 )
+				{
+					(*Iter).Classification |= (*Iter2).Classification;
+					(*Iter).ClassificationGroup |= (*Iter2).ClassificationGroup;
+					(*Iter).ClassificationConfidence += (*Iter2).ClassificationConfidence;
+					(*Iter).CustomLabel = (*Iter2).CustomLabel;
+					(*Iter).ObjectID = (*Iter2).ObjectID;
+				}
 			}
 		}
 
-		float X = ((float)(*Iter).Region.x + ((float)(*Iter).Region.width * 0.5f)) * RescaleX;
-		float Y = ((float)(*Iter).Region.y + ((float)(*Iter).Region.height * 0.5f)) * RescaleY;
+		if( (*Iter).Region.width > 0 && (*Iter).Region.height > 0 )
+		{
+			float X = ((float)(*Iter).Region.x + ((float)(*Iter).Region.width * 0.5f)) * RescaleX;
+			float Y = ((float)(*Iter).Region.y + ((float)(*Iter).Region.height * 0.5f)) * RescaleY;
 
-		(*Iter).PreviousPoints.push_back( Point2f(X,Y) );
+			(*Iter).PreviousPoints.push_back( Point2f(X,Y) );
+		}
 
 		if( WantDebuggingInfo && DrawTrackedObjects )
 		{
-			FilterFrameStatScope Scope( Frame.Stats, FilterStat_Debug );
+			FilterFrameStatScope Scope( TaskData->Frame.Stats, FilterStat_Debug );
 
 			cv::Rect DrawBounds;
 			DrawBounds.x = (int)((float)ExpandedObject1.x * RescaleX);
@@ -582,16 +684,28 @@ void MotionVectorFilter::ClassifyFrame( FilterFrame& Frame, ClassificationResult
 			DrawBounds.width = (int)((float)ExpandedObject1.width * RescaleX);
 			DrawBounds.height = (int)((float)ExpandedObject1.height * RescaleY);
 
-			for( int Point = 0; Point < Iter->PreviousPoints.size(); Point++ )
+			if( DrawTrackedObjectPredictions )
 			{
-				if( Point != 0 )
+				for( int Point = 0; Point < Iter->PreviousPoints.size(); Point++ )
 				{
-					cv::line( InputFrame, Iter->PreviousPoints[Point], Iter->PreviousPoints[Point-1], cv::Scalar(0,0.0,255.0), 2 );
+					if( Point != 0 )
+					{
+						cv::line( InputFrame, Iter->PreviousPoints[Point], Iter->PreviousPoints[Point-1], cv::Scalar(0,0.0,255.0), 2 );
+					}
 				}
 			}
 
 			if( Iter->FramesTracked > MinTrackingFrames )
 			{
+				if( DrawTrackedObjectPredictions )
+				{
+					cv::Rect PredictedBounds = DrawBounds;
+					PredictedBounds.x += (int)(Velocity.x);
+					PredictedBounds.y += (int)(Velocity.y);
+
+					cv::rectangle( InputFrame, PredictedBounds, cv::Scalar(255.0,255.0,255.0), 2 );
+				}
+
 				if( Iter->FramesSinceLastSeen < LostTrackFrames / 2 )
 				{
 					cv::rectangle( InputFrame, DrawBounds, cv::Scalar(0,255.0,0.0), 2 );
@@ -607,7 +721,7 @@ void MotionVectorFilter::ClassifyFrame( FilterFrame& Frame, ClassificationResult
 			}
 			else
 			{
-				if( Iter->FramesSinceLastSeen < LostTrackFrames / 2 && DrawPreTrackedObjects )
+				if( Iter->FramesSinceLastSeen == 0 && DrawPreTrackedObjects )
 				{
 					cv::rectangle( InputFrame, DrawBounds, cv::Scalar(255.0,0.0,0.0), 2 );
 				}
@@ -617,7 +731,7 @@ void MotionVectorFilter::ClassifyFrame( FilterFrame& Frame, ClassificationResult
 
 	if( WantDebuggingInfo && DrawStats )
 	{
-		FilterFrameStatScope Scope( Frame.Stats, FilterStat_Debug );
+		FilterFrameStatScope Scope( TaskData->Frame.Stats, FilterStat_Debug );
 
 		char Buffer[128];
 		sprintf_s( Buffer, "MVU=%04d,MVF=%04d,L=%02d,A=%02d,T=%02d", MotionVectors, UsableMotionVectors, MaxLabel, ActualCluters, TrackedClusters );
@@ -640,18 +754,101 @@ void MotionVectorFilter::ClassifyFrame( FilterFrame& Frame, ClassificationResult
 
 	if (TotalArea > 0)
 	{
-		Result.ClassificationSuperset |= ClassificationResult::Motion_Motion;
-		Result.MotionAmount = (float)TotalArea/(float)ComparisonArea;
+		TaskData->Result.ClassificationSuperset = 0;
+		TaskData->Result.MotionAmount = (float)TotalArea/(float)ComparisonArea;
+
+		for (auto Iter = ID.Objects.begin(); Iter != ID.Objects.end(); Iter++ )
+		{
+			ClassificationResult::RegionOfInterest ROI;
+					
+			cv::Rect ExpandedObject = (*Iter).Region;
+
+			ExpandedObject.x = (int)(ExpandedObject.x * RescaleX);
+			ExpandedObject.y = (int)(ExpandedObject.y * RescaleY);
+			ExpandedObject.width = (int)(ExpandedObject.width * RescaleX);
+			ExpandedObject.height = (int)(ExpandedObject.height * RescaleY);
+
+			ExpandedObject.x -= (int)(ExpandedObject.width * (1.0f + ClusterBoundaryGrowth) * 0.5f);
+			ExpandedObject.y -= (int)(ExpandedObject.height * (1.0f + ClusterBoundaryGrowth) * 0.5f);
+			ExpandedObject.width = (int)(ExpandedObject.width * (1.0f + ClusterBoundaryGrowth));
+			ExpandedObject.height = (int)(ExpandedObject.height * (1.0f + ClusterBoundaryGrowth));
+
+			ROI.Classification |= ClassificationResult::Motion_Motion;
+			ROI.Left = max<int>( ExpandedObject.x, 0 );
+			ROI.Top = max<int>( ExpandedObject.y, 0 );
+			ROI.Width = min<int>( ExpandedObject.width, TaskData->Frame.InputFrame->GetWidth() - ROI.Left );
+			ROI.Height = min<int>( ExpandedObject.height, TaskData->Frame.InputFrame->GetHeight() - ROI.Top );
+
+			if( ROI.Width > 0 && ROI.Height > 0 )
+			{
+				ROI.TrackingID = (*Iter).ObjectID;
+				ROI.Filter = this;
+
+				ROI.Classification = (*Iter).Classification;
+				ROI.ClassificationGroup = (*Iter).ClassificationGroup;
+				ROI.ClassificationConfidence = (*Iter).ClassificationConfidence;
+
+				TaskData->Result.ClassificationSuperset |= ROI.Classification;
+
+				TaskData->Result.ROI.push_back( ROI );
+			}
+		}
 	}
 
 	ID.MVSinceKF += UsableMotionVectors;
 	ID.Frames++;
+
+	return true;
 }
 
-void MotionVectorFilter::ClearState()
+void MotionVectorFilter::ClearStateThis()
 {
 	auto& ID = GetData();
 	ID.Objects.clear();
+}
+
+void MotionVectorFilter::UpdateROI( SharedClassificationTask TaskData )
+{
+	auto& ID = GetData();
+
+	const unsigned int WidthBucketWidth = TaskData->Frame.InputFrame->GetWidth() / BUCKET_DIMENSION;
+	const unsigned int HeightBucketHeight = TaskData->Frame.InputFrame->GetHeight() / BUCKET_DIMENSION;
+
+	float RescaleX = (float)TaskData->Frame.InputFrame->GetWidth() / (float)(WidthBucketWidth);
+	float RescaleY = (float)TaskData->Frame.InputFrame->GetHeight() / (float)(HeightBucketHeight);
+
+	for (auto Iter = ID.Objects.begin(); Iter != ID.Objects.end(); Iter++ )
+	{				
+		cv::Rect ExpandedObject = (*Iter).Region;
+
+		ExpandedObject.x = (int)(ExpandedObject.x * RescaleX);
+		ExpandedObject.y = (int)(ExpandedObject.y * RescaleY);
+		ExpandedObject.width = (int)(ExpandedObject.width * RescaleX);
+		ExpandedObject.height = (int)(ExpandedObject.height * RescaleY);
+
+		ExpandedObject.x -= (int)(ExpandedObject.width * (1.0f + ClusterBoundaryGrowth) * 0.5f);
+		ExpandedObject.y -= (int)(ExpandedObject.height * (1.0f + ClusterBoundaryGrowth) * 0.5f);
+		ExpandedObject.width = (int)(ExpandedObject.width * (1.0f + ClusterBoundaryGrowth));
+		ExpandedObject.height = (int)(ExpandedObject.height * (1.0f + ClusterBoundaryGrowth));
+
+		for( auto& ROI : TaskData->Result.ROI )
+		{
+			cv::Rect ROIRect;
+			ROIRect.x = ROI.Left;
+			ROIRect.y = ROI.Top;
+			ROIRect.width = ROI.Width;
+			ROIRect.height = ROI.Height;
+
+			cv::Rect IntersectedRect = ROIRect & ExpandedObject;
+			if( IntersectedRect.area() > 0 || ROI.TrackingID == (*Iter).ObjectID )
+			{
+				(*Iter).Classification |= ROI.Classification;
+				(*Iter).ClassificationConfidence = ROI.ClassificationConfidence;
+				(*Iter).ClassificationGroup |= ROI.ClassificationGroup;
+				(*Iter).CustomLabel = ROI.CustomLabel;
+			}
+		}
+	}
 }
 
 }}

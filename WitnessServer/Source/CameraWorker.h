@@ -104,7 +104,8 @@ private:
 	shared_ptr<OutputStream> RecordStream;
 
 	shared_ptr<InputStream> CameraStream;
-	shared_ptr<ObservingMotionFilter> Filter;
+	shared_ptr<IRecordFilter> Filter;
+	shared_ptr<ObservingMotionFilter> Observer;
 
 	const shared_ptr<GlobalContext> Context;
 
