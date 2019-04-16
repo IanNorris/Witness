@@ -21,7 +21,8 @@ struct SourceState
 	SourceState();
 	~SourceState();
 
-	SwsContext* ConversionContext;
+	std::shared_ptr<FilterFrameContext> FrameContext;
+
 	bool HasViewerFullSize;
 	bool HasViewerPreviewSize;
 };

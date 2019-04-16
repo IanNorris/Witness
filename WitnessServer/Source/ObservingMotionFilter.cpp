@@ -38,6 +38,7 @@ bool ObservingMotionFilter::ProcessFrame( SharedClassificationTask TaskData )
 {
 	if( TaskData->Frame.Timestamp < LastPresentedTimestamp )
 	{
+		TaskData->FrameOwner->InputFrame->Unref();
 		return TaskData->Result.ClassificationSuperset != 0;
 	}
 	LastPresentedTimestamp = TaskData->Frame.Timestamp;
@@ -232,6 +233,8 @@ bool ObservingMotionFilter::ProcessFrame( SharedClassificationTask TaskData )
 
 		MessageBusPtr->SendToClient( nullptr, SaveFrameMessage );
 	}
+
+	TaskData->FrameOwner->InputFrame->Unref();
 
 	return TaskData->Result.ClassificationSuperset != 0;
 }

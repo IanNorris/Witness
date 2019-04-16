@@ -133,19 +133,6 @@ CameraStreamError InputStream::Initialize()
 	//ID.Output = std::make_shared<FFMPEG::Frame>( OutputWidth, OutputHeight, OutputPixelFormat );
 	ID.Input = std::make_shared<FFMPEG::Frame>( ID.CodecContext->width, ID.CodecContext->height, ID.CodecContext->pix_fmt );
 
-	/*ID.ConversionContext = sws_getCachedContext(
-		ID.ConversionContext,
-		ID.Input->GetWidth(),
-		ID.Input->GetHeight(),
-		InputPixelFormat,
-		OutputWidth,
-		OutputHeight,
-		OutputPixelFormat,
-		SWS_BICUBIC,
-		NULL,
-		NULL,
-		NULL );*/
-
 	return CameraStreamError::Success;
 }
 
@@ -316,7 +303,9 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 			{
 				if( (FrameIndex++ % StreamSetup.MotionFilterFrameSkip) == 0 )
 				{
-					auto Job = std::make_shared<ClassificationTask>( std::make_shared<FilterFrameOwner>( ID.Input, m_InternalData->ConversionContext ));
+					auto Queue = CommonJobQueue;
+
+					auto Job = std::make_shared<ClassificationTask>( std::make_shared<FilterFrameOwner>( ID.Input, Queue->GetData().GetStateForSource( UniqueSourceID )->FrameContext ));
 					ID.Input.reset();
 
 					Job->Frame.SourceID = UniqueSourceID;
@@ -326,7 +315,7 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 					Job->Origin = Filter;
 					Job->Next = Filter;
 					
-					auto Queue = CommonJobQueue;
+					
 					Job->InsertToQueue = [Queue](SharedClassificationTask JobIn, bool HighPriority)
 					{
 						if( !Queue->Push(JobIn, HighPriority) )

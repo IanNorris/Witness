@@ -57,8 +57,8 @@ cv::Mat& FilterFrame::GetOrDecodeFrame()
 	//Input and output are the same
 	int ScaleMethod = SameDimensions ? SWS_POINT : SWS_BILINEAR;
 
-	ConversionContext = sws_getCachedContext(
-		ConversionContext,
+	FrameContext->ConversionContext = sws_getCachedContext(
+		FrameContext->ConversionContext,
 		InputFrame->GetWidth(),
 		InputFrame->GetHeight(),
 		InputPixelFormat,
@@ -70,7 +70,7 @@ cv::Mat& FilterFrame::GetOrDecodeFrame()
 		NULL,
 		NULL );
 
-	sws_scale( ConversionContext, InputFrame->GetFrame()->data, InputFrame->GetFrame()->linesize, 0, InputFrame->GetHeight(), OutputFrame->GetFrame()->data, OutputFrame->GetFrame()->linesize );
+	sws_scale( FrameContext->ConversionContext, InputFrame->GetFrame()->data, InputFrame->GetFrame()->linesize, 0, InputFrame->GetHeight(), OutputFrame->GetFrame()->data, OutputFrame->GetFrame()->linesize );
 
 	DecodedFrame = cv::Mat( cv::Size( OutputWidth, OutputHeight ), CV_8UC3, OutputFrame->GetFrame()->data[0] );
 

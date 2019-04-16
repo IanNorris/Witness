@@ -24,6 +24,18 @@ struct FilterData;
 class StreamManager;
 class IRecordFilter;
 
+class CAMERA_API FilterFrameContext
+{
+public:
+
+	FilterFrameContext()
+	: ConversionContext( nullptr )
+	{}
+
+
+	SwsContext* ConversionContext;
+};
+
 class CAMERA_API FilterFrame
 {
 public:
@@ -34,7 +46,7 @@ public:
 		std::shared_ptr<FFMPEG::Frame>& OutputFrameIn,
 		cv::Mat& DecodedFrameIn,
 		cv::Mat& GrayscaleDecodedFrameIn,
-		SwsContext*& ConversionContextIn )
+		std::shared_ptr<FilterFrameContext>& FrameContextIn )
 	: Stats( StatsIn )
 	, InputFrame( InputFrameIn )
 	, WantFullSizeOutput( false )
@@ -42,7 +54,7 @@ public:
 	, OutputFrame( OutputFrameIn )
 	, DecodedFrame( DecodedFrameIn )
 	, GrayscaleDecodedFrame( GrayscaleDecodedFrameIn )
-	, ConversionContext( ConversionContextIn )
+	, FrameContext( FrameContextIn )
 	{}
 
 	cv::Mat& GetOrDecodeFrame();
@@ -51,6 +63,7 @@ public:
 	FilterFrameStats& Stats;
 
 	std::shared_ptr<FFMPEG::Frame>& InputFrame;
+	std::shared_ptr<FilterFrameContext>& FrameContext;
 
 	int64_t							Timestamp;
 	unsigned int					TargetHeight;
@@ -65,34 +78,31 @@ private:
 
 	cv::Mat& DecodedFrame;
 	cv::Mat& GrayscaleDecodedFrame;
-
-	SwsContext*& ConversionContext;
 };
 
 class FilterFrameOwner
 {
 public:
 
-	FilterFrameOwner( const std::shared_ptr<FFMPEG::Frame>& InputFrameIn, SwsContext* ConversionContextIn )
+	FilterFrameOwner( const std::shared_ptr<FFMPEG::Frame>& InputFrameIn, const std::shared_ptr<FilterFrameContext>& FrameContextIn )
 	: InputFrame( InputFrameIn )
-	, ConversionContext( ConversionContextIn )
+	, FrameContext( FrameContextIn )
 	, HasLiveViewer( false )
 	{}
 
 	FilterFrame GetFilterFrame()
 	{
-		return FilterFrame( Stats, InputFrame, OutputFrame, DecodedFrame, GrayscaleDecodedFrame, ConversionContext );
+		return FilterFrame( Stats, InputFrame, OutputFrame, DecodedFrame, GrayscaleDecodedFrame, FrameContext );
 	}
 
 	std::shared_ptr<FFMPEG::Frame> InputFrame;
 	std::shared_ptr<FFMPEG::Frame> OutputFrame;
+	std::shared_ptr<FilterFrameContext> FrameContext;
 
 	cv::Mat DecodedFrame;
 	cv::Mat GrayscaleDecodedFrame;
 
 	FilterFrameStats Stats;
-
-	SwsContext* ConversionContext;
 
 	bool HasLiveViewer;
 };

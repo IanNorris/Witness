@@ -284,9 +284,6 @@ void ImageProcessingJobQueue::WorkerThreadMain()
 
 			StateInternal->HasViewerFullSize = Job->Frame.WantFullSizeOutput;
 			StateInternal->HasViewerPreviewSize = Job->Frame.WantSmallOutput;
-		
-			//Conversion context can get created or updated if the size changes
-			StateInternal->ConversionContext = Job->FrameOwner->ConversionContext;
 		}
 		else
 		{
@@ -325,18 +322,18 @@ void ImageProcessingJobQueueData::ResetStats(int Source)
 }
 
 SourceState::SourceState()
-	: ConversionContext( nullptr )
+	: FrameContext( std::make_shared<FilterFrameContext>() )
 	, HasViewerFullSize( false )
 	, HasViewerPreviewSize( false )
 {
-
 }
 
 SourceState::~SourceState()
 {
-	if (ConversionContext)
+	if (FrameContext && FrameContext->ConversionContext)
 	{
-		sws_freeContext( ConversionContext );
+		sws_freeContext( FrameContext->ConversionContext );
+		FrameContext->ConversionContext = nullptr;
 	}
 }
 
