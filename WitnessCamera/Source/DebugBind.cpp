@@ -26,7 +26,7 @@ std::string DebugBind<unsigned int>::Get() const
 	return std::to_string(*m_Data);
 }
 
-bool DebugBind<unsigned int>::Set( const std::string& Value )
+bool DebugBind<unsigned int>::Set( const char* Value )
 {
 	try
 	{
@@ -44,7 +44,7 @@ std::string DebugBind<int>::Get() const
 	return std::to_string(*m_Data);
 }
 
-bool DebugBind<int>::Set( const std::string& Value )
+bool DebugBind<int>::Set( const char* Value )
 {
 	try
 	{
@@ -62,7 +62,7 @@ std::string DebugBind<float>::Get() const
 	return std::to_string(*m_Data);
 }
 
-bool DebugBind<float>::Set( const std::string& Value )
+bool DebugBind<float>::Set( const char* Value )
 {
 	try
 	{
@@ -80,7 +80,7 @@ std::string DebugBind<double>::Get() const
 	return std::to_string(*m_Data);
 }
 
-bool DebugBind<double>::Set( const std::string& Value )
+bool DebugBind<double>::Set( const char* Value )
 {
 	try
 	{

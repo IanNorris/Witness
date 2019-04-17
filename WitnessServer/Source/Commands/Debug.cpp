@@ -124,7 +124,7 @@ void Command_Debug::OnSetMessage( const GlobalContext& Context, http_request& Me
 
 		if( NameWide.compare( Name ) == 0 )
 		{
-			Success = Value->Set( string(ValueIn.begin(), ValueIn.end()) );
+			Success = Value->Set( string(ValueIn.begin(), ValueIn.end()).c_str() );
 
 			break;
 		}
