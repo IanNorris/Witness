@@ -69,4 +69,6 @@ private:
 	ClipStatistics			ClipStats;
 
 	MotionState				State;
+
+	DebugBind<int> DB_DrawObjectLabels;
 };

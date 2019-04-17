@@ -17,6 +17,11 @@ const int TargetLargeThumbnailSize = 1280;
 const int TargetThumbnailSize = 300;
 const double PreviewTimeout = 0.5;
 
+int DrawObjectLabels = 0;
+
+
+int ObserverFirstCameraOnly = 0;
+
 ObservingMotionFilter::ObservingMotionFilter( const MotionChainNode& Chain, const int CameraID, const shared_ptr<MessageBus>& MessageBusIn )
 : IRecordFilter( Chain )
 , MessageBusPtr( MessageBusIn )
@@ -28,7 +33,9 @@ ObservingMotionFilter::ObservingMotionFilter( const MotionChainNode& Chain, cons
 , LastMotionIndex( INT_MIN )
 , SaveNextFrame( false )
 , State( MotionState::None )
+, DB_DrawObjectLabels( ObserverFirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "Observer Draw Object Labels", &DrawObjectLabels )
 {
+	ObserverFirstCameraOnly++;
 }
 
 ObservingMotionFilter::~ObservingMotionFilter()
@@ -65,7 +72,7 @@ bool ObservingMotionFilter::ProcessFrame( SharedClassificationTask TaskData )
 
 	if (TaskData->Result.ClassificationSuperset )
 	{
-		if( SaveNextFrame && true )
+		if( SaveNextFrame && DrawObjectLabels )
 		{
 			for( auto& ROI : TaskData->Result.ROI )
 			{
@@ -144,8 +151,10 @@ bool ObservingMotionFilter::ProcessFrame( SharedClassificationTask TaskData )
 						LabelPos.y -= 50;
 					}
 					
-
-					cv::putText( TaskData->Frame.GetOrDecodeFrame(), Buffer, LabelPos, cv::FONT_HERSHEY_PLAIN, 2.0, cv::Scalar(0,255,0), 2 );
+					cv::putText( TaskData->Frame.GetOrDecodeFrame(), Buffer, LabelPos, cv::FONT_HERSHEY_PLAIN, 3.0, cv::Scalar(0,0,0), 5 );
+					LabelPos.x += 2;
+					LabelPos.y += 2;
+					cv::putText( TaskData->Frame.GetOrDecodeFrame(), Buffer, LabelPos, cv::FONT_HERSHEY_PLAIN, 3.0, cv::Scalar(255,255,255), 2 );
 				}
 			}
 		}

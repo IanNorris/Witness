@@ -41,25 +41,40 @@ int FirstCameraOnly = 0;
 
 int BucketDistanceSquared = 3;
 float MinSummaryPrintout = 1000.0f;
-float MinRatioOfBounds = 0.3f;
-float ClusterBoundaryGrowth = 0.20f;
+float MinRatioOfBounds = 0.15f;
+float ClusterBoundaryGrowth = 0.33f;
+
+#define DEBUG_MV false
 
 int DrawClusters = false;
-int DrawTrackedObjects = true;
-int DrawTrackedObjectLabels = true;
-int DrawPreTrackedObjects = false;
-int DrawTrackedObjectPredictions = false;
+int DrawTrackedObjects = DEBUG_MV;
+int DrawTrackedObjectLabels = DEBUG_MV;
+int DrawPreTrackedObjects = DEBUG_MV;
+int DrawTrackedObjectPredictions = DEBUG_MV;
 int DrawStats = false;
 int DrawMask = false;
 int DrawVectors = false;
-int DrawSummaryVectors = true;
+int DrawSummaryVectors = false;
 int BucketRefValue = 12;
 int MinBlockMoveDistance = 4;
-int MaxBlockMoveDistance = 512000;
+int MaxBlockMoveDistance = 128000;
 int MinVectorCount = 2;
 int MinClusterPoints = 2;
 int LostTrackFrames = 8;
 int MinTrackingFrames = 2;
+
+float KFTranslationScale = 30.0f;
+float KFVelocityScale = 200.0f;
+float KFBoundsScale = 10.0f;
+float KFIdentityScale = 0.1f;
+float KFNoiseScale = 0.1f;
+
+#define GROW_RECT(R)															\
+		R.x -= (int)(R.width * ClusterBoundaryGrowth * 0.5f);		\
+        R.y -= (int)(R.height * ClusterBoundaryGrowth * 0.5f);	\
+        R.width += (int)(R.width * ClusterBoundaryGrowth);		\
+        R.height += (int)(R.height * ClusterBoundaryGrowth);
+
 
 namespace Witness{
 namespace Camera{
@@ -87,6 +102,12 @@ struct MotionVectorFilterData : public FilterDataBase
 	DebugBind<int> DB_LostTrackFrames;
 	DebugBind<int> DB_MinTrackingFrames;
 
+	DebugBind<float> DB_KFTranslationScale;
+	DebugBind<float> DB_KFVelocityScale;
+	DebugBind<float> DB_KFBoundsScale;
+	DebugBind<float> DB_KFIdentityScale;
+	DebugBind<float> DB_KFNoiseScale;
+
 	MotionVectorFilterData()
 	: DB_BucketDistance( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Bucket Distance Squared", &BucketDistanceSquared )
 	, DB_DrawTrackedObjects( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Draw Tracked Objects", &DrawTrackedObjects )
@@ -108,6 +129,12 @@ struct MotionVectorFilterData : public FilterDataBase
 	, DB_MinClusterPoints( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Min Cluster Points", &MinClusterPoints )
 	, DB_LostTrackFrames( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Lost Track Frames", &LostTrackFrames )
 	, DB_MinTrackingFrames( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Min Tracking Frames", &MinTrackingFrames )
+	, DB_KFTranslationScale( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV KF Translation Scale", &KFTranslationScale )
+	, DB_KFVelocityScale( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV KF Velocity Scale", &KFVelocityScale )
+	, DB_KFBoundsScale( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV KF Bounds Scale", &KFBoundsScale )
+	, DB_KFIdentityScale( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV KF Identity Scale", &KFIdentityScale )
+	, DB_KFNoiseScale( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV KF Noise Scale", &KFNoiseScale )
+
 	, ObjectIDCounter( 0 )
 	{
 		FirstCameraOnly++;
@@ -128,18 +155,54 @@ struct MotionVectorFilterData : public FilterDataBase
 
 	struct TrackedObject
 	{
+		const static int KalmanStateSize = 6;		//X, Y, VX, VY, W, H
+		const static int KalmanMeasureParams = 4;	// X, Y, W, H
+		const static int KalmanControlParams = 0;
+
+		//Reference: https://github.com/Myzhar/simple-opencv-kalman-tracker/blob/master/source/opencv-kalman.cpp
+
 		TrackedObject()
-			: ObjectID( 0 )
+			: TrackedPositionFilter( KalmanStateSize, KalmanMeasureParams, KalmanControlParams, CV_32F )
+			, KFState( KalmanStateSize, 1, CV_32F )
+			, KFMeasure( KalmanMeasureParams, 1, CV_32F )
+			, ObjectID( 0 )
 			, Classification( 0 )
 			, ClassificationGroup( 0 )
 			, ClassificationConfidence( 0.0f )
 			, FramesSinceLastSeen( INT_MAX )
 			, FramesTracked( 0 )
-		{}
+		{
+			/*
+			float KFTranslationScale = 10.0f;
+float KFVelocityScale = 10.0f;
+float KFBoundsScale = 10.0f;
+float KFIdentityScale = 0.1f;
+float KFNoiseScale = 0.1f;*/
+
+			cv::setIdentity( TrackedPositionFilter.transitionMatrix );
+			TrackedPositionFilter.measurementMatrix = cv::Mat::zeros( KalmanMeasureParams, KalmanStateSize, CV_32F );
+			TrackedPositionFilter.measurementMatrix.at<float>(0) = 1.0f;
+			TrackedPositionFilter.measurementMatrix.at<float>(7) = 1.0f;
+			TrackedPositionFilter.measurementMatrix.at<float>(16) = 1.0f;
+			TrackedPositionFilter.measurementMatrix.at<float>(23) = 1.0f;
+
+			TrackedPositionFilter.processNoiseCov.at<float>(0) = KFTranslationScale;
+			TrackedPositionFilter.processNoiseCov.at<float>(7) = KFTranslationScale;
+			TrackedPositionFilter.processNoiseCov.at<float>(14) = KFVelocityScale;
+			TrackedPositionFilter.processNoiseCov.at<float>(21) = KFVelocityScale;
+			TrackedPositionFilter.processNoiseCov.at<float>(28) = KFBoundsScale;
+			TrackedPositionFilter.processNoiseCov.at<float>(35) = KFBoundsScale;
+
+			cv::setIdentity( TrackedPositionFilter.measurementNoiseCov, KFIdentityScale );
+		}
 
 		vector<cv::Point2f> PreviousPoints;
 
 		string CustomLabel;
+
+		cv::KalmanFilter TrackedPositionFilter;
+		cv::Mat KFState;
+		cv::Mat KFMeasure;
 
 		cv::Rect Region;
 		unsigned int ObjectID;
@@ -512,26 +575,30 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 			if( LabelGroup.Points > MinClusterPoints )
 			{
 				cv::Rect Bounds( LabelGroup.TopLeft, LabelGroup.BottomRight );
+				cv::Rect UnscaledBounds = Bounds;
+				Bounds.x = (int)((float)Bounds.x * RescaleX);
+				Bounds.y = (int)((float)Bounds.y * RescaleY);
+				Bounds.width = (int)((float)Bounds.width * RescaleX);
+				Bounds.height = (int)((float)Bounds.height * RescaleY);
 
-				int BoundsArea = Bounds.area();
+				GROW_RECT( Bounds );
+
+				int UnscaledBoundsArea = UnscaledBounds.area();
 				
-				//Expand the cluster to allow overlaps
-				float Width = (LabelGroup.BottomRight.x - LabelGroup.TopLeft.x) * (1.0f + ClusterBoundaryGrowth);
-				float Height = (LabelGroup.BottomRight.y - LabelGroup.TopLeft.y) * (1.0f + ClusterBoundaryGrowth);
-				Bounds.x -= (int)(Width * 0.5f);
-				Bounds.y -= (int)(Height * 0.5f);
-				Bounds.width += (int)Width;
-				Bounds.height +=(int)Height;
-
 				float ClusterArea = (float)(LabelGroup.Points);
 
-				if( ClusterArea > (float)BoundsArea * MinRatioOfBounds )
+				if( ClusterArea > (float)UnscaledBoundsArea * MinRatioOfBounds )
 				{
 					bool Found = false;
 					for (auto& Object : ID.Objects)
 					{
-						cv::Rect IntersectedRect = Object.Region & Bounds;
-						//if (IntersectedRect.area() > MIN(Bounds.area(), Object.Region.area()) >> 1)
+						cv::Rect ExpandedOriginal = Object.Region;
+						cv::Rect ExpandedBounds = Bounds;
+
+						GROW_RECT(ExpandedOriginal);
+						GROW_RECT(ExpandedBounds);
+
+						cv::Rect IntersectedRect = ExpandedOriginal & ExpandedBounds;
 						if (IntersectedRect.area() > 0)
 						{
 							Object.Region = Bounds;
@@ -575,12 +642,6 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 	//Merge clusters
 	for (auto Iter = ID.Objects.begin(); Iter != ID.Objects.end(); Iter++ )
 	{
-		cv::Rect ExpandedObject1 = (*Iter).Region;
-		ExpandedObject1.x -= (int)(ExpandedObject1.width * (1.0f + ClusterBoundaryGrowth) * 0.5f);
-		ExpandedObject1.y -= (int)(ExpandedObject1.height * (1.0f + ClusterBoundaryGrowth) * 0.5f);
-		ExpandedObject1.width = (int)(ExpandedObject1.width * (1.0f + ClusterBoundaryGrowth));
-		ExpandedObject1.height = (int)(ExpandedObject1.height * (1.0f + ClusterBoundaryGrowth));
-
 		const int TotalFrames = 30;
 		int Frames = 0;
 		bool HasPrevious = false;
@@ -609,9 +670,64 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 			Velocity.y /= (float)Frames;
 		}
 
-		cv::Rect ExpandedObjectPrediction = ExpandedObject1;
-		ExpandedObjectPrediction.x += (int)(Velocity.x);
-		ExpandedObjectPrediction.y += (int)(Velocity.y);
+		auto& KFState = (*Iter).KFState;
+
+		KFState = (*Iter).TrackedPositionFilter.predict();
+
+		if( WantDebuggingInfo && DrawTrackedObjects )
+		{
+			cv::rectangle( InputFrame, (*Iter).Region, cv::Scalar(100.0,100.0,100.0), 2 );
+		}
+
+		auto& KFMeasure = (*Iter).KFMeasure;
+		KFMeasure.at<float>(0) = (float)(((*Iter).Region.x + ((*Iter).Region.width * 0.5f)));
+		KFMeasure.at<float>(1) = (float)(((*Iter).Region.y + ((*Iter).Region.height * 0.5f)));
+		KFMeasure.at<float>(2) = (float)((*Iter).Region.width);
+		KFMeasure.at<float>(3) = (float)((*Iter).Region.height);
+
+		if( (*Iter).FramesTracked == 1 )
+		{
+			(*Iter).TrackedPositionFilter.errorCovPre.at<float>(0) = KFNoiseScale;
+			(*Iter).TrackedPositionFilter.errorCovPre.at<float>(7) = KFNoiseScale;
+			(*Iter).TrackedPositionFilter.errorCovPre.at<float>(14) = KFNoiseScale;
+			(*Iter).TrackedPositionFilter.errorCovPre.at<float>(21) = KFNoiseScale;
+			(*Iter).TrackedPositionFilter.errorCovPre.at<float>(28) = KFNoiseScale;
+			(*Iter).TrackedPositionFilter.errorCovPre.at<float>(35) = KFNoiseScale;
+
+			KFState.at<float>(0) = KFMeasure.at<float>(0);
+			KFState.at<float>(1) = KFMeasure.at<float>(1);
+			KFState.at<float>(2) = 0.0f;
+			KFState.at<float>(3) = 0.0f;
+			KFState.at<float>(4) = KFMeasure.at<float>(2);
+			KFState.at<float>(5) = KFMeasure.at<float>(3);
+
+			(*Iter).TrackedPositionFilter.statePost = KFState;
+		}
+		else
+		{
+			(*Iter).TrackedPositionFilter.correct(KFMeasure);
+		}
+
+
+		float PredictedWidth = KFState.at<float>(4);
+		float PredictedHeight = KFState.at<float>(5);
+		float PredictedX = KFState.at<float>(0);
+		float PredictedY = KFState.at<float>(1);
+
+		cv::Rect ExpandedObjectPrediction;
+		ExpandedObjectPrediction.width = (int)PredictedWidth;
+		ExpandedObjectPrediction.height = (int)PredictedHeight;
+		ExpandedObjectPrediction.x = (int)(PredictedX - (ExpandedObjectPrediction.width * 0.5f));
+		ExpandedObjectPrediction.y = (int)(PredictedY - (ExpandedObjectPrediction.height * 0.5f));
+
+		(*Iter).Region = ExpandedObjectPrediction;
+
+		GROW_RECT(ExpandedObjectPrediction);
+
+		if( WantDebuggingInfo && DrawTrackedObjects )
+		{
+			cv::rectangle( InputFrame, ExpandedObjectPrediction, cv::Scalar(50.0,50.0,50.0), 2 );
+		}
 
 
 		bool Overlapped = false;
@@ -622,16 +738,24 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 				continue;
 			}
 
-			cv::Rect ExpandedObject2 = (*Iter2).Region;
-			ExpandedObject2.x -= (int)(ExpandedObject2.width * (1.0f + ClusterBoundaryGrowth) * 0.5f);
-			ExpandedObject2.y -= (int)(ExpandedObject2.height * (1.0f + ClusterBoundaryGrowth) * 0.5f);
-			ExpandedObject2.width = (int)(ExpandedObject2.width * (1.0f + ClusterBoundaryGrowth));
-			ExpandedObject2.height = (int)(ExpandedObject2.height * (1.0f + ClusterBoundaryGrowth));
+			float Obj2PredictedWidth = (*Iter2).KFState.at<float>(4);
+			float Obj2PredictedHeight = (*Iter2).KFState.at<float>(5);
+			float Obj2PredictedX = (*Iter2).KFState.at<float>(0);
+			float Obj2PredictedY = (*Iter2).KFState.at<float>(1);
 
-			if( (ExpandedObject1 & ExpandedObject2).area() > 0 )
+			cv::Rect Obj2ExpandedObjectPrediction;
+			Obj2ExpandedObjectPrediction.width = (int)Obj2PredictedX;
+			Obj2ExpandedObjectPrediction.height = (int)Obj2PredictedX;
+			Obj2ExpandedObjectPrediction.x = (int)(Obj2PredictedX - (Obj2ExpandedObjectPrediction.width * 0.5f));
+			Obj2ExpandedObjectPrediction.y = (int)(Obj2PredictedY - (Obj2ExpandedObjectPrediction.height * 0.5f));
+
+			GROW_RECT(Obj2ExpandedObjectPrediction);
+
+			if( (float)(ExpandedObjectPrediction & Obj2ExpandedObjectPrediction).area() > ((float)ExpandedObjectPrediction.area() * MinRatioOfBounds) )
 			{
-				(*Iter).Region = (*Iter).Region | (*Iter2).Region;
+				//(*Iter).Region = ExpandedObjectPrediction | Obj2ExpandedObjectPrediction;
 				(*Iter).FramesSinceLastSeen = min<int>( (*Iter).FramesSinceLastSeen, (*Iter2).FramesSinceLastSeen);
+				(*Iter).ObjectID = min<int>( (*Iter).ObjectID, (*Iter2).ObjectID);
 				(*Iter).FramesTracked = max<int>( (*Iter).FramesTracked, (*Iter2).FramesTracked);
 				(*Iter2).FramesSinceLastSeen = INT_MAX;
 				Overlapped = true;
@@ -643,33 +767,14 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 					(*Iter).ClassificationGroup |= (*Iter2).ClassificationGroup;
 					(*Iter).ClassificationConfidence += (*Iter2).ClassificationConfidence;
 					(*Iter).CustomLabel = (*Iter2).CustomLabel;
-					(*Iter).ObjectID = (*Iter2).ObjectID;
-				}
-			}
-			else if( (ExpandedObjectPrediction & ExpandedObject2).area() > 0 )
-			{
-				(*Iter).Region = (*Iter).Region | (*Iter2).Region;
-				(*Iter).FramesSinceLastSeen = min<int>( (*Iter).FramesSinceLastSeen, (*Iter2).FramesSinceLastSeen);
-				(*Iter).FramesTracked = max<int>( (*Iter).FramesTracked, (*Iter2).FramesTracked);
-				(*Iter2).FramesSinceLastSeen = INT_MAX;
-				Overlapped = true;
-
-				//TODO: Merge classifications
-				if( ((*Iter2).Classification & (~ClassificationResult::Motion_Motion)) != 0 )
-				{
-					(*Iter).Classification |= (*Iter2).Classification;
-					(*Iter).ClassificationGroup |= (*Iter2).ClassificationGroup;
-					(*Iter).ClassificationConfidence += (*Iter2).ClassificationConfidence;
-					(*Iter).CustomLabel = (*Iter2).CustomLabel;
-					(*Iter).ObjectID = (*Iter2).ObjectID;
 				}
 			}
 		}
 
 		if( (*Iter).Region.width > 0 && (*Iter).Region.height > 0 )
 		{
-			float X = ((float)(*Iter).Region.x + ((float)(*Iter).Region.width * 0.5f)) * RescaleX;
-			float Y = ((float)(*Iter).Region.y + ((float)(*Iter).Region.height * 0.5f)) * RescaleY;
+			float X = PredictedX;
+			float Y = PredictedY;
 
 			(*Iter).PreviousPoints.push_back( Point2f(X,Y) );
 		}
@@ -677,12 +782,6 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 		if( WantDebuggingInfo && DrawTrackedObjects )
 		{
 			FilterFrameStatScope Scope( TaskData->Frame.Stats, FilterStat_Debug );
-
-			cv::Rect DrawBounds;
-			DrawBounds.x = (int)((float)ExpandedObject1.x * RescaleX);
-			DrawBounds.y = (int)((float)ExpandedObject1.y * RescaleY);
-			DrawBounds.width = (int)((float)ExpandedObject1.width * RescaleX);
-			DrawBounds.height = (int)((float)ExpandedObject1.height * RescaleY);
 
 			if( DrawTrackedObjectPredictions )
 			{
@@ -697,33 +796,24 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 
 			if( Iter->FramesTracked > MinTrackingFrames )
 			{
-				if( DrawTrackedObjectPredictions )
-				{
-					cv::Rect PredictedBounds = DrawBounds;
-					PredictedBounds.x += (int)(Velocity.x);
-					PredictedBounds.y += (int)(Velocity.y);
-
-					cv::rectangle( InputFrame, PredictedBounds, cv::Scalar(255.0,255.0,255.0), 2 );
-				}
-
 				if( Iter->FramesSinceLastSeen < LostTrackFrames / 2 )
 				{
-					cv::rectangle( InputFrame, DrawBounds, cv::Scalar(0,255.0,0.0), 2 );
+					cv::rectangle( InputFrame, ExpandedObjectPrediction, cv::Scalar(0,255.0,0.0), 2 );
 				}
 				else if( Iter->FramesSinceLastSeen >  LostTrackFrames / 2 )
 				{
-					cv::rectangle( InputFrame, DrawBounds, cv::Scalar(0,150.0,255.0), 2 );
+					cv::rectangle( InputFrame, ExpandedObjectPrediction, cv::Scalar(0,150.0,255.0), 2 );
 				}
 				else
 				{
-					cv::rectangle( InputFrame, DrawBounds, cv::Scalar(0,0.0,255.0), 2 );
+					cv::rectangle( InputFrame, ExpandedObjectPrediction, cv::Scalar(0,0.0,255.0), 2 );
 				}
 			}
 			else
 			{
 				if( Iter->FramesSinceLastSeen == 0 && DrawPreTrackedObjects )
 				{
-					cv::rectangle( InputFrame, DrawBounds, cv::Scalar(255.0,0.0,0.0), 2 );
+					cv::rectangle( InputFrame, ExpandedObjectPrediction, cv::Scalar(255.0,0.0,0.0), 2 );
 				}
 			}
 		}
@@ -762,16 +852,6 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 			ClassificationResult::RegionOfInterest ROI;
 					
 			cv::Rect ExpandedObject = (*Iter).Region;
-
-			ExpandedObject.x = (int)(ExpandedObject.x * RescaleX);
-			ExpandedObject.y = (int)(ExpandedObject.y * RescaleY);
-			ExpandedObject.width = (int)(ExpandedObject.width * RescaleX);
-			ExpandedObject.height = (int)(ExpandedObject.height * RescaleY);
-
-			ExpandedObject.x -= (int)(ExpandedObject.width * (1.0f + ClusterBoundaryGrowth) * 0.5f);
-			ExpandedObject.y -= (int)(ExpandedObject.height * (1.0f + ClusterBoundaryGrowth) * 0.5f);
-			ExpandedObject.width = (int)(ExpandedObject.width * (1.0f + ClusterBoundaryGrowth));
-			ExpandedObject.height = (int)(ExpandedObject.height * (1.0f + ClusterBoundaryGrowth));
 
 			ROI.Classification |= ClassificationResult::Motion_Motion;
 			ROI.Left = max<int>( ExpandedObject.x, 0 );
@@ -820,16 +900,6 @@ void MotionVectorFilter::UpdateROI( SharedClassificationTask TaskData )
 	for (auto Iter = ID.Objects.begin(); Iter != ID.Objects.end(); Iter++ )
 	{				
 		cv::Rect ExpandedObject = (*Iter).Region;
-
-		ExpandedObject.x = (int)(ExpandedObject.x * RescaleX);
-		ExpandedObject.y = (int)(ExpandedObject.y * RescaleY);
-		ExpandedObject.width = (int)(ExpandedObject.width * RescaleX);
-		ExpandedObject.height = (int)(ExpandedObject.height * RescaleY);
-
-		ExpandedObject.x -= (int)(ExpandedObject.width * (1.0f + ClusterBoundaryGrowth) * 0.5f);
-		ExpandedObject.y -= (int)(ExpandedObject.height * (1.0f + ClusterBoundaryGrowth) * 0.5f);
-		ExpandedObject.width = (int)(ExpandedObject.width * (1.0f + ClusterBoundaryGrowth));
-		ExpandedObject.height = (int)(ExpandedObject.height * (1.0f + ClusterBoundaryGrowth));
 
 		for( auto& ROI : TaskData->Result.ROI )
 		{
