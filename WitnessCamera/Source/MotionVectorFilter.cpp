@@ -61,7 +61,7 @@ int MaxBlockMoveDistance = 128000;
 int MinVectorCount = 2;
 int MinClusterPoints = 2;
 int LostTrackFrames = 8;
-int MinTrackingFrames = 2;
+int MinTrackingFrames = 3;
 
 float KFTranslationScale = 30.0f;
 float KFVelocityScale = 200.0f;
@@ -521,7 +521,7 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 	}
 
 	int TotalArea = 0;
-	int ComparisonArea = WidthBucketWidth * HeightBucketHeight;
+	int ComparisonArea = (int)((float)WidthBucketWidth * (float)HeightBucketHeight * RescaleX * RescaleY);
 
 	const int TargetClusters = 2;
 	const int MaxClusters = 5;
