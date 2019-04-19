@@ -9,8 +9,25 @@
 
 #include <windows.h>
 
-void WitnessServer::StartCameraRecording( const shared_ptr<CameraWorker>& Worker, uint64_t Timestamp, int CameraID, bool IsManual )
+void WitnessServer::StartCameraRecording( const shared_ptr<CameraWorker>& Worker, uint64_t Timestamp, int CameraID, bool IsManual, const ClassificationResult& Result )
 {
+	bool First = true;
+	string TagsA = "";
+	for( auto& Tag : Result.Tags )
+	{
+		if( First )
+		{
+			First = false;
+		}
+		else
+		{
+			TagsA += ";";
+		}
+
+		TagsA += Tag;
+	}
+	string_t Tags( TagsA.begin(), TagsA.end() );
+
 	CreateDirectoryW( CachePath.c_str(), nullptr );
 	stringstream_t TargetFilename;
 	TargetFilename << CachePath << _T("\\") << CameraID << (IsManual ? _T("_Manual_") : _T("_Auto_")) << Timestamp << ".mp4";
@@ -31,14 +48,33 @@ void WitnessServer::StartCameraRecording( const shared_ptr<CameraWorker>& Worker
 	CreateClip->Bind( "@MaxMotion", 0.0f );
 	CreateClip->Bind( "@Description", _T("") );
 	CreateClip->Bind( "@Save", 0 );
+	CreateClip->Bind( "@Tags", Tags.c_str() );
 	CreateClip->Execute( nullptr );
 }
 
-void WitnessServer::StopCameraRecording( const ClipStatistics& ClipStats, int CameraID )
+void WitnessServer::StopCameraRecording( const ClipStatistics& ClipStats, int CameraID, const ClassificationResult& Result )
 {
+	bool First = true;
+	string TagsA = "";
+	for( auto& Tag : Result.Tags )
+	{
+		if( First )
+		{
+			First = false;
+		}
+		else
+		{
+			TagsA += ";";
+		}
+
+		TagsA += Tag;
+	}
+	string_t Tags( TagsA.begin(), TagsA.end() );
+
 	SQLiteDatabaseQueryInstance UpdateClip( Context->Database, _T("UpdateClip") );
 	UpdateClip->Bind( "@Timestamp", (int64_t)ClipStats.TimestampClipStarted );
 	UpdateClip->Bind( "@Camera", CameraID );
+	UpdateClip->Bind( "@Tags", Tags.c_str() );
 
 	if( ClipStats.TimestampMotionStarted != INT64_MAX )
 	{

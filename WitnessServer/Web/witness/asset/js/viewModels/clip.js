@@ -1,4 +1,4 @@
-var ClipViewModel = function( parent, newClipUID, newTimestamp, newCameraID, newMotionTimestamp, newActiveDuration, newDuration, newRecordMode, newMaxMotion, newDescription, newSaved ) {
+var ClipViewModel = function( parent, newClipUID, newTimestamp, newCameraID, newMotionTimestamp, newActiveDuration, newDuration, newRecordMode, newMaxMotion, newDescription, newSaved, newTags ) {
 	"use strict";
 	
 	var self = this;
@@ -15,6 +15,7 @@ var ClipViewModel = function( parent, newClipUID, newTimestamp, newCameraID, new
 	self.maxMotion = ko.observable(newMaxMotion);
 	self.description = ko.observable(newDescription);
 	self.saved = ko.observable(newSaved);
+	self.tags = ko.observable(newTags);
 	
 	self.recursing = false;
 	

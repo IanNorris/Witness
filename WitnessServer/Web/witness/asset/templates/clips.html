@@ -29,6 +29,7 @@
 							<th>Duration</th>
 							<th>Motion</th>
 							<th>Type</th>
+							<th>Tags</th>
 							<th>Actions</th>
 						</thead>
 						<tbody data-bind="foreach: clips">
@@ -42,6 +43,7 @@
 								<td data-bind="text: durationDesc"></td>
 								<td data-bind="text: motionDesc"></td>
 								<td data-bind="text: typeDesc"></td>
+								<td data-bind="text: tags"></td>
 								<td>
 									<span style="margin: 0.5em"><input type="checkbox" class="checkbox" data-bind="checked: saved, click: toggleSaved"> Save</input></span>
 									<button class="btn btn-circle btn-mn btn-danger" data-bind="click: deleteClip"><i class="fa fa-trash"></i></button>

@@ -43,6 +43,7 @@ struct CameraBeginMotionMessage : public Message
 	CameraBeginMotionMessage( int CamIndex ) : MotionPercentage( 0.0 ), Camera( CamIndex ) {}
 
 	ClipStatistics ClipStats;
+	ClassificationResult Result;
 
 	double MotionPercentage;
 	int Camera;
@@ -55,6 +56,7 @@ struct CameraUpdateMotionMessage : public Message
 	CameraUpdateMotionMessage( int CamIndex ) : Camera( CamIndex ) {}
 
 	ClipStatistics ClipStats;
+	ClassificationResult Result;
 	
 	int Camera;
 
@@ -66,6 +68,7 @@ struct CameraEndMotionMessage : public Message
 	CameraEndMotionMessage( int CamIndex ) : Camera( CamIndex ) {}
 
 	ClipStatistics ClipStats;
+	ClassificationResult Result;
 
 	int Camera;
 };
@@ -98,6 +101,7 @@ struct CameraClipFinishedMessage : public Message
 	CameraClipFinishedMessage( int CamIndex, bool ManualStop ) : Camera( CamIndex ), ManualStop( ManualStop )  {}
 
 	ClipStatistics ClipStats;
+	ClassificationResult Result;
 
 	int Camera;
 	bool ManualStop;

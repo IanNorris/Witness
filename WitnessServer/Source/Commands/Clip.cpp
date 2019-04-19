@@ -304,6 +304,8 @@ void Command_Clip::OnEnumClipsMessage( const GlobalContext& Context, http_reques
 				string_t Description = DescriptionStr ? DescriptionStr : _T("");
 
 				int Saved = query.GetColumnValueInt(9);
+
+				string_t Tags = query.GetColumnValueText(10) ? query.GetColumnValueText(10) : _T("");
 			
 				json::value Camera;
 				Camera[ _T("clipUID") ] = json::value(ClipID);
@@ -316,6 +318,7 @@ void Command_Clip::OnEnumClipsMessage( const GlobalContext& Context, http_reques
 				Camera[ _T("maxMotion") ] = json::value(MaxMotion);
 				Camera[ _T("description") ] = json::value(Description);
 				Camera[ _T("saved") ] = json::value(Saved);
+				Camera[ _T("tags") ] = json::value(Tags);
 
 				Array.push_back( Camera );
 				

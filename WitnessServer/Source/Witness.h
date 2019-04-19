@@ -59,8 +59,8 @@ private:
 
 	void StartCameraWorkers();
 
-	void StartCameraRecording( const shared_ptr<CameraWorker>& Worker, uint64_t Timestamp, int CameraID, bool IsManual );
-	void StopCameraRecording( const ClipStatistics& ClipStats, int CameraID );
+	void StartCameraRecording( const shared_ptr<CameraWorker>& Worker, uint64_t Timestamp, int CameraID, bool IsManual, const ClassificationResult& Result );
+	void StopCameraRecording( const ClipStatistics& ClipStats, int CameraID, const ClassificationResult& Result );
 
 	unique_ptr<AsyncWorker> Worker;
 	unique_ptr<WatchdogWorker> Watchdog;

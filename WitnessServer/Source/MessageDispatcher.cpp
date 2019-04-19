@@ -39,7 +39,7 @@ void WitnessServer::MessageLoop()
 		
 		Msg->Handle<CameraClipFinishedMessage>([&](const CameraClipFinishedMessage& Data)
 		{
-			StopCameraRecording( Data.ClipStats, Data.Camera );
+			StopCameraRecording( Data.ClipStats, Data.Camera, Data.Result );
 		});
 
 		Msg->Handle<CameraStateToggleRecordMessage>([&](const CameraStateToggleRecordMessage& Data)
@@ -73,7 +73,7 @@ void WitnessServer::MessageLoop()
 				{
 				    uint64_t Timestamp = datetime::utc_timestamp();
 
-					StartCameraRecording( Worker, Timestamp, Data.Camera, true );
+					StartCameraRecording( Worker, Timestamp, Data.Camera, true, ClassificationResult() );
 				}
 				else
 				{

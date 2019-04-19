@@ -48,6 +48,7 @@ bool ObservingMotionFilter::ProcessFrame( SharedClassificationTask TaskData )
 		TaskData->FrameOwner->InputFrame->Unref();
 		return TaskData->Result.ClassificationSuperset != 0;
 	}
+
 	LastPresentedTimestamp = TaskData->Frame.Timestamp;
 
 	FrameIndex++;
@@ -165,6 +166,11 @@ bool ObservingMotionFilter::ProcessFrame( SharedClassificationTask TaskData )
 
 			auto MotionMessage = make_shared<CameraBeginMotionMessage>( CameraID );
 
+			{
+				std::lock_guard<std::mutex> Lock(Mutex);
+				Result = TaskData->Result;
+			}
+
 			ClipStats.TimestampClipStarted = TimestampNow;
 			ClipStats.TimestampMotionStarted = TimestampNow;
 			ClipStats.TimestampMotionEnded = INT64_MIN;
@@ -172,6 +178,7 @@ bool ObservingMotionFilter::ProcessFrame( SharedClassificationTask TaskData )
 			ClipStats.LargestMotionDelta = MotionMessage->MotionPercentage = TaskData->Result.MotionAmount;
 
 			MotionMessage->ClipStats = ClipStats;
+			MotionMessage->Result = TaskData->Result;
 
 			CreateJpegPreview( TaskData->Frame, MotionMessage->Jpeg, TargetThumbnailSize, DefaultQuality, nullptr );
 
@@ -193,6 +200,7 @@ bool ObservingMotionFilter::ProcessFrame( SharedClassificationTask TaskData )
 				auto MotionMessage = make_shared<CameraUpdateMotionMessage>( CameraID );
 
 				MotionMessage->ClipStats = ClipStats;
+				MotionMessage->Result = TaskData->Result;
 
 				CreateJpegPreview( TaskData->Frame, MotionMessage->Jpeg, TargetThumbnailSize, DefaultQuality, nullptr );
 				
@@ -217,8 +225,31 @@ bool ObservingMotionFilter::ProcessFrame( SharedClassificationTask TaskData )
 
 				ClipStats.TimestampClipEnded = TimestampNow;
 				MotionMessage->ClipStats = ClipStats;
+				MotionMessage->Result = TaskData->Result;
 				
 				MessageBusPtr->SendToClient( nullptr, MotionMessage );
+			}
+		}
+	}
+
+	{
+		std::lock_guard<std::mutex> Lock(Mutex);
+
+		for( auto& Tag : TaskData->Result.Tags )
+		{
+			bool AlreadyExists = false;
+			for( auto& TagExisting : Result.Tags )
+			{
+				if( TagExisting.compare( Tag ) == 0 )
+				{
+					AlreadyExists = true;
+					break;
+				}
+			}
+
+			if( !AlreadyExists )
+			{
+				Result.Tags.push_back(Tag);
 			}
 		}
 	}

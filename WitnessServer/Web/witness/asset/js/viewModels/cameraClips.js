@@ -212,6 +212,7 @@ var CameraClipsViewModel = function( parent, authentication, cameraID ) {
 				var newMaxMotion = result.clips[clip].maxMotion;
 				var newDescription = result.clips[clip].description;
 				var newSaved = result.clips[clip].saved;
+				var newTags = result.clips[clip].tags;
 
 				var existing = null;
 				
@@ -233,9 +234,10 @@ var CameraClipsViewModel = function( parent, authentication, cameraID ) {
 					existing.maxMotion(newMaxMotion);
 					existing.description(newDescription);
 					existing.saved(newSaved);
+					existing.tags(newTags);
 				}
 				else {
-					self.clips.push(  new ClipViewModel( self, newClipUID, newTimestamp, newCameraID, newMotionTimestamp, newActiveDuration, newDuration, newRecordMode, newMaxMotion, newDescription, newSaved ) );
+					self.clips.push(  new ClipViewModel( self, newClipUID, newTimestamp, newCameraID, newMotionTimestamp, newActiveDuration, newDuration, newRecordMode, newMaxMotion, newDescription, newSaved, newTags ) );
 				}
 				
 				self.clips.sort( function( left, right ) {

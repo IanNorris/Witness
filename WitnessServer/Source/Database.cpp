@@ -70,7 +70,8 @@ namespace Database
 			RecordMode		INT,
 			MaxMotion		FLOAT,
 			Description		TEXT,
-			Save			INT
+			Save			INT,
+			Tags			TEXT
 		);
 
 		CREATE UNIQUE INDEX IF NOT EXISTS ClipIndex ON Clip (Timestamp,Camera);
@@ -218,8 +219,8 @@ namespace Database
 	)RAW";
 
 	string_t CreateClip = LR"RAW(
-		INSERT INTO Clip (Timestamp,Camera,MotionTimestamp,ActiveDuration,Duration,RecordMode,MaxMotion,Description,Save)
-		VALUES(@Timestamp,@Camera,@MotionTimestamp,@ActiveDuration,@Duration,@RecordMode,@MaxMotion,@Description,@Save);
+		INSERT INTO Clip (Timestamp,Camera,MotionTimestamp,ActiveDuration,Duration,RecordMode,MaxMotion,Description,Save,Tags)
+		VALUES(@Timestamp,@Camera,@MotionTimestamp,@ActiveDuration,@Duration,@RecordMode,@MaxMotion,@Description,@Save,@Tags);
 	)RAW";
 
 	string_t SelectClipID = LR"RAW(
@@ -233,7 +234,8 @@ namespace Database
 			MotionTimestamp = @MotionTimestamp,
 			ActiveDuration = @ActiveDuration,
 			Duration = @Duration,
-			MaxMotion = @MaxMotion
+			MaxMotion = @MaxMotion,
+			Tags = @Tags
 		WHERE 
 				Timestamp == @Timestamp 
 			AND Camera == @Camera

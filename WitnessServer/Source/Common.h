@@ -50,6 +50,9 @@ enum class StringStrip
 string_t Trim( string_t tInput );
 vector< string_t > SplitString( string_t tInput, string_t tSeparator, StringTrim eTrim = StringTrim::Trim, StringStrip eStrip = StringStrip::RemoveEmpty );
 
+string Trim( string tInput );
+vector< string > SplitString( string tInput, string tSeparator, StringTrim eTrim = StringTrim::Trim, StringStrip eStrip = StringStrip::RemoveEmpty );
+
 string StringPrintfA(char* Message, ...);
 wstring StringPrintfW(wchar_t* Message, ...);
 

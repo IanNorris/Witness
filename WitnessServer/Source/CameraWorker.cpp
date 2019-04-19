@@ -231,9 +231,12 @@ void CameraWorker::OnClipFinished(bool ManualStop)
 		Observer->SetManualClipEnd( datetime::utc_timestamp() );
 
 		auto FinishedMessage = make_shared<CameraClipFinishedMessage>( Camera.ID, ManualStop );
+		FinishedMessage->Result = Observer->GetCurrentResult();
 		FinishedMessage->ClipStats = Observer->GetClipStatistics();
 		MessageBusObject->SendToClient( nullptr, FinishedMessage );
 		Filter->ClearState();
+
+
 
 		RecordStream->CloseFile();
 		RecordStream.reset();

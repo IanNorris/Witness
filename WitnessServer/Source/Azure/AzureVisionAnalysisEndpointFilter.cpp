@@ -36,6 +36,7 @@ const static TagToClassification TagClassifications[] = {
 const static TCHAR* ListOfExclusions[] = {
 	_T("outdoor"),
 	_T("skiing"),
+	_T("summer"),
 	_T("winter"),
 	_T("snow"),
 	_T("ground"),
@@ -64,6 +65,7 @@ const static TCHAR* ListOfExclusions[] = {
 	_T("road"),
 	_T("rubber"),
 	_T("black"),
+	_T("keyboard"),
 };
 
 struct AzureVisionResultsCollect
@@ -75,13 +77,17 @@ struct AzureVisionResultsCollect
 	bool Matched;
 };
 
+int TagsRemaining = 5000;
+
 bool AzureVisionAnalysisEndpointFilter::ProcessFrame( SharedClassificationTask TaskData )
 {
-	if (!IsAllowedToProcessFrame())
+	if (!IsAllowedToProcessFrame() && TagsRemaining > 0)
 	{
 		Continue( TaskData, false );
 		return false;
 	}
+
+	TagsRemaining--;
 
 	json::value Request;
 	QueryPairs Query;
@@ -132,37 +138,59 @@ bool AzureVisionAnalysisEndpointFilter::ProcessFrame( SharedClassificationTask T
 
 		float Aspect = (float)InputFrame.cols / (float)InputFrame.rows;
 
+		cv::Rect WholeImage;
+		WholeImage.x = 0;
+		WholeImage.y = 0;
+		WholeImage.width = InputFrame.cols;
+		WholeImage.height = InputFrame.rows;
+
 		const int TargetSize = 720;
 		const int Quality = 60;
+
+		float Overscan = 0.4f;
+		float OverscanWidth = ROI.Width * Overscan;
+		float OverscanHeight = ROI.Height * Overscan;
+
+		cv::Rect ROIRect;
+		ROIRect.x = ROI.Left - (OverscanWidth * 0.5f);
+		ROIRect.y = ROI.Top - (OverscanHeight * 0.5f);
+		ROIRect.width = ROI.Width + OverscanWidth;
+		ROIRect.height = ROI.Height + OverscanHeight;
+
+		ROIRect = ROIRect & WholeImage;
 
 		cv::Mat ROIImage;
 
 		float Downscale = 1.0f;
 		ROIImage = cv::Mat( InputFrame, cv::Rect(
-			(int)((float)ROI.Left * Downscale), 
-			(int)((float)ROI.Top * Downscale), 
-			(int)((float)ROI.Width * Downscale), 
-			(int)((float)ROI.Height * Downscale)));
+			(int)((float)ROIRect.x * Downscale), 
+			(int)((float)ROIRect.y * Downscale), 
+			(int)((float)ROIRect.width * Downscale), 
+			(int)((float)ROIRect.height * Downscale)));
 
 		cv::imencode( ".jpg", ROIImage, Data, std::vector<int>{ CV_IMWRITE_JPEG_QUALITY, Quality } );
 
 		static int FrameIndex = 0;
 
-		char Buffer[128];
-		sprintf_s( Buffer, 128, "X:\\WitnessTemp\\%d.jpg", FrameIndex++ );
+		bool EnableImageWriteOut = false;
+		if( EnableImageWriteOut )
+		{
+			char Buffer[128];
+			sprintf_s( Buffer, 128, "X:\\WitnessTemp\\%d.jpg", FrameIndex++ );
 
-		ofstream Output( Buffer, ofstream::binary );
+			ofstream Output( Buffer, ofstream::binary );
 
-		Output.write( (const char*)&Data[0], Data.size() );
+			Output.write( (const char*)&Data[0], Data.size() );
 
-		Output.close();
+			Output.close();
+		}
 
 		Query.push_back( QueryPair( _T("visualFeatures"), _T("Tags") ) ); // _T("Faces,Tags")
 
 		const static double ConfidenceThreshold = 0.75;
 
 		SendCommand( Analysis, Request, Query, Data ).then(
-			[ROIIndex,TaskData,TaskCallback,this](web::http::http_response Response)
+			[ROIIndex,TaskData,TaskCallback,TaskCollect,this](web::http::http_response Response)
 			{
 				bool MatchMade = false;
 
@@ -180,6 +208,7 @@ bool AzureVisionAnalysisEndpointFilter::ProcessFrame( SharedClassificationTask T
 							if( Tag.has_string_field(_T("name")) && Tag.has_double_field(_T("confidence")) )
 							{
 								string_t Name = Tag[_T("name")].as_string();
+								string NameA = std::string( Name.begin(), Name.end() );
 								double Confidence = Tag[_T("confidence")].as_double();
 
 								if( Confidence >= ConfidenceThreshold )
@@ -198,6 +227,38 @@ bool AzureVisionAnalysisEndpointFilter::ProcessFrame( SharedClassificationTask T
 									{
 										auto& ROI = TaskData->Result.ROI[ROIIndex];
 
+										{
+											bool AlreadyContains = false;
+											for( auto& ExistingTag : ROI.Tags )
+											{
+												if( NameA.compare(ExistingTag) == 0 )
+												{
+													AlreadyContains = true;
+												}
+											}
+											if( !AlreadyContains )
+											{
+												ROI.Tags.push_back( NameA );
+											}
+										}
+
+										{
+											std::lock_guard<std::mutex> Lock(TaskCollect->Mutex);
+
+											bool AlreadyContains = false;
+											for( auto& ExistingTag : TaskData->Result.Tags )
+											{
+												if( NameA.compare(ExistingTag) == 0 )
+												{
+													AlreadyContains = true;
+												}
+											}
+											if( !AlreadyContains )
+											{
+												TaskData->Result.Tags.push_back( NameA );
+											}
+										}
+
 										bool Classified = false;
 										for( auto& TagClass : TagClassifications )
 										{
@@ -215,7 +276,7 @@ bool AzureVisionAnalysisEndpointFilter::ProcessFrame( SharedClassificationTask T
 										ROI.ClassificationConfidence = (float)Confidence;
 										if( !Classified )
 										{
-											ROI.CustomLabel = std::string( Name.begin(), Name.end() );
+											ROI.CustomLabel = NameA;
 										}
 
 										MatchMade = true;

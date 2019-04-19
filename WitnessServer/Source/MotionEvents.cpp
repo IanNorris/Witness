@@ -55,7 +55,7 @@ void WitnessServer::HandleCameraBeginMotionMessage(const CameraBeginMotionMessag
 						
 	SendAndroidNotification( Android.ServerKey, Android.TempUserId, _T("Camera info"), CameraName, ThumbPath.str(), nullptr );
 						
-	StartCameraRecording( Worker, Data.ClipStats.TimestampClipStarted, Data.Camera, false );
+	StartCameraRecording( Worker, Data.ClipStats.TimestampClipStarted, Data.Camera, false, Data.Result );
 };
 
 void WitnessServer::HandleCameraUpdateMotionMessage(const CameraUpdateMotionMessage& Data)

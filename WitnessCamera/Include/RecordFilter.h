@@ -143,6 +143,7 @@ struct ClassificationResult
 		, ClassificationConfidence( 0.0 )
 		{}
 
+		std::vector<std::string> Tags;
 		std::string	CustomLabel;
 
 		IRecordFilter* Filter;
@@ -165,6 +166,7 @@ struct ClassificationResult
 	{}
 
 	std::vector<RegionOfInterest> ROI;
+	std::vector<std::string> Tags;
 
 	unsigned int ClassificationSuperset;
 	float MotionAmount;

@@ -38,6 +38,13 @@ public:
 
 	const ClipStatistics& GetClipStatistics() const { return ClipStats; }
 
+	const ClassificationResult& GetCurrentResult() const 
+	{
+		std::lock_guard<std::mutex> Lock(Mutex);
+
+		return Result;
+	}
+
 	void SetManualClipStart( uint64_t ClipStart ) { ClipStats.TimestampClipStarted = min( ClipStart, ClipStats.TimestampClipStarted ); }
 	void SetManualClipEnd( uint64_t ClipEnd ) { ClipStats.TimestampClipEnded = max( ClipEnd, ClipStats.TimestampClipEnded ); }
 
@@ -53,6 +60,8 @@ public:
 
 private:
 
+	mutable std::mutex		Mutex;
+
 	shared_ptr<MotionChainNode>	MotionChain;
 
 	shared_ptr<MessageBus>	MessageBusPtr;
@@ -66,6 +75,7 @@ private:
 	int						LastMotionIndex;
 	bool					SaveNextFrame;
 
+	ClassificationResult	Result;
 	ClipStatistics			ClipStats;
 
 	MotionState				State;
