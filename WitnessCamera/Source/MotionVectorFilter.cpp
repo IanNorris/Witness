@@ -43,6 +43,8 @@ int BucketDistanceSquared = 3;
 float MinSummaryPrintout = 1000.0f;
 float MinRatioOfBounds = 0.15f;
 float ClusterBoundaryGrowth = 0.33f;
+float DBScanClusterProximity = 200.0f;
+int DBScanClusterMnpts = 2;
 
 #define DEBUG_MV false
 
@@ -61,6 +63,7 @@ int MaxBlockMoveDistance = 128000;
 int MinVectorCount = 2;
 int MinClusterPoints = 2;
 int LostTrackFrames = 8;
+int LostTrackFramesAfterEngagement = 60;
 int MinTrackingFrames = 3;
 
 float KFTranslationScale = 30.0f;
@@ -75,9 +78,169 @@ float KFNoiseScale = 0.1f;
         R.width += (int)(R.width * ClusterBoundaryGrowth);		\
         R.height += (int)(R.height * ClusterBoundaryGrowth);
 
-
 namespace Witness{
 namespace Camera{
+
+
+//https://stackoverflow.com/questions/23842940/clustering-image-segments-in-opencv
+class DbScan
+{
+public:
+    std::map<int, int> labels;
+    vector<Rect>& data;
+    int C;
+    double eps;
+    int mnpts;
+    double* dp;
+    //memoization table in case of complex dist functions
+#define DP(i,j) dp[(data.size()*i)+j]
+    DbScan(vector<Rect>& _data,double _eps,int _mnpts):data(_data)
+    {
+        C=-1;
+        for(int i=0;i<data.size();i++)
+        {
+            labels[i]=-99;
+        }
+        eps=_eps;
+        mnpts=_mnpts;
+    }
+    void run()
+    {
+        dp = new double[data.size()*data.size()];
+        for(int i=0;i<data.size();i++)
+        {
+            for(int j=0;j<data.size();j++)
+            {
+                if(i==j)
+                    DP(i,j)=0;
+                else
+                    DP(i,j)=-1;
+            }
+        }
+        for(int i=0;i<data.size();i++)
+        {
+            if(!isVisited(i))
+            {
+                vector<int> neighbours = regionQuery(i);
+                if(neighbours.size()<mnpts)
+                {
+                    labels[i]=-1;//noise
+                }else
+                {
+                    C++;
+                    expandCluster(i,neighbours);
+                }
+            }
+        }
+        delete [] dp;
+    }
+    void expandCluster(int p,vector<int> neighbours)
+    {
+        labels[p]=C;
+        for(int i=0;i<neighbours.size();i++)
+        {
+            if(!isVisited(neighbours[i]))
+            {
+                labels[neighbours[i]]=C;
+                vector<int> neighbours_p = regionQuery(neighbours[i]);
+                if (neighbours_p.size() >= mnpts)
+                {
+                    expandCluster(neighbours[i],neighbours_p);
+                }
+            }
+        }
+    }
+
+    bool isVisited(int i)
+    {
+        return labels[i]!=-99;
+    }
+
+    vector<int> regionQuery(int p)
+    {
+        vector<int> res;
+        for(int i=0;i<data.size();i++)
+        {
+            if(distanceFunc(p,i)<=eps)
+            {
+                res.push_back(i);
+            }
+        }
+        return res;
+    }
+
+    double dist2d(Point2d a,Point2d b)
+    {
+        return sqrt(pow(a.x-b.x,2) + pow(a.y-b.y,2));
+    }
+
+    double distanceFunc(int ai,int bi)
+    {
+        if(DP(ai,bi)!=-1)
+            return DP(ai,bi);
+        Rect a = data[ai];
+        Rect b = data[bi];
+        /*
+        Point2d cena= Point2d(a.x+a.width/2,
+                              a.y+a.height/2);
+        Point2d cenb = Point2d(b.x+b.width/2,
+                              b.y+b.height/2);
+        double dist = sqrt(pow(cena.x-cenb.x,2) + pow(cena.y-cenb.y,2));
+        DP(ai,bi)=dist;
+        DP(bi,ai)=dist;*/
+        Point2d tla =Point2d(a.x,a.y);
+        Point2d tra =Point2d(a.x+a.width,a.y);
+        Point2d bla =Point2d(a.x,a.y+a.height);
+        Point2d bra =Point2d(a.x+a.width,a.y+a.height);
+
+        Point2d tlb =Point2d(b.x,b.y);
+        Point2d trb =Point2d(b.x+b.width,b.y);
+        Point2d blb =Point2d(b.x,b.y+b.height);
+        Point2d brb =Point2d(b.x+b.width,b.y+b.height);
+
+        double minDist = 9999999;
+
+        minDist = min(minDist,dist2d(tla,tlb));
+        minDist = min(minDist,dist2d(tla,trb));
+        minDist = min(minDist,dist2d(tla,blb));
+        minDist = min(minDist,dist2d(tla,brb));
+
+        minDist = min(minDist,dist2d(tra,tlb));
+        minDist = min(minDist,dist2d(tra,trb));
+        minDist = min(minDist,dist2d(tra,blb));
+        minDist = min(minDist,dist2d(tra,brb));
+
+        minDist = min(minDist,dist2d(bla,tlb));
+        minDist = min(minDist,dist2d(bla,trb));
+        minDist = min(minDist,dist2d(bla,blb));
+        minDist = min(minDist,dist2d(bla,brb));
+
+        minDist = min(minDist,dist2d(bra,tlb));
+        minDist = min(minDist,dist2d(bra,trb));
+        minDist = min(minDist,dist2d(bra,blb));
+        minDist = min(minDist,dist2d(bra,brb));
+        DP(ai,bi)=minDist;
+        DP(bi,ai)=minDist;
+        return DP(ai,bi);
+    }
+
+    vector<vector<Rect> > getGroups()
+    {
+        vector<vector<Rect> > ret;
+        for(int i=0;i<=C;i++)
+        {
+            ret.push_back(vector<Rect>());
+            for(int j=0;j<data.size();j++)
+            {
+                if(labels[j]==i)
+                {
+                    ret[ret.size()-1].push_back(data[j]);
+                }
+            }
+        }
+        return ret;
+    }
+};
 
 struct MotionVectorFilterData : public FilterDataBase
 {
@@ -100,6 +263,7 @@ struct MotionVectorFilterData : public FilterDataBase
 	DebugBind<float> DB_MinRatioOfBounds;
 	DebugBind<int> DB_MinClusterPoints;
 	DebugBind<int> DB_LostTrackFrames;
+	DebugBind<int> DB_LostTrackFramesAfterEngagement;
 	DebugBind<int> DB_MinTrackingFrames;
 
 	DebugBind<float> DB_KFTranslationScale;
@@ -107,6 +271,9 @@ struct MotionVectorFilterData : public FilterDataBase
 	DebugBind<float> DB_KFBoundsScale;
 	DebugBind<float> DB_KFIdentityScale;
 	DebugBind<float> DB_KFNoiseScale;
+
+	DebugBind<float> DB_DBScanClusterProximity;
+	DebugBind<int> DB_DBScanClusterMnpts;
 
 	MotionVectorFilterData()
 	: DB_BucketDistance( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Bucket Distance Squared", &BucketDistanceSquared )
@@ -128,12 +295,15 @@ struct MotionVectorFilterData : public FilterDataBase
 	, DB_MinRatioOfBounds( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Min Ratio Of Bounds", &MinRatioOfBounds )
 	, DB_MinClusterPoints( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Min Cluster Points", &MinClusterPoints )
 	, DB_LostTrackFrames( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Lost Track Frames", &LostTrackFrames )
+	, DB_LostTrackFramesAfterEngagement( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Lost Track Frames After Engagement", &LostTrackFramesAfterEngagement )
 	, DB_MinTrackingFrames( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Min Tracking Frames", &MinTrackingFrames )
 	, DB_KFTranslationScale( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV KF Translation Scale", &KFTranslationScale )
 	, DB_KFVelocityScale( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV KF Velocity Scale", &KFVelocityScale )
 	, DB_KFBoundsScale( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV KF Bounds Scale", &KFBoundsScale )
 	, DB_KFIdentityScale( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV KF Identity Scale", &KFIdentityScale )
 	, DB_KFNoiseScale( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV KF Noise Scale", &KFNoiseScale )
+	, DB_DBScanClusterProximity( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV DBScan Cluster Proximity", &DBScanClusterProximity )
+	, DB_DBScanClusterMnpts( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV DBScan Cluster Mnpts", &DBScanClusterMnpts )
 
 	, ObjectIDCounter( 0 )
 	{
@@ -171,6 +341,7 @@ struct MotionVectorFilterData : public FilterDataBase
 			, ClassificationConfidence( 0.0f )
 			, FramesSinceLastSeen( INT_MAX )
 			, FramesTracked( 0 )
+			, WasEngaged( false )
 		{
 			/*
 			float KFTranslationScale = 10.0f;
@@ -211,6 +382,7 @@ float KFNoiseScale = 0.1f;*/
 		float ClassificationConfidence;
 		int FramesSinceLastSeen;
 		int FramesTracked;
+		bool WasEngaged;
 	};
 
 	struct LabelGroup
@@ -601,13 +773,15 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 						cv::Rect IntersectedRect = ExpandedOriginal & ExpandedBounds;
 						if (IntersectedRect.area() > 0)
 						{
-							Object.Region = Bounds;
+							Object.Region = IntersectedRect;
 							Object.FramesSinceLastSeen = 0;
 							Object.FramesTracked++;
 							Found = true;
 
 							if (Object.FramesTracked > MinTrackingFrames)
 							{
+								Object.WasEngaged = true;
+
 								TotalArea += Object.Region.area();
 
 								TrackedClusters++;
@@ -639,7 +813,18 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 		}
 	}
 
+	std::vector<Rect> ClusterRects;
+
+	for (auto Iter = ID.Objects.begin(); Iter != ID.Objects.end(); Iter++ )
+	{
+		ClusterRects.push_back( (*Iter).Region );
+	}
+
+	DbScan MergeClusters( ClusterRects, DBScanClusterProximity, DBScanClusterMnpts );
+	MergeClusters.run();
+
 	//Merge clusters
+	int ClusterIndex = 0;
 	for (auto Iter = ID.Objects.begin(); Iter != ID.Objects.end(); Iter++ )
 	{
 		const int TotalFrames = 30;
@@ -729,14 +914,20 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 			cv::rectangle( InputFrame, ExpandedObjectPrediction, cv::Scalar(50.0,50.0,50.0), 2 );
 		}
 
+		int OriginClusterLabel = MergeClusters.labels[ClusterIndex];
 
+
+		int InnerClusterIndex = 0;
 		bool Overlapped = false;
 		for (auto Iter2 = ID.Objects.begin(); Iter2 != ID.Objects.end(); Iter2++ )
 		{
 			if( Iter == Iter2 )
 			{
+				InnerClusterIndex++;
 				continue;
 			}
+
+			int InnerClusterLabel = MergeClusters.labels[InnerClusterIndex];
 
 			float Obj2PredictedWidth = (*Iter2).KFState.at<float>(4);
 			float Obj2PredictedHeight = (*Iter2).KFState.at<float>(5);
@@ -751,9 +942,9 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 
 			GROW_RECT(Obj2ExpandedObjectPrediction);
 
-			if( (float)(ExpandedObjectPrediction & Obj2ExpandedObjectPrediction).area() > ((float)ExpandedObjectPrediction.area() * MinRatioOfBounds) )
+			if( OriginClusterLabel == InnerClusterLabel && OriginClusterLabel >= 0 && InnerClusterIndex >= 0 )
 			{
-				//(*Iter).Region = ExpandedObjectPrediction | Obj2ExpandedObjectPrediction;
+				(*Iter).Region = (*Iter).Region | (*Iter2).Region;
 				(*Iter).FramesSinceLastSeen = min<int>( (*Iter).FramesSinceLastSeen, (*Iter2).FramesSinceLastSeen);
 				(*Iter).ObjectID = min<int>( (*Iter).ObjectID, (*Iter2).ObjectID);
 				(*Iter).FramesTracked = max<int>( (*Iter).FramesTracked, (*Iter2).FramesTracked);
@@ -765,16 +956,18 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 				{
 					(*Iter).Classification |= (*Iter2).Classification;
 					(*Iter).ClassificationGroup |= (*Iter2).ClassificationGroup;
-					(*Iter).ClassificationConfidence += (*Iter2).ClassificationConfidence;
+					(*Iter).ClassificationConfidence = max<float>( (*Iter).ClassificationConfidence, (*Iter2).ClassificationConfidence ) ;
 					(*Iter).CustomLabel = (*Iter2).CustomLabel;
 				}
 			}
+
+			InnerClusterIndex++;
 		}
 
 		if( (*Iter).Region.width > 0 && (*Iter).Region.height > 0 )
 		{
-			float X = PredictedX;
-			float Y = PredictedY;
+			float X = (float)((*Iter).Region.x + ((*Iter).Region.width / 2));
+			float Y = (float)((*Iter).Region.y + ((*Iter).Region.height / 2));
 
 			(*Iter).PreviousPoints.push_back( Point2f(X,Y) );
 		}
@@ -794,7 +987,7 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 				}
 			}
 
-			if( Iter->FramesTracked > MinTrackingFrames )
+			if( Iter->FramesTracked > MinTrackingFrames && Iter->FramesSinceLastSeen < LostTrackFrames )
 			{
 				if( Iter->FramesSinceLastSeen < LostTrackFrames / 2 )
 				{
@@ -817,6 +1010,8 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 				}
 			}
 		}
+
+		ClusterIndex++;
 	}
 
 	if( WantDebuggingInfo && DrawStats )
@@ -831,7 +1026,7 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 
 	for (auto Iter = ID.Objects.begin(); Iter != ID.Objects.end(); )
 	{
-		bool Delete = (*Iter).FramesSinceLastSeen >= LostTrackFrames;
+		bool Delete = (*Iter).WasEngaged ? ((*Iter).FramesSinceLastSeen >= LostTrackFramesAfterEngagement) : ((*Iter).FramesSinceLastSeen >= LostTrackFrames);
 		if (Delete)
 		{
 			Iter = ID.Objects.erase(Iter);
