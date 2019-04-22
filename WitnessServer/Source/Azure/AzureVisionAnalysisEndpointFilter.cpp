@@ -66,6 +66,11 @@ const static TCHAR* ListOfExclusions[] = {
 	_T("rubber"),
 	_T("black"),
 	_T("keyboard"),
+	_T("art"),
+	_T("indoor"),
+	_T("abstract"),
+	_T("wall"),
+	_T("dancing"),
 };
 
 struct AzureVisionResultsCollect
@@ -81,7 +86,7 @@ int TagsRemaining = 5000;
 
 bool AzureVisionAnalysisEndpointFilter::ProcessFrame( SharedClassificationTask TaskData )
 {
-	if (!IsAllowedToProcessFrame() && TagsRemaining > 0)
+	if (!IsAllowedToProcessFrame() || TagsRemaining <= 0)
 	{
 		Continue( TaskData, false );
 		return false;
@@ -152,10 +157,10 @@ bool AzureVisionAnalysisEndpointFilter::ProcessFrame( SharedClassificationTask T
 		float OverscanHeight = ROI.Height * Overscan;
 
 		cv::Rect ROIRect;
-		ROIRect.x = ROI.Left - (OverscanWidth * 0.5f);
-		ROIRect.y = ROI.Top - (OverscanHeight * 0.5f);
-		ROIRect.width = ROI.Width + OverscanWidth;
-		ROIRect.height = ROI.Height + OverscanHeight;
+		ROIRect.x = ROI.Left - (int)(OverscanWidth * 0.5f);
+		ROIRect.y = ROI.Top - (int)(OverscanHeight * 0.5f);
+		ROIRect.width = ROI.Width + (int)OverscanWidth;
+		ROIRect.height = ROI.Height + (int)OverscanHeight;
 
 		ROIRect = ROIRect & WholeImage;
 
