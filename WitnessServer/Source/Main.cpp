@@ -16,8 +16,22 @@ using namespace web::json;
 using namespace web::http::client;
 using namespace utility;
 
+std::experimental::filesystem::path GetConfigFilePath(string_t Filename);
+
 int wmain( int argc, wchar_t* argv[] )
 {
+	if (argc == 2)
+	{
+		if (_wcsicmp(argv[1], _T("/createdb")) == 0)
+		{
+			auto DatabaseFile = GetConfigFilePath(U("server.db"));
+
+			Database::InitializeDatabase(DatabaseFile);
+
+			return 0;
+		}
+	}
+
 	struct ScopedTimePeriod
 	{
 		ScopedTimePeriod(UINT Period)

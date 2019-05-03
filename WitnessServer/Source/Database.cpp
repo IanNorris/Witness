@@ -4,6 +4,11 @@
 namespace Database
 {
 	string InitializationScript = R"RAW(
+		CREATE TABLE IF NOT EXISTS Setting(
+			Name			TEXT PRIMARY KEY,
+			Value			TEXT
+		);
+
 		CREATE TABLE IF NOT EXISTS User(
 			UserUID			INTEGER PRIMARY KEY	AUTOINCREMENT,
 			Username		CHAR(64)							NOT NULL,
@@ -100,6 +105,19 @@ namespace Database
 
 		CREATE UNIQUE INDEX IF NOT EXISTS CameraActionIndex ON CameraAction (ActionUID,CameraUID);
 
+	)RAW";
+
+	string_t GetSetting = LR"RAW(
+		SELECT Value FROM Setting
+		WHERE Name = @Name
+	)RAW";
+
+	string_t GetAllSettings = LR"RAW(
+		SELECT * FROM Setting
+	)RAW";
+
+	string_t SetSetting = LR"RAW(
+		INSERT OR REPLACE INTO Setting(Name, Value) VALUES(@Name, @Value)
 	)RAW";
 
 	string_t FindActions = LR"RAW(
@@ -399,6 +417,10 @@ namespace Database
 				cout << Message << endl;
 			}
 		);
+
+		CREATE_QUERY( GetSetting );
+		CREATE_QUERY( GetAllSettings );
+		CREATE_QUERY( SetSetting );
 
 		CREATE_QUERY( FindUser );
 		CREATE_QUERY( FindUserForAuth );

@@ -303,3 +303,5 @@ ThirdParty/ffmpeg-20181226-d702600-custom-win64-dev/
 ThirdParty/ffmpeg-20181226-d702600-win64-dev/
 ThirdParty/ffmpeg-20181226-d702600-win64-shared/
 *.dmp
+Setup/witness_setup.exe
+SetupScript/vc_redist.x64.exe

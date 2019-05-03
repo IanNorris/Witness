@@ -1,7 +1,6 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 15
-VisualStudioVersion = 15.0.27130.2026
+# Visual Studio Version 16
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "WitnessCamera", "WitnessCamera\WitnessCamera.vcxproj", "{6C101E0A-32B2-4A7F-B094-0D651F9A7B15}"
 EndProject
@@ -10,6 +9,8 @@ EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "BGSLibraryWrapper", "ThirdParty\BGSLibraryWrapper\BGSLibraryWrapper.vcxproj", "{F959AFD2-FB12-4EBB-A8EE-F15DFAD244CD}"
 EndProject
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "WitnessServer", "WitnessServer\WitnessServer.vcxproj", "{679FA6BA-AEB9-43C0-8C92-731DC3DE43F1}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Installer", "Installer\Installer.csproj", "{6E4382DA-B485-446B-8B7B-51369155694D}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -29,6 +30,10 @@ Global
 		{679FA6BA-AEB9-43C0-8C92-731DC3DE43F1}.Debug|x64.Build.0 = Debug|x64
 		{679FA6BA-AEB9-43C0-8C92-731DC3DE43F1}.Release|x64.ActiveCfg = Release|x64
 		{679FA6BA-AEB9-43C0-8C92-731DC3DE43F1}.Release|x64.Build.0 = Release|x64
+		{6E4382DA-B485-446B-8B7B-51369155694D}.Debug|x64.ActiveCfg = Debug|x64
+		{6E4382DA-B485-446B-8B7B-51369155694D}.Debug|x64.Build.0 = Debug|x64
+		{6E4382DA-B485-446B-8B7B-51369155694D}.Release|x64.ActiveCfg = Release|x64
+		{6E4382DA-B485-446B-8B7B-51369155694D}.Release|x64.Build.0 = Release|x64
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
