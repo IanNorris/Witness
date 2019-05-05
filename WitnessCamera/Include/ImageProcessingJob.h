@@ -24,6 +24,8 @@ struct CAMERA_API ImageProcessingJobQueue : public Pimpl<ImageProcessingJobQueue
 	void CompletedJob( int SourceID );
 
 	void WorkerThreadMain();
+
+	void RequestShutdown();
 };
 
 }}

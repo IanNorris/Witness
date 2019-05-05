@@ -18,7 +18,7 @@ std::experimental::filesystem::path GetConfigFilePath( string_t Filename )
 
 	size_t RequiredSize = MAX_PATH;
 	TCHAR ProfileRoot[ MAX_PATH ] = {};
-	errno_t Result = _tgetenv_s( &RequiredSize, ProfileRoot, U("APPDATA") );
+	errno_t Result = _tgetenv_s( &RequiredSize, ProfileRoot, U("ProgramData") );
 	
 	assert( Result == S_OK );
 

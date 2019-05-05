@@ -12,17 +12,233 @@
 #include <minmax.h>
 #pragma comment(lib, "winmm.lib")
 
+#define SERVICE_NAME L"WitnessCameraServer"
+#define SERVICE_DISPLAY_NAME L"Witness Camera Service - CCTV Monitoring Server"
+#define SERVICE_START_TYPE SERVICE_AUTO_START
+#define SERVICE_ACCOUNT L"NT AUTHORITY\\NetworkService"
+#define SERVICE_PASSWORD NULL
+
+bool ContinueRunning = true;
+
 using namespace web::json;
 using namespace web::http::client;
 using namespace utility;
 
 std::experimental::filesystem::path GetConfigFilePath(string_t Filename);
 
+bool UpdateService(wchar_t* Path, bool Install)
+{
+	SC_HANDLE SCM = OpenSCManager(nullptr, nullptr, SC_MANAGER_CONNECT | (Install ? SC_MANAGER_CREATE_SERVICE : 0));
+
+	if (!SCM)
+	{
+		std::tcerr << U("Unable to connect to service manager - admin access required.") << std::endl;
+		return false;
+	}
+
+	if (Install)
+	{
+		SC_HANDLE Service = CreateService(SCM, SERVICE_NAME, SERVICE_DISPLAY_NAME, SERVICE_QUERY_STATUS, SERVICE_WIN32_OWN_PROCESS, SERVICE_START_TYPE, SERVICE_ERROR_NORMAL, Path, NULL, NULL, NULL, SERVICE_ACCOUNT, SERVICE_PASSWORD);
+		if (!Service)
+		{
+			CloseServiceHandle(SCM);
+			std::tcerr << U("Unable to create new service.") << std::endl;
+			return false;
+		}
+
+		CloseServiceHandle(Service);
+
+		std::tcout << U("Created service.") << std::endl;
+	}
+	else
+	{
+		SC_HANDLE Service = OpenService(SCM, SERVICE_NAME, SERVICE_STOP | SERVICE_QUERY_STATUS | DELETE );
+		if (!Service)
+		{
+			CloseServiceHandle(SCM);
+			std::tcerr << U("Unable to create connect to service.") << std::endl;
+			return false;
+		}
+
+		std::tcout << U("Stopping service.");
+
+		SERVICE_STATUS Status = {};
+		if (ControlService(Service, SERVICE_CONTROL_STOP, &Status))
+		{
+			do {
+				Sleep(1000);
+				std::tcout << U(".");
+
+			} while (QueryServiceStatus(Service, &Status));
+		}
+
+		if (Status.dwCurrentState == SERVICE_STOP_PENDING)
+		{
+			std::tcout << U("\nService stopped cleanly.") << std::endl;
+		}
+		else
+		{
+			std::tcout << U("\nService failed to stop.") << std::endl;
+		}
+
+		if (!DeleteService(Service))
+		{
+			std::tcout << U("Could not delete service.") << std::endl;
+		}
+		else
+		{
+			std::tcout << U("Deleted service.") << std::endl;
+		}
+
+		CloseServiceHandle(Service);
+	}
+
+	CloseServiceHandle(SCM);
+
+	return true;
+}
+
+WitnessServer* GlobalServer = nullptr;
+bool IsService = true;
+SERVICE_STATUS ServiceStatus = {};
+SERVICE_STATUS_HANDLE ServiceHandle = nullptr;
+int ReturnValue = 0;
+
+void UpdateStatus(DWORD NewStatus, DWORD WaitHintInSeconds = 0, DWORD ErrorCode = 0)
+{
+	if (IsService)
+	{
+		ServiceStatus.dwCurrentState = NewStatus;
+		ServiceStatus.dwWin32ExitCode = ErrorCode;
+		ServiceStatus.dwWaitHint = WaitHintInSeconds * 1000;
+		++ServiceStatus.dwCheckPoint;
+
+		SetServiceStatus(ServiceHandle, &ServiceStatus);
+	}
+}
+
+void WINAPI ServiceController(DWORD Action)
+{
+	switch (Action)
+	{
+	case SERVICE_CONTROL_STOP:
+	case SERVICE_CONTROL_SHUTDOWN:
+		UpdateStatus(SERVICE_STOP_PENDING, 20);
+		ContinueRunning = false;
+		if (GlobalServer)
+		{
+			GlobalServer->RequestShutdown();
+		}
+		break;
+	case SERVICE_CONTROL_INTERROGATE:
+		break;
+	}
+}
+
+BOOL WINAPI ConsoleHandlerRoutine(DWORD ControlType)
+{
+	ContinueRunning = false;
+	if (GlobalServer)
+	{
+		GlobalServer->RequestShutdown();
+		GlobalServer = false;
+	}
+	return true;
+}
+
+void WINAPI ServiceMain(DWORD dwArgc, PWSTR* pszArgv)
+{
+	Sleep(10000);
+
+	if (IsService)
+	{
+		ServiceHandle = RegisterServiceCtrlHandler(SERVICE_NAME, ServiceController);
+
+		ServiceStatus.dwServiceType = SERVICE_WIN32_OWN_PROCESS;
+		ServiceStatus.dwCurrentState = SERVICE_START_PENDING;
+		ServiceStatus.dwControlsAccepted = SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN;
+		ServiceStatus.dwWin32ExitCode = NO_ERROR;
+		ServiceStatus.dwServiceSpecificExitCode = 0;
+		ServiceStatus.dwCheckPoint = 0;
+		ServiceStatus.dwWaitHint = 0;
+
+		UpdateStatus(SERVICE_START_PENDING, 30);
+	}
+	else
+	{
+		SetConsoleCtrlHandler(ConsoleHandlerRoutine, true);
+	}
+
+	struct ScopedTimePeriod
+	{
+		ScopedTimePeriod(UINT Period)
+			: Period(Period)
+		{
+			timeBeginPeriod(Period);
+		}
+
+		~ScopedTimePeriod()
+		{
+			timeEndPeriod(Period);
+		}
+
+		UINT Period;
+	};
+
+	TIMECAPS TimeCaps;
+	timeGetDevCaps(&TimeCaps, sizeof(TimeCaps));
+	auto Resolution = min(max(TimeCaps.wPeriodMin, 0), TimeCaps.wPeriodMax);
+
+	ScopedTimePeriod TimePeriod(Resolution);
+
+	DebugConsole DebugConsoleInstance;
+	Witness::Camera::TargetDebugConsole = &DebugConsoleInstance;
+
+	WitnessServer Server;
+	GlobalServer = &Server;
+
+	if (sodium_init() == -1)
+	{
+		std::tcerr << U("Unable to initialize libsodium.") << std::endl;
+		ReturnValue = 1;
+		UpdateStatus(SERVICE_STOPPED, 0, ReturnValue);
+		return;
+	}
+
+	if (!Server.Initialize(&DebugConsoleInstance))
+	{
+		ReturnValue = 1;
+		UpdateStatus(SERVICE_STOPPED, 0, ReturnValue);
+		return;
+	}
+
+	UpdateStatus( SERVICE_RUNNING );
+
+	Server.MessageLoop(ContinueRunning);
+
+	GlobalServer = nullptr;
+	Server.Shutdown();
+
+	Witness::Camera::TargetDebugConsole = nullptr;
+
+	UpdateStatus( SERVICE_STOPPED );
+
+	ReturnValue = 0;
+}
+
 int wmain( int argc, wchar_t* argv[] )
 {
 	if (argc == 2)
 	{
-		if (_wcsicmp(argv[1], _T("/createdb")) == 0)
+		if (_wcsicmp(argv[1], _T("/installservice")) == 0)
+		{
+			return UpdateService(argv[0], true);
+		}
+		else if (_wcsicmp(argv[1], _T("/uninstallservice")) == 0)
+		{
+			return UpdateService(argv[0], false);
+		}
+		else if (_wcsicmp(argv[1], _T("/createdb")) == 0)
 		{
 			auto DatabaseFile = GetConfigFilePath(U("server.db"));
 
@@ -32,48 +248,29 @@ int wmain( int argc, wchar_t* argv[] )
 		}
 	}
 
-	struct ScopedTimePeriod
+
+	SERVICE_TABLE_ENTRY Services[] =
 	{
-		ScopedTimePeriod(UINT Period)
-		: Period( Period )
-		{
-			timeBeginPeriod( Period );
-		}
-
-		~ScopedTimePeriod()
-		{
-			timeEndPeriod( Period );
-		}
-
-		UINT Period;
+		{ SERVICE_NAME, ServiceMain },
+		{ NULL, NULL }
 	};
 
-	TIMECAPS TimeCaps;
-	timeGetDevCaps( &TimeCaps, sizeof(TimeCaps) );
-	auto Resolution = min(max(TimeCaps.wPeriodMin, 0), TimeCaps.wPeriodMax);
-
-	ScopedTimePeriod TimePeriod( Resolution );
-
-	DebugConsole DebugConsoleInstance;
-	Witness::Camera::TargetDebugConsole = &DebugConsoleInstance;
-
-	WitnessServer Server;
-
-	if( sodium_init() == -1 )
+	if (!StartServiceCtrlDispatcher(Services))
 	{
-		std::tcerr << U("Unable to initialize libsodium.") << std::endl;
-        return 1;
-    }
-
-	if (!Server.Initialize( &DebugConsoleInstance ))
-	{
-		return 1;
+		DWORD Error = GetLastError();
+		//We're not a service
+		if (Error == ERROR_FAILED_SERVICE_CONTROLLER_CONNECT)
+		{
+			IsService = false;
+			ServiceMain(NULL, 0);
+			return ReturnValue;
+		}
+		else
+		{
+			//Something went wrong
+			return Error;
+		}
 	}
-
-	Server.MessageLoop();
-	Server.Shutdown();
-
-	Witness::Camera::TargetDebugConsole = nullptr;
 
 	return 0;
 }

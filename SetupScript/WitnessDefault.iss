@@ -44,6 +44,9 @@ Source: "X:\Programming\Witness\x64\Release\*"; DestDir: "{app}"; Flags: ignorev
 Filename: {tmp}\vc_redist.x64.exe; Parameters: "/q /passive /Q:a /c:""msiexec /q /i vcredist.msi"""; StatusMsg: "Installing VC++ 2017 Redistributables..."
 Filename: {app}\Installer.exe; StatusMsg: "Running configuration tool..."
 
+[UninstallRun]
+Filename: {app}\Installer.exe; Parameters: "/uninstall"; StatusMsg: "Running configuration tool..."
+
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autoprograms}\Re-run setup"; Filename: "{app}\Installer.exe"

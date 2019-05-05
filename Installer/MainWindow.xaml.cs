@@ -2,6 +2,7 @@
 using System.Windows;
 using WinForms = System.Windows.Forms;
 using Liphsoft.Crypto.Argon2;
+using System;
 
 namespace Installer
 {
@@ -30,7 +31,6 @@ namespace Installer
 			var Hasher = new PasswordHasher( 3, 262144, 1, Argon2Type.Argon2d );
 
 			string ResultingPassword = Hasher.Hash(InputPassword);
-			//string ResultingPassword = PasswordHash.ArgonHashString(InputPassword, PasswordHash.StrengthArgon.Moderate);
 
 			Login.CanSelectNextPage = false;
 		}
@@ -40,6 +40,9 @@ namespace Installer
 			var SP = new SettingsPublisher();
 			SP.Settings.AddRange(Setup.GetSettings());
 			SP.WriteSettings();
+
+			var AM = new AutomationManager( Setup.RunOnStartup.Value, Setup.RestartOnFailure.Value, Setup.TlsMode == CertificateMode.LetsEncrypt, AppDomain.CurrentDomain.BaseDirectory);
+			AM.UpdateConfig();
 		}
 
 		private void CacheBrowse_Click(object sender, RoutedEventArgs e)

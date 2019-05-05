@@ -12,7 +12,7 @@
 #define MakeLambda( Name ) auto LambdaHandle##Name = bind( &WitnessServer::Handle##Name, this, placeholders::_1 )
 #define HandleEvent( Name ) Msg->Handle<Name>(LambdaHandle##Name)
 
-void WitnessServer::MessageLoop()
+void WitnessServer::MessageLoop( bool& ContinueRunning )
 {
 	MakeLambda(CameraStartupMessage);
 	MakeLambda(CameraReconnectMessage);
@@ -22,7 +22,7 @@ void WitnessServer::MessageLoop()
 	MakeLambda(CameraUpdateMotionMessage);
 	MakeLambda(CameraEndMotionMessage);
 		
-	while( true )
+	while( ContinueRunning )
 	{
 		shared_ptr<Message> Msg;
 		MessageClient->Pop( Msg );

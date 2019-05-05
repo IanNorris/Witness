@@ -19,6 +19,7 @@ rmdir x64\Release\ro /S /Q
 rmdir x64\Release\ru /S /Q
 rmdir x64\Release\sv /S /Q
 rmdir x64\Release\zh-Hans /S /Q
+rmdir x64\Release\x86 /S /Q
 
 mkdir x64\Release\Web
 

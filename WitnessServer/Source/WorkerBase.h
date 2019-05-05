@@ -43,6 +43,10 @@ public:
 	void RequestShutdown()
 	{
 		Shutdown = true;
+		if (MessageBusQueue)
+		{
+			MessageBusQueue->Push(make_shared<ThreadShutdownMessage>());
+		}
 	}
 
 
@@ -50,10 +54,7 @@ public:
 	{
 		RequestShutdown();
 
-		if( !Complete )
-		{
-			Thread->join();
-		}
+		Thread->join();
 	}
 
 	const atomic<AtomicTimedActionData>* GetLastTimedAction() const { return &LastTimedAction; }

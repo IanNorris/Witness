@@ -56,9 +56,15 @@
     <CodeAnalysisRuleSet>MinimumRecommendedRules.ruleset</CodeAnalysisRuleSet>
     <Prefer32Bit>true</Prefer32Bit>
   </PropertyGroup>
+  <PropertyGroup>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
   <ItemGroup>
     <Reference Include="Liphsoft.Crypto.Argon2, Version=1.0.0.0, Culture=neutral, processorArchitecture=MSIL">
       <HintPath>..\packages\Liphsoft.Crypto.Argon2.1.0.5\lib\net35\x86\Liphsoft.Crypto.Argon2.dll</HintPath>
+    </Reference>
+    <Reference Include="Microsoft.Win32.TaskScheduler, Version=2.8.10.0, Culture=neutral, PublicKeyToken=c416bc1b32d97233, processorArchitecture=MSIL">
+      <HintPath>..\packages\TaskScheduler.2.8.10\lib\net452\Microsoft.Win32.TaskScheduler.dll</HintPath>
     </Reference>
     <Reference Include="SQLite-net, Version=1.6.258.0, Culture=neutral, processorArchitecture=MSIL">
       <HintPath>..\packages\sqlite-net-pcl.1.6.258-beta\lib\netstandard1.1\SQLite-net.dll</HintPath>
@@ -77,6 +83,8 @@
     </Reference>
     <Reference Include="System" />
     <Reference Include="System.Data" />
+    <Reference Include="System.Drawing" />
+    <Reference Include="System.IO.Compression" />
     <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xml" />
     <Reference Include="Microsoft.CSharp" />
@@ -111,6 +119,7 @@
       <Generator>MSBuild:Compile</Generator>
       <SubType>Designer</SubType>
     </ApplicationDefinition>
+    <Compile Include="AutomationManager.cs" />
     <Compile Include="SettingNameAttribute.cs" />
     <Compile Include="SettingsPublisher.cs" />
     <Compile Include="Setup.cs" />
@@ -145,6 +154,7 @@
       <Generator>ResXFileCodeGenerator</Generator>
       <LastGenOutput>Resources.Designer.cs</LastGenOutput>
     </EmbeddedResource>
+    <None Include="app.manifest" />
     <None Include="packages.config" />
     <None Include="Properties\Settings.settings">
       <Generator>SettingsSingleFileGenerator</Generator>

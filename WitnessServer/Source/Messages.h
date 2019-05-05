@@ -114,10 +114,6 @@ struct CameraStartupMessage : public Message
 	int Camera;
 };
 
-struct ThreadShutdownMessage : public Message
-{
-};
-
 struct CameraReconnectMessage : public Message
 {
 	CameraReconnectMessage( int CamIndex, string_t Error ) : Camera( CamIndex ), Error( Error ) {}

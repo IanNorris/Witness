@@ -17,10 +17,16 @@ namespace Installer
 	{
 		public List<Setting> Settings { get; private set; } = new List<Setting>();
 
-		private string GetDBPath()
+		private string GetDBPath( bool CreateFolder )
 		{
-			string AppData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-			return Path.Combine(AppData, "Witness", "server.db");
+			string DBRoot = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Witness");
+
+			if( CreateFolder )
+			{
+				Directory.CreateDirectory(DBRoot);
+			}
+
+			return Path.Combine(DBRoot, "server.db");
 		}
 
 		public string GetWebRoot()
@@ -36,6 +42,7 @@ namespace Installer
 			ExternalProcess.StartInfo.FileName = Server;
 			ExternalProcess.StartInfo.Arguments = "/createdb";
 			ExternalProcess.StartInfo.WindowStyle = ProcessWindowStyle.Hidden;
+			ExternalProcess.StartInfo.Verb = "runas";
 			ExternalProcess.Start();
 			ExternalProcess.WaitForExit();
 		}
@@ -47,18 +54,24 @@ namespace Installer
 			SQLiteConnection database = null;
 
 			var ConnectionString = new SQLiteConnectionString(
-				GetDBPath(),
+				GetDBPath(false),
 				true
 			);
 
+			bool FailedToOpen = false;
 			try
 			{
 				database = new SQLiteConnection(ConnectionString);
 				Settings = database.Table<Setting>().ToList();
 			}
-			catch (Exception e)
+			catch (SQLiteException e)
 			{
-				MessageBox.Show(e.ToString());
+				FailedToOpen = e.Result == SQLite3.Result.CannotOpen;
+
+				if (!FailedToOpen)
+				{
+					MessageBox.Show(e.ToString());
+				}
 				return false;
 			}
 
@@ -72,10 +85,11 @@ namespace Installer
 			SQLiteConnection database = null;
 
 			var ConnectionString = new SQLiteConnectionString(
-				GetDBPath(),
+				GetDBPath(true),
 				true
 			);
 
+			bool FailedToOpen = false;
 			try
 			{
 				database = new SQLiteConnection(ConnectionString);
@@ -86,9 +100,18 @@ namespace Installer
 				}
 				database.Commit();
 			}
-			catch (Exception e)
+			catch (SQLiteException e)
 			{
-				MessageBox.Show(e.ToString());
+				FailedToOpen = e.Result == SQLite3.Result.CannotOpen;
+
+				if (FailedToOpen)
+				{
+					MessageBox.Show("Unable to write settings. Installation failed.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+				}
+				else
+				{
+					MessageBox.Show(e.ToString());
+				}
 				return false;
 			}
 

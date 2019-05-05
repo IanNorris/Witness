@@ -33,9 +33,10 @@ public:
 
 	bool Initialize( DebugConsole* DebugConsoleInstance );
 
-	void MessageLoop();
+	void MessageLoop( bool& ContinueRunning );
 
 	void Shutdown();
+	void RequestShutdown();
 
 private:
 

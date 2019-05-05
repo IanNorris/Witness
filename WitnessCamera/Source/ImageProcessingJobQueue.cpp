@@ -8,6 +8,7 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/imgproc/imgproc_c.h>
 
+#include <windows.h>
 #include <minmax.h>
 
 namespace Witness{
@@ -131,7 +132,7 @@ void ImageProcessingJobQueue::Pop(SharedClassificationTask& Job)
 
 	std::unique_lock<std::mutex> Lock( ID.QueueMutex );
 
-	while( true )
+	while( !ID.WantExit )
 	{
 		while( ID.Queue.empty() && ID.HighPriorityAsyncQueue.empty() )
 		{
@@ -144,6 +145,13 @@ void ImageProcessingJobQueue::Pop(SharedClassificationTask& Job)
 			while( Iter != ID.HighPriorityAsyncQueue.end() )
 			{
 				auto& JobRef = *Iter;
+
+				if (!JobRef)
+				{
+					ID.WantExit = true;
+					break;
+				}
+
 				int CurrentSource = JobRef->Frame.SourceID;
 
 				bool ActiveJob = false;
@@ -176,6 +184,13 @@ void ImageProcessingJobQueue::Pop(SharedClassificationTask& Job)
 			while( Iter != ID.Queue.end() )
 			{
 				auto& JobRef = *Iter;
+
+				if (!JobRef)
+				{
+					ID.WantExit = true;
+					break;
+				}
+
 				int CurrentSource = JobRef->Frame.SourceID;
 
 				bool ActiveJob = false;
@@ -204,8 +219,10 @@ void ImageProcessingJobQueue::Pop(SharedClassificationTask& Job)
 		}
 
 		
-
-		ID.Condition.wait( Lock );
+		if (!ID.WantExit)
+		{
+			ID.Condition.wait(Lock);
+		}
 	}
 }
 
@@ -262,6 +279,7 @@ void ImageProcessingJobQueue::CompletedJob(int SourceID)
 void ImageProcessingJobQueue::WorkerThreadMain()
 {
 	auto& ID = *m_InternalData;
+	ID.WantExit = false;
 
 	SharedClassificationTask Job;
 
@@ -294,6 +312,14 @@ void ImageProcessingJobQueue::WorkerThreadMain()
 
 		CompletedJob( TaskSourceID );
 	}
+}
+
+void ImageProcessingJobQueue::RequestShutdown()
+{
+	auto& ID = *m_InternalData;
+	ID.WantExit = true;
+	MemoryBarrier();
+	ID.Condition.notify_all();
 }
 
 void ImageProcessingJobQueueData::AddFrame(int Source, int64_t Timestamp, const FilterFrameStats& StatsIn )

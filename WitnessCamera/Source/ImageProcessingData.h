@@ -41,6 +41,8 @@ struct ImageProcessingJobQueueData
 	std::mutex											StatsMutex;
 	std::unordered_map<int, SourceStats>				Stats;
 
+	bool												WantExit;
+
 	void AddFrame(int Source, int64_t Timestamp, const FilterFrameStats& StatsIn );
 	void ResetStats(int Source);
 
