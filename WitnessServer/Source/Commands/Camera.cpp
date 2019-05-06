@@ -67,13 +67,17 @@ void Command_Camera::OnMessage( GlobalContext& Context, http_request& Message, c
 	else if( ChildPath.size() == 1 && !IsPost )
 	{
 		auto Command = ChildPath.front();
-		if( Command.compare( _T("enum") ) == 0 )
+		if( Command.compare( _T("enum_longpoll") ) == 0 )
 		{
-			OnEnumMessage( Context, Message, Packet, false );
+			OnEnumMessage( Context, Message, Packet, false, true );
+		}
+		else if (Command.compare(_T("enum")) == 0)
+		{
+			OnEnumMessage(Context, Message, Packet, false, false );
 		}
 		else if( Command.compare( _T("admin_enum") ) == 0 )
 		{
-			OnEnumMessage( Context, Message, Packet, true );
+			OnEnumMessage( Context, Message, Packet, true, false );
 		}
 		else
 		{
@@ -130,7 +134,7 @@ void Command_Camera::OnPreviewMessage( GlobalContext& Context, http_request& Mes
 	}
 }
 
-void Command_Camera::OnEnumMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet, bool AsAdmin )
+void Command_Camera::OnEnumMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet, bool AsAdmin, bool LongPoll )
 {
 	int UserUID = Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::Read, AsAdmin ? Command_Authenticate::Privilege::Administrator : Command_Authenticate::Privilege::Normal );
 	if( !UserUID )
@@ -138,110 +142,166 @@ void Command_Camera::OnEnumMessage( const GlobalContext& Context, http_request& 
 		return;
 	}
 
+	bool First = true;
+	vector<int> State;
+	vector<int> OriginalState;
 	vector<json::value> Array;
-	
-	SQLiteDatabaseQueryInstance GetCamerasForUser( Context.Database, AsAdmin ? _T("GetCameras") : _T("GetCamerasForUser") );
-	GetCamerasForUser->Bind( "@User", UserUID );
 
-	GetCamerasForUser->Execute( 
-		[&Array, &Context, AsAdmin]( const SQLiteDatabaseQuery& query )
-		{
-			int ID = query.GetColumnValueInt(0);
-			string_t Name = query.GetColumnValueText(1);
-			string_t ConnectionString = query.GetColumnValueText(2);
-			string_t Description = query.GetColumnValueText(3) ? query.GetColumnValueText(3) : _T("");
-			int Enabled = query.GetColumnValueInt(4);
+	bool IsAcceptable = false;
+	do {
+		Array.clear();
+		State.clear();
 
-			if( Enabled || AsAdmin )
+		SQLiteDatabaseQueryInstance GetCamerasForUser(Context.Database, AsAdmin ? _T("GetCameras") : _T("GetCamerasForUser"));
+		GetCamerasForUser->Bind("@User", UserUID);
+
+		GetCamerasForUser->Execute(
+			[&Array, &Context, LongPoll, &State, AsAdmin](const SQLiteDatabaseQuery& query)
 			{
-				json::value Camera;
-				Camera[ _T("id") ] = json::value(ID);
-				Camera[ _T("name") ] = json::value(Name);
-				Camera[ _T("description") ] = json::value(Description);
-				Camera[ _T("enabled") ] = json::value(Enabled);
+				int ID = query.GetColumnValueInt(0);
+				string_t Name = query.GetColumnValueText(1);
+				string_t ConnectionString = query.GetColumnValueText(2);
+				string_t Description = query.GetColumnValueText(3) ? query.GetColumnValueText(3) : _T("");
+				int Enabled = query.GetColumnValueInt(4);
 
-				vector<json::value> Groups;
-
-				SQLiteDatabaseQueryInstance SelectGroupsForCamera( Context.Database, _T("SelectGroupsForCamera") );
-				SelectGroupsForCamera->Bind( "@Camera", ID );
-
-				SelectGroupsForCamera->Execute( 
-				[&Groups]( const SQLiteDatabaseQuery& query )
-					{
-						int GroupId = query.GetColumnValueInt(1);
-
-						Groups.push_back(json::value(GroupId));
-
-						return true;
-					}
-				);
-
-				if (AsAdmin)
+				if (Enabled || AsAdmin)
 				{
-					Camera[ _T("connectionString") ] = json::value(ConnectionString);
-				}
+					json::value Camera;
+					Camera[_T("id")] = json::value(ID);
+					Camera[_T("name")] = json::value(Name);
+					Camera[_T("description")] = json::value(Description);
+					Camera[_T("enabled")] = json::value(Enabled);
 
-				Camera[ _T("groups") ] = json::value::array(Groups);
+					vector<json::value> Groups;
 
-				{
-					lock_guard<mutex> Lock( Context.Mutex );
+					SQLiteDatabaseQueryInstance SelectGroupsForCamera(Context.Database, _T("SelectGroupsForCamera"));
+					SelectGroupsForCamera->Bind("@Camera", ID);
 
-					auto Iter = Context.Cameras.find( ID );
-					if( Iter != Context.Cameras.end() )
-					{
-						Camera[ _T("status") ] = json::value( (*Iter).second.Status );
-						Camera[ _T("recording") ] = json::value( (*Iter).second.IsRecording );
-
-						auto StreamStats = (*Iter).second.Worker->GetStreamStats();
-
-						auto ImgStats = Context.CommonImageProcessingJobQueue->GetStats( ID );
-						Camera[ _T("lastTimestamp") ] = json::value( ImgStats.LastTimestamp );
-
-						if (AsAdmin && ImgStats.FrameCount > 0)
+					SelectGroupsForCamera->Execute(
+						[&Groups](const SQLiteDatabaseQuery& query)
 						{
-							Camera[ _T("frameCount") ] = json::value( ImgStats.FrameCount );
+							int GroupId = query.GetColumnValueInt(1);
+
+							Groups.push_back(json::value(GroupId));
+
+							return true;
+						}
+					);
+
+					if (AsAdmin)
+					{
+						Camera[_T("connectionString")] = json::value(ConnectionString);
+					}
+
+					Camera[_T("groups")] = json::value::array(Groups);
+
+					{
+						lock_guard<mutex> Lock(Context.Mutex);
+
+						auto Iter = Context.Cameras.find(ID);
+						if (Iter != Context.Cameras.end())
+						{
+							if (LongPoll)
+							{
+								State.push_back((*Iter).first);
+								State.push_back((*Iter).second.IsRecording);
+							}
+
+							Camera[_T("status")] = json::value((*Iter).second.Status);
+							Camera[_T("recording")] = json::value((*Iter).second.IsRecording);
+
+							auto StreamStats = (*Iter).second.Worker->GetStreamStats();
+
+							auto ImgStats = Context.CommonImageProcessingJobQueue->GetStats(ID);
+							Camera[_T("lastTimestamp")] = json::value(ImgStats.LastTimestamp);
+
+							if (AsAdmin && ImgStats.FrameCount > 0)
+							{
+								Camera[_T("frameCount")] = json::value(ImgStats.FrameCount);
 
 #define GET_STAT(OutputPrefix, StatName) \
-	Camera[ _T(OutputPrefix "TimeOfEachMS") ] = json::value( (double)ImgStats.Stats.FrameCount[StatName] ? ((double)ImgStats.Stats.Stats[StatName] / ((double)ImgStats.Stats.FrameCount[StatName] * 1000.0 * 1000.0)) : 0.0 );\
-	Camera[ _T(OutputPrefix "ActualMS") ] = json::value( ImgStats.FrameCount ? (double)ImgStats.Stats.Stats[StatName] / ((double)ImgStats.FrameCount * 1000.0 * 1000.0) : 0 )
+		Camera[ _T(OutputPrefix "TimeOfEachMS") ] = json::value( (double)ImgStats.Stats.FrameCount[StatName] ? ((double)ImgStats.Stats.Stats[StatName] / ((double)ImgStats.Stats.FrameCount[StatName] * 1000.0 * 1000.0)) : 0.0 );\
+		Camera[ _T(OutputPrefix "ActualMS") ] = json::value( ImgStats.FrameCount ? (double)ImgStats.Stats.Stats[StatName] / ((double)ImgStats.FrameCount * 1000.0 * 1000.0) : 0 )
 
-							GET_STAT("processing",		FilterStat_Process_Total);
-							GET_STAT("scale",			FilterStat_Scale);
-							GET_STAT("jpegEncoding",	FilterStat_JpegEncoding);
-							GET_STAT("observer",		FilterStat_ObserverFilter);
-							GET_STAT("firstPassFilter",	FilterStat_FirstPassFilter);
-							GET_STAT("secondPassFilter",FilterStat_SecondPassFilter);
-							GET_STAT("thirdPassFilter", FilterStat_ThirdPassFilter);
-							GET_STAT("debug",			FilterStat_Debug);
+								GET_STAT("processing", FilterStat_Process_Total);
+								GET_STAT("scale", FilterStat_Scale);
+								GET_STAT("jpegEncoding", FilterStat_JpegEncoding);
+								GET_STAT("observer", FilterStat_ObserverFilter);
+								GET_STAT("firstPassFilter", FilterStat_FirstPassFilter);
+								GET_STAT("secondPassFilter", FilterStat_SecondPassFilter);
+								GET_STAT("thirdPassFilter", FilterStat_ThirdPassFilter);
+								GET_STAT("debug", FilterStat_Debug);
 
-							GET_STAT("mvfInternal",		FilterStat_MVF_Internal);
-							GET_STAT("mvfSideData",		FilterStat_MVF_SideData);
-							GET_STAT("mvfVectorPass",	FilterStat_MVF_VectorPass);
-							GET_STAT("mvfClusterPass",	FilterStat_MVF_ClusterPass);
-							GET_STAT("mvfObjectPass",	FilterStat_MVF_ObjectPass);
+								GET_STAT("mvfInternal", FilterStat_MVF_Internal);
+								GET_STAT("mvfSideData", FilterStat_MVF_SideData);
+								GET_STAT("mvfVectorPass", FilterStat_MVF_VectorPass);
+								GET_STAT("mvfClusterPass", FilterStat_MVF_ClusterPass);
+								GET_STAT("mvfObjectPass", FilterStat_MVF_ObjectPass);
 
 #undef GET_STAT
-						}
+							}
 
-						if (AsAdmin && StreamStats.FrameCount > 0)
-						{
-							double Decode = (double)StreamStats.DecoderTimeTotal / ((double)StreamStats.FrameCount * 1000.0 * 1000.0);
-							double Output = (double)StreamStats.OutputTimeTotal / ((double)StreamStats.FrameCount * 1000.0 * 1000.0);
-							double Read = (double)StreamStats.ReadTimeTotal / ((double)StreamStats.FrameCount * 1000.0 * 1000.0);
+							if (AsAdmin && StreamStats.FrameCount > 0)
+							{
+								double Decode = (double)StreamStats.DecoderTimeTotal / ((double)StreamStats.FrameCount * 1000.0 * 1000.0);
+								double Output = (double)StreamStats.OutputTimeTotal / ((double)StreamStats.FrameCount * 1000.0 * 1000.0);
+								double Read = (double)StreamStats.ReadTimeTotal / ((double)StreamStats.FrameCount * 1000.0 * 1000.0);
 
-							Camera[ _T("streamReadTimeMS") ] = json::value( Read );
-							Camera[ _T("streamDecodeTimeMS") ] = json::value( Decode );
-							Camera[ _T("streamOutputTimeMS") ] = json::value( Output );
+								Camera[_T("streamReadTimeMS")] = json::value(Read);
+								Camera[_T("streamDecodeTimeMS")] = json::value(Decode);
+								Camera[_T("streamOutputTimeMS")] = json::value(Output);
+							}
 						}
 					}
+
+					Array.push_back(Camera);
 				}
 
-				Array.push_back( Camera );
+				return true;
+			}
+		);
+
+		if (LongPoll)
+		{
+			if (First)
+			{
+				OriginalState = State;
+				First = false;
+			}
+			else
+			{
+				if (OriginalState.size() != State.size())
+				{
+					IsAcceptable = true;
+				}
+				else
+				{
+					int Same = true;
+					for (int Index = 0; Index < OriginalState.size(); Index++)
+					{
+						if (OriginalState[Index] != State[Index])
+						{
+							Same = false;
+							IsAcceptable = true;
+							break;
+						}
+					}
+
+					if (!IsAcceptable)
+					{
+						LongPollScope Scope(Context.LongPoll);
+						Scope.Wait();
+					}
+				}
 			}
 
-			return true;
-		} 
-	);
+			
+		}
+		else
+		{
+			IsAcceptable = true;
+		}
+	} while (!IsAcceptable);
 
 	Message.reply( status_codes::OK, json::value::array(Array) );
 }

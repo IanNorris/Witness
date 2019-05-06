@@ -134,6 +134,8 @@ void CameraWorker::WorkerMain()
 			Observer->SetManualClipStart( Data.Timestamp );
 			RecordStream = make_shared<OutputStream>( string( Data.Path.begin(), Data.Path.end() ), CameraStream.get() );
 			RecordStream->Initialize();
+
+			Context->LongPoll->NotifyAll();
 		});
 
 		Msg->Handle<CameraStopRecordMessage>([&](const CameraStopRecordMessage& Data)
@@ -144,6 +146,8 @@ void CameraWorker::WorkerMain()
 			{
 				Filter->ClearState();
 			}
+
+			Context->LongPoll->NotifyAll();
 		});
 	}
 

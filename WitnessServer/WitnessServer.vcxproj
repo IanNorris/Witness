@@ -152,6 +152,7 @@
     <ClInclude Include="Source\ImageProcessorWorker.h" />
     <ClInclude Include="Source\Listener.h" />
     <ClInclude Include="Source\ListenerCommand.h" />
+    <ClInclude Include="Source\LongPoll.h" />
     <ClInclude Include="Source\Message.h" />
     <ClInclude Include="Source\MessageBus.h" />
     <ClInclude Include="Source\Messages.h" />

@@ -6,6 +6,7 @@
 #include "CameraState.h"
 #include "CameraWorker.h"
 #include "SettingsMap.h"
+#include "LongPoll.h"
 #include "Azure/AzureVisionAnalysisEndpointFilter.h"
 
 struct CameraStateToggleRecordMessage : public Message
@@ -19,6 +20,10 @@ struct CameraStateToggleRecordMessage : public Message
 class GlobalContext
 {
 public:
+
+	GlobalContext()
+	: LongPoll(make_shared<LongPollDispatch>())
+	{}
 
 	mutable mutex Mutex;
 
@@ -35,4 +40,6 @@ public:
 	shared_ptr<AzureVisionAnalysisEndpointFilter> AzureVisionEndpoint;
 
 	uint16_t Port;
+
+	mutable shared_ptr<LongPollDispatch> LongPoll;
 };

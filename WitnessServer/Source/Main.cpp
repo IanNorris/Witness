@@ -148,8 +148,6 @@ BOOL WINAPI ConsoleHandlerRoutine(DWORD ControlType)
 
 void WINAPI ServiceMain(DWORD dwArgc, PWSTR* pszArgv)
 {
-	Sleep(10000);
-
 	if (IsService)
 	{
 		ServiceHandle = RegisterServiceCtrlHandler(SERVICE_NAME, ServiceController);

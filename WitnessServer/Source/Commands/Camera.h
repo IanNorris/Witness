@@ -10,7 +10,7 @@ public:
 
 	void OnPreviewMessage( GlobalContext& Context, http_request& Message, const string_t& TargetCamera, const json::value& Packet, bool LargePreview );
 
-	void OnEnumMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet, bool AsAdmin );
+	void OnEnumMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet, bool AsAdmin, bool LongPoll );
 
 	void OnRecordMessage( const GlobalContext& Context, http_request& Message, const string_t& TargetCamera, const json::value& Packet );
 

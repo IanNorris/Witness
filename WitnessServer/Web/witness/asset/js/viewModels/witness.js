@@ -92,8 +92,9 @@ var WitnessViewModel = function() {
 		}
 	};
 	
+	var first = true;
 	self.refreshCameraData = function() {
-		makeQuery( null, '/camera/enum', true, "error|Error fetching camera list.",
+		makeQuery( null, first ? '/camera/enum' : '/camera/enum_longpoll', true, "error|Error fetching camera list.",
 			function( result ) {	
 				for( var camera = 0; camera < result.length; camera++ ) {
 					
@@ -133,11 +134,16 @@ var WitnessViewModel = function() {
 				}
 				
 				self.cameraListReceived( true );
+		},
+		function( result ) {
+			first = false;
+			var timer = window.setInterval( function() {
+				clearInterval(timer);
+				self.refreshCameraData();
+			}, 100 );
 		} );
 	};
 	self.refreshCameraData();
 	
-	window.setInterval( function() {
-		self.refreshCameraData();
-	}, 100 );
+	
 };
