@@ -29,6 +29,8 @@ void Command_Camera::OnMessage( GlobalContext& Context, http_request& Message, c
 		{
 			Message.reply( status_codes::NotFound );
 		}
+
+		return;
 	}
 	if( ChildPath.size() == 1 && IsPost )
 	{
@@ -45,6 +47,8 @@ void Command_Camera::OnMessage( GlobalContext& Context, http_request& Message, c
 		{
 			Message.reply( status_codes::NotFound );
 		}
+
+		return;
 	}
 	else if( ChildPath.size() == 2 && !IsPost )
 	{
