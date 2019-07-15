@@ -64,7 +64,7 @@
 			this.ShowIcon = false;
 			this.ShowInTaskbar = false;
 			this.SizeGripStyle = System.Windows.Forms.SizeGripStyle.Hide;
-			this.TopMost = true;
+			this.FormClosing += new System.Windows.Forms.FormClosingEventHandler(this.MotionToast_FormClosing);
 			this.Shown += new System.EventHandler(this.MotionToast_Shown);
 			((System.ComponentModel.ISupportInitialize)(this.StreamImage)).EndInit();
 			this.ResumeLayout(false);

@@ -28,6 +28,17 @@ namespace WitnessClient
 		{
 			WitnessRest.SendQuery(false, "/camera/enum", null, true, false, new Action<Task<HttpResponseMessage>>((response) =>
 			{
+				try
+				{
+					response.Wait();
+				}
+				catch
+				{
+					System.Threading.Thread.Sleep(250);
+					LongPollCameaState();
+					return;
+				}
+
 				if(response.Status == TaskStatus.Canceled )
 				{
 					System.Threading.Thread.Sleep(250);
