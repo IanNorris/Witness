@@ -36,12 +36,14 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Files]
 Source: "vc_redist.x64.exe"; DestDir: {tmp}; Flags: deleteafterinstall
+Source: "NDP472-KB4054530-x86-x64-AllOS-ENU.exe"; DestDir: {tmp}; Flags: deleteafterinstall
 Source: "X:\Programming\Witness\x64\Release\WitnessServer.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "X:\Programming\Witness\x64\Release\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
 
 [Run]
 Filename: {tmp}\vc_redist.x64.exe; Parameters: "/q /passive /Q:a /c:""msiexec /q /i vcredist.msi"""; StatusMsg: "Installing VC++ 2017 Redistributables..."
+Filename: {tmp}\NDP472-KB4054530-x86-x64-AllOS-ENU.exe; Parameters: "/passive /showrmui /norestart"; StatusMsg: "Installing .NET Framework 4.7.2..."
 Filename: {app}\Installer.exe; StatusMsg: "Running configuration tool..."
 
 [UninstallRun]
