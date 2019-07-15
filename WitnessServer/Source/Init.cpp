@@ -243,14 +243,18 @@ bool WitnessServer::CreateProcessors(const json::value& JsonProcessorSettings)
 	bool Success = true;
 	string_t Errors;
 
-	int ThreadCount = 2;
+	int ThreadCount = 0;
 
-	Success &= GetJsonField( JsonProcessorSettings, _T("thread_count"), ThreadCount, Errors );
+	GetJsonField( JsonProcessorSettings, _T("thread_count"), ThreadCount, Errors );
 
-	if (!Success)
+	if (ThreadCount <= 0)
 	{
-		tcout << Errors << endl;
-		return false;
+		ThreadCount = std::thread::hardware_concurrency();
+	}
+
+	if (ThreadCount <= 0)
+	{
+		ThreadCount = 2;
 	}
 	
 	while(ThreadCount--)
