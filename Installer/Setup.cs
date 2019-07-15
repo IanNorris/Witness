@@ -24,6 +24,7 @@ namespace Installer
 		public string Password { get; set; }
 		public string PasswordConfirm { get; set; }
 		public bool PasswordsMatch { get; set; } = false;
+		public bool DeleteAllAdminAccounts { get; set; } = false;
 
 		[SettingName("server_startup")]
 		public bool? RunOnStartup { get; set; } = true;
@@ -47,7 +48,7 @@ namespace Installer
 		public string Cache { get; set; } = "C:\\WitnessCache";
 
 		[SettingName("processing_threads")]
-		public uint ThreadCount { get; set; } = 4;
+		public uint ThreadCount { get; set; } = 0;
 
 		[SettingName("clip_lead_in")]
 		public float ClipLeadIn { get; set; } = 8.0f;
