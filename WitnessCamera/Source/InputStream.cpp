@@ -216,11 +216,6 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 
 				PacketBase += Keyframe.PacketCount;
 			}
-
-			if (WrittenFrames > 0)
-			{
-				printf("Source %d: Flushing %d frames.\n", UniqueSourceID, WrittenFrames );
-			}
 		}
 
 		//Add the new packet to the buffer, if we're not already producing output
