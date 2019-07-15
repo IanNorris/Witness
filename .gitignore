@@ -305,3 +305,4 @@ ThirdParty/ffmpeg-20181226-d702600-win64-shared/
 *.dmp
 Setup/witness_setup.exe
 SetupScript/vc_redist.x64.exe
+SetupScript/NDP472-KB4054530-x86-x64-AllOS-ENU.exe

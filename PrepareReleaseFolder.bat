@@ -24,3 +24,4 @@ rmdir x64\Release\x86 /S /Q
 mkdir x64\Release\Web
 
 robocopy /njh /njs /np /nfl /ndl /S WitnessServer\Web x64\Release\Web\
+robocopy /njh /njs /np /nfl /ndl /S ThirdParty\WACS x64\Release\WACS\
