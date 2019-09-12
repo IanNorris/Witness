@@ -41,10 +41,10 @@ WitnessListener::~WitnessListener()
 	Stop();
 }
 
-void WitnessListener::Initialise(json::object& Config)
+void WitnessListener::Initialise( const std::unordered_map< string_t, string_t >& Settings )
 {
 	m_Commands[U("auth")] = make_unique<Command_Authenticate>( m_GlobalContext->Port );
-	m_Commands[U("static")] = make_unique<Command_Static>( Config );
+	m_Commands[U("static")] = make_unique<Command_Static>( Settings );
 	m_Commands[U("camera")] = make_unique<Command_Camera>();
 	m_Commands[U("clip")] = make_unique<Command_Clip>();
 	m_Commands[U("group")] = make_unique<Command_Group>();

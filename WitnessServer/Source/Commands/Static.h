@@ -6,7 +6,7 @@ class Command_Static : public IListenerCommand
 {
 public:
 
-	Command_Static( json::object& Config );
+	Command_Static( const std::unordered_map< string_t, string_t >& Settings );
 
 	void OnMessage( GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost ) override;
 

@@ -18,11 +18,17 @@ using namespace std;
 
 namespace fs = std::experimental::filesystem;
 
-Command_Static::Command_Static(object& Config)
+Command_Static::Command_Static( const std::unordered_map< string_t, string_t >& Settings )
 {
-	m_root = Config[U("static_path")].as_string();
+	string_t Errors;
 
-	json::object& MimeTypes = Config[U("mime")].as_object();
+	GetSettingsField(Settings, _T("server_root"), m_root, Errors);
+
+	std::unordered_map< string_t, string_t > MimeTypes;
+	MimeTypes[_T("css")] = _T("text/css");
+	MimeTypes[_T("html")] = _T("text/html");
+	MimeTypes[_T("js")] = _T("application/javascript");
+	MimeTypes[_T("svg")] = _T("image/svg+xml");
 	
 	std::error_code result;
 	for (auto& Iter : fs::recursive_directory_iterator(m_root, result))
@@ -52,7 +58,7 @@ Command_Static::Command_Static(object& Config)
 
 				if (MimeTypes.find(PathExt) != MimeTypes.end())
 				{
-					ContentType = MimeTypes[PathExt].as_string();
+					ContentType = MimeTypes[PathExt];
 				}
 			}
 

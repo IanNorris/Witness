@@ -20,7 +20,7 @@ public:
 	WitnessListener( utility::string_t Hostname, int Port, bool Secure, DebugConsole* DebugConsoleInstance );
 	virtual ~WitnessListener();
 
-	void Initialise( json::object& Config );
+	void Initialise( const std::unordered_map< string_t, string_t >& Settings );
 
 	void Start();
 

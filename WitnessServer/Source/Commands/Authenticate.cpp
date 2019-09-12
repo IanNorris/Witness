@@ -30,13 +30,13 @@ string_t GetRandomToken()
 
 string_t GetHashedPasswordKey_Algorithm0( const string_t& Username, const string_t Password )
 {
-	string_t CombinedUsernamePassword = Username;
-	CombinedUsernamePassword += _T(":");
-	CombinedUsernamePassword += Password;
+	string CombinedUsernamePassword = string( Username.begin(), Username.end() );
+	CombinedUsernamePassword += ":";
+	CombinedUsernamePassword += string( Password.begin(), Password.end() );
 
 	char HashedPassword[ crypto_pwhash_STRBYTES ];
 
-	if( crypto_pwhash_str(HashedPassword, (const char*)CombinedUsernamePassword.c_str(), sizeof(TCHAR) * CombinedUsernamePassword.size(), crypto_pwhash_OPSLIMIT_MODERATE, crypto_pwhash_MEMLIMIT_MODERATE ) != 0 )
+	if( crypto_pwhash_str(HashedPassword, (const char*)CombinedUsernamePassword.c_str(), CombinedUsernamePassword.size(), crypto_pwhash_OPSLIMIT_MODERATE, crypto_pwhash_MEMLIMIT_MODERATE ) != 0 )
 	{
 		throw "Out of memory";
 	}
@@ -48,13 +48,13 @@ string_t GetHashedPasswordKey_Algorithm0( const string_t& Username, const string
 
 bool CheckHashedPasswordKey_Algorithm0( const string_t& Key, const string_t& Username, const string_t Password )
 {
-	string_t CombinedUsernamePassword = Username;
-	CombinedUsernamePassword += _T(":");
-	CombinedUsernamePassword += Password;
+	string CombinedUsernamePassword = string(Username.begin(), Username.end());
+	CombinedUsernamePassword += ":";
+	CombinedUsernamePassword += string(Password.begin(), Password.end());
 
 	string KeyASCII( Key.begin(), Key.end() );
 	
-	if( crypto_pwhash_str_verify( KeyASCII.c_str(), (const char*)CombinedUsernamePassword.c_str(), sizeof(TCHAR) * CombinedUsernamePassword.size() ) != 0 )
+	if( crypto_pwhash_str_verify( KeyASCII.c_str(), (const char*)CombinedUsernamePassword.c_str(), CombinedUsernamePassword.size() ) != 0 )
 	{
 		return false;
 	}

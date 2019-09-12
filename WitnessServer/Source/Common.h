@@ -63,4 +63,7 @@ wstring StringPrintfW(wchar_t* Message, ...);
 #endif
 
 template<typename T>
-bool GetJsonField( const web::json::value& Object, const TCHAR* FieldName, T& ValueOut, utility::string_t& Errors );
+bool GetSettingsField( const std::unordered_map< string_t, string_t >& Settings, const TCHAR* FieldName, T& ValueOut, utility::string_t& Errors );
+
+template<typename T>
+bool GetJsonField(const web::json::value& Object, const TCHAR* FieldName, T& ValueOut, utility::string_t& Errors);

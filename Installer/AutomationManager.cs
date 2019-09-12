@@ -4,6 +4,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.IO;
 using System.Threading.Tasks;
+using System.Windows;
+using System.Diagnostics;
+using System.Threading;
 
 namespace Installer
 {
@@ -11,26 +14,52 @@ namespace Installer
 	{
 		const string WitnessTaskScheduler_Startup = "WitnessCameraServer_Startup";
 		const string WitnessTaskScheduler_KeepAlive = "WitnessCameraServer_KeepAlive";
-		const string WitnessTaskScheduler_CertUpdate = "WitnessCameraServer_CertUpdate";
 
-		bool RunOnStartup;
+		StartupMode Startup;
 		bool RestartOnCrash;
-		bool CertificateUpdates;
 		string RootPath;
 
-		public AutomationManager( bool InRunOnStartup, bool InRestartOnCrash, bool InCertificateUpdates, string InRootPath )
+		public AutomationManager( StartupMode InStartup, bool InRestartOnCrash, string InRootPath )
 		{
-			RunOnStartup = InRunOnStartup;
+			Startup = InStartup;
 			RestartOnCrash = InRestartOnCrash;
-			CertificateUpdates = InCertificateUpdates;
 			RootPath = InRootPath;
+		}
+
+		public static void StopService()
+		{
+			string Server = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WitnessServer.exe");
+
+			string Messages = "";
+			var Result = CommandRunner.RunCommandAndDetermineSuccess<CommandRunner.Status>($"net stop WitnessCameraServer", CommandRunner.Status.Failure, (msg, status) =>
+			{
+				Messages += msg;
+				if (msg.Contains("is not started"))
+				{
+					return CommandRunner.Status.Success_AlreadyDone;
+				}
+				else if (msg.Contains("service name is invalid"))
+				{
+					return CommandRunner.Status.Success_AlreadyDone;
+				}
+				else if (msg.Contains("was stopped successfully."))
+				{
+					return CommandRunner.Status.Success_Done;
+				}
+				return status;
+			});
+
+			if (Result == CommandRunner.Status.Failure)
+			{
+				MessageBox.Show("Error stopping service:\n\n" + Messages);
+			}
 		}
 
 		public void UpdateConfig()
 		{
 			Uninstall();
 
-			if ( RunOnStartup )
+			if ( Startup == StartupMode.Task )
 			{
 				var task = TaskService.Instance.NewTask();
 				task.Settings.AllowDemandStart = true;
@@ -43,13 +72,104 @@ namespace Installer
 
 				TaskService.Instance.RootFolder.RegisterTaskDefinition(WitnessTaskScheduler_Startup, task);
 			}
+			else if( Startup == StartupMode.Service )
+			{
+				string Server = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WitnessServer.exe");
+
+				string Messages = "";
+				var Result = CommandRunner.RunCommandAndDetermineSuccess<CommandRunner.Status>($"{Server} /installservice", CommandRunner.Status.Failure, (msg, status) =>
+				{
+					Messages += msg;
+					if (msg.Contains("The requested service has already been started."))
+					{
+						return CommandRunner.Status.Success_AlreadyDone;
+					}
+					return msg.Contains("Created service.") ? CommandRunner.Status.Success_Done : status;
+				} );
+
+				if (Result == CommandRunner.Status.Failure)
+				{
+					MessageBox.Show("Error creating service:\n\n" + Messages);
+				}
+			}
+		}
+
+		public void Start()
+		{
+			if (Startup == StartupMode.Task)
+			{
+				var Task = TaskService.Instance.FindTask(WitnessTaskScheduler_Startup);
+				var Result = Task.Run();
+
+				int MaxWait = 30;
+				bool TaskResult = false;
+
+				do
+				{
+					Task = TaskService.Instance.FindTask(WitnessTaskScheduler_Startup);
+					if(Task.State == TaskState.Running)
+					{
+						TaskResult = true;
+					}
+					else
+					{
+						Thread.Sleep(1000);
+					}
+				} while (MaxWait > 0 && !TaskResult);
+			}
+			else if (Startup == StartupMode.Service)
+			{
+				string Messages = "";
+				var Result = CommandRunner.RunCommandAndDetermineSuccess<CommandRunner.Status>($"net start WitnessCameraServer", CommandRunner.Status.Failure, (msg, status) =>
+				{
+					Messages += msg;
+					if (msg.Contains("already been started"))
+					{
+						return CommandRunner.Status.Success_AlreadyDone;
+					}
+					else if (msg.Contains("service was started successfully"))
+					{
+						return CommandRunner.Status.Success_AlreadyDone;
+					}
+					return status;
+				});
+
+				if (Result == CommandRunner.Status.Failure)
+				{
+					MessageBox.Show("Error starting service:\n\n" + Messages);
+				}
+			}
 		}
 
 		public void Uninstall()
 		{
+			string Server = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WitnessServer.exe");
+
+			StopService();
+
 			TaskService.Instance.RootFolder.DeleteTask(WitnessTaskScheduler_Startup, false);
 			TaskService.Instance.RootFolder.DeleteTask(WitnessTaskScheduler_KeepAlive, false);
-			TaskService.Instance.RootFolder.DeleteTask(WitnessTaskScheduler_CertUpdate, false);
+
+			var Messages = "";
+
+			var Result = CommandRunner.RunCommandAndDetermineSuccess<CommandRunner.Status>($"{Server} /uninstallservice", CommandRunner.Status.Failure, (msg, status) =>
+			{
+				Messages += msg;
+				if (msg.Contains("Service not found"))
+				{
+					return CommandRunner.Status.Success_AlreadyDone;
+				}
+				else if (msg.Contains("Deleted service"))
+				{
+					return CommandRunner.Status.Success_Done;
+				}
+				return status;
+			});
+
+			if (Result == CommandRunner.Status.Failure)
+			{
+				MessageBox.Show("Error stopping service:\n\n" + Messages);
+			}
 		}
 	}
 }

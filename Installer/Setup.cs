@@ -8,14 +8,24 @@ namespace Installer
 {
 	public enum CertificateMode
 	{
-		[Description("Let's Encrypt (Recommended)")]
-		LetsEncrypt,
-		[Description("Self-signed certificate (Automatic)")]
-		SelfSigned,
+		[Description("Let's Encrypt with port 80 forwarded to this device (Recommended)")]
+		LetsEncryptAuto,
+		[Description("Let's Encrypt with manual setup")]
+		LetsEncryptManual,
 		[Description("Manual certificate management")]
 		Manual,
 		[Description("No security")]
 		NoSecurity
+	}
+
+	public enum StartupMode
+	{
+		[Description("Run as a Windows service (Recommended)")]
+		Service,
+		[Description("Run as the current user")]
+		Task,
+		[Description("Don't run at startup")]
+		Manual
 	}
 
 	public class Setup
@@ -26,8 +36,8 @@ namespace Installer
 		public bool PasswordsMatch { get; set; } = false;
 		public bool DeleteAllAdminAccounts { get; set; } = false;
 
-		[SettingName("server_startup")]
-		public bool? RunOnStartup { get; set; } = true;
+		[SettingName("server_startup_mode")]
+		public StartupMode StartupMode { get; set; } = StartupMode.Service;
 
 		[SettingName("server_restart_on_failure")]
 		public bool? RestartOnFailure { get; set; } = true;
@@ -36,7 +46,7 @@ namespace Installer
 		public string Hostname { get; set; } = null;
 
 		[SettingName("server_tls_mode")]
-		public CertificateMode TlsMode { get; set; } = CertificateMode.LetsEncrypt;
+		public CertificateMode TlsMode { get; set; } = CertificateMode.LetsEncryptAuto;
 
 		[SettingName("server_tls_contact")]
 		public string TlsContact { get; set; } = null;

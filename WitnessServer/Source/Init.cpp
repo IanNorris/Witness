@@ -42,79 +42,50 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 {
 	this->DebugConsoleInstance = DebugConsoleInstance;
 
-	auto ConfigFile = GetConfigFilePath( L"server.json" );
+	auto DatabaseFile = GetConfigFilePath(U("server.db"));
 
-	std::ifstream ConfigFileStream(ConfigFile);
-	if( !ConfigFileStream )
-	{
-		std::tcerr << U("Unable to open config file ") << ConfigFile << std::endl;
-		return false;
-	}
-	
-	value JsonConfig;
-	try
-	{
-		JsonConfig = value::parse( ConfigFileStream );
-	}
-	catch( json_exception Exception)
-	{
-		std::tcerr << U("Unable to parse config file ") << ConfigFile << U(" due to : ") << Exception.what() << std::endl;
-		return false;
-	}
+	shared_ptr<SQLiteDatabase> Database = Database::InitializeDatabase(DatabaseFile);
 
-	if( JsonConfig.has_object_field(L"android") )
-	{
-		LoadAndroidSettings( JsonConfig.at(L"android") );
-	}
+	std::unordered_map< string_t, string_t > Settings;
 
-	const wstring ServerString = _T("server");
-	if( !JsonConfig.has_object_field(ServerString) )
-	{
-		std::tcerr << U("Missing section in config file. Expected a 'server' section.") << std::endl;
-		return false;
-	}
+	SQLiteDatabaseQueryInstance GetAllSettings(Database, _T("GetAllSettings"));
 
-	if( !JsonConfig.has_object_field(L"processing") )
-	{
-		std::tcerr << U("Missing section in config file. Expected a 'processing' section.") << std::endl;
-		return false;
-	}
-	
-	auto JsonServerConfig = JsonConfig.at(L"server");
-	auto JsonProcessingConfig = JsonConfig.at(L"processing");
+	int Result = GetAllSettings->Execute(
+		[&](const SQLiteDatabaseQuery& query)
+		{
+			string_t Name = query.GetColumnValueText(0);
+			string_t Value = query.GetColumnValueText(1);
+			Settings[Name] = Value;
+
+			return true;
+		}
+	);
+
+	LoadAndroidSettings(Settings);
 
 	//Process video settings
 	Video.MotionFilterName = _T("BGS_LBMixtureOfGaussians");
-	if( JsonConfig.has_object_field(L"video") )
+	
+	bool Success = true;
+	string_t Errors;
+
+	//Required
+	//Success &= GetSettingsField(Settings, _T("data_path"), Video.DataPath, Errors);
+	//Success &= GetSettingsField(Settings, _T("face_recognition_cascade_name"), Video.FaceCascadeFilter, Errors);
+	//Success &= GetSettingsField(Settings, _T("body_recognition_cascade_name"), Video.FullBodyCascadeFilter, Errors);
+
+	if (!Success)
 	{
-		auto JsonVideoConfig = JsonConfig.at(L"video");
-
-		bool Success = true;
-		string_t Errors;
-
-		//Required
-		Success &= GetJsonField( JsonVideoConfig, _T("data_path"), Video.DataPath, Errors );
-		Success &= GetJsonField( JsonVideoConfig, _T("face_recognition_cascade_name"), Video.FaceCascadeFilter, Errors );
-		Success &= GetJsonField( JsonVideoConfig, _T("body_recognition_cascade_name"), Video.FullBodyCascadeFilter, Errors );
-
-		if (!Success)
-		{
-			tcout << Errors << endl;
-			return false;
-		}
-
-		//Optional
-		Success &= GetJsonField( JsonVideoConfig, _T("clip_leadin"), Video.ClipHistoryPeriod, Errors );
-		Success &= GetJsonField( JsonVideoConfig, _T("default_background_algorithm"), Video.MotionFilterName, Errors );
-		Success &= GetJsonField( JsonVideoConfig, _T("export_motion_vectors"), Video.ExportMotionVectors, Errors );
-	}
-	else
-	{
-		std::tcerr << U("Missing section in config file. Expected a 'video' section.") << std::endl;
+		tcout << Errors << endl;
 		return false;
 	}
 
-	if( !CreateListener( JsonServerConfig ) )
+	//Optional
+	Success &= GetSettingsField(Settings, _T("clip_leadin"), Video.ClipHistoryPeriod, Errors);
+	Success &= GetSettingsField(Settings, _T("default_background_algorithm"), Video.MotionFilterName, Errors);
+	Success &= GetSettingsField(Settings, _T("export_motion_vectors"), Video.ExportMotionVectors, Errors);
+
+	if( !CreateListener( Settings ) )
 	{
 		return false;
 	}
@@ -122,7 +93,7 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 	Context = Server->GetGlobalContext();
 	Context->CachePath = CachePath;
 
-	if( JsonConfig.has_object_field(L"azure") )
+	/*if( JsonConfig.has_object_field(L"azure") )
 	{
 		auto AzureRoot = JsonConfig.at(L"azure").as_object();
 		for( auto Iter = AzureRoot.cbegin(); Iter != AzureRoot.cend(); ++Iter )
@@ -146,15 +117,15 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 				}
 			}
 		}
-	}
+	}*/
 
 
-	if( !InitializeContext() )
+	if( !InitializeContext(Database) )
 	{
 		return false;
 	}
 
-	if( !CreateProcessors( JsonProcessingConfig ) )
+	if( !CreateProcessors( Settings ) )
 	{
 		return false;
 	}
@@ -172,7 +143,7 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 
 	tcout << _T("Starting web server...") << endl;
 
-	Server->Initialise( JsonServerConfig.as_object() );
+	Server->Initialise( Settings );
 
 	Timer = make_unique<TimerWorker>( Context->MessageBus );
 	Timer->Start( WorkerBase::Priority::Normal );
@@ -203,29 +174,40 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 	return true;
 }
 
-void WitnessServer::LoadAndroidSettings( const json::value& JsonAndroidSettings )
+void WitnessServer::LoadAndroidSettings( const std::unordered_map< string_t, string_t >& Settings )
 {
 	bool Success = true;
 	string_t Errors;
 
-	Success &= GetJsonField( JsonAndroidSettings, _T("fcm_server_key"), Android.ServerKey, Errors );
-	Success &= GetJsonField( JsonAndroidSettings, _T("fcm_user"), Android.TempUserId, Errors );
+	Success &= GetSettingsField( Settings, _T("fcm_server_key"), Android.ServerKey, Errors );
+	Success &= GetSettingsField( Settings, _T("fcm_user"), Android.TempUserId, Errors );
 	Android.UseAndroid = Success;
 }
 
-bool WitnessServer::CreateListener( const json::value& JsonServerSettings )
+bool WitnessServer::CreateListener( const std::unordered_map< string_t, string_t >& Settings )
 {
 	bool Success = true;
 	string_t Errors;
 
 	string_t Hostname;
 	int Port;
-	bool Secure;
+	string_t Security;
+	bool Secure = true;
 
-	Success &= GetJsonField( JsonServerSettings, _T("hostname"), Hostname, Errors );
-	Success &= GetJsonField( JsonServerSettings, _T("port"), Port, Errors );
-	Success &= GetJsonField( JsonServerSettings, _T("secure"), Secure, Errors );
-	Success &= GetJsonField( JsonServerSettings, _T("cache_path"), CachePath, Errors );
+	Success &= GetSettingsField( Settings, _T("server_hostname"), Hostname, Errors );
+	std::vector<string_t> SplitHostname = SplitString(Hostname, _T(":"));
+
+	Hostname = SplitHostname[0];
+	Port = atoi(string(SplitHostname[1].begin(), SplitHostname[1].end()).c_str());
+	
+	Success &= GetSettingsField( Settings, _T("server_tls_mode"), Security, Errors );
+
+	if (Security.compare(_T("NoSecurity")) == 0)
+	{
+		Secure = false;
+	}
+
+	Success &= GetSettingsField( Settings, _T("server_cache"), CachePath, Errors );
 
 	if (!Success)
 	{
@@ -238,14 +220,14 @@ bool WitnessServer::CreateListener( const json::value& JsonServerSettings )
 	return true;
 }
 
-bool WitnessServer::CreateProcessors(const json::value& JsonProcessorSettings)
+bool WitnessServer::CreateProcessors( const std::unordered_map< string_t, string_t >& Settings )
 {
 	bool Success = true;
 	string_t Errors;
 
 	int ThreadCount = 0;
 
-	GetJsonField( JsonProcessorSettings, _T("thread_count"), ThreadCount, Errors );
+	GetSettingsField( Settings, _T("thread_count"), ThreadCount, Errors );
 
 	if (ThreadCount <= 0)
 	{
@@ -268,12 +250,11 @@ bool WitnessServer::CreateProcessors(const json::value& JsonProcessorSettings)
 	return true;
 }
 
-bool WitnessServer::InitializeContext()
+bool WitnessServer::InitializeContext(const shared_ptr<SQLiteDatabase>& Database)
 {
-	auto DatabaseFile = GetConfigFilePath( U("server.db") );
-
 	Context->MessageBus = make_shared<MessageBus>();
-	Context->Database = Database::InitializeDatabase( DatabaseFile );
+	Context->Database = Database;
+
 	Context->CommonImageProcessingJobQueue = &CommonImageProcessingJobQueue;
 
 	return true;

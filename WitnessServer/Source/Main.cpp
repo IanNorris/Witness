@@ -16,7 +16,7 @@
 #define SERVICE_DISPLAY_NAME L"Witness Camera Service - CCTV Monitoring Server"
 #define SERVICE_START_TYPE SERVICE_AUTO_START
 #define SERVICE_ACCOUNT L"NT AUTHORITY\\NetworkService"
-#define SERVICE_PASSWORD NULL
+#define SERVICE_PASSWORD L""
 
 bool ContinueRunning = true;
 
@@ -28,7 +28,7 @@ std::experimental::filesystem::path GetConfigFilePath(string_t Filename);
 
 bool UpdateService(wchar_t* Path, bool Install)
 {
-	SC_HANDLE SCM = OpenSCManager(nullptr, nullptr, SC_MANAGER_CONNECT | (Install ? SC_MANAGER_CREATE_SERVICE : 0));
+	SC_HANDLE SCM = OpenSCManager(nullptr, nullptr, SC_MANAGER_CONNECT | SC_MANAGER_CREATE_SERVICE);
 
 	if (!SCM)
 	{
@@ -38,7 +38,14 @@ bool UpdateService(wchar_t* Path, bool Install)
 
 	if (Install)
 	{
-		SC_HANDLE Service = CreateService(SCM, SERVICE_NAME, SERVICE_DISPLAY_NAME, SERVICE_QUERY_STATUS, SERVICE_WIN32_OWN_PROCESS, SERVICE_START_TYPE, SERVICE_ERROR_NORMAL, Path, NULL, NULL, NULL, SERVICE_ACCOUNT, SERVICE_PASSWORD);
+		SC_HANDLE Service = OpenService(SCM, SERVICE_NAME, SERVICE_STOP | SERVICE_QUERY_STATUS | SERVICE_INTERROGATE  | DELETE);
+		if (Service)
+		{
+			CloseServiceHandle(Service);
+			UpdateService(Path, false);
+		}
+
+		Service = CreateService(SCM, SERVICE_NAME, SERVICE_DISPLAY_NAME, SERVICE_QUERY_STATUS, SERVICE_WIN32_OWN_PROCESS, SERVICE_START_TYPE, SERVICE_ERROR_NORMAL, Path, NULL, NULL, NULL, SERVICE_ACCOUNT, SERVICE_PASSWORD);
 		if (!Service)
 		{
 			CloseServiceHandle(SCM);
@@ -52,27 +59,34 @@ bool UpdateService(wchar_t* Path, bool Install)
 	}
 	else
 	{
-		SC_HANDLE Service = OpenService(SCM, SERVICE_NAME, SERVICE_STOP | SERVICE_QUERY_STATUS | DELETE );
+		SC_HANDLE Service = OpenService(SCM, SERVICE_NAME, SERVICE_STOP | SERVICE_QUERY_STATUS | SERVICE_INTERROGATE | DELETE );
 		if (!Service)
 		{
 			CloseServiceHandle(SCM);
-			std::tcerr << U("Unable to create connect to service.") << std::endl;
+			std::tcerr << U("Service not found.") << std::endl;
 			return false;
 		}
-
+		
 		std::tcout << U("Stopping service.");
 
 		SERVICE_STATUS Status = {};
 		if (ControlService(Service, SERVICE_CONTROL_STOP, &Status))
 		{
+			int Turns = 60;
+
 			do {
 				Sleep(1000);
 				std::tcout << U(".");
 
-			} while (QueryServiceStatus(Service, &Status));
+				if (Status.dwCurrentState == SERVICE_STOPPED)
+				{
+					break;
+				}
+
+			} while (QueryServiceStatus(Service, &Status) && Turns--);
 		}
 
-		if (Status.dwCurrentState == SERVICE_STOP_PENDING)
+		if (Status.dwCurrentState == SERVICE_STOPPED)
 		{
 			std::tcout << U("\nService stopped cleanly.") << std::endl;
 		}
@@ -161,6 +175,8 @@ void WINAPI ServiceMain(DWORD dwArgc, PWSTR* pszArgv)
 		ServiceStatus.dwWaitHint = 0;
 
 		UpdateStatus(SERVICE_START_PENDING, 30);
+
+		Sleep(10000);
 	}
 	else
 	{

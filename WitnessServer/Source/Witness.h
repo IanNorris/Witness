@@ -50,10 +50,10 @@ private:
 	void HandleCameraUpdateMotionMessage(const CameraUpdateMotionMessage& Data);
 	void HandleCameraEndMotionMessage(const CameraEndMotionMessage& Data);
 
-	void LoadAndroidSettings( const json::value& JsonAndroidSettings );
-	bool CreateListener( const json::value& JsonServerSettings );
-	bool CreateProcessors( const json::value& JsonProcessorSettings );
-	bool InitializeContext();
+	void LoadAndroidSettings( const std::unordered_map< string_t, string_t >& Settings );
+	bool CreateListener( const std::unordered_map< string_t, string_t >& Settings );
+	bool CreateProcessors( const std::unordered_map< string_t, string_t >& Settings );
+	bool InitializeContext( const std::shared_ptr<SQLiteDatabase>& Database );
 
 	void HandleActions( const shared_ptr<GlobalContext>& Context, CameraState& State, int CameraIndex, double MotionThreshold );
 	void TriggerAction( const string_t& Command, const string_t& Param1, const string_t& Param2, const string_t& Param3, CameraState& State, int CameraIndex );

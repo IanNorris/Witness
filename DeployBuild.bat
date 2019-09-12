@@ -14,9 +14,3 @@ robocopy /njh /njs /np /nfl /ndl %CppRest% %Output% boost*
 robocopy /njh /njs /np /nfl /ndl %CppRest% %Output% SSLEAY32.*
 robocopy /njh /njs /np /nfl /ndl %CppRest% %Output% LIBEAY32.*
 robocopy /njh /njs /np /nfl /ndl %CppRest% %Output% zlib1.*
-
-REM robocopy /njh /njs /np /nfl /ndl %CppRestD% %Output% cpprest141_2_10d* 
-REM robocopy /njh /njs /np /nfl /ndl %CppRestD% %Output% boost*
-REM robocopy /njh /njs /np /nfl /ndl %CppRestD% %Output% SSLEAY32.*
-REM robocopy /njh /njs /np /nfl /ndl %CppRestD% %Output% LIBEAY32.*
-REM robocopy /njh /njs /np /nfl /ndl %CppRestD% %Output% zlibd1.*
