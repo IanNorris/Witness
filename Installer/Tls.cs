@@ -13,8 +13,9 @@ namespace Installer
 	internal static class Tls
 	{
 		const string AppId = "{790C242A-DAA6-46FF-8E04-B1EB280F3BA2}";
+		const string WitnessWACSFirewallRule = "Allow WACS For Witness Camera Installer";
 
-		
+
 
 		public static bool UndoBindings(bool Listen, bool CertBinding, bool ACLBinding, string Hostname, ushort Port, string DomainUsername, string Thumbprint)
 		{
@@ -191,8 +192,34 @@ namespace Installer
 			return GetMostRecentCertificate(Hostname) != null;
 		}
 
+		private static void RegisterTempFirewallRule()
+		{
+			string Messages = "";
+			var Result = CommandRunner.RunCommandAndDetermineSuccess<CommandRunner.Status>($"(New-NetFirewallRule -DisplayName \"{WitnessWACSFirewallRule}\" -LocalPort 80 -Action Allow -Direction Inbound -Protocol TCP).PrimaryStatus", CommandRunner.Status.Failure, (msg, status) =>
+			{
+				Messages += msg;
+				if (msg.Contains("OK"))
+				{
+					return CommandRunner.Status.Success_Done;
+				}
+				return status;
+			});
+
+			if (Result == CommandRunner.Status.Failure)
+			{
+				MessageBox.Show("Error installing temporary firewall rules for WACS:\n\n" + Messages);
+			}
+		}
+
+		private static void ClearTempFirewallRule()
+		{
+			CommandRunner.RunCommand($"Remove-NetFirewallRule -DisplayName \"{WitnessWACSFirewallRule}\"");
+		}
+
 		private static bool RunAutomaticWACS( string Hostname, string CertContact )
 		{
+			RegisterTempFirewallRule();
+
 			var WACS = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WACS", "wacs.exe");
 			try
 			{
@@ -229,12 +256,18 @@ namespace Installer
 			{
 				MessageBox.Show($"Unable to run WACS!\n\n{e.Message}");
 			}
+			finally
+			{
+				ClearTempFirewallRule();
+			}
 
 			return true;
 		}
 
 		private static bool RunManualWACS( string Hostname )
 		{
+			RegisterTempFirewallRule();
+
 			var WACS = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WACS", "wacs.exe");
 			try
 			{
@@ -264,6 +297,10 @@ namespace Installer
 			catch (Exception e)
 			{
 				MessageBox.Show($"Unable to run WACS!\n\n{e.Message}");
+			}
+			finally
+			{
+				ClearTempFirewallRule();
 			}
 
 			return true;
