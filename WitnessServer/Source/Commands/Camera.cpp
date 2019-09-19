@@ -141,7 +141,7 @@ void Command_Camera::OnPreviewMessage( GlobalContext& Context, http_request& Mes
 void Command_Camera::OnEnumMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet, bool AsAdmin, bool LongPoll )
 {
 	int UserUID = Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::Read, AsAdmin ? Command_Authenticate::Privilege::Administrator : Command_Authenticate::Privilege::Normal );
-	if( !UserUID )
+	if( UserUID < 0 )
 	{
 		return;
 	}
@@ -156,114 +156,116 @@ void Command_Camera::OnEnumMessage( const GlobalContext& Context, http_request& 
 		Array.clear();
 		State.clear();
 
-		SQLiteDatabaseQueryInstance GetCamerasForUser(Context.Database, AsAdmin ? _T("GetCameras") : _T("GetCamerasForUser"));
-		GetCamerasForUser->Bind("@User", UserUID);
+		{
+			SQLiteDatabaseQueryInstance GetCamerasForUser(Context.Database, AsAdmin ? _T("GetCameras") : _T("GetCamerasForUser"));
+			GetCamerasForUser->Bind("@User", UserUID);
 
-		GetCamerasForUser->Execute(
-			[&Array, &Context, LongPoll, &State, AsAdmin](const SQLiteDatabaseQuery& query)
-			{
-				int ID = query.GetColumnValueInt(0);
-				string_t Name = query.GetColumnValueText(1);
-				string_t ConnectionString = query.GetColumnValueText(2);
-				string_t Description = query.GetColumnValueText(3) ? query.GetColumnValueText(3) : _T("");
-				int Enabled = query.GetColumnValueInt(4);
-
-				if (Enabled || AsAdmin)
+			GetCamerasForUser->Execute(
+				[&Array, &Context, LongPoll, &State, AsAdmin](const SQLiteDatabaseQuery& query)
 				{
-					json::value Camera;
-					Camera[_T("id")] = json::value(ID);
-					Camera[_T("name")] = json::value(Name);
-					Camera[_T("description")] = json::value(Description);
-					Camera[_T("enabled")] = json::value(Enabled);
+					int ID = query.GetColumnValueInt(0);
+					string_t Name = query.GetColumnValueText(1);
+					string_t ConnectionString = query.GetColumnValueText(2);
+					string_t Description = query.GetColumnValueText(3) ? query.GetColumnValueText(3) : _T("");
+					int Enabled = query.GetColumnValueInt(4);
 
-					vector<json::value> Groups;
-
-					SQLiteDatabaseQueryInstance SelectGroupsForCamera(Context.Database, _T("SelectGroupsForCamera"));
-					SelectGroupsForCamera->Bind("@Camera", ID);
-
-					SelectGroupsForCamera->Execute(
-						[&Groups](const SQLiteDatabaseQuery& query)
-						{
-							int GroupId = query.GetColumnValueInt(1);
-
-							Groups.push_back(json::value(GroupId));
-
-							return true;
-						}
-					);
-
-					if (AsAdmin)
+					if (Enabled || AsAdmin)
 					{
-						Camera[_T("connectionString")] = json::value(ConnectionString);
-					}
+						json::value Camera;
+						Camera[_T("id")] = json::value(ID);
+						Camera[_T("name")] = json::value(Name);
+						Camera[_T("description")] = json::value(Description);
+						Camera[_T("enabled")] = json::value(Enabled);
 
-					Camera[_T("groups")] = json::value::array(Groups);
+						vector<json::value> Groups;
 
-					{
-						lock_guard<mutex> Lock(Context.Mutex);
+						SQLiteDatabaseQueryInstance SelectGroupsForCamera(Context.Database, _T("SelectGroupsForCamera"));
+						SelectGroupsForCamera->Bind("@Camera", ID);
 
-						auto Iter = Context.Cameras.find(ID);
-						if (Iter != Context.Cameras.end())
-						{
-							if (LongPoll)
+						SelectGroupsForCamera->Execute(
+							[&Groups](const SQLiteDatabaseQuery& query)
 							{
-								State.push_back((*Iter).first);
-								State.push_back((*Iter).second.IsRecording);
+								int GroupId = query.GetColumnValueInt(1);
+
+								Groups.push_back(json::value(GroupId));
+
+								return true;
 							}
+						);
 
-							Camera[_T("status")] = json::value((*Iter).second.Status);
-							Camera[_T("recording")] = json::value((*Iter).second.IsRecording);
+						if (AsAdmin)
+						{
+							Camera[_T("connectionString")] = json::value(ConnectionString);
+						}
 
-							auto StreamStats = (*Iter).second.Worker->GetStreamStats();
+						Camera[_T("groups")] = json::value::array(Groups);
 
-							auto ImgStats = Context.CommonImageProcessingJobQueue->GetStats(ID);
-							Camera[_T("lastTimestamp")] = json::value(ImgStats.LastTimestamp);
+						{
+							lock_guard<mutex> Lock(Context.Mutex);
 
-							if (AsAdmin && ImgStats.FrameCount > 0)
+							auto Iter = Context.Cameras.find(ID);
+							if (Iter != Context.Cameras.end())
 							{
-								Camera[_T("frameCount")] = json::value(ImgStats.FrameCount);
+								if (LongPoll)
+								{
+									State.push_back((*Iter).first);
+									State.push_back((*Iter).second.IsRecording);
+								}
+
+								Camera[_T("status")] = json::value((*Iter).second.Status);
+								Camera[_T("recording")] = json::value((*Iter).second.IsRecording);
+
+								auto StreamStats = (*Iter).second.Worker->GetStreamStats();
+
+								auto ImgStats = Context.CommonImageProcessingJobQueue->GetStats(ID);
+								Camera[_T("lastTimestamp")] = json::value(ImgStats.LastTimestamp);
+
+								if (AsAdmin && ImgStats.FrameCount > 0)
+								{
+									Camera[_T("frameCount")] = json::value(ImgStats.FrameCount);
 
 #define GET_STAT(OutputPrefix, StatName) \
-		Camera[ _T(OutputPrefix "TimeOfEachMS") ] = json::value( (double)ImgStats.Stats.FrameCount[StatName] ? ((double)ImgStats.Stats.Stats[StatName] / ((double)ImgStats.Stats.FrameCount[StatName] * 1000.0 * 1000.0)) : 0.0 );\
-		Camera[ _T(OutputPrefix "ActualMS") ] = json::value( ImgStats.FrameCount ? (double)ImgStats.Stats.Stats[StatName] / ((double)ImgStats.FrameCount * 1000.0 * 1000.0) : 0 )
+			Camera[ _T(OutputPrefix "TimeOfEachMS") ] = json::value( (double)ImgStats.Stats.FrameCount[StatName] ? ((double)ImgStats.Stats.Stats[StatName] / ((double)ImgStats.Stats.FrameCount[StatName] * 1000.0 * 1000.0)) : 0.0 );\
+			Camera[ _T(OutputPrefix "ActualMS") ] = json::value( ImgStats.FrameCount ? (double)ImgStats.Stats.Stats[StatName] / ((double)ImgStats.FrameCount * 1000.0 * 1000.0) : 0 )
 
-								GET_STAT("processing", FilterStat_Process_Total);
-								GET_STAT("scale", FilterStat_Scale);
-								GET_STAT("jpegEncoding", FilterStat_JpegEncoding);
-								GET_STAT("observer", FilterStat_ObserverFilter);
-								GET_STAT("firstPassFilter", FilterStat_FirstPassFilter);
-								GET_STAT("secondPassFilter", FilterStat_SecondPassFilter);
-								GET_STAT("thirdPassFilter", FilterStat_ThirdPassFilter);
-								GET_STAT("debug", FilterStat_Debug);
+									GET_STAT("processing", FilterStat_Process_Total);
+									GET_STAT("scale", FilterStat_Scale);
+									GET_STAT("jpegEncoding", FilterStat_JpegEncoding);
+									GET_STAT("observer", FilterStat_ObserverFilter);
+									GET_STAT("firstPassFilter", FilterStat_FirstPassFilter);
+									GET_STAT("secondPassFilter", FilterStat_SecondPassFilter);
+									GET_STAT("thirdPassFilter", FilterStat_ThirdPassFilter);
+									GET_STAT("debug", FilterStat_Debug);
 
-								GET_STAT("mvfInternal", FilterStat_MVF_Internal);
-								GET_STAT("mvfSideData", FilterStat_MVF_SideData);
-								GET_STAT("mvfVectorPass", FilterStat_MVF_VectorPass);
-								GET_STAT("mvfClusterPass", FilterStat_MVF_ClusterPass);
-								GET_STAT("mvfObjectPass", FilterStat_MVF_ObjectPass);
+									GET_STAT("mvfInternal", FilterStat_MVF_Internal);
+									GET_STAT("mvfSideData", FilterStat_MVF_SideData);
+									GET_STAT("mvfVectorPass", FilterStat_MVF_VectorPass);
+									GET_STAT("mvfClusterPass", FilterStat_MVF_ClusterPass);
+									GET_STAT("mvfObjectPass", FilterStat_MVF_ObjectPass);
 
 #undef GET_STAT
-							}
+								}
 
-							if (AsAdmin && StreamStats.FrameCount > 0)
-							{
-								double Decode = (double)StreamStats.DecoderTimeTotal / ((double)StreamStats.FrameCount * 1000.0 * 1000.0);
-								double Output = (double)StreamStats.OutputTimeTotal / ((double)StreamStats.FrameCount * 1000.0 * 1000.0);
-								double Read = (double)StreamStats.ReadTimeTotal / ((double)StreamStats.FrameCount * 1000.0 * 1000.0);
+								if (AsAdmin && StreamStats.FrameCount > 0)
+								{
+									double Decode = (double)StreamStats.DecoderTimeTotal / ((double)StreamStats.FrameCount * 1000.0 * 1000.0);
+									double Output = (double)StreamStats.OutputTimeTotal / ((double)StreamStats.FrameCount * 1000.0 * 1000.0);
+									double Read = (double)StreamStats.ReadTimeTotal / ((double)StreamStats.FrameCount * 1000.0 * 1000.0);
 
-								Camera[_T("streamReadTimeMS")] = json::value(Read);
-								Camera[_T("streamDecodeTimeMS")] = json::value(Decode);
-								Camera[_T("streamOutputTimeMS")] = json::value(Output);
+									Camera[_T("streamReadTimeMS")] = json::value(Read);
+									Camera[_T("streamDecodeTimeMS")] = json::value(Decode);
+									Camera[_T("streamOutputTimeMS")] = json::value(Output);
+								}
 							}
 						}
+
+						Array.push_back(Camera);
 					}
 
-					Array.push_back(Camera);
+					return true;
 				}
-
-				return true;
-			}
-		);
+			);
+		}
 
 		if (LongPoll)
 		{
@@ -354,7 +356,7 @@ void Command_Camera::OnRecordMessage( const GlobalContext& Context, http_request
 void Command_Camera::OnResetStatsMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet )
 {
 	int UserUID = Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::ReadWrite, Command_Authenticate::Privilege::Administrator );
-	if( !UserUID )
+	if( UserUID < 0 )
 	{
 		return;
 	}
@@ -374,7 +376,7 @@ void Command_Camera::OnResetStatsMessage( const GlobalContext& Context, http_req
 void Command_Camera::OnSetGroupsMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet )
 {
 	int UserUID = Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::ReadWrite, Command_Authenticate::Privilege::Administrator );
-	if( !UserUID )
+	if( UserUID < 0 )
 	{
 		return;
 	}

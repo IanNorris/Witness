@@ -62,7 +62,7 @@ void Command_Debug::OnMessage( GlobalContext& Context, http_request& Message, co
 
 void Command_Debug::OnEnumMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet )
 {
-	if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::Read, Command_Authenticate::Privilege::Administrator ) )
+	if( Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::Read, Command_Authenticate::Privilege::Administrator ) < 0 )
 	{
 		return;
 	}
@@ -91,7 +91,7 @@ void Command_Debug::OnEnumMessage( const GlobalContext& Context, http_request& M
 
 void Command_Debug::OnSetMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet )
 {
-	if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::ReadWrite, Command_Authenticate::Privilege::Administrator ) )
+	if( Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::ReadWrite, Command_Authenticate::Privilege::Administrator ) < 0 )
 	{
 		return;
 	}
@@ -142,7 +142,7 @@ void Command_Debug::OnSetMessage( const GlobalContext& Context, http_request& Me
 
 void Command_Debug::OnResetMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet )
 {
-	if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::ReadWrite, Command_Authenticate::Privilege::Administrator ) )
+	if( Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::ReadWrite, Command_Authenticate::Privilege::Administrator ) < 0 )
 	{
 		return;
 	}

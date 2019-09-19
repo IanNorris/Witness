@@ -331,7 +331,7 @@ void Command_Authenticate::OnLogoutMessage( const GlobalContext& Context, http_r
 {
 	auto Packet = Message.extract_json().get();
 
-	if( !IsAuthenticated( Context, Message, Packet, Action::ReadWrite, Privilege::Normal ) )
+	if( IsAuthenticated( Context, Message, Packet, Action::ReadWrite, Privilege::Normal ) < 0 )
 	{
 		return;
 	}
@@ -482,7 +482,7 @@ int Command_Authenticate::IsAuthenticated( const GlobalContext& Context, http_re
 	Success &= GetJsonField( Packet, _T("csrf"), CSRF, Errors );
 
 	string_t SessionToken = GetSessionToken( Message, Context.Port );
-	int UserUID = 0;
+	int UserUID = -1;
 
 	{
 		bool QuerySuccess = false;
@@ -506,7 +506,7 @@ int Command_Authenticate::IsAuthenticated( const GlobalContext& Context, http_re
 			if( Count != 1 || !QuerySuccess )
 			{
 				Message.reply( status_codes::BadRequest );
-				return 0;
+				return -1;
 			}
 		}
 		else
@@ -526,7 +526,7 @@ int Command_Authenticate::IsAuthenticated( const GlobalContext& Context, http_re
 			if( Count != 1 || !QuerySuccess )
 			{
 				Message.reply( status_codes::BadRequest );
-				return 0;
+				return -1;
 			}
 		}
 	}
@@ -556,13 +556,13 @@ int Command_Authenticate::IsAuthenticated( const GlobalContext& Context, http_re
 	if ( !Admin && RequiredPrivilege == Privilege::Administrator)
 	{
 		Message.reply( status_codes::Forbidden );
-		return 0;
+		return -1;
 	}
 
 	if( !Enabled )
 	{
 		Message.reply( status_codes::Forbidden );
-		return 0;
+		return -1;
 	}
 
 	return UserUID;
@@ -571,7 +571,7 @@ int Command_Authenticate::IsAuthenticated( const GlobalContext& Context, http_re
 int Command_Authenticate::IsCameraAuthenticated( const GlobalContext& Context, http_request& Message, const json::value& Packet, Action ActionType, Privilege RequiredPrivilege, int CameraUID )
 {
 	int UserUID = IsAuthenticated( Context, Message, Packet, ActionType, RequiredPrivilege );
-	if( !UserUID )
+	if( UserUID < 0 )
 	{
 		Message.reply( status_codes::Forbidden );
 		return 0;
@@ -598,7 +598,7 @@ void Command_Authenticate::OnEnumUsersMessage( const GlobalContext& Context, htt
 {
 	auto Packet = Message.extract_json().get();
 
-	if( !IsAuthenticated( Context, Message, Packet, Action::Read, Privilege::Administrator ) )
+	if( IsAuthenticated( Context, Message, Packet, Action::Read, Privilege::Administrator ) < 0 )
 	{
 		return;
 	}
@@ -675,7 +675,7 @@ void Command_Authenticate::OnNewUserMessage(const GlobalContext& Context, http_r
 {
 	auto Packet = Message.extract_json().get();
 
-	if( !IsAuthenticated( Context, Message, Packet, Action::ReadWrite, Privilege::Administrator ) )
+	if( IsAuthenticated( Context, Message, Packet, Action::ReadWrite, Privilege::Administrator ) < 0 )
 	{
 		return;
 	}
@@ -756,7 +756,7 @@ void Command_Authenticate::OnChangePasswordMessage(const GlobalContext& Context,
 {
 	auto Packet = Message.extract_json().get();
 
-	if( !IsAuthenticated( Context, Message, Packet, Action::ReadWrite, Privilege::Administrator ) )
+	if( IsAuthenticated( Context, Message, Packet, Action::ReadWrite, Privilege::Administrator ) < 0 )
 	{
 		return;
 	}
@@ -764,7 +764,7 @@ void Command_Authenticate::OnChangePasswordMessage(const GlobalContext& Context,
 
 void Command_Authenticate::OnToggleEnabledMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet )
 {
-	if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::ReadWrite, Command_Authenticate::Privilege::Administrator ) )
+	if( Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::ReadWrite, Command_Authenticate::Privilege::Administrator ) < 0 )
 	{
 		return;
 	}
@@ -807,7 +807,7 @@ void Command_Authenticate::OnToggleEnabledMessage( const GlobalContext& Context,
 
 void Command_Authenticate::OnToggleAdminMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet )
 {
-	if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::ReadWrite, Command_Authenticate::Privilege::Administrator ) )
+	if( Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::ReadWrite, Command_Authenticate::Privilege::Administrator ) < 0 )
 	{
 		return;
 	}
@@ -850,7 +850,7 @@ void Command_Authenticate::OnToggleAdminMessage( const GlobalContext& Context, h
 
 void Command_Authenticate::OnSetDisplayNameMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet )
 {
-	if( !Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::ReadWrite, Command_Authenticate::Privilege::Administrator ) )
+	if( Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::ReadWrite, Command_Authenticate::Privilege::Administrator ) < 0 )
 	{
 		return;
 	}
@@ -894,7 +894,7 @@ void Command_Authenticate::OnSetDisplayNameMessage( const GlobalContext& Context
 void Command_Authenticate::OnSetUserGroupsMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet )
 {
 	int LoggedInUserUID = Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::ReadWrite, Command_Authenticate::Privilege::Administrator );
-	if( !LoggedInUserUID )
+	if( LoggedInUserUID < 0 )
 	{
 		return;
 	}

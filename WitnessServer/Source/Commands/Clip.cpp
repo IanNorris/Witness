@@ -228,7 +228,7 @@ void Command_Clip::OnEnumClipsMessage( const GlobalContext& Context, http_reques
 	if( TargetCameraInt == -1 )
 	{
 		UserUID = Command_Authenticate::IsAuthenticated( Context, Message, Packet, Command_Authenticate::Action::Read, Command_Authenticate::Privilege::Normal );
-		if( !UserUID )
+		if( UserUID < 0 )
 		{
 			return;
 		}
@@ -236,7 +236,7 @@ void Command_Clip::OnEnumClipsMessage( const GlobalContext& Context, http_reques
 	else
 	{
 		UserUID = Command_Authenticate::IsCameraAuthenticated( Context, Message, Packet, Command_Authenticate::Action::Read, Command_Authenticate::Privilege::Normal, TargetCameraInt );
-		if( !UserUID )
+		if( UserUID < 0 )
 		{
 			return;
 		}
