@@ -85,6 +85,25 @@ namespace Installer
 				{
 					Errors += $"Unable to unbind ACL for hostname {Hostname}:{Port}.\n";
 				}
+
+				ACLSuccess = CommandRunner.RunCommandAndDetermineSuccess<CommandRunner.Status>($"netsh http delete urlacl url=http://{Hostname}:{Port}/", CommandRunner.Status.Failure, (line, current) =>
+				{
+					if (line.Contains("URL reservation successfully deleted"))
+					{
+						return CommandRunner.Status.Success_Done;
+					}
+					else if (line.Contains("cannot find the file specified"))
+					{
+						return CommandRunner.Status.Success_AlreadyDone;
+					}
+
+					return current;
+				});
+
+				if (ACLSuccess == CommandRunner.Status.Failure)
+				{
+					Errors += $"Unable to unbind ACL for hostname {Hostname}:{Port}.\n";
+				}
 			}
 
 			if (Errors.Length > 0)
