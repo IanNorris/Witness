@@ -1,5 +1,7 @@
-﻿using System.Linq;
+﻿using System;
+using System.Linq;
 using System.Management.Automation;
+using System.Windows;
 
 namespace Installer
 {
@@ -20,14 +22,30 @@ namespace Installer
 			{
 				PS.AddScript(Command);
 
-				var Result = PS.Invoke();
-				var ConvertedResult = Result.Select(s => s.ToString()).Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
+				try
+				{
+					var Result = PS.Invoke();
 
-				var ConvertedErrors = PS.Streams.Error.Select(s => s.ToString()).Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
+					if (Result != null)
+					{
+						var ConvertedResult = Result.Select(s => s?.ToString()).Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
 
-				ConvertedResult.AddRange(ConvertedErrors);
+						if (PS.Streams.Error != null)
+						{
+							var ConvertedErrors = PS.Streams.Error.Select(s => s?.ToString()).Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
 
-				return ConvertedResult.ToArray();
+							ConvertedResult.AddRange(ConvertedErrors);
+						}
+
+						return ConvertedResult.ToArray();
+					}
+				}
+				catch(Exception e)
+				{
+					MessageBox.Show($"{e.Message}");
+				}
+
+				return new string[0];
 			}
 		}
 

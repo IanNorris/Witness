@@ -12,12 +12,13 @@
 [Setup]
 ; NOTE: The value of AppId uniquely identifies this application. Do not use the same AppId value in installers for other applications.
 ; (To generate a new GUID, click Tools | Generate GUID inside the IDE.)
-AppId={{AF6CE8D1-73A0-4690-AD6A-8695F0AB134F}
+AppId={{AF6CE8D1-73A0-4690-AD6A-8695F0AB134F}}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppVerName={#MyAppName} {#MyAppVersion} ({#CodeName})
 DefaultDirName={autopf}\Witness
 DisableProgramGroupPage=yes
+ArchitecturesInstallIn64BitMode=x64
 
 ; Remove the following line to run in administrative install mode (install for all users.)
 ; PrivilegesRequired=lowest
@@ -26,7 +27,7 @@ DisableProgramGroupPage=yes
 OutputDir=X:\Programming\Witness\Setup
 OutputBaseFilename=witness_setup
 Compression=lzma2/normal
-SolidCompression=yes
+SolidCompression=no
 WizardStyle=modern
 
 ArchitecturesAllowed=x64

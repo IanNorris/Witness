@@ -28,7 +28,7 @@ namespace Installer
 					{
 						return CommandRunner.Status.Success_Done;
 					}
-					else if (line.Contains("Element not found"))
+					else if (line.Contains("Element not found") || line.Contains("The system cannot find the file specified.") || line.Contains("Unable to unbind"))
 					{
 						return CommandRunner.Status.Success_AlreadyDone;
 					}
@@ -88,12 +88,12 @@ namespace Installer
 
 			if (Errors.Length > 0)
 			{
-				MessageBox.Show($"Error during uninstallation. The application may not be fully uninstalled.\n\n{Errors}", "Error during uninstallation", MessageBoxButton.OK, MessageBoxImage.Warning);
+				MessageBox.Show($"Error during .\n\n{Errors}", "Error during uninstallation", MessageBoxButton.OK, MessageBoxImage.Warning);
 			}
 			return Errors.Length == 0;
 		}
 
-		public static bool ConfigureBindings( string Hostname, ushort Port, string DomainUsername, string Thumbprint )
+		public static bool ConfigureBindings( string Hostname, ushort Port, string DomainUsername, string Thumbprint, CertificateMode Mode )
 		{
 			string Errors = "";
 
@@ -118,26 +118,30 @@ namespace Installer
 				Errors += "Unable to bind IP listen from address 0.0.0.0.";
 			}
 
-			var CertSuccess = CommandRunner.RunCommandAndDetermineSuccess<CommandRunner.Status>($"netsh http add sslcert ipport=0.0.0.0:{Port} certhash={Thumbprint} \"appid={AppId}\"", CommandRunner.Status.Failure, (line, current) =>
+			if (Mode != CertificateMode.NoSecurity)
 			{
-				if (line.Contains("SSL Certificate successfully added"))
+				var CertSuccess = CommandRunner.RunCommandAndDetermineSuccess<CommandRunner.Status>($"netsh http add sslcert ipport=0.0.0.0:{Port} certhash={Thumbprint} \"appid={AppId}\"", CommandRunner.Status.Failure, (line, current) =>
 				{
-					return CommandRunner.Status.Success_Done;
-				}
-				else if (line.Contains("already exists"))
+					if (line.Contains("SSL Certificate successfully added"))
+					{
+						return CommandRunner.Status.Success_Done;
+					}
+					else if (line.Contains("already exists"))
+					{
+						return CommandRunner.Status.Success_AlreadyDone;
+					}
+
+					return current;
+				});
+
+				if (CertSuccess == CommandRunner.Status.Failure)
 				{
-					return CommandRunner.Status.Success_AlreadyDone;
+					Errors += "Unable to bind certificate to address 0.0.0.0.\n";
 				}
-
-				return current;
-			});
-
-			if (CertSuccess == CommandRunner.Status.Failure)
-			{
-				Errors += "Unable to bind certificate to address 0.0.0.0.\n";
 			}
 
-			var ACLSuccess = CommandRunner.RunCommandAndDetermineSuccess<CommandRunner.Status>($"netsh http add urlacl url=https://{Hostname}:{Port}/ user=\"{DomainUsername}\"", CommandRunner.Status.Failure, (line, current) =>
+			string Schema = Mode == CertificateMode.NoSecurity ? "http" : "https";
+			var ACLSuccess = CommandRunner.RunCommandAndDetermineSuccess<CommandRunner.Status>($"netsh http add urlacl url={Schema}://{Hostname}:{Port}/ user=\"{DomainUsername}\"", CommandRunner.Status.Failure, (line, current) =>
 			{
 				if (line.Contains("URL reservation successfully added"))
 				{
@@ -335,7 +339,10 @@ now you know!), click Yes to continue.",
 				return false;
 			}
 
-			IsOk = CheckCertificateExists(Hostname);
+			if (Mode != CertificateMode.NoSecurity)
+			{
+				IsOk = CheckCertificateExists(Hostname);
+			}
 
 			if (!IsOk)
 			{
@@ -343,7 +350,7 @@ now you know!), click Yes to continue.",
 				return false;
 			}
 
-			ConfigureBindings( Hostname, Port, DomainUsername, Thumbprint );
+			ConfigureBindings( Hostname, Port, DomainUsername, Thumbprint, Mode );
 
 			return IsOk;
 		}

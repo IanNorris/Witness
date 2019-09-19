@@ -25,6 +25,7 @@ namespace Installer
 		public int HashMethod { get; set; }
 		public int Enabled { get; set; }
 		public int Admin { get; set; }
+		public int MustChangePassword { get; set; }
 	}
 
 	public class SettingsPublisher

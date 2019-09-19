@@ -100,8 +100,6 @@ namespace Installer
 			Login.CanSelectNextPage = Setup.PasswordsMatch && Setup.Username != null && Setup.Username.Length > 0;
 		}
 
-		
-
 		private void OnConfigureRemoteAccess_Click(object sender, RoutedEventArgs e)
 		{
 			RemoteAccess.CanSelectNextPage = false;
@@ -121,11 +119,6 @@ namespace Installer
 		private void TlsModeCombo_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
 		{
 			RemoteAccess.CanSelectNextPage = false;
-		}
-
-		private void StartupMode_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
-		{
-
 		}
 
 		private void LoginField_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)

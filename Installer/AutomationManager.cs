@@ -14,6 +14,7 @@ namespace Installer
 	{
 		const string WitnessTaskScheduler_Startup = "WitnessCameraServer_Startup";
 		const string WitnessTaskScheduler_KeepAlive = "WitnessCameraServer_KeepAlive";
+		const string WitnessFirewallRule = "Allow Witness Camera Remote Access";
 
 		StartupMode Startup;
 		bool RestartOnCrash;
@@ -28,8 +29,6 @@ namespace Installer
 
 		public static void StopService()
 		{
-			string Server = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WitnessServer.exe");
-
 			string Messages = "";
 			var Result = CommandRunner.RunCommandAndDetermineSuccess<CommandRunner.Status>($"net stop WitnessCameraServer", CommandRunner.Status.Failure, (msg, status) =>
 			{
@@ -55,6 +54,29 @@ namespace Installer
 			}
 		}
 
+		private static void ConfigureFirewall()
+		{
+			string Server = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WitnessServer.exe");
+
+			CommandRunner.RunCommand($"Remove-NetFirewallRule -DisplayName \"{WitnessFirewallRule}\"");
+
+			string Messages = "";
+			var Result = CommandRunner.RunCommandAndDetermineSuccess<CommandRunner.Status>($"(New-NetFirewallRule -DisplayName \"{WitnessFirewallRule}\" -Direction Inbound -Program \"{Server}\" -Action Allow).PrimaryStatus", CommandRunner.Status.Failure, (msg, status) =>
+			{
+				Messages += msg;
+				if (msg.Contains("OK"))
+				{
+					return CommandRunner.Status.Success_Done;
+				}
+				return status;
+			});
+
+			if (Result == CommandRunner.Status.Failure)
+			{
+				MessageBox.Show("Error creating firewall rules:\n\n" + Messages);
+			}
+		}
+
 		public void UpdateConfig()
 		{
 			Uninstall();
@@ -77,7 +99,7 @@ namespace Installer
 				string Server = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WitnessServer.exe");
 
 				string Messages = "";
-				var Result = CommandRunner.RunCommandAndDetermineSuccess<CommandRunner.Status>($"{Server} /installservice", CommandRunner.Status.Failure, (msg, status) =>
+				var Result = CommandRunner.RunCommandAndDetermineSuccess<CommandRunner.Status>($"& \"{Server}\" /installservice", CommandRunner.Status.Failure, (msg, status) =>
 				{
 					Messages += msg;
 					if (msg.Contains("The requested service has already been started."))
@@ -92,6 +114,8 @@ namespace Installer
 					MessageBox.Show("Error creating service:\n\n" + Messages);
 				}
 			}
+
+			ConfigureFirewall();
 		}
 
 		public void Start()
@@ -152,7 +176,7 @@ namespace Installer
 
 			var Messages = "";
 
-			var Result = CommandRunner.RunCommandAndDetermineSuccess<CommandRunner.Status>($"{Server} /uninstallservice", CommandRunner.Status.Failure, (msg, status) =>
+			var Result = CommandRunner.RunCommandAndDetermineSuccess<CommandRunner.Status>($"& \"{Server}\" /uninstallservice", CommandRunner.Status.Failure, (msg, status) =>
 			{
 				Messages += msg;
 				if (msg.Contains("Service not found"))
@@ -168,7 +192,7 @@ namespace Installer
 
 			if (Result == CommandRunner.Status.Failure)
 			{
-				MessageBox.Show("Error stopping service:\n\n" + Messages);
+				MessageBox.Show("Error uninstalling service:\n\n" + Messages);
 			}
 		}
 	}
