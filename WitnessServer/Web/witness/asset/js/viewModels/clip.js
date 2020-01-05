@@ -15,7 +15,7 @@ var ClipViewModel = function( parent, newClipUID, newTimestamp, newCameraID, new
 	self.maxMotion = ko.observable(newMaxMotion);
 	self.description = ko.observable(newDescription);
 	self.saved = ko.observable(newSaved);
-	self.tags = ko.observable(newTags);
+	self.tags = ko.observable(newTags.replace(/;/g, '; '));//Add a space between tags so they wrap correctly
 	
 	self.recursing = false;
 	
