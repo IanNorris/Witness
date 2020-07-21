@@ -125,7 +125,7 @@ var WitnessViewModel = function() {
 					
 					if( !found )
 					{
-						self.cameras.push(  new CameraViewModel( self, newId, newEnabled, newName, newDescription, '', [], '', newRecording, result[camera] ) );
+						self.cameras.push(  new CameraViewModel( self, newId, newEnabled, newName, newDescription, '', '', [], '', newRecording, result[camera] ) );
 					}
 					
 					self.cameras.sort( function( left, right ) {

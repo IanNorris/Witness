@@ -14,6 +14,8 @@ public:
 
 	void OnRecordMessage( const GlobalContext& Context, http_request& Message, const string_t& TargetCamera, const json::value& Packet );
 
+	void OnCreateMessage(const GlobalContext& Context, http_request& Message, const json::value& Packet);
+
 	void OnSetGroupsMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet );
 
 	void OnResetStatsMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet );

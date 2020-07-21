@@ -35,6 +35,7 @@ namespace Database
 			CameraUID		INTEGER PRIMARY KEY	AUTOINCREMENT,
 			CameraName		CHAR(64)							NOT NULL,
 			CameraString	TEXT								NOT NULL,
+			CameraStringSub	TEXT								NOT NULL,
 			Description		TEXT,
 			Enabled			INTEGER NOT NULL,
 			SkipFrames		INTEGER NOT NULL,
@@ -215,6 +216,11 @@ namespace Database
 	)RAW";
 
 	string_t GetUserCount = L"SELECT COUNT(*) FROM User";
+
+	string_t CreateCamera = LR"RAW(
+		INSERT INTO Camera (CameraName, CameraString, CameraStringSub, Description, Enabled, SkipFrames, MDFrameHeight, MDThreshold, MotionFilter, BlackoutMaskPath, FocusMaskPath)
+		VALUES(@CameraName,@CameraString,@CameraStringSub,@Description,1,1,400,0.0001,NULL,NULL,NULL);
+	)RAW";
 
 	string_t GetCameras = LR"RAW(
 		SELECT * FROM Camera 
@@ -439,6 +445,7 @@ namespace Database
 
 		CREATE_QUERY( GetUserCount );
 
+		CREATE_QUERY( CreateCamera );
 		CREATE_QUERY( GetCameras );
 		CREATE_QUERY( GetCamerasForUser );
 		CREATE_QUERY( GetCamerasDetailsForUser );

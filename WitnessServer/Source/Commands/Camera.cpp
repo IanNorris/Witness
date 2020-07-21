@@ -43,6 +43,10 @@ void Command_Camera::OnMessage( GlobalContext& Context, http_request& Message, c
 		{
 			OnResetStatsMessage( Context, Message, Packet );
 		}
+		else if (Command.compare(_T("admin_create")) == 0)
+		{
+			OnCreateMessage(Context, Message, Packet);
+		}
 		else
 		{
 			Message.reply( status_codes::NotFound );
@@ -166,8 +170,9 @@ void Command_Camera::OnEnumMessage( const GlobalContext& Context, http_request& 
 					int ID = query.GetColumnValueInt(0);
 					string_t Name = query.GetColumnValueText(1);
 					string_t ConnectionString = query.GetColumnValueText(2);
-					string_t Description = query.GetColumnValueText(3) ? query.GetColumnValueText(3) : _T("");
-					int Enabled = query.GetColumnValueInt(4);
+					string_t ConnectionStringSub = query.GetColumnValueText(3);
+					string_t Description = query.GetColumnValueText(4) ? query.GetColumnValueText(4) : _T("");
+					int Enabled = query.GetColumnValueInt(5);
 
 					if (Enabled || AsAdmin)
 					{
@@ -196,6 +201,7 @@ void Command_Camera::OnEnumMessage( const GlobalContext& Context, http_request& 
 						if (AsAdmin)
 						{
 							Camera[_T("connectionString")] = json::value(ConnectionString);
+							Camera[_T("connectionStringSub")] = json::value(ConnectionStringSub);
 						}
 
 						Camera[_T("groups")] = json::value::array(Groups);
@@ -310,6 +316,54 @@ void Command_Camera::OnEnumMessage( const GlobalContext& Context, http_request& 
 	} while (!IsAcceptable);
 
 	Message.reply( status_codes::OK, json::value::array(Array) );
+}
+
+void Command_Camera::OnCreateMessage(const GlobalContext& Context, http_request& Message, const json::value& Packet)
+{
+	int UserUID = Command_Authenticate::IsAuthenticated(Context, Message, Packet, Command_Authenticate::Action::ReadWrite, Command_Authenticate::Privilege::Administrator);
+	if (!UserUID)
+	{
+		return;
+	}
+
+	bool Success = true;
+	string_t Errors;
+
+	string_t DisplayName;
+	string_t Description;
+	string_t ConnectionString;
+	string_t ConnectionStringSub;
+
+	Success &= GetJsonField(Packet, _T("displayName"), DisplayName, Errors);
+	Success &= GetJsonField(Packet, _T("description"), Description, Errors);
+	Success &= GetJsonField(Packet, _T("connectionString"), ConnectionString, Errors);
+	Success &= GetJsonField(Packet, _T("connectionStringSub"), ConnectionStringSub, Errors);
+
+	SQLiteDatabaseQueryInstance CreateCamera(Context.Database, _T("CreateCamera"));
+	CreateCamera->Bind("@CameraName", DisplayName.c_str() );
+	CreateCamera->Bind("@Description", Description.c_str() );
+	CreateCamera->Bind("@CameraString", ConnectionString.c_str() );
+	CreateCamera->Bind("@CameraStringSub", ConnectionStringSub.c_str());
+
+	if (CreateCamera->Execute(
+		[&](const SQLiteDatabaseQuery& query)
+		{
+			return true;
+		}
+	) < 0)
+	{
+		json::value Data;
+
+		Data[_T("errorMessage")] = json::value(CreateCamera->GetLastError());
+
+		Message.reply(status_codes::BadRequest, Data);
+
+		return;
+	}
+
+	int64_t RowResult = CreateCamera->GetLastInsertionId();
+
+	Message.reply(status_codes::OK, json::value(_T("OK")));
 }
 
 void Command_Camera::OnRecordMessage( const GlobalContext& Context, http_request& Message, const string_t& TargetCamera, const json::value& Packet )

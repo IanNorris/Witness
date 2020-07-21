@@ -7,31 +7,123 @@
 				<span aria-hidden="true">&times;</span>
 			</button>
 		</div>
-		<div class="modal-body">
+		<div class="modal-body" style="padding-top: 0; padding-bottom: 0">
 			<div class="row">
-				<div class="col-md-12">
-					<div class="form-group">
-						<label class="col-sm-4 control-label text-right">Camera name</label>
-						<div class="col-sm-8">
-							<input type="text" class="form-control android" data-bind="value: newName" />
+				<div class="col-xs-3" style="background-color: aliceblue; height: 13em">
+					
+					<style>
+					.step-text {
+						padding: 0.5em
+					}
+					</style>
+					
+					<ul style="padding: 0.1em" data-bind="foreach: wizardSteps">
+						<li class="step-text" data-bind="style: { 'color' : $parent.newCameraSelectedColour($index()) }">
+							<span class="fa" style="color: mediumspringgreen" data-bind="css: { 'fa-check' : $index() < $parent.newCameraPageIndex(), 'fa-arrow-right' : $index() == $parent.newCameraPageIndex(), 'fa-times': $index() > $parent.newCameraPageIndex() }, style: { 'color' : ($index() < $parent.newCameraPageIndex() ? 'mediumspringgreen' : ( $index() == $parent.newCameraPageIndex() ? 'dodgerblue' : 'lightgrey' ))}"></span> <span data-bind="text: name"></span>
+						</li>
+					</ul>
+				</div>
+				
+				<div class="col-xs-9">
+					<div class="modal-body" data-bind="visible: isVisible('Basics')">
+						<div class="row padding-bottom">
+							<div class="col-md-12">
+								<div class="form-group">
+									<label class="col-sm-4 control-label text-right">Camera Name</label>
+									<div class="col-sm-8">
+										<input type="text" class="form-control" data-bind="value: newName" />
+									</div>
+								</div>
+							</div>
+						</div>
+						<div class="row padding-bottom">
+							<div class="col-md-12">
+								<div class="form-group">
+									<label class="col-sm-4 control-label text-right">Description</label>
+									<div class="col-sm-8">
+										<input type="text" class="form-control" data-bind="value: newDescription" />
+									</div>
+								</div>
+							</div>
+						</div>
+						<div class="row  padding-bottom">
+							<div class="col-md-12">
+								<div class="form-group">
+									<label class="col-sm-4 control-label text-right">Camera Brand</label>
+									<div class="col-sm-8">
+										<select data-bind="selected: newBrand, options: brands, optionsText: 'text', optionsValue: 'id', select2: { placeholder: 'Pick a camera brand', valueAllowUnset: false }"
+										  class="select2" style="width:100%"></select>
+									</div>
+								</div>
+							</div>
+						</div>
+						<div class="row">
+								<div class="col-md-12">
+									<div class="form-group">
+										<label class="col-sm-4 control-label text-right">Hostname (or IP)</label>
+										<div class="col-sm-8">
+											<input type="text" class="form-control" data-bind="value: newHostname, enable: isHostnameEnabled" />
+										</div>
+									</div>
+								</div>
+							</div>
+					</div>
+					
+					<div class="modal-body" data-bind="visible: isVisible('Authentication')">
+						<div class="row padding-bottom">
+							<div class="col-md-12">
+								<div class="form-group">
+									<label class="col-sm-4 control-label text-right">Username</label>
+									<div class="col-sm-8">
+										<input type="text" class="form-control" data-bind="value: newUsername" />
+									</div>
+								</div>
+							</div>
+						</div>
+						<div class="row">
+							<div class="col-md-12">
+								<div class="form-group">
+									<label class="col-sm-4 control-label text-right">Password</label>
+									<div class="col-sm-8">
+										<input type="password" class="form-control" data-bind="value: newPassword" />
+									</div>
+								</div>
+							</div>
 						</div>
 					</div>
-				</div>
-			</div>
-			<div class="row">
-				<div class="col-md-12">
-					<div class="form-group">
-						<label class="col-sm-4 control-label text-right">Description</label>
-						<div class="col-sm-8">
-							<input type="text" class="form-control android" data-bind="value: newDescription" />
+					
+					<div class="modal-body" data-bind="visible: isVisible('Stream')">
+						<div class="row padding-bottom">
+							<div class="col-md-12">
+								<div class="form-group">
+									<label class="col-sm-4 control-label text-right">Stream URI</label>
+									<div class="col-sm-8">
+										<input type="text" class="form-control" data-bind="value: newStreamPath" />
+									</div>
+								</div>
+							</div>
+							
+							<div class="col-md-12">
+								<div class="form-group">
+									<label class="col-sm-4 control-label text-right">Sub-stream URI</label>
+									<div class="col-sm-8">
+										<input type="text" class="form-control" data-bind="value: newSubStreamPath" />
+									</div>
+								</div>
+							</div>
 						</div>
+					</div>
+					
+					<div class="modal-body" data-bind="visible: isVisible('Finish')">
+						<p>Click Finish to test and add the camera.</p>
 					</div>
 				</div>
 			</div>
 		</div>
 		<div class="modal-footer">
-			<button type="button" class="btn btn-primary" data-bind="click: createNewCamera, disable: isBusy"><span data-bind="visible: isBusy"><i class="fa fa-spinner fa-spin"/></span> Add camera</button>
-			<button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+			<button type="button" class="btn btn-secondary" data-bind="click: previousAddCameraPage, disable: cannotGoBackAddNewCamera">Back</button>
+			<button type="button" class="btn btn-primary" data-bind="click: nextAddCameraPage, disable: cannotGoForwardAddNewCamera"><span data-bind="visible: isBusy"><i class="fa fa-spinner fa-spin"/></span> <span data-bind="text: newCameraNextLabel"></span></button>
+			<button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
 		</div>
 	</div>
 	<!-- /ko -->

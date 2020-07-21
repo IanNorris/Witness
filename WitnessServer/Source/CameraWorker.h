@@ -36,6 +36,7 @@ struct CameraSettings
 	: JobQueue()
 	, Name()
 	, Path()
+	, PathSub()
 	, MotionFilterName()
 	, FullBodyCascadeFilter()
 	, FaceCascadeFilter()
@@ -52,6 +53,7 @@ struct CameraSettings
 
 	string_t Name;
 	string_t Path;
+	string_t PathSub;
 	string_t MotionFilterName;
 	string_t FullBodyCascadeFilter;
 	string_t FaceCascadeFilter;

@@ -14,7 +14,7 @@ var DebugCameraStats = [
 	[ "mvfObjectPass", "MVF Object Pass" ]
 ];
 
-var CameraViewModel = function( witness, id, enabled, name, description, connectionString, groups, status, cameraRecording, allData ) {
+var CameraViewModel = function( witness, id, enabled, name, description, connectionString, connectionStringSub, groups, status, cameraRecording, allData ) {
 	"use strict";
 	
 	var self = this;
@@ -29,6 +29,7 @@ var CameraViewModel = function( witness, id, enabled, name, description, connect
 	self.previewPath = ko.observable('');
 	self.livePreviewPath = ko.observable('');
 	self.connectionString = ko.observable(connectionString);
+	self.connectionStringSub = ko.observable(connectionStringSub);
 	self.status = ko.observable(status);
 	self.isSelected = ko.observable(false);
 	self.isRecording = ko.observable(cameraRecording);

@@ -275,13 +275,14 @@ void WitnessServer::StartCameraWorkers()
 			Camera.ID = query.GetColumnValueInt( 0 );
 			Camera.Name = query.GetColumnValueText( 1 );
 			Camera.Path = query.GetColumnValueText( 2 );
-			Camera.Enabled = query.GetColumnValueInt( 4 );
-			Camera.SkipFrames = query.GetColumnValueInt( 5 );
-			Camera.MDFrameHeight = query.GetColumnValueInt( 6 );
-			Camera.MDThreshold = query.GetColumnValueDouble( 7 );
-			const wchar_t* MotionFilterName = query.GetColumnValueText( 8 );
-			const wchar_t* BlackoutMaskPath = query.GetColumnValueText( 9 );
-			const wchar_t* FocusMaskPath = query.GetColumnValueText( 10 );
+			Camera.PathSub = query.GetColumnValueText( 3 );
+			Camera.Enabled = query.GetColumnValueInt( 5 );
+			Camera.SkipFrames = query.GetColumnValueInt( 6 );
+			Camera.MDFrameHeight = query.GetColumnValueInt( 7 );
+			Camera.MDThreshold = query.GetColumnValueDouble( 8 );
+			const wchar_t* MotionFilterName = query.GetColumnValueText( 9 );
+			const wchar_t* BlackoutMaskPath = query.GetColumnValueText( 10 );
+			const wchar_t* FocusMaskPath = query.GetColumnValueText( 11 );
 
 			Camera.BlackoutMaskPath = BlackoutMaskPath ? BlackoutMaskPath : L"";
 			Camera.FocusMaskPath = FocusMaskPath ? FocusMaskPath : L"";
