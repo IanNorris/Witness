@@ -32,7 +32,7 @@ namespace WitnessClient
 				{
 					response.Wait();
 				}
-				catch
+				catch(Exception ex)
 				{
 					System.Threading.Thread.Sleep(250);
 					LongPollCameaState();
