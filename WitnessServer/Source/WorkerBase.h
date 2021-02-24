@@ -49,12 +49,17 @@ public:
 		}
 	}
 
+	void Join()
+	{
+		Thread->join();
+	}
+
 
 	virtual ~WorkerBase()
 	{
 		RequestShutdown();
 
-		Thread->join();
+		Join();
 	}
 
 	const atomic<AtomicTimedActionData>* GetLastTimedAction() const { return &LastTimedAction; }

@@ -20,11 +20,33 @@ void WitnessServer::RequestShutdown()
 {
 	Server->Stop();
 
+	{
+		lock_guard<mutex> Lock(Context->Mutex);
+
+		for (auto& Camera : Context->Cameras)
+		{
+			Camera.second.Worker->RequestShutdown();
+		}
+	}
+
+	{
+		for (auto& Camera : Context->Cameras)
+		{
+			Camera.second.Worker->Join();
+		}
+	}
+
 	MessageClient->Push(make_shared<ThreadShutdownMessage>());
 
 	Context->MessageBus->SendToClient(nullptr, make_shared<ThreadShutdownMessage>());
-	Worker->RequestShutdown();
-	Watchdog->RequestShutdown();
+	if (Worker)
+	{
+		Worker->RequestShutdown();
+	}
+	if (Watchdog)
+	{
+		Watchdog->RequestShutdown();
+	}
 	Timer->RequestShutdown();
 	for (auto& Worker : ImageWorkers)
 	{
