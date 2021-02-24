@@ -104,7 +104,7 @@ void Command_Camera::OnPreviewMessage( GlobalContext& Context, http_request& Mes
 {
 	int TargetCameraInt = _wtoi( TargetCamera.c_str() );
 	int UserUID = Command_Authenticate::IsCameraAuthenticated( Context, Message, Packet, Command_Authenticate::Action::Read, Command_Authenticate::Privilege::Normal, TargetCameraInt );
-	if( !UserUID )
+	if( UserUID < 0 )
 	{
 		return;
 	}
@@ -321,7 +321,7 @@ void Command_Camera::OnEnumMessage( const GlobalContext& Context, http_request& 
 void Command_Camera::OnCreateMessage(const GlobalContext& Context, http_request& Message, const json::value& Packet)
 {
 	int UserUID = Command_Authenticate::IsAuthenticated(Context, Message, Packet, Command_Authenticate::Action::ReadWrite, Command_Authenticate::Privilege::Administrator);
-	if (!UserUID)
+	if (UserUID < 0)
 	{
 		return;
 	}
@@ -374,7 +374,7 @@ void Command_Camera::OnRecordMessage( const GlobalContext& Context, http_request
 {
 	int TargetCameraInt = _wtoi( TargetCamera.c_str() );
 	int UserUID = Command_Authenticate::IsCameraAuthenticated( Context, Message, Packet, Command_Authenticate::Action::Read, Command_Authenticate::Privilege::Normal, TargetCameraInt );
-	if( !UserUID )
+	if( UserUID < 0 )
 	{
 		return;
 	}
