@@ -1,0 +1,23 @@
+<div class="modal-dialog" role="document">
+	<!-- ko with: adminController -->
+	<div class="modal-content" data-bind="with: cameras">
+		<div class="modal-header">
+			<h5 class="modal-title" id="deleteCameraAdminLabel">Delete camera</h5>
+			<button type="button" class="close" data-dismiss="modal" aria-label="Close" style="margin-top:-20px">
+				<span aria-hidden="true">&times;</span>
+			</button>
+		</div>
+		<div class="modal-body">
+			<div class="row">
+				<div class="col-md-12">
+					<p>Are you sure you want to delete the camera &quot;<span data-bind="text: displayNameToDelete"></span>&quot;?</p>
+				</div>
+			</div>
+		</div>
+		<div class="modal-footer">
+			<button type="button" class="btn btn-danger" data-bind="click: deleteCamera, disable: isBusy"><span data-bind="visible: isBusy"><i class="fa fa-spinner fa-spin"/></span> Delete</button>
+			<button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+		</div>
+	</div>
+	<!-- /ko -->
+</div>

@@ -183,6 +183,34 @@ var AdminCamerasViewModel = function( authentication, groups, witness ) {
 		);
 	}
 	
+	self.showDeleteDialog = function( id, displayName ) {
+		self.idToDelete = id;
+		self.displayNameToDelete( displayName );
+		$('#deleteCameraAdmin').modal('toggle');
+	};
+	
+	self.deleteCamera = function(){
+		self.isBusy(true);
+		var cameraToDelete = {
+			'csrf': self.authentication.csrfToken(),
+			id: self.idToDelete
+		};
+		makeQuery( cameraToDelete, '/camera/admin_delete/', true, "error|Error deleting camera.",
+			function(result){
+				self.cameras.remove( function( item ) {
+						return item.id == self.idToDelete;
+					} );
+				
+				$('#deleteCameraAdmin').modal('toggle');
+				self.displayNameToDelete('');
+				self.idToDelete = 0;
+			},
+			function(result){ /*finally*/
+				self.isBusy(false);
+			}
+		);
+	};
+	
 	self.refreshCamerasAsAdmin = function() {	
 		makeQuery( null, '/camera/admin_enum/', true, "error|Error fetching cameras list.",
 			function(result){

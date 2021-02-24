@@ -222,6 +222,14 @@ namespace Database
 		VALUES(@CameraName,@CameraString,@CameraStringSub,@Description,1,1,400,0.0001,NULL,NULL,NULL);
 	)RAW";
 
+	
+	string_t DeleteCamera = LR"RAW(
+		DELETE FROM Camera 
+		WHERE 
+				CameraUID == @CameraId 
+		;
+	)RAW";
+
 	string_t GetCameras = LR"RAW(
 		SELECT * FROM Camera 
 		ORDER BY CameraUID
@@ -456,6 +464,7 @@ namespace Database
 		CREATE_QUERY( GetCamera );
 		CREATE_QUERY( GetCamerasForUser );
 		CREATE_QUERY( GetCamerasDetailsForUser );
+		CREATE_QUERY( DeleteCamera );
 
 		CREATE_QUERY( CreateClip );
 		CREATE_QUERY( SelectClipID );

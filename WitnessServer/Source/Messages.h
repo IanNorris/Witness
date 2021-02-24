@@ -152,3 +152,10 @@ struct CameraAddedMessage : public Message
 
 	int Camera;
 };
+
+struct CameraRemovedMessage : public Message
+{
+	CameraRemovedMessage(int CamIndex) : Camera(CamIndex) {}
+
+	int Camera;
+};

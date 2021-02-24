@@ -95,9 +95,35 @@ void WitnessServer::MessageLoop( bool& ContinueRunning )
 				{
 					StartCamera(query);
 
+					Context->LongPoll->NotifyAll();
+
 					return true;
 				}
 			);
+		});
+
+		Msg->Handle<CameraRemovedMessage>([&](const CameraRemovedMessage& Data)
+		{
+			shared_ptr<CameraWorker> Worker;
+
+			{
+				lock_guard<mutex> Lock(Context->Mutex);
+
+				auto Iter = Context->Cameras.find(Data.Camera);
+				if (Iter != Context->Cameras.end())
+				{
+					Worker = (*Iter).second.Worker;
+				}
+			}
+
+			if (Worker)
+			{
+				Watchdog->RemoveTarget(Worker);
+
+				Context->MessageBus->SendToClient(Worker.get(), make_shared<ThreadShutdownMessage>());
+
+				Context->LongPoll->NotifyAll();
+			}
 		});
 	}
 }

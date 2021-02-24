@@ -47,6 +47,10 @@ void Command_Camera::OnMessage( GlobalContext& Context, http_request& Message, c
 		{
 			OnCreateMessage(Context, Message, Packet);
 		}
+		else if (Command.compare(_T("admin_delete")) == 0)
+		{
+			OnDeleteMessage(Context, Message, Packet);
+		}
 		else
 		{
 			Message.reply( status_codes::NotFound );
@@ -370,6 +374,38 @@ void Command_Camera::OnCreateMessage(const GlobalContext& Context, http_request&
 	Message.reply(status_codes::OK, json::value(_T("OK")));
 }
 
+void Command_Camera::OnDeleteMessage(const GlobalContext& Context, http_request& Message, const json::value& Packet)
+{
+	int UserUID = Command_Authenticate::IsAuthenticated(Context, Message, Packet, Command_Authenticate::Action::ReadWrite, Command_Authenticate::Privilege::Administrator);
+	if (UserUID < 0)
+	{
+		return;
+	}
+
+	string_t Errors;
+
+	bool Success = true;
+	int CameraUID;
+
+	Success &= GetJsonField(Packet, _T("id"), CameraUID, Errors);
+
+	int RowResult = 0;
+
+	{
+		SQLiteDatabaseQueryInstance DeleteCamera(Context.Database, _T("DeleteCamera"));
+		DeleteCamera->Bind("@CameraId", CameraUID);
+
+		RowResult = DeleteCamera->Execute(nullptr);
+	}
+
+	auto DeleteCamera = make_shared<CameraRemovedMessage>(CameraUID);
+
+	Context.MessageBus->SendToClient(nullptr, DeleteCamera);
+
+	json::value Data;
+	Message.reply(status_codes::OK, Data);
+}
+
 void Command_Camera::OnRecordMessage( const GlobalContext& Context, http_request& Message, const string_t& TargetCamera, const json::value& Packet )
 {
 	int TargetCameraInt = _wtoi( TargetCamera.c_str() );
@@ -548,6 +584,8 @@ void Command_Camera::OnSetGroupsMessage( const GlobalContext& Context, http_requ
 			return;
 		}
 	}
+
+	Context.LongPoll->NotifyAll();
 
 	json::value Data;
 	Message.reply( status_codes::OK, Data );
