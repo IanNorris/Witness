@@ -14,3 +14,5 @@ robocopy /njh /njs /np /nfl /ndl %CppRest% %Output% boost*
 robocopy /njh /njs /np /nfl /ndl %CppRest% %Output% SSLEAY32.*
 robocopy /njh /njs /np /nfl /ndl %CppRest% %Output% LIBEAY32.*
 robocopy /njh /njs /np /nfl /ndl %CppRest% %Output% zlib1.*
+
+exit 0
