@@ -82,5 +82,22 @@ void WitnessServer::MessageLoop( bool& ContinueRunning )
 				}
 			}
 		});
+
+		Msg->Handle< CameraAddedMessage>([&](const CameraAddedMessage& Data)
+		{
+			lock_guard<mutex> Lock(Context->Mutex);
+
+			MAKE_QUERY(GetCamera);
+			GetCamera->Bind("@CameraId", Data.Camera);
+
+			GetCamera->Execute(
+				[&](const SQLiteDatabaseQuery& query)
+				{
+					StartCamera(query);
+
+					return true;
+				}
+			);
+		});
 	}
 }

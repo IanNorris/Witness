@@ -363,6 +363,10 @@ void Command_Camera::OnCreateMessage(const GlobalContext& Context, http_request&
 
 	int64_t RowResult = CreateCamera->GetLastInsertionId();
 
+	auto AddMessage = make_shared<CameraAddedMessage>((int)RowResult);
+
+	Context.MessageBus->SendToClient(nullptr, AddMessage);
+
 	Message.reply(status_codes::OK, json::value(_T("OK")));
 }
 

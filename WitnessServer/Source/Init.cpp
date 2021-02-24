@@ -260,6 +260,55 @@ bool WitnessServer::InitializeContext(const shared_ptr<SQLiteDatabase>& Database
 	return true;
 }
 
+void WitnessServer::StartCamera(const SQLiteDatabaseQuery& query)
+{
+	CameraSettings Camera;
+
+	Camera.ID = query.GetColumnValueInt(0);
+	Camera.Name = query.GetColumnValueText(1);
+	Camera.Path = query.GetColumnValueText(2);
+	Camera.PathSub = query.GetColumnValueText(3);
+	Camera.Enabled = query.GetColumnValueInt(5);
+	Camera.SkipFrames = query.GetColumnValueInt(6);
+	Camera.MDFrameHeight = query.GetColumnValueInt(7);
+	Camera.MDThreshold = query.GetColumnValueDouble(8);
+	const wchar_t* MotionFilterName = query.GetColumnValueText(9);
+	const wchar_t* BlackoutMaskPath = query.GetColumnValueText(10);
+	const wchar_t* FocusMaskPath = query.GetColumnValueText(11);
+
+	Camera.BlackoutMaskPath = BlackoutMaskPath ? BlackoutMaskPath : L"";
+	Camera.FocusMaskPath = FocusMaskPath ? FocusMaskPath : L"";
+
+	Camera.MotionFilterName = MotionFilterName && wcslen(MotionFilterName) ? MotionFilterName : Video.MotionFilterName.c_str();
+
+	auto FaceCascadeName = Video.FaceCascadeFilter + _T(".xml");
+	auto FaceCascade = Video.DataPath + _T("\\Cascades\\") + FaceCascadeName;
+
+	auto BodyCascadeName = Video.FullBodyCascadeFilter + _T(".xml");
+	auto BodyCascade = Video.DataPath + _T("\\Cascades\\") + BodyCascadeName;
+
+	Camera.FaceCascadeFilter = FaceCascade;
+	Camera.FullBodyCascadeFilter = BodyCascade;
+
+	Camera.JobQueue = &CommonImageProcessingJobQueue;
+
+	if (Camera.Enabled)
+	{
+		tcout << _T("Starting ") << Camera.Name << _T(" camera...") << endl;
+
+		auto Worker = make_shared<CameraWorker>(Video, Camera, Context->MessageBus, Context);
+		Worker->Start(WorkerBase::Priority::HighPriority);
+		Watchdog->AddTarget(Worker, Camera.Name);
+		auto& State = Context->Cameras[Camera.ID] = CameraState();
+		State.Worker = Worker;
+		State.Name = Camera.Name;
+	}
+	else
+	{
+		tcout << _T("Skipping ") << Camera.Name << _T(" camera, it's disabled...") << endl;
+	}
+}
+
 void WitnessServer::StartCameraWorkers()
 {
 	lock_guard<mutex> Lock( Context->Mutex );
@@ -269,52 +318,7 @@ void WitnessServer::StartCameraWorkers()
 	GetCameras->Execute( 
 		[&]( const SQLiteDatabaseQuery& query )
 		{
-
-			CameraSettings Camera;
-
-			Camera.ID = query.GetColumnValueInt( 0 );
-			Camera.Name = query.GetColumnValueText( 1 );
-			Camera.Path = query.GetColumnValueText( 2 );
-			Camera.PathSub = query.GetColumnValueText( 3 );
-			Camera.Enabled = query.GetColumnValueInt( 5 );
-			Camera.SkipFrames = query.GetColumnValueInt( 6 );
-			Camera.MDFrameHeight = query.GetColumnValueInt( 7 );
-			Camera.MDThreshold = query.GetColumnValueDouble( 8 );
-			const wchar_t* MotionFilterName = query.GetColumnValueText( 9 );
-			const wchar_t* BlackoutMaskPath = query.GetColumnValueText( 10 );
-			const wchar_t* FocusMaskPath = query.GetColumnValueText( 11 );
-
-			Camera.BlackoutMaskPath = BlackoutMaskPath ? BlackoutMaskPath : L"";
-			Camera.FocusMaskPath = FocusMaskPath ? FocusMaskPath : L"";
-
-			Camera.MotionFilterName = MotionFilterName && wcslen(MotionFilterName) ? MotionFilterName : Video.MotionFilterName.c_str();
-
-			auto FaceCascadeName = Video.FaceCascadeFilter + _T(".xml");
-			auto FaceCascade = Video.DataPath + _T("\\Cascades\\") + FaceCascadeName;
-
-			auto BodyCascadeName = Video.FullBodyCascadeFilter + _T(".xml");
-			auto BodyCascade = Video.DataPath + _T("\\Cascades\\") + BodyCascadeName;
-
-			Camera.FaceCascadeFilter = FaceCascade;
-			Camera.FullBodyCascadeFilter = BodyCascade;
-
-			Camera.JobQueue = &CommonImageProcessingJobQueue;
-
-			if( Camera.Enabled )
-			{
-				tcout << _T("Starting ") << Camera.Name << _T(" camera...") << endl;
-
-				auto Worker = make_shared<CameraWorker>( Video, Camera, Context->MessageBus, Context );
-				Worker->Start( WorkerBase::Priority::HighPriority );
-				Watchdog->AddTarget( Worker, Camera.Name );
-				auto& State = Context->Cameras[ Camera.ID ] = CameraState();
-				State.Worker = Worker;
-				State.Name = Camera.Name;
-			}
-			else
-			{
-				tcout << _T("Skipping ") << Camera.Name << _T(" camera, it's disabled...") << endl;
-			}
+			StartCamera(query);
 
 			return true;
 		}

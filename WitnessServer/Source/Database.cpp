@@ -227,6 +227,12 @@ namespace Database
 		ORDER BY CameraUID
 	)RAW";
 
+	string_t GetCamera = LR"RAW(
+		SELECT * FROM Camera 
+		WHERE CameraUID = @CameraId
+		ORDER BY CameraUID
+	)RAW";
+
 	string_t GetCamerasForUser = LR"RAW(
 		SELECT * FROM Camera C
 		INNER JOIN CameraGroupMapping CGM ON CGM.Camera = C.CameraUID
@@ -447,6 +453,7 @@ namespace Database
 
 		CREATE_QUERY( CreateCamera );
 		CREATE_QUERY( GetCameras );
+		CREATE_QUERY( GetCamera );
 		CREATE_QUERY( GetCamerasForUser );
 		CREATE_QUERY( GetCamerasDetailsForUser );
 

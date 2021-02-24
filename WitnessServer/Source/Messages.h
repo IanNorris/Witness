@@ -145,3 +145,10 @@ struct CameraPreviewRequestMessage : public Message
 	uint64_t LastLargePreviewTimestamp;
 	uint64_t LastSmallPreviewTimestamp;
 };
+
+struct CameraAddedMessage : public Message
+{
+	CameraAddedMessage(int CamIndex) : Camera(CamIndex) {}
+
+	int Camera;
+};

@@ -60,6 +60,8 @@ private:
 
 	void StartCameraWorkers();
 
+	void StartCamera(const SQLiteDatabaseQuery& query);
+
 	void StartCameraRecording( const shared_ptr<CameraWorker>& Worker, uint64_t Timestamp, int CameraID, bool IsManual, const ClassificationResult& Result );
 	void StopCameraRecording( const ClipStatistics& ClipStats, int CameraID, const ClassificationResult& Result );
 
