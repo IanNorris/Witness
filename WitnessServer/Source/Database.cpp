@@ -43,7 +43,7 @@ namespace Database
 			MDThreshold		NUMERIC NOT NULL,
 			MotionFilter	TEXT,
 			BlackoutMaskPath TEXT,
-			FocustMaskPath TEXT
+			FocusMaskPath TEXT
 		);
 
 		CREATE TABLE IF NOT EXISTS CameraGroup (
