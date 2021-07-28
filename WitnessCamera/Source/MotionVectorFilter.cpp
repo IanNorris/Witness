@@ -22,6 +22,7 @@
 #include <opencv2/videoio.hpp>
 
 #include <string.h>
+#include <atomic>
 
 #pragma warning(push)
 #pragma warning(disable:4099)
@@ -305,6 +306,7 @@ struct MotionVectorFilterData : public FilterDataBase
 	, DB_DBScanClusterProximity( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV DBScan Cluster Proximity", &DBScanClusterProximity )
 	, DB_DBScanClusterMnpts( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV DBScan Cluster Mnpts", &DBScanClusterMnpts )
 
+	, ClearObjectData( false )
 	, ObjectIDCounter( 0 )
 	{
 		FirstCameraOnly++;
@@ -407,6 +409,8 @@ float KFNoiseScale = 0.1f;*/
 
 	bool hasBlackoutMask;
 	bool hasFocusMask;
+
+	std::atomic<bool> ClearObjectData;
 
 	unsigned int ObjectIDCounter;
 
@@ -609,6 +613,12 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 
 	ID.Points.clear();
 	ID.Labels.clear();
+
+	if (ID.ClearObjectData.load())
+	{
+		ID.Objects.clear();
+		ID.ClearObjectData.store(false);
+	}
 
 	{
 		FilterFrameStatScope Scope( TaskData->Frame.Stats, FilterStat_MVF_ClusterPass );
@@ -1079,7 +1089,7 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 void MotionVectorFilter::ClearStateThis()
 {
 	auto& ID = GetData();
-	ID.Objects.clear();
+	ID.ClearObjectData.store(true);
 }
 
 void MotionVectorFilter::UpdateROI( SharedClassificationTask TaskData )
