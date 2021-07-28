@@ -37,7 +37,7 @@ public:
 
 	virtual void Unregister( DebugBindBase* Object )
 	{
-		std::remove_if(Values.begin(), Values.end(), [=]( DebugBindBase* Other) { return Other == Object; });
+		Values.erase(std::remove_if(Values.begin(), Values.end(), [=]( DebugBindBase* Other) { return Other == Object; }));
 	}
 	
 	virtual ~DebugConsole() {}
