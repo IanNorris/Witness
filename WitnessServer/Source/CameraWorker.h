@@ -4,6 +4,7 @@
 
 #include <InputStream.h>
 #include <OutputStream.h>
+#include <LiveOutputStream.h>
 #include <MotionFilter.h>
 
 class GlobalContext;
@@ -78,7 +79,8 @@ public:
 	, LastDeleteTime( 0 )
 	, IsConnected( false )
 	, IsRTSP( false )
-	{}
+	{
+	}
 
 	InputStream::StreamStats GetStreamStats()
 	{
@@ -104,6 +106,7 @@ private:
 	void CreateInputStream();
 
 	shared_ptr<OutputStream> RecordStream;
+	shared_ptr< LiveOutputStream> LiveStream;
 
 	shared_ptr<InputStream> CameraStream;
 	shared_ptr<IRecordFilter> Filter;

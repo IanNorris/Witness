@@ -51,6 +51,12 @@
     <ClCompile Include="Source\FilterFrame.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="Source\InMemoryIOContext.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="Source\LiveOutputStream.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Include\Export.h">
@@ -109,6 +115,12 @@
     </ClInclude>
     <ClInclude Include="Source\FFMPEG\Common.h">
       <Filter>Header Files\FFMPEG</Filter>
+    </ClInclude>
+    <ClInclude Include="Include\InMemoryIOContext.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="Include\LiveOutputStream.h">
+      <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

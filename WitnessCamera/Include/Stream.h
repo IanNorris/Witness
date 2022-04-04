@@ -9,6 +9,8 @@
 #include <memory>
 #include <tchar.h>
 
+struct AVPacket;
+
 namespace Witness{
 namespace Camera{
 
@@ -119,8 +121,10 @@ public:
 	virtual ~Stream();
 
 	virtual CameraStreamError Initialize();
-	virtual CameraStreamError ProcessFrame( const std::shared_ptr<IRecordFilter>& Filter, Stream* TargetStream );
+	virtual CameraStreamError ProcessFrame( const std::shared_ptr<IRecordFilter>& Filter, Stream* TargetStream, Stream* LiveStream );
 	virtual void Shutdown();
+
+	virtual CameraStreamError WriteInterleavedPacket(const AVPacket* Packet) = 0;
 
 	inline int GetErrorLine() { return m_LineNumber; }
 	inline const char* GetFFMPEGErrorMessage() const { return m_ErrorMessage; }

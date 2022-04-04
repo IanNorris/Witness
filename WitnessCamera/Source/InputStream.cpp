@@ -136,7 +136,7 @@ CameraStreamError InputStream::Initialize()
 	return CameraStreamError::Success;
 }
 
-CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter>& Filter, Stream* TargetStream )
+CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter>& Filter, Stream* TargetStream, Stream* LiveStream )
 {
 	auto ProcessingStart = std::chrono::high_resolution_clock::now().time_since_epoch().count();
 
@@ -231,6 +231,18 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 			}
 
 			//av_packet_unref( &NewPacket );
+		}
+
+		//Add the new packet to the live stream
+		if (LiveStream)
+		{
+			CameraStreamError WriteError = LiveStream->WriteInterleavedPacket(&ID.Packet);
+			if (WriteError != CameraStreamError::Success)
+			{
+				memcpy(m_ErrorMessage, LiveStream->GetFFMPEGErrorMessage(), 256);
+				ID.FreeAllQueuedPackets();
+				return WriteError;
+			}
 		}
 		
 
@@ -457,6 +469,14 @@ double InputStream::GetFramerateDouble()
 	{
 		return 25.0;
 	}
+}
+
+CameraStreamError InputStream::WriteInterleavedPacket(const AVPacket* Packet)
+{
+	STREAM_ERROR(InvalidSetup, 0);
+
+	//Not implemented
+	assert(false);
 }
 
 }}

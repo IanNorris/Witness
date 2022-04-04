@@ -45,7 +45,7 @@ CameraStreamError Stream::Initialize()
 	return CameraStreamError::Success;
 }
 
-CameraStreamError Stream::ProcessFrame( const std::shared_ptr<IRecordFilter>& Filter, Stream* TargetStream )
+CameraStreamError Stream::ProcessFrame( const std::shared_ptr<IRecordFilter>& Filter, Stream* TargetStream, Stream* LiveStream)
 {
 	return CameraStreamError::Success;
 }

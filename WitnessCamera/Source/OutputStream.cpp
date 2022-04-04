@@ -1,20 +1,28 @@
 #include "OutputStream.h"
 #include "InputStream.h"
 #include "StreamData.h"
+#include "InMemoryIOContext.h"
 
 namespace Witness{
 namespace Camera{
 
 int OutputStream::GlobalOutputStreamIndex = 0;
 
-OutputStream::OutputStream( const std::string& Path, InputStream * InputStream )
+OutputStream::OutputStream( const std::string& Path, InputStream * InputStream, bool InMemory )
 : Stream()
 , m_InputStream( InputStream )
+, m_IOContext( nullptr )
 , FrameIndex( 0 )
 , StreamIndex( GlobalOutputStreamIndex++ )
 , m_FileOpened( false )
+, m_InMemory( InMemory )
 {
 	m_InputStream->Initialize();
+
+	if (m_InMemory)
+	{
+		m_IOContext = new FFMPEG::InMemoryIOContext(Path.c_str());
+	}
 
 	auto& ID = *m_InternalData;
 	auto& InID = m_InputStream->GetData();
@@ -46,8 +54,10 @@ OutputStream::OutputStream( const std::string& Path, InputStream * InputStream )
 OutputStream::OutputStream( const std::string& Path, unsigned int Width, unsigned int Height, int Framerate, bool IsBGR )
 : Stream()
 , m_InputStream( nullptr )
+, m_IOContext( nullptr )
 , FrameIndex( 0 )
 , m_FileOpened( false )
+, m_InMemory( false )
 {
 	auto& ID = *m_InternalData;
 
@@ -70,7 +80,12 @@ OutputStream::OutputStream( const std::string& Path, unsigned int Width, unsigne
 }
 
 OutputStream::~OutputStream()
-{}
+{
+	if( m_IOContext )
+	{
+		delete m_IOContext;
+	}
+}
 
 CameraStreamError OutputStream::Initialize()
 {
@@ -97,10 +112,17 @@ CameraStreamError OutputStream::Initialize()
 
 	av_init_packet( &ID.Packet );
 
-	int Result = avformat_alloc_output_context2( &ID.FormatContext, nullptr, nullptr, ID.Path.c_str() );
+	int Result = avformat_alloc_output_context2( &ID.FormatContext, nullptr, m_InMemory ? "mp4" : nullptr, m_InMemory ? nullptr : ID.Path.c_str());
 	if( Result < 0 || !ID.FormatContext )
 	{
 		STREAM_ERROR( UnknownError, Result );
+	}
+
+	if (m_InMemory)
+	{
+		ID.FormatContext->oformat->flags |= AVFMT_NOFILE;
+
+		ID.FormatContext->pb = m_IOContext->GetContext();
 	}
 
 	AVCodec* Encoder = avcodec_find_encoder( ID.CodecID );
@@ -303,7 +325,7 @@ CameraStreamError OutputStream::Initialize()
 	return CameraStreamError::Success;
 }
 
-CameraStreamError OutputStream::ProcessFrame( const std::shared_ptr<IRecordFilter>& Filter, Stream* TargetStream )
+CameraStreamError OutputStream::ProcessFrame( const std::shared_ptr<IRecordFilter>& Filter, Stream* TargetStream, Stream* TargetStream2 )
 {
 	CameraStreamError InitError = Initialize();
 	if( InitError != CameraStreamError::Success )

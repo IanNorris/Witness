@@ -20,7 +20,10 @@ void CameraWorker::CreateInputStream()
 
 	std::string CamPath = std::string( Camera.Path.begin(), Camera.Path.end() );
 
+	std::string CachePath = std::string(Context->CachePath.begin(), Context->CachePath.end());
+
 	CameraStream = make_shared<InputStream>( Setup, Camera.ID, Camera.JobQueue, CamPath );
+	LiveStream = make_shared<LiveOutputStream>(CachePath, CameraStream.get(), 1);
 
 	if (_strnicmp(CamPath.c_str(), "rtsp://", 7) == 0)
 	{
@@ -105,6 +108,7 @@ void CameraWorker::WorkerShutdown()
 {
 	//Ensure destruction is done on the worker thread
 	Filter = nullptr;
+	LiveStream = nullptr;
 	CameraStream = nullptr;
 
 	MessageBusObject->SendToClient( nullptr, make_shared<ThreadShutdownMessage>() );
@@ -132,7 +136,7 @@ void CameraWorker::WorkerMain()
 			OnClipFinished(false);
 				
 			Observer->SetManualClipStart( Data.Timestamp );
-			RecordStream = make_shared<OutputStream>( string( Data.Path.begin(), Data.Path.end() ), CameraStream.get() );
+			RecordStream = make_shared<OutputStream>( string( Data.Path.begin(), Data.Path.end() ), CameraStream.get(), false );
 			RecordStream->Initialize();
 
 			Context->LongPoll->NotifyAll();
@@ -168,7 +172,7 @@ void CameraWorker::WorkerMain()
 	const double NanoSecondsToSeconds = 1000.0 * 1000.0 * 1000.0;
 	uint64_t Start = std::chrono::high_resolution_clock::now().time_since_epoch().count();
 	
-	CameraStreamError Error = CameraStream->ProcessFrame( static_pointer_cast<IRecordFilter>(Filter), RecordStream.get() );
+	CameraStreamError Error = CameraStream->ProcessFrame( static_pointer_cast<IRecordFilter>(Filter), RecordStream.get(), LiveStream.get() );
 
 	if( Error == CameraStreamError::Success )
 	{
