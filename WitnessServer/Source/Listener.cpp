@@ -7,6 +7,7 @@
 #include "Commands/Clip.h"
 #include "Commands/Group.h"
 #include "Commands/Debug.h"
+#include "Commands/Stream.h"
 
 WitnessListener::WitnessListener( utility::string_t Hostname, int Port, bool Secure, DebugConsole* DebugConsoleInstance )
 : DebugConsoleInstance( DebugConsoleInstance )
@@ -49,6 +50,7 @@ void WitnessListener::Initialise( const std::unordered_map< string_t, string_t >
 	m_Commands[U("clip")] = make_unique<Command_Clip>();
 	m_Commands[U("group")] = make_unique<Command_Group>();
 	m_Commands[U("debug")] = make_unique<Command_Debug>( DebugConsoleInstance );
+	m_Commands[U("stream")] = make_unique<Command_Stream>();
 }
 
 void WitnessListener::Start()

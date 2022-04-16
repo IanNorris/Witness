@@ -16,6 +16,8 @@ OutputStream::OutputStream( const std::string& Path, InputStream * InputStream, 
 , StreamIndex( GlobalOutputStreamIndex++ )
 , m_FileOpened( false )
 , m_InMemory( InMemory )
+, m_ClipLength( 0.0 )
+, m_SegmentIndex(-1)
 {
 	m_InputStream->Initialize();
 
@@ -58,6 +60,8 @@ OutputStream::OutputStream( const std::string& Path, unsigned int Width, unsigne
 , FrameIndex( 0 )
 , m_FileOpened( false )
 , m_InMemory( false )
+, m_ClipLength( 0.0 )
+, m_SegmentIndex(-1)
 {
 	auto& ID = *m_InternalData;
 
@@ -200,6 +204,7 @@ CameraStreamError OutputStream::Initialize()
 			break;
 		}
 
+		OutStream->time_base = m_InputStream->GetData().FormatContext->streams[0]->time_base;
 		Params->format = OutputPixelFormat;
 		Params->codec_tag = 0;
 		Params->codec_id = ID.CodecID;
@@ -370,7 +375,13 @@ CameraStreamError OutputStream::WriteInterleavedPacket( const AVPacket* Packet )
 		PacketCopy.dts -= ID.DTS;
 		PacketCopy.pts -= ID.PTS;
 	}
-	
+
+	PacketCopy.pos = -1;
+
+	//Calc length before we adjust for the time base, otherwise we need to
+	//adjust the calculation to the new timebase.
+	m_ClipLength = (double)(PacketCopy.dts + PacketCopy.duration) / 90000.0;
+
 	if( m_InputStream )
 	{
 		AVRational TimeBase;
@@ -457,6 +468,8 @@ CameraStreamError OutputStream::SendAll( void )
 				STREAM_ERROR( WriteFailed, Result );
 			}
 
+			m_ClipLength = (double)TempPacket.pts / 90000.0;
+
 			av_packet_unref( &TempPacket );
 		}
 		else if( Result != AVERROR(EAGAIN) )
@@ -522,7 +535,7 @@ CameraStreamError OutputStream::CloseFile()
 			STREAM_ERROR( WriteFailed, Result );
 		}
 	}
-	
+
 	int Result = av_write_trailer( ID.FormatContext );
 	if( Result < 0 )
 	{

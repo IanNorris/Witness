@@ -3,6 +3,7 @@
 #include "Stream.h"
 #include "InputStream.h"
 #include "OutputStream.h"
+#include <mutex>
 
 struct AVPacket;
 struct AVRational;
@@ -22,6 +23,18 @@ public:
 
 	CameraStreamError WriteInterleavedPacket( const AVPacket* Packet );
 
+	int GetCurrentSegment()
+	{
+		return _CurrentSegmentIndex;
+	}
+
+	void GetSegments(std::vector<OutputStream*>& OutSegments )
+	{
+		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
+
+		OutSegments = *_StreamBacklog;
+	}
+
 private:
 
 	void FinishStream();
@@ -37,6 +50,10 @@ private:
 	const int _KeyframesPerSegment;
 	int _KeyframesPerSegmentLeft;
 	int _SkipInitialKeyframes;
+
+	int _CurrentSegmentIndex;
+
+	std::mutex* _SegmentsMutex;
 };
 
 }}

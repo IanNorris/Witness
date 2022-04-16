@@ -10,16 +10,17 @@
 namespace Witness{
 namespace Camera{
 
-std::atomic_int32_t LiveOutput_SegmentIndex = 0;
-
 LiveOutputStream::LiveOutputStream(const std::string& LiveCachePath, InputStream* InputStream, int KeyframesPerSegment)
-	: _LiveCachePath( new std::string(LiveCachePath))
+	: Stream()
+	, _LiveCachePath( new std::string(LiveCachePath))
 	, _StreamBacklog( new std::vector<OutputStream*>() )
 	, _CurrentStream( nullptr )
 	, _InputStream(InputStream)
 	, _KeyframesPerSegment(KeyframesPerSegment)
 	, _KeyframesPerSegmentLeft(KeyframesPerSegment)
 	, _SkipInitialKeyframes(1)
+	, _CurrentSegmentIndex(0)
+	, _SegmentsMutex( new std::mutex )
 {
 }
 
@@ -30,6 +31,9 @@ LiveOutputStream::~LiveOutputStream()
 
 	delete _LiveCachePath;
 	_LiveCachePath = nullptr;
+
+	delete _SegmentsMutex;
+	_SegmentsMutex = nullptr;
 }
 
 CameraStreamError LiveOutputStream::Initialize()
@@ -112,19 +116,23 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 void LiveOutputStream::FinishStream()
 {
 	_CurrentStream->Shutdown();
-	if (_StreamBacklog->size() > 5)
+
+	const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
+
+	/*if (_StreamBacklog->size() > 10)
 	{
 		delete _StreamBacklog->front();
 
 		_StreamBacklog->erase(_StreamBacklog->begin());
-	}
+	}*/
 
+	_CurrentStream->SetSegmentIndex(_CurrentSegmentIndex);
 	_StreamBacklog->push_back(_CurrentStream);
 }
 
 CameraStreamError LiveOutputStream::StartNewStream(const AVPacket* Packet)
 {
-	int NewSegmentIndex = LiveOutput_SegmentIndex.fetch_add(1);
+	int NewSegmentIndex = ++_CurrentSegmentIndex;
 
 	CreateDirectoryA(_LiveCachePath->c_str(), nullptr);
 	std::stringstream TargetFilename;

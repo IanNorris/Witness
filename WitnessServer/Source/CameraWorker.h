@@ -95,6 +95,11 @@ public:
 		}
 	}
 
+	shared_ptr<LiveOutputStream>& GetLiveStream()
+	{
+		return LiveStream;
+	}
+
 private:
 
 	virtual void WorkerInit() override;
@@ -106,7 +111,7 @@ private:
 	void CreateInputStream();
 
 	shared_ptr<OutputStream> RecordStream;
-	shared_ptr< LiveOutputStream> LiveStream;
+	shared_ptr<LiveOutputStream> LiveStream;
 
 	shared_ptr<InputStream> CameraStream;
 	shared_ptr<IRecordFilter> Filter;

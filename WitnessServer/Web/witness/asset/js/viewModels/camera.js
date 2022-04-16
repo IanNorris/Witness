@@ -77,7 +77,7 @@ var CameraViewModel = function( witness, id, enabled, name, description, connect
 	};
 	
 	self.setNextCameraLiveFrame = function() {
-		self.livePreviewPath( '/camera/previewLarge/' + self.id + '#' + self.liveFrameIndex );
+		self.livePreviewPath( '/stream/pl/' + self.id );
 		self.liveFrameIndex++;
 	};
 	
@@ -131,12 +131,12 @@ var CameraViewModel = function( witness, id, enabled, name, description, connect
 	}
 	
 	self.setNextCameraFrame();
-	window.setInterval( function() {
+	/*window.setInterval( function() {
 		self.setNextCameraFrame();		
-	}, 250 );
+	}, 250 );*/
 	
 	self.setNextCameraLiveFrame();
-	window.setInterval( function() {
+	/*window.setInterval( function() {
 		self.setNextCameraLiveFrame();
-	}, 40 );
+	}, 40 );*/
 };

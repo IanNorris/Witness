@@ -35,6 +35,11 @@ public:
 
 	FFMPEG::InMemoryIOContext* GetOutput() { return m_IOContext; }
 
+	double GetClipLength() { return m_ClipLength;  }
+
+	void SetSegmentIndex(int index) { m_SegmentIndex = index; }
+	int GetSegmentIndex() { return m_SegmentIndex; }
+
 private:
 
 	static int GlobalOutputStreamIndex;
@@ -49,6 +54,9 @@ private:
 
 	bool m_FileOpened;
 	bool m_InMemory;
+
+	double m_ClipLength;
+	int m_SegmentIndex;
 };
 
 }}
