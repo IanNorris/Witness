@@ -14,34 +14,30 @@ void WitnessServer::HandleCameraBeginMotionMessage(const CameraBeginMotionMessag
 	string_t CameraName;
 
 	{
-		lock_guard<mutex> Lock( Context->Mutex );
-			
-		auto Iter = Context->Cameras.find( Data.Camera );
-		if( Iter != Context->Cameras.end() )
+		auto CameraState = Context->FindCameraById( Data.Camera );
+		if(CameraState)
 		{
-			auto& CameraState = (*Iter).second;
-
 			if( Data.Jpeg.size() )
 			{
-				CameraState.ClipThumbnails[ Data.ClipStats.TimestampClipStarted ] = Data.Jpeg;
+				CameraState->ClipThumbnails[ Data.ClipStats.TimestampClipStarted ] = Data.Jpeg;
 			}
 			else
 			{
 				tcerr << _T("Clip thumbnail is empty") << endl;
 			}
-			CameraName = CameraState.Name;
-			Worker = CameraState.Worker;
+			CameraName = CameraState->Name;
+			Worker = CameraState->Worker;
 
-			CameraState.TriggeredActions.clear();
-			HandleActions( Context, CameraState, Data.Camera, Data.MotionPercentage );
+			CameraState->TriggeredActions.clear();
+			HandleActions( Context, *CameraState, Data.Camera, Data.MotionPercentage );
 
 			//Already recording
-			if (CameraState.IsRecording)
+			if (CameraState->IsRecording)
 			{
 				return;
 			}
 
-			CameraState.IsRecording = true;
+			CameraState->IsRecording = true;
 		}
 	}
 
@@ -55,17 +51,13 @@ void WitnessServer::HandleCameraBeginMotionMessage(const CameraBeginMotionMessag
 
 void WitnessServer::HandleCameraUpdateMotionMessage(const CameraUpdateMotionMessage& Data)
 {
-	{
-		lock_guard<mutex> Lock( Context->Mutex );
-			
-		auto Iter = Context->Cameras.find( Data.Camera );
-		if( Iter != Context->Cameras.end() )
+	{	
+		auto CameraState = Context->FindCameraById( Data.Camera );
+		if( CameraState )
 		{
-			auto& CameraState = (*Iter).second;
+			CameraState->ClipThumbnails[ Data.ClipStats.TimestampClipStarted ] = Data.Jpeg;
 
-			CameraState.ClipThumbnails[ Data.ClipStats.TimestampClipStarted ] = Data.Jpeg;
-
-			HandleActions( Context, CameraState, Data.Camera, Data.ClipStats.LargestMotionDelta );
+			HandleActions( Context, *CameraState, Data.Camera, Data.ClipStats.LargestMotionDelta );
 		}
 	}
 };
@@ -77,19 +69,17 @@ void WitnessServer::HandleCameraEndMotionMessage(const CameraEndMotionMessage& D
 	shared_ptr<CameraWorker> Worker;
 
 	{
-		lock_guard<mutex> Lock( Context->Mutex );
-
-		auto Iter = Context->Cameras.find( Data.Camera );
-		if( Iter != Context->Cameras.end() )
+		auto CameraState = Context->FindCameraById( Data.Camera );
+		if( CameraState )
 		{
-			Worker = (*Iter).second.Worker;
+			Worker = CameraState->Worker;
 
-			if ((*Iter).second.IsManualRecording)
+			if (CameraState->IsManualRecording)
 			{
 				return;
 			}
 
-			(*Iter).second.IsRecording = false;
+			CameraState->IsRecording = false;
 		}
 	}
 

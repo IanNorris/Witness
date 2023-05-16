@@ -9,7 +9,9 @@
 #include "sodium.h"
 
 #include <iostream>
+#include <iomanip>
 #include <chrono>
+#include <ctime>
 #include <iostream>
 #include <experimental/filesystem>
 
@@ -61,16 +63,19 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 		return;
 	}
 
-	auto CameraIter = Context.Cameras.find(TargetCameraInt);
+	//TODO: Use a SRW here. Write only when updating the array.
 
-	if (CameraIter == Context.Cameras.end())
+	auto CameraState = Context.FindCameraById(TargetCameraInt);
+
+	if (!CameraState)
 	{
 		Message.reply(status_codes::NotFound);
+		return;
 	}
 
-	shared_ptr<LiveOutputStream>& LiveStream = CameraIter->second.Worker->GetLiveStream();
+	shared_ptr<LiveOutputStream>& LiveStream = CameraState->Worker->GetLiveStream();
 
-	std::vector<OutputStream*> Segments;
+	std::vector<LiveStreamSegment> Segments;
 	LiveStream->GetSegments(Segments);
 
 	int CurrentSegment = LiveStream->GetCurrentSegment();
@@ -79,7 +84,7 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 	
 	stringstream_t Playlist;
 	Playlist << "#EXTM3U" << endl;
-	Playlist << "#EXT-X-VERSION:7" << endl;
+	Playlist << "#EXT-X-VERSION:3" << endl;
 	//Playlist << "#EXT-X-I-FRAMES-ONLY" << endl;
 	//Playlist << "#EXT-X-ALLOW-CACHE:YES" << endl;
 
@@ -92,7 +97,9 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 		double MaxLength = 0.0;
 		for (int segment = 0; segment < bufferSegments; segment++)
 		{
-			double NewDuration = Segments[segment]->GetClipLength();
+			LiveStreamSegment& Segment = Segments[segment];
+
+			double NewDuration = Segment.Stream->GetClipLength();
 			if (NewDuration > MaxLength)
 			{
 				MaxLength = NewDuration;
@@ -100,30 +107,26 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 		}
 
 		double HoldbackLength = 1.0 * MaxLength;
-		Playlist << "#EXT-X-SERVER-CONTROL:PART-HOLD-BACK=" << HoldbackLength << endl;
+		//Playlist << "#EXT-X-SERVER-CONTROL:PART-HOLD-BACK=" << HoldbackLength << endl;
 
 		
 
-		Playlist << "#EXT-X-MEDIA-SEQUENCE:" << Segments[0]->GetSegmentIndex() << endl;
-		Playlist << "#EXT-X-TARGETDURATION:" << MaxLength << endl;
-		//Playlist << "#EXT-X-INDEPENDENT-SEGMENTS" << endl;
+		Playlist << "#EXT-X-MEDIA-SEQUENCE:" << Segments[0].Stream->GetSegmentIndex() << endl;
+		Playlist << "#EXT-X-TARGETDURATION:" << MaxLength + 1 << endl;
+		Playlist << "#EXT-X-INDEPENDENT-SEGMENTS" << endl;
 		Playlist << "" << endl;
 
 		Playlist.precision(4);
 
 		for (int segment = 0; segment < bufferSegments; segment++)
 		{
-			auto Length = Segments[segment]->GetClipLength();
+			LiveStreamSegment& Segment = Segments[segment];
+
+			auto Length = Segment.Stream->GetClipLength();
 			Playlist << "#EXINF:" << Length << "," << endl;
+			Playlist << "#EXT-X-PROGRAM-DATE-TIME:" << std::put_time(&Segment.StreamStartTime, L"%FT%T") << endl;
 
-			Playlist << "/stream/segment/" << TargetCameraInt << "/" << Segments[segment]->GetSegmentIndex() << ".mp4" << endl;
-		}
-
-		for (int segment = 0; segment < extraBufferSegments; segment++)
-		{
-			Playlist << "#EXINF:" << MaxLength << "," << endl;
-
-			Playlist << "/stream/segment/" << TargetCameraInt << "/" << bufferSegments + segment << ".mp4" << endl;
+			Playlist << "/stream/segment/" << TargetCameraInt << "/" << Segment.Stream->GetSegmentIndex() << ".mp4" << endl;
 		}
 	}
 

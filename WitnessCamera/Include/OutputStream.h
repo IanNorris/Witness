@@ -2,6 +2,8 @@
 
 #include "Stream.h"
 
+#include <ctime>
+
 struct AVPacket;
 struct AVRational;
 
@@ -57,6 +59,12 @@ private:
 
 	double m_ClipLength;
 	int m_SegmentIndex;
+};
+
+struct LiveStreamSegment
+{
+	OutputStream* Stream;
+	std::tm StreamStartTime;
 };
 
 }}

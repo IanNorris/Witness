@@ -28,7 +28,7 @@ public:
 		return _CurrentSegmentIndex;
 	}
 
-	void GetSegments(std::vector<OutputStream*>& OutSegments )
+	void GetSegments(std::vector<LiveStreamSegment>& OutSegments )
 	{
 		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
 
@@ -42,7 +42,7 @@ private:
 
 	const std::string* _LiveCachePath;
 
-	std::vector<OutputStream*>* _StreamBacklog;
+	std::vector<LiveStreamSegment>* _StreamBacklog;
 	OutputStream* _CurrentStream;
 
 	InputStream* _InputStream;

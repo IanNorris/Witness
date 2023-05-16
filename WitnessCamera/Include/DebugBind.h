@@ -3,6 +3,7 @@
 #include "Export.h"
 
 #include <string>
+#include <mutex>
 #include <vector>
 #include <algorithm>
 
@@ -32,11 +33,15 @@ class DebugConsole
 public:
 	virtual void Register( DebugBindBase* Object )
 	{
+		std::unique_lock<std::mutex> Lock(Mutex);
+
 		Values.push_back(Object);
 	}
 
 	virtual void Unregister( DebugBindBase* Object )
 	{
+		std::unique_lock<std::mutex> Lock(Mutex);
+
 		Values.erase(std::remove_if(Values.begin(), Values.end(), [=]( DebugBindBase* Other) { return Other == Object; }));
 	}
 	
@@ -44,11 +49,14 @@ public:
 
 	const std::vector<DebugBindBase*> GetValues()
 	{
+		std::unique_lock<std::mutex> Lock(Mutex);
+
 		return Values;
 	}
 
 private:
 
+	std::mutex Mutex;
 	std::vector<DebugBindBase*> Values;
 };
 

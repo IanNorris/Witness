@@ -299,7 +299,8 @@ void WitnessServer::StartCamera(const SQLiteDatabaseQuery& query)
 		auto Worker = make_shared<CameraWorker>(Video, Camera, Context->MessageBus, Context);
 		Worker->Start(WorkerBase::Priority::HighPriority);
 		Watchdog->AddTarget(Worker, Camera.Name);
-		auto& State = Context->Cameras[Camera.ID] = CameraState();
+
+		auto& State = Context->GetCameraMap()[Camera.ID] = CameraState();
 		State.Worker = Worker;
 		State.Name = Camera.Name;
 	}

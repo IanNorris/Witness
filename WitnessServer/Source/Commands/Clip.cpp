@@ -151,12 +151,10 @@ void Command_Clip::OnThumbnailMessage( const GlobalContext& Context, http_reques
 
 	if( !Video )
 	{
-		lock_guard<mutex> Lock( Context.Mutex );
-
-		auto IterCamera = Context.Cameras.find( TargetCameraInt );
-		if( IterCamera != Context.Cameras.end() )
+		auto CameraState = Context.FindCameraById( TargetCameraInt );
+		if(CameraState)
 		{
-			const auto& Camera = (*IterCamera).second.ClipThumbnails;
+			const auto& Camera = CameraState->ClipThumbnails;
 			auto IterClip = Camera.find( TargetCameraTimestamp );
 			if( IterClip != Camera.end() && (*IterClip).second.size() != 0 )
 			{

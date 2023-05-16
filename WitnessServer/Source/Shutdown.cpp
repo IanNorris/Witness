@@ -23,14 +23,14 @@ void WitnessServer::RequestShutdown()
 	{
 		lock_guard<mutex> Lock(Context->Mutex);
 
-		for (auto& Camera : Context->Cameras)
+		for (auto& Camera : Context->GetCameraMap())
 		{
 			Camera.second.Worker->RequestShutdown();
 		}
 	}
 
 	{
-		for (auto& Camera : Context->Cameras)
+		for (auto& Camera : Context->GetCameraMap())
 		{
 			Camera.second.Worker->Join();
 		}

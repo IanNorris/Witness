@@ -51,17 +51,15 @@ void WitnessServer::MessageLoop( bool& ContinueRunning )
 			bool Change = false;
 
 			{
-				lock_guard<mutex> Lock( Context->Mutex );
-
-				auto Iter = Context->Cameras.find( Data.Camera );
-				if( Iter != Context->Cameras.end() )
+				auto CameraState = Context->FindCameraById( Data.Camera );
+				if(CameraState)
 				{
-					Worker = (*Iter).second.Worker;
-					(*Iter).second.IsManualRecording = Data.Record;
+					Worker = CameraState->Worker;
+					CameraState->IsManualRecording = Data.Record;
 
-					if( (*Iter).second.IsRecording != Data.Record )
+					if( CameraState->IsRecording != Data.Record )
 					{
-						(*Iter).second.IsRecording = Data.Record;
+						CameraState->IsRecording = Data.Record;
 						Change = true;
 					}
 				}
@@ -107,12 +105,10 @@ void WitnessServer::MessageLoop( bool& ContinueRunning )
 			shared_ptr<CameraWorker> Worker;
 
 			{
-				lock_guard<mutex> Lock(Context->Mutex);
-
-				auto Iter = Context->Cameras.find(Data.Camera);
-				if (Iter != Context->Cameras.end())
+				auto CameraState = Context->FindCameraById(Data.Camera);
+				if (CameraState)
 				{
-					Worker = (*Iter).second.Worker;
+					Worker = CameraState->Worker;
 				}
 			}
 

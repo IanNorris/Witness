@@ -13,7 +13,7 @@ namespace Camera{
 LiveOutputStream::LiveOutputStream(const std::string& LiveCachePath, InputStream* InputStream, int KeyframesPerSegment)
 	: Stream()
 	, _LiveCachePath( new std::string(LiveCachePath))
-	, _StreamBacklog( new std::vector<OutputStream*>() )
+	, _StreamBacklog( new std::vector<LiveStreamSegment>() )
 	, _CurrentStream( nullptr )
 	, _InputStream(InputStream)
 	, _KeyframesPerSegment(KeyframesPerSegment)
@@ -119,15 +119,22 @@ void LiveOutputStream::FinishStream()
 
 	const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
 
-	/*if (_StreamBacklog->size() > 10)
+	if (_StreamBacklog->size() > 10)
 	{
-		delete _StreamBacklog->front();
+		delete _StreamBacklog->front().Stream;
 
 		_StreamBacklog->erase(_StreamBacklog->begin());
-	}*/
+	}
+
+	std::time_t CurrentTime = std::time(nullptr);
+
+	LiveStreamSegment NewSegment;
+	NewSegment.Stream = _CurrentStream;
+
+	localtime_s( &NewSegment.StreamStartTime, &CurrentTime);
 
 	_CurrentStream->SetSegmentIndex(_CurrentSegmentIndex);
-	_StreamBacklog->push_back(_CurrentStream);
+	_StreamBacklog->push_back(NewSegment);
 }
 
 CameraStreamError LiveOutputStream::StartNewStream(const AVPacket* Packet)

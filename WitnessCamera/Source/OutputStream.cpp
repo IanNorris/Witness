@@ -137,6 +137,7 @@ CameraStreamError OutputStream::Initialize()
 	}
 
 	AVStream* OutStream = avformat_new_stream( ID.FormatContext, Encoder );
+	//TODO: Do we not need to delete this? :|
 	if( !OutStream )
 	{
 		STREAM_ERROR( UnknownError, 0 );
