@@ -20,20 +20,15 @@
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/video.hpp>
 #include <opencv2/videoio.hpp>
+#include <opencv2/imgproc/imgproc_c.h>
 
 #include <string.h>
 #include <atomic>
-
-#pragma warning(push)
-#pragma warning(disable:4099)
-#pragma warning(disable:4267)
-#include "package_bgs/bgslibrary.h"
-#pragma warning(pop)
+#include <map>
 
 #include "FilterData.h"
 
 using namespace cv;
-using namespace std;
 
 #define BUCKET_SHIFT 5
 #define BUCKET_DIMENSION (1 << BUCKET_SHIFT)
@@ -88,14 +83,14 @@ class DbScan
 {
 public:
     std::map<int, int> labels;
-    vector<Rect>& data;
+	std::vector<Rect>& data;
     int C;
     double eps;
     int mnpts;
     double* dp;
     //memoization table in case of complex dist functions
 #define DP(i,j) dp[(data.size()*i)+j]
-    DbScan(vector<Rect>& _data,double _eps,int _mnpts):data(_data)
+    DbScan(std::vector<Rect>& _data,double _eps,int _mnpts):data(_data)
     {
         C=-1;
         for(int i=0;i<data.size();i++)
@@ -122,7 +117,7 @@ public:
         {
             if(!isVisited(i))
             {
-                vector<int> neighbours = regionQuery(i);
+				std::vector<int> neighbours = regionQuery(i);
                 if(neighbours.size()<mnpts)
                 {
                     labels[i]=-1;//noise
@@ -135,7 +130,7 @@ public:
         }
         delete [] dp;
     }
-    void expandCluster(int p,vector<int> neighbours)
+    void expandCluster(int p, std::vector<int> neighbours)
     {
         labels[p]=C;
         for(int i=0;i<neighbours.size();i++)
@@ -143,7 +138,7 @@ public:
             if(!isVisited(neighbours[i]))
             {
                 labels[neighbours[i]]=C;
-                vector<int> neighbours_p = regionQuery(neighbours[i]);
+				std::vector<int> neighbours_p = regionQuery(neighbours[i]);
                 if (neighbours_p.size() >= mnpts)
                 {
                     expandCluster(neighbours[i],neighbours_p);
@@ -157,9 +152,9 @@ public:
         return labels[i]!=-99;
     }
 
-    vector<int> regionQuery(int p)
+	std::vector<int> regionQuery(int p)
     {
-        vector<int> res;
+		std::vector<int> res;
         for(int i=0;i<data.size();i++)
         {
             if(distanceFunc(p,i)<=eps)
@@ -225,12 +220,12 @@ public:
         return DP(ai,bi);
     }
 
-    vector<vector<Rect> > getGroups()
+	std::vector<std::vector<Rect> > getGroups()
     {
-        vector<vector<Rect> > ret;
+		std::vector<std::vector<Rect> > ret;
         for(int i=0;i<=C;i++)
         {
-            ret.push_back(vector<Rect>());
+            ret.push_back(std::vector<Rect>());
             for(int j=0;j<data.size();j++)
             {
                 if(labels[j]==i)
@@ -369,9 +364,9 @@ float KFNoiseScale = 0.1f;*/
 			cv::setIdentity( TrackedPositionFilter.measurementNoiseCov, KFIdentityScale );
 		}
 
-		vector<cv::Point2f> PreviousPoints;
+		std::vector<cv::Point2f> PreviousPoints;
 
-		string CustomLabel;
+		std::string CustomLabel;
 
 		cv::KalmanFilter TrackedPositionFilter;
 		cv::Mat KFState;
@@ -394,13 +389,13 @@ float KFNoiseScale = 0.1f;*/
 		int Points;
 	};
 
-	vector<Pair> Buckets;
+	std::vector<Pair> Buckets;
 
-	vector<Point2f> Points;
-	vector<int> Labels;
-	vector<LabelGroup> LabelGroups;
+	std::vector<Point2f> Points;
+	std::vector<int> Labels;
+	std::vector<LabelGroup> LabelGroups;
 
-	vector<TrackedObject> Objects;
+	std::vector<TrackedObject> Objects;
 
 	Mat blackoutMaskOriginal;
 	Mat focusMaskOriginal;
@@ -420,6 +415,11 @@ float KFNoiseScale = 0.1f;*/
 
 PIMPL_CONSTRUCT(MotionVectorFilterData)
 
+std::string StringToAnsi(const std::wstring& wstr)
+{
+	return std::string(wstr.begin(), wstr.end());
+}
+
 struct EquivalentPoint {
 	bool operator()(const Point2i& a, const Point2i& b)
 	{
@@ -437,20 +437,20 @@ MotionVectorFilter::MotionVectorFilter( const MotionChainNode& Chain, const wcha
 {
 	auto& ID = GetData();
 
-	wstring BlackoutMaskPathANSI(BlackoutMaskPath);
-	wstring FocusMaskPathANSI(FocusMaskPath);
+	std::string BlackoutMaskPathANSI(StringToAnsi(BlackoutMaskPath));
+	std::string FocusMaskPathANSI(StringToAnsi(FocusMaskPath));
 
 	ID.hasBlackoutMask = BlackoutMaskPathANSI.length() > 0;
 	ID.hasFocusMask = FocusMaskPathANSI.length() > 0;
 
 	if( ID.hasBlackoutMask )
 	{
-		ID.blackoutMaskOriginal = cv::imread( string(BlackoutMaskPathANSI.begin(), BlackoutMaskPathANSI.end()), IMREAD_GRAYSCALE );
+		ID.blackoutMaskOriginal = cv::imread(BlackoutMaskPathANSI, IMREAD_GRAYSCALE );
 	}
 
 	if( ID.hasFocusMask )
 	{
-		ID.focusMaskOriginal = cv::imread( string(FocusMaskPathANSI.begin(), FocusMaskPathANSI.end()), IMREAD_GRAYSCALE );	
+		ID.focusMaskOriginal = cv::imread(FocusMaskPathANSI, IMREAD_GRAYSCALE );
 	}
 
 	ID.MVSinceKF = 0;

@@ -23,12 +23,12 @@ public:
 
 	GlobalContext()
 	: Mutex()
-	, LongPoll(make_shared<LongPollDispatch>())
+	, LongPoll(std::make_shared<LongPollDispatch>())
 	{}
 
 	CameraState* FindCameraById(int Id)
 	{
-		lock_guard<mutex> lock(Mutex);
+		std::lock_guard<std::mutex> lock(Mutex);
 
 		auto Iter = Cameras.find(Id);
 		if (Iter != Cameras.end())
@@ -43,7 +43,7 @@ public:
 
 	const CameraState* FindCameraById(int Id) const
 	{
-		lock_guard<mutex> lock(Mutex);
+		std::lock_guard<std::mutex> lock(Mutex);
 
 		auto Iter = Cameras.find(Id);
 		if (Iter != Cameras.end())
@@ -56,34 +56,34 @@ public:
 		}
 	}
 
-	const unordered_map<int, CameraState>& GetCameraMap() const
+	const std::unordered_map<int, CameraState>& GetCameraMap() const
 	{
 		return Cameras;
 	}
 
-	unordered_map<int, CameraState>& GetCameraMap()
+	std::unordered_map<int, CameraState>& GetCameraMap()
 	{
 		return Cameras;
 	}
 
-	mutable mutex Mutex;
+	mutable std::mutex Mutex;
 
 	string_t CachePath;
 
-	shared_ptr<SQLiteDatabase> Database;
+	std::shared_ptr<SQLiteDatabase> Database;
 
 	Witness::Camera::ImageProcessingJobQueue* CommonImageProcessingJobQueue;
 
-	vector<SettingsMap> AzureSettings;
+	std::vector<SettingsMap> AzureSettings;
 
-	shared_ptr<MessageBus> MessageBus;
+	std::shared_ptr<MessageBus> MessageBus;
 
-	shared_ptr<AzureVisionAnalysisEndpointFilter> AzureVisionEndpoint;
+	std::shared_ptr<AzureVisionAnalysisEndpointFilter> AzureVisionEndpoint;
 
 	uint16_t Port;
 
-	mutable shared_ptr<LongPollDispatch> LongPoll;
+	mutable std::shared_ptr<LongPollDispatch> LongPoll;
 
 private:
-	unordered_map< int, CameraState> Cameras;
+	std::unordered_map< int, CameraState> Cameras;
 };

@@ -4,6 +4,9 @@
 #include <filesystem>
 #include <tchar.h>
 #include <assert.h>
+#include <locale>
+#include <codecvt>
+#include <string>
 
 #include "cpprest/json.h"
 
@@ -26,12 +29,11 @@
 #define tstricmp stricmp
 #endif
 
-using namespace std;
 using namespace web;
 using namespace utility;
 
 void SetStdinEcho( bool Enable );
-string ReadFileToString( string_t Filename );
+std::string ReadFileToString( string_t Filename );
 
 ///Enum to determine whether a string should be trimmed when being split
 enum class StringTrim
@@ -48,13 +50,13 @@ enum class StringStrip
 };
 
 string_t Trim( string_t tInput );
-vector< string_t > SplitString( string_t tInput, string_t tSeparator, StringTrim eTrim = StringTrim::Trim, StringStrip eStrip = StringStrip::RemoveEmpty );
+std::vector< string_t > SplitString( string_t tInput, string_t tSeparator, StringTrim eTrim = StringTrim::Trim, StringStrip eStrip = StringStrip::RemoveEmpty );
 
-string Trim( string tInput );
-vector< string > SplitString( string tInput, string tSeparator, StringTrim eTrim = StringTrim::Trim, StringStrip eStrip = StringStrip::RemoveEmpty );
+std::string Trim(std::string tInput );
+std::vector< std::string > SplitString(std::string tInput, std::string tSeparator, StringTrim eTrim = StringTrim::Trim, StringStrip eStrip = StringStrip::RemoveEmpty );
 
-string StringPrintfA(char* Message, ...);
-wstring StringPrintfW(wchar_t* Message, ...);
+std::string StringPrintfA(char* Message, ...);
+std::wstring StringPrintfW(wchar_t* Message, ...);
 
 #if defined(UNICODE) || defined(_UNICODE)
 #define StringPrintfT StringPrintfW
@@ -67,3 +69,5 @@ bool GetSettingsField( const std::unordered_map< string_t, string_t >& Settings,
 
 template<typename T>
 bool GetJsonField(const web::json::value& Object, const TCHAR* FieldName, T& ValueOut, utility::string_t& Errors);
+
+std::string StringToAnsi(const std::wstring& wstr);

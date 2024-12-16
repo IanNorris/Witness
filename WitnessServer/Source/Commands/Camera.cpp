@@ -14,7 +14,7 @@
 using namespace web::json;
 using namespace web::http::client;
 
-void Command_Camera::OnMessage( GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
+void Command_Camera::OnMessage( GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, std::vector<string_t>& ChildPath, bool IsPost )
 {
 	auto Packet = Message.extract_json().get();
 
@@ -125,7 +125,7 @@ void Command_Camera::OnPreviewMessage( GlobalContext& Context, http_request& Mes
 			Camera->LastSmallPreviewTimestamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
 		}
 
-		auto PreviewRequest = make_shared<CameraPreviewRequestMessage>();
+		auto PreviewRequest = std::make_shared<CameraPreviewRequestMessage>();
 		PreviewRequest->LastLargePreviewTimestamp = Camera->LastLargePreviewTimestamp;
 		PreviewRequest->LastSmallPreviewTimestamp = Camera->LastSmallPreviewTimestamp;
 		Context.MessageBus->SendToClient( Camera->Worker.get(), PreviewRequest );
@@ -153,9 +153,9 @@ void Command_Camera::OnEnumMessage( const GlobalContext& Context, http_request& 
 	}
 
 	bool First = true;
-	vector<int> State;
-	vector<int> OriginalState;
-	vector<json::value> Array;
+	std::vector<int> State;
+	std::vector<int> OriginalState;
+	std::vector<json::value> Array;
 
 	bool IsAcceptable = false;
 	do {
@@ -184,7 +184,7 @@ void Command_Camera::OnEnumMessage( const GlobalContext& Context, http_request& 
 						Camera[_T("description")] = json::value(Description);
 						Camera[_T("enabled")] = json::value(Enabled);
 
-						vector<json::value> Groups;
+						std::vector<json::value> Groups;
 
 						SQLiteDatabaseQueryInstance SelectGroupsForCamera(Context.Database, _T("SelectGroupsForCamera"));
 						SelectGroupsForCamera->Bind("@Camera", ID);
@@ -363,7 +363,7 @@ void Command_Camera::OnCreateMessage(const GlobalContext& Context, http_request&
 
 	int64_t RowResult = CreateCamera->GetLastInsertionId();
 
-	auto AddMessage = make_shared<CameraAddedMessage>((int)RowResult);
+	auto AddMessage = std::make_shared<CameraAddedMessage>((int)RowResult);
 
 	Context.MessageBus->SendToClient(nullptr, AddMessage);
 
@@ -394,7 +394,7 @@ void Command_Camera::OnDeleteMessage(const GlobalContext& Context, http_request&
 		RowResult = DeleteCamera->Execute(nullptr);
 	}
 
-	auto DeleteCamera = make_shared<CameraRemovedMessage>(CameraUID);
+	auto DeleteCamera = std::make_shared<CameraRemovedMessage>(CameraUID);
 
 	Context.MessageBus->SendToClient(nullptr, DeleteCamera);
 
@@ -434,7 +434,7 @@ void Command_Camera::OnRecordMessage( const GlobalContext& Context, http_request
 		}
 	}
 
-	auto ToggleRecord = make_shared<CameraStateToggleRecordMessage>( TargetCameraInt, Record );
+	auto ToggleRecord = std::make_shared<CameraStateToggleRecordMessage>( TargetCameraInt, Record );
 
 	Context.MessageBus->SendToClient( nullptr, ToggleRecord );
 
@@ -450,7 +450,7 @@ void Command_Camera::OnResetStatsMessage( const GlobalContext& Context, http_req
 	}
 
 	{
-		lock_guard<mutex> Lock( Context.Mutex );
+		std::lock_guard<std::mutex> Lock( Context.Mutex );
 
 		for( auto Camera : Context.GetCameraMap() )
 		{
@@ -472,11 +472,11 @@ void Command_Camera::OnSetGroupsMessage( const GlobalContext& Context, http_requ
 	string_t Errors;
 	int CameraID;
 	
-	vector<int> CameraGroupsRequested;
-	vector<int> CameraGroupsCurrent;
+	std::vector<int> CameraGroupsRequested;
+	std::vector<int> CameraGroupsCurrent;
 
-	vector<int> CameraGroupsToAdd;
-	vector<int> CameraGroupsToRemove;
+	std::vector<int> CameraGroupsToAdd;
+	std::vector<int> CameraGroupsToRemove;
 
 	bool Success = GetJsonField( Packet, _T("camera"), CameraID, Errors );
 

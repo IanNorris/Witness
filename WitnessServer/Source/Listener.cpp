@@ -12,7 +12,7 @@
 WitnessListener::WitnessListener( utility::string_t Hostname, int Port, bool Secure, DebugConsole* DebugConsoleInstance )
 : DebugConsoleInstance( DebugConsoleInstance )
 {
-	m_GlobalContext = make_unique<GlobalContext>();
+	m_GlobalContext = std::make_unique<GlobalContext>();
 	m_GlobalContext->Port = Port;
 
 	web::http::experimental::listener::http_listener_config Config;
@@ -31,7 +31,7 @@ WitnessListener::WitnessListener( utility::string_t Hostname, int Port, bool Sec
 
 	m_BaseUri = Uri.to_string();
 
-	m_Listener = make_unique<http_listener>( Uri.to_uri(), Config );
+	m_Listener = std::make_unique<http_listener>( Uri.to_uri(), Config );
 
 	m_Listener->support( methods::GET, std::bind( &WitnessListener::OnCommand, this, std::placeholders::_1, false ) );
 	m_Listener->support( methods::POST, std::bind( &WitnessListener::OnCommand, this, std::placeholders::_1, true ) );
@@ -44,13 +44,13 @@ WitnessListener::~WitnessListener()
 
 void WitnessListener::Initialise( const std::unordered_map< string_t, string_t >& Settings )
 {
-	m_Commands[U("auth")] = make_unique<Command_Authenticate>( m_GlobalContext->Port );
-	m_Commands[U("static")] = make_unique<Command_Static>( Settings );
-	m_Commands[U("camera")] = make_unique<Command_Camera>();
-	m_Commands[U("clip")] = make_unique<Command_Clip>();
-	m_Commands[U("group")] = make_unique<Command_Group>();
-	m_Commands[U("debug")] = make_unique<Command_Debug>( DebugConsoleInstance );
-	m_Commands[U("stream")] = make_unique<Command_Stream>();
+	m_Commands[U("auth")] = std::make_unique<Command_Authenticate>( m_GlobalContext->Port );
+	m_Commands[U("static")] = std::make_unique<Command_Static>( Settings );
+	m_Commands[U("camera")] = std::make_unique<Command_Camera>();
+	m_Commands[U("clip")] = std::make_unique<Command_Clip>();
+	m_Commands[U("group")] = std::make_unique<Command_Group>();
+	m_Commands[U("debug")] = std::make_unique<Command_Debug>( DebugConsoleInstance );
+	m_Commands[U("stream")] = std::make_unique<Command_Stream>();
 }
 
 void WitnessListener::Start()
@@ -64,7 +64,7 @@ void WitnessListener::Start()
 			}
 			catch( http_exception e )
 			{
-				cerr << "Unable to start server: " << e.what() << endl;
+				std::cerr << "Unable to start server: " << e.what() << std::endl;
 				exit(1);
 			}
 		}

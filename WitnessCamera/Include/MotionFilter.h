@@ -7,6 +7,7 @@ namespace Camera{
 
 struct MotionFilterData;
 
+#if 0
 class CAMERA_API MotionFilter : public RecordFilterBase<MotionFilterData>
 {
 public:
@@ -16,5 +17,6 @@ public:
 
 	virtual bool ProcessFrame( SharedClassificationTask TaskData );
 };
+#endif
 
 }}

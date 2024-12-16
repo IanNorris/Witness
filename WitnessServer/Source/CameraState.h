@@ -14,13 +14,13 @@ struct CameraState
 
 	}
 
-	shared_ptr<CameraWorker> Worker;
+	std::shared_ptr<CameraWorker> Worker;
 	string_t Name;
 
-	vector<unsigned char> PreviewThumbnail;
-	vector< int > TriggeredActions;
+	std::vector<unsigned char> PreviewThumbnail;
+	std::vector< int > TriggeredActions;
 
-	unordered_map< uint64_t, vector<unsigned char> > ClipThumbnails;
+	std::unordered_map< uint64_t, std::vector<unsigned char> > ClipThumbnails;
 
 	string_t Status;
 

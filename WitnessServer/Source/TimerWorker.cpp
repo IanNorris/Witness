@@ -6,7 +6,7 @@
 
 void TimerWorker::WorkerMain()
 {
-	shared_ptr<Message> Msg;
+	std::shared_ptr<Message> Msg;
 	if( MessageBusQueue->TryPop( Msg ) )
 	{
 		Msg->Handle<ThreadShutdownMessage>([&](const ThreadShutdownMessage& Data)
@@ -18,7 +18,7 @@ void TimerWorker::WorkerMain()
 	int64_t TimeNow = datetime::utc_timestamp();
 
 	{
-		lock_guard<mutex> Lock( Mutex );
+		std::lock_guard<std::mutex> Lock( Mutex );
 
 		for( auto Iter = Triggers.begin(); Iter != Triggers.end(); ++Iter )
 		{

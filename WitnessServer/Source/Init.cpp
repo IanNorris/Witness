@@ -12,7 +12,7 @@ using namespace utility;
 #include <filesystem>
 #include <windows.h>
 
-std::experimental::filesystem::path GetConfigFilePath( string_t Filename )
+std::filesystem::path GetConfigFilePath( string_t Filename )
 {
 #if defined( _WINDOWS )
 
@@ -22,7 +22,7 @@ std::experimental::filesystem::path GetConfigFilePath( string_t Filename )
 	
 	assert( Result == S_OK );
 
-	std::experimental::filesystem::path ConfigPath = ProfileRoot;
+	std::filesystem::path ConfigPath = ProfileRoot;
 	ConfigPath.append( U("Witness") );
 
 	CreateDirectory( ConfigPath.c_str(), NULL );
@@ -44,7 +44,7 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 
 	auto DatabaseFile = GetConfigFilePath(U("server.db"));
 
-	shared_ptr<SQLiteDatabase> Database = Database::InitializeDatabase(DatabaseFile);
+	std::shared_ptr<SQLiteDatabase> Database = Database::InitializeDatabase(DatabaseFile);
 
 	std::unordered_map< string_t, string_t > Settings;
 
@@ -76,7 +76,7 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 
 	if (!Success)
 	{
-		tcout << Errors << endl;
+		std::tcout << Errors << std::endl;
 		return false;
 	}
 
@@ -130,10 +130,10 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 		return false;
 	}
 
-	Worker = make_unique<AsyncWorker>( Context->MessageBus );
+	Worker = std::make_unique<AsyncWorker>( Context->MessageBus );
 	Worker->Start( WorkerBase::Priority::Normal );
 
-	Watchdog = make_unique<WatchdogWorker>( Context->MessageBus );
+	Watchdog = std::make_unique<WatchdogWorker>( Context->MessageBus );
 	Watchdog->Start( WorkerBase::Priority::Normal );
 
 	void* ServerMessageClient = nullptr;
@@ -141,11 +141,11 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 
 	OfflineCreationForFirstUser( *Context );
 
-	tcout << _T("Starting web server...") << endl;
+	std::tcout << _T("Starting web server...") << std::endl;
 
 	Server->Initialise( Settings );
 
-	Timer = make_unique<TimerWorker>( Context->MessageBus );
+	Timer = std::make_unique<TimerWorker>( Context->MessageBus );
 	Timer->Start( WorkerBase::Priority::Normal );
 
 	const int DaysToDelete = 10;
@@ -165,11 +165,11 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 		return 1;
 	}
 
-	tcout << _T("Starting camera workers...") << endl;
+	std::tcout << _T("Starting camera workers...") << std::endl;
 
 	StartCameraWorkers();
 
-	tcout << _T("Server boot complete...") << endl;
+	std::tcout << _T("Server boot complete...") << std::endl;
 
 	return true;
 }
@@ -197,8 +197,14 @@ bool WitnessServer::CreateListener( const std::unordered_map< string_t, string_t
 	Success &= GetSettingsField( Settings, _T("server_hostname"), Hostname, Errors );
 	std::vector<string_t> SplitHostname = SplitString(Hostname, _T(":"));
 
+	if (SplitHostname.size() != 2)
+	{
+		std::tcerr << _T("Hostname is invalid:") << Hostname << std::endl;
+		return false;
+	}
+
 	Hostname = SplitHostname[0];
-	Port = atoi(string(SplitHostname[1].begin(), SplitHostname[1].end()).c_str());
+	Port = atoi(StringToAnsi(SplitHostname[1]).c_str());
 	
 	Success &= GetSettingsField( Settings, _T("server_tls_mode"), Security, Errors );
 
@@ -211,11 +217,11 @@ bool WitnessServer::CreateListener( const std::unordered_map< string_t, string_t
 
 	if (!Success)
 	{
-		tcout << Errors << endl;
+		std::tcout << Errors << std::endl;
 		return false;
 	}
 
-	Server = make_unique<WitnessListener>( Hostname, Port, Secure, DebugConsoleInstance );
+	Server = std::make_unique<WitnessListener>( Hostname, Port, Secure, DebugConsoleInstance );
 
 	return true;
 }
@@ -241,7 +247,7 @@ bool WitnessServer::CreateProcessors( const std::unordered_map< string_t, string
 	
 	while(ThreadCount--)
 	{
-		auto ImageWorker = make_shared<ImageProcessorWorker>( Context->MessageBus, &CommonImageProcessingJobQueue );
+		auto ImageWorker = std::make_shared<ImageProcessorWorker>( Context->MessageBus, &CommonImageProcessingJobQueue );
 		ImageWorker->Start( WorkerBase::Priority::LowPriority );
 
 		ImageWorkers.push_back(ImageWorker);
@@ -250,9 +256,9 @@ bool WitnessServer::CreateProcessors( const std::unordered_map< string_t, string
 	return true;
 }
 
-bool WitnessServer::InitializeContext(const shared_ptr<SQLiteDatabase>& Database)
+bool WitnessServer::InitializeContext(const std::shared_ptr<SQLiteDatabase>& Database)
 {
-	Context->MessageBus = make_shared<MessageBus>();
+	Context->MessageBus = std::make_shared<MessageBus>();
 	Context->Database = Database;
 
 	Context->CommonImageProcessingJobQueue = &CommonImageProcessingJobQueue;
@@ -294,9 +300,9 @@ void WitnessServer::StartCamera(const SQLiteDatabaseQuery& query)
 
 	if (Camera.Enabled)
 	{
-		tcout << _T("Starting ") << Camera.Name << _T(" camera...") << endl;
+		std::tcout << _T("Starting ") << Camera.Name << _T(" camera...") << std::endl;
 
-		auto Worker = make_shared<CameraWorker>(Video, Camera, Context->MessageBus, Context);
+		auto Worker = std::make_shared<CameraWorker>(Video, Camera, Context->MessageBus, Context);
 		Worker->Start(WorkerBase::Priority::HighPriority);
 		Watchdog->AddTarget(Worker, Camera.Name);
 
@@ -306,13 +312,13 @@ void WitnessServer::StartCamera(const SQLiteDatabaseQuery& query)
 	}
 	else
 	{
-		tcout << _T("Skipping ") << Camera.Name << _T(" camera, it's disabled...") << endl;
+		std::tcout << _T("Skipping ") << Camera.Name << _T(" camera, it's disabled...") << std::endl;
 	}
 }
 
 void WitnessServer::StartCameraWorkers()
 {
-	lock_guard<mutex> Lock( Context->Mutex );
+	std::lock_guard<std::mutex> Lock( Context->Mutex );
 
 	MAKE_QUERY( GetCameras );
 

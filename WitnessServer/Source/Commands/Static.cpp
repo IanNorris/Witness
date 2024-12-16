@@ -9,14 +9,13 @@
 
 #include <algorithm>
 #include <iostream>
-#include <experimental/filesystem>
+#include <filesystem>
 
 using namespace web::json;
 using namespace web::http::client;
 using namespace utility;
-using namespace std;
 
-namespace fs = std::experimental::filesystem;
+namespace fs = std::filesystem;
 
 Command_Static::Command_Static( const std::unordered_map< string_t, string_t >& Settings )
 {
@@ -69,14 +68,14 @@ Command_Static::Command_Static( const std::unordered_map< string_t, string_t >& 
 	if( result )
 	{
 		auto message = result.message();
-		tcerr << string_t( message.begin(), message.end() ) << endl;
+		std::tcerr << string_t( message.begin(), message.end() ) << std::endl;
 	}
 }
 
-void Command_Static::OnMessage( GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
+void Command_Static::OnMessage( GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, std::vector<string_t>& ChildPath, bool IsPost )
 {
 	string_t Joined;
-	for_each( ChildPath.begin(), ChildPath.end(),
+	std::for_each( ChildPath.begin(), ChildPath.end(),
 		[&Joined]( const string_t& Next )
 		{
 			if( !Joined.empty() )
@@ -105,7 +104,7 @@ void Command_Static::OnMessage( GlobalContext& Context, http_request& Message, c
 			if( Iter != m_staticDataPaths.end() )
 			{
 				fs::path fullPath = m_root;
-				fullPath.append( Iter->first );
+				fullPath.append( Iter->first.c_str() );
 
 				size64_t FileSize = fs::file_size( fullPath );
 

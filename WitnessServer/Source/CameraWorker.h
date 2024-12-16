@@ -70,7 +70,7 @@ struct CameraSettings
 class CameraWorker : public WorkerBase
 {
 public:
-	CameraWorker( const VideoSettings& Video, const CameraSettings& Camera, const shared_ptr<MessageBus>& MessageBus, const shared_ptr<GlobalContext>& Context )
+	CameraWorker( const VideoSettings& Video, const CameraSettings& Camera, const std::shared_ptr<MessageBus>& MessageBus, const std::shared_ptr<GlobalContext>& Context )
 	: WorkerBase( MessageBus )
 	, Context( Context )
 	, Video( Video )
@@ -84,7 +84,7 @@ public:
 
 	InputStream::StreamStats GetStreamStats()
 	{
-		shared_ptr<InputStream> Stream = CameraStream;
+		std::shared_ptr<InputStream> Stream = CameraStream;
 		if( Stream )
 		{
 			return Stream->GetStats();
@@ -95,7 +95,7 @@ public:
 		}
 	}
 
-	shared_ptr<LiveOutputStream>& GetLiveStream()
+	std::shared_ptr<LiveOutputStream>& GetLiveStream()
 	{
 		return LiveStream;
 	}
@@ -110,14 +110,14 @@ private:
 
 	void CreateInputStream();
 
-	shared_ptr<OutputStream> RecordStream;
-	shared_ptr<LiveOutputStream> LiveStream;
+	std::shared_ptr<OutputStream> RecordStream;
+	std::shared_ptr<LiveOutputStream> LiveStream;
 
-	shared_ptr<InputStream> CameraStream;
-	shared_ptr<IRecordFilter> Filter;
-	shared_ptr<ObservingMotionFilter> Observer;
+	std::shared_ptr<InputStream> CameraStream;
+	std::shared_ptr<IRecordFilter> Filter;
+	std::shared_ptr<ObservingMotionFilter> Observer;
 
-	const shared_ptr<GlobalContext> Context;
+	const std::shared_ptr<GlobalContext> Context;
 
 	VideoSettings Video;
 	CameraSettings Camera;

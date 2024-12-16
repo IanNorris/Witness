@@ -3,7 +3,7 @@
 
 namespace Database
 {
-	string InitializationScript = R"RAW(
+	std::string InitializationScript = R"RAW(
 		CREATE TABLE IF NOT EXISTS Setting(
 			Name			TEXT PRIMARY KEY,
 			Value			TEXT
@@ -429,12 +429,12 @@ namespace Database
 
 #define CREATE_QUERY( X ) DB->CreateQuery( _T(#X), X )
 
-	shared_ptr<SQLiteDatabase> InitializeDatabase( string_t Filename )
+	std::shared_ptr<SQLiteDatabase> InitializeDatabase( string_t Filename )
 	{
-		auto DB = make_shared<SQLiteDatabase>( Filename, Database::InitializationScript, true, 
-			[]( const string& Message )
+		auto DB = std::make_shared<SQLiteDatabase>( Filename, Database::InitializationScript, true,
+			[]( const std::string& Message )
 			{
-				cout << Message << endl;
+				std::cout << Message << std::endl;
 			}
 		);
 

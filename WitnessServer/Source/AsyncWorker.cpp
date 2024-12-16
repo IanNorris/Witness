@@ -6,7 +6,7 @@
 
 void AsyncWorker::WorkerMain()
 {
-	shared_ptr<Message> Msg;
+	std::shared_ptr<Message> Msg;
 	MessageBusQueue->Pop( Msg );
 
 	Msg->Handle<ThreadShutdownMessage>([&](const ThreadShutdownMessage& Data)
@@ -16,7 +16,7 @@ void AsyncWorker::WorkerMain()
 
 	Msg->Handle<CameraWriteThumbnailMessage>([&](const CameraWriteThumbnailMessage& Data)
 	{
-		ofstream Output( string( Data.Filename.begin(), Data.Filename.end() ), ofstream::binary );
+		std::ofstream Output(StringToAnsi(Data.Filename), std::ofstream::binary );
 
 		Output.write( (const char*)&Data.Jpeg[0], Data.Jpeg.size() );
 

@@ -52,7 +52,7 @@ AzureEndpointFilter::AzureEndpointFilter( const MotionChainNode& Chain, const Se
 	EndpointBase = DeconstructEndpoint.path();
 }
 
-pplx::task<web::http::http_response> AzureEndpointFilter::SendCommand(int CommandType, const json::value& RequestData, const QueryPairs& QueryValues, const vector<unsigned char>& Data)
+pplx::task<web::http::http_response> AzureEndpointFilter::SendCommand(int CommandType, const json::value& RequestData, const QueryPairs& QueryValues, const std::vector<unsigned char>& Data)
 {
 	const string_t FinalEndpointUri = CommandTypeToEndpoint(CommandType);
 	const string_t Method = CommandTypeToMethod(CommandType);

@@ -13,7 +13,7 @@
 #include <chrono>
 #include <ctime>
 #include <iostream>
-#include <experimental/filesystem>
+#include <filesystem>
 
 #ifdef _WIN32
 #include <winerror.h>
@@ -22,7 +22,7 @@
 using namespace web::json;
 using namespace web::http::client;
 
-namespace fs = std::experimental::filesystem;
+namespace fs = std::filesystem;
 
 
 void Command_Stream::OnSegmentMessage(const GlobalContext& Context, http_request& Message, const string_t& TargetCamera, const string_t& TargetSegment, const json::value& Packet)
@@ -73,7 +73,7 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 		return;
 	}
 
-	shared_ptr<LiveOutputStream>& LiveStream = CameraState->Worker->GetLiveStream();
+	std::shared_ptr<LiveOutputStream>& LiveStream = CameraState->Worker->GetLiveStream();
 
 	std::vector<LiveStreamSegment> Segments;
 	LiveStream->GetSegments(Segments);
@@ -83,8 +83,8 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 	size_t bufferSegments = Segments.size();
 	
 	stringstream_t Playlist;
-	Playlist << "#EXTM3U" << endl;
-	Playlist << "#EXT-X-VERSION:3" << endl;
+	Playlist << "#EXTM3U" << "\n";
+	Playlist << "#EXT-X-VERSION:3" << "\n";
 	//Playlist << "#EXT-X-I-FRAMES-ONLY" << endl;
 	//Playlist << "#EXT-X-ALLOW-CACHE:YES" << endl;
 
@@ -111,10 +111,10 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 
 		
 
-		Playlist << "#EXT-X-MEDIA-SEQUENCE:" << Segments[0].Stream->GetSegmentIndex() << endl;
-		Playlist << "#EXT-X-TARGETDURATION:" << MaxLength + 1 << endl;
-		Playlist << "#EXT-X-INDEPENDENT-SEGMENTS" << endl;
-		Playlist << "" << endl;
+		Playlist << "#EXT-X-MEDIA-SEQUENCE:" << Segments[0].Stream->GetSegmentIndex() << std::endl;
+		Playlist << "#EXT-X-TARGETDURATION:" << MaxLength + 1 << std::endl;
+		Playlist << "#EXT-X-INDEPENDENT-SEGMENTS" << "\n";
+		Playlist << "" << "\n";
 
 		Playlist.precision(4);
 
@@ -123,10 +123,10 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 			LiveStreamSegment& Segment = Segments[segment];
 
 			auto Length = Segment.Stream->GetClipLength();
-			Playlist << "#EXINF:" << Length << "," << endl;
-			Playlist << "#EXT-X-PROGRAM-DATE-TIME:" << std::put_time(&Segment.StreamStartTime, L"%FT%T") << endl;
+			Playlist << "#EXINF:" << Length << "," << "\n";
+			Playlist << "#EXT-X-PROGRAM-DATE-TIME:" << std::put_time(&Segment.StreamStartTime, L"%FT%T") << "\n";
 
-			Playlist << "/stream/segment/" << TargetCameraInt << "/" << Segment.Stream->GetSegmentIndex() << ".mp4" << endl;
+			Playlist << "/stream/segment/" << TargetCameraInt << "/" << Segment.Stream->GetSegmentIndex() << ".mp4" << "\n";
 		}
 	}
 
@@ -139,7 +139,7 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 	Message.reply(Response);
 }
 
-void Command_Stream::OnMessage( GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
+void Command_Stream::OnMessage( GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, std::vector<string_t>& ChildPath, bool IsPost )
 {
 	auto Packet = Message.extract_json().get();
 

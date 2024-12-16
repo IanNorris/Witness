@@ -6,6 +6,7 @@
 #include <mutex>
 #include <vector>
 #include <algorithm>
+#include <stdexcept>
 
 class DebugConsole;
 

@@ -3,7 +3,7 @@
 
 void ImageProcessorWorker::WorkerMain()
 {
-	shared_ptr<Message> Msg;
+	std::shared_ptr<Message> Msg;
 	if( MessageBusQueue->TryPop( Msg ) )
 	{
 		Msg->Handle<ThreadShutdownMessage>([&](const ThreadShutdownMessage& Data)

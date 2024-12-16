@@ -24,15 +24,15 @@ string_t GetRandomToken()
 
 	sodium_bin2hex( TokenString, sizeof(TokenString), TokenBytes, sizeof(TokenBytes) );
 
-	string TokenStringASCII = TokenString;
+	std::string TokenStringASCII = TokenString;
 	return string_t( TokenStringASCII.begin(), TokenStringASCII.end() );
 }
 
 string_t GetHashedPasswordKey_Algorithm0( const string_t& Username, const string_t Password )
 {
-	string CombinedUsernamePassword = string( Username.begin(), Username.end() );
+	std::string CombinedUsernamePassword = StringToAnsi(Username);
 	CombinedUsernamePassword += ":";
-	CombinedUsernamePassword += string( Password.begin(), Password.end() );
+	CombinedUsernamePassword += StringToAnsi(Password);
 
 	char HashedPassword[ crypto_pwhash_STRBYTES ];
 
@@ -41,18 +41,18 @@ string_t GetHashedPasswordKey_Algorithm0( const string_t& Username, const string
 		throw "Out of memory";
 	}
 
-	string KeyStr = HashedPassword;
+	std::string KeyStr = HashedPassword;
 
 	return string_t( KeyStr.begin(), KeyStr.end() );
 }
 
 bool CheckHashedPasswordKey_Algorithm0( const string_t& Key, const string_t& Username, const string_t Password )
 {
-	string CombinedUsernamePassword = string(Username.begin(), Username.end());
+	std::string CombinedUsernamePassword = StringToAnsi(Username);
 	CombinedUsernamePassword += ":";
-	CombinedUsernamePassword += string(Password.begin(), Password.end());
+	CombinedUsernamePassword += StringToAnsi(Password);
 
-	string KeyASCII( Key.begin(), Key.end() );
+	std::string KeyASCII = StringToAnsi(Key);
 	
 	if( crypto_pwhash_str_verify( KeyASCII.c_str(), (const char*)CombinedUsernamePassword.c_str(), CombinedUsernamePassword.size() ) != 0 )
 	{
@@ -88,24 +88,24 @@ void OfflineCreationForFirstUser( const GlobalContext& Context )
 
 	if( Success )
 	{
-		tcout << _T("No user exists, you need to create one.") << endl;
-		tcout << _T("Username: ");
-		getline( tcin, Username );
+		std::tcout << _T("No user exists, you need to create one.") << std::endl;
+		std::tcout << _T("Username: ");
+		getline(std::tcin, Username );
 
-		tcout << _T("Password: ");
+		std::tcout << _T("Password: ");
 		SetStdinEcho( false );
-		getline( tcin, Password );
+		getline(std::tcin, Password );
 		SetStdinEcho( true );
 
 		string_t UsernameLC = Username;
 		std::transform(UsernameLC.begin(), UsernameLC.end(), UsernameLC.begin(), ::tolower);
 
 
-		tcout << endl << _T("Hashing password...") << endl;
+		std::tcout << std::endl << _T("Hashing password...") << std::endl;
 
 		string_t Hash = GetHashedPasswordKey_Algorithm0( UsernameLC, Password );
 
-		tcout << _T("Storing password...") << endl;
+		std::tcout << _T("Storing password...") << std::endl;
 
 		{
 			SQLiteDatabaseQueryInstance CreateUser( Context.Database, _T("CreateUser") );
@@ -120,11 +120,11 @@ void OfflineCreationForFirstUser( const GlobalContext& Context )
 			CreateUser->Execute( nullptr );
 		}
 
-		tcout << _T("User ready to use.") << endl;
+		std::tcout << _T("User ready to use.") << std::endl;
 	}
 }
 
-void Command_Authenticate::OnMessage( GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
+void Command_Authenticate::OnMessage( GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, std::vector<string_t>& ChildPath, bool IsPost )
 {
 	if( ChildPath.size() == 1 && IsPost )
 	{
@@ -194,7 +194,7 @@ void Command_Authenticate::OnMessage( GlobalContext& Context, http_request& Mess
 	}
 }
 
-void Command_Authenticate::OnLoginMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
+void Command_Authenticate::OnLoginMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, std::vector<string_t>& ChildPath, bool IsPost )
 {
 	//DO NOT CHECK CSRF HERE
 
@@ -295,12 +295,12 @@ void Command_Authenticate::OnLoginMessage( const GlobalContext& Context, http_re
 		string_t SessionToken = GetRandomToken();
 		string_t CSRFToken = GetRandomToken();
 
-		auto Now = chrono::system_clock::now().time_since_epoch();
-		auto UTCTimeNow = chrono::duration_cast<std::chrono::seconds>(Now).count();
+		auto Now = std::chrono::system_clock::now().time_since_epoch();
+		auto UTCTimeNow = std::chrono::duration_cast<std::chrono::seconds>(Now).count();
 
 
-		auto ExpiryTime = chrono::system_clock::now(); // +2 Months + 1 day (to account for timezones)
-		ExpiryTime += chrono::seconds(60*60*24*((30*2)+1));
+		auto ExpiryTime = std::chrono::system_clock::now(); // +2 Months + 1 day (to account for timezones)
+		ExpiryTime += std::chrono::seconds(60*60*24*((30*2)+1));
 
 		SQLiteDatabaseQueryInstance CreateSession( Context.Database, _T("CreateSession") );
 		CreateSession->Bind( "@SessionToken", SessionToken.c_str() );
@@ -313,10 +313,10 @@ void Command_Authenticate::OnLoginMessage( const GlobalContext& Context, http_re
 		http_response Response;
 		Response.set_status_code( status_codes::OK );
 
-		string_t PortName = to_wstring(Port);
+		string_t PortName = std::to_wstring(Port);
 		string_t SessionTokenValue = _T("SessionToken-") + PortName;
 
-		string_t MaxAge = to_wstring(60*60*24*30*2); // +2 Months
+		string_t MaxAge = std::to_wstring(60*60*24*30*2); // +2 Months
 		Response.headers().add( _T("Set-Cookie"), SessionTokenValue + _T("=") + SessionToken + _T("; HttpOnly; Path=/; max-age=") + MaxAge + _T(";") );
 
 		json::value ResponseBody;
@@ -327,7 +327,7 @@ void Command_Authenticate::OnLoginMessage( const GlobalContext& Context, http_re
 	}	
 }
 
-void Command_Authenticate::OnLogoutMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
+void Command_Authenticate::OnLogoutMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, std::vector<string_t>& ChildPath, bool IsPost )
 {
 	auto Packet = Message.extract_json().get();
 
@@ -347,7 +347,7 @@ void Command_Authenticate::OnLogoutMessage( const GlobalContext& Context, http_r
 	http_response Response;
 	Response.set_status_code( status_codes::OK );
 
-	string_t PortName = to_wstring(Port);
+	string_t PortName = std::to_wstring(Port);
 	string_t SessionTokenValue = _T("SessionToken-") + PortName + _T("=; Max-Age=0");
 
 	Response.headers().add( _T("Set-Cookie"), SessionTokenValue );
@@ -359,7 +359,7 @@ void Command_Authenticate::OnLogoutMessage( const GlobalContext& Context, http_r
 	Message.reply( Response );
 }
 
-void Command_Authenticate::OnGetProfileMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
+void Command_Authenticate::OnGetProfileMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, std::vector<string_t>& ChildPath, bool IsPost )
 {
 	//DO NOT CHECK CSRF HERE
 
@@ -426,7 +426,7 @@ void Command_Authenticate::OnGetProfileMessage( const GlobalContext& Context, ht
 	}
 	else
 	{
-		string_t PortName = to_wstring(Port);
+		string_t PortName = std::to_wstring(Port);
 		string_t SessionTokenValue = _T("SessionToken-") + PortName + _T("=; Max-Age=0");
 
 		http_response Response;
@@ -443,7 +443,7 @@ void Command_Authenticate::OnGetProfileMessage( const GlobalContext& Context, ht
 
 string_t Command_Authenticate::GetSessionToken( const http_request& Message, uint16_t PortIn )
 {
-	string_t PortName = to_wstring(PortIn);
+	string_t PortName = std::to_wstring(PortIn);
 	string_t SessionTokenName = _T("SessionToken-") + PortName;
 
 	string_t SessionToken;
@@ -594,7 +594,7 @@ int Command_Authenticate::IsCameraAuthenticated( const GlobalContext& Context, h
 	return Success ? UserUID : 0;
 }
 
-void Command_Authenticate::OnEnumUsersMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
+void Command_Authenticate::OnEnumUsersMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, std::vector<string_t>& ChildPath, bool IsPost )
 {
 	auto Packet = Message.extract_json().get();
 
@@ -609,8 +609,8 @@ void Command_Authenticate::OnEnumUsersMessage( const GlobalContext& Context, htt
 		int ArrayIndex;
 	};
 
-	vector<json::value> Array;
-	vector<UserLookup> LookupArray;
+	std::vector<json::value> Array;
+	std::vector<UserLookup> LookupArray;
 
 	SQLiteDatabaseQueryInstance FindUsers( Context.Database, _T("FindUsers") );
 
@@ -643,7 +643,7 @@ void Command_Authenticate::OnEnumUsersMessage( const GlobalContext& Context, htt
 		SQLiteDatabaseQueryInstance SelectGroupsForUser( Context.Database, _T("SelectGroupsForUser") );
 		SelectGroupsForUser->Bind( "@User", Lookup.UserUID );
 
-		vector<json::value> Groups;
+		std::vector<json::value> Groups;
 
 		int UserResult = SelectGroupsForUser->Execute( 
 			[&]( const SQLiteDatabaseQuery& query )
@@ -671,7 +671,7 @@ void Command_Authenticate::OnEnumUsersMessage( const GlobalContext& Context, htt
 	Message.reply( status_codes::OK, json::value::array(Array) );
 }
 
-void Command_Authenticate::OnNewUserMessage(const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost)
+void Command_Authenticate::OnNewUserMessage(const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, std::vector<string_t>& ChildPath, bool IsPost)
 {
 	auto Packet = Message.extract_json().get();
 
@@ -752,7 +752,7 @@ void Command_Authenticate::OnNewUserMessage(const GlobalContext& Context, http_r
 	}
 }
 
-void Command_Authenticate::OnChangePasswordMessage(const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost)
+void Command_Authenticate::OnChangePasswordMessage(const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, std::vector<string_t>& ChildPath, bool IsPost)
 {
 	auto Packet = Message.extract_json().get();
 
@@ -902,11 +902,11 @@ void Command_Authenticate::OnSetUserGroupsMessage( const GlobalContext& Context,
 	string_t Errors;
 	int UserUID;
 	
-	vector<int> UserGroupsRequested;
-	vector<int> UserGroupsCurrent;
+	std::vector<int> UserGroupsRequested;
+	std::vector<int> UserGroupsCurrent;
 
-	vector<int> UserGroupsToAdd;
-	vector<int> UserGroupsToRemove;
+	std::vector<int> UserGroupsToAdd;
+	std::vector<int> UserGroupsToRemove;
 
 	bool Success = GetJsonField( Packet, _T("userid"), UserUID, Errors );
 

@@ -12,13 +12,13 @@ class AzureEndpointFilter : public Witness::Camera::IRecordFilter
 {
 public:
 
-	typedef pair<string_t,string_t> QueryPair;
-	typedef vector<QueryPair> QueryPairs;
+	typedef std::pair<string_t,string_t> QueryPair;
+	typedef std::vector<QueryPair> QueryPairs;
 
 
 	AzureEndpointFilter( const MotionChainNode& Chain, const SettingsMap& Settings );
 
-	pplx::task<web::http::http_response> SendCommand( int CommandType, const json::value& RequestData, const QueryPairs& QueryValues, const vector<unsigned char>& Data );
+	pplx::task<web::http::http_response> SendCommand( int CommandType, const json::value& RequestData, const QueryPairs& QueryValues, const std::vector<unsigned char>& Data );
 
 	virtual ETaskType GetTaskType() { return ETaskType::ManualContinuation; }
 

@@ -1,4 +1,5 @@
 #include "AndroidNotify.h"
+#include "../Common.h"
 
 #include "cpprest/http_client.h"
 #include "cpprest/uri.h"
@@ -53,12 +54,12 @@ void SendAndroidNotification( utility::string_t ServerKey, utility::string_t Tar
 			catch (web::http::http_exception e)
 			{
 				auto ExceptionString = client.base_uri().to_string();
-				std::cerr << "Error connecting to: " << std::string(ExceptionString.begin(), ExceptionString.end()) << ": " << e.what() << std::endl;
+				std::cerr << "Error connecting to: " << StringToAnsi(ExceptionString) << ": " << e.what() << std::endl;
 			}
 			catch (std::exception e)
 			{
 				auto ExceptionString = client.base_uri().to_string();
-				std::cerr << "Error connecting to: " << std::string(ExceptionString.begin(), ExceptionString.end()) << ": " << e.what() << std::endl;
+				std::cerr << "Error connecting to: " << StringToAnsi(ExceptionString) << ": " << e.what() << std::endl;
 			}
 		} );
 	}

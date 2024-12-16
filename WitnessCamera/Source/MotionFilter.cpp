@@ -1,3 +1,4 @@
+#if 0
 #include "MotionFilter.h"
 #include "StreamManager.h"
 #include "OutputStream.h"
@@ -23,7 +24,6 @@
 #include "FilterData.h"
 
 using namespace cv;
-using namespace std;
 
 namespace Witness{
 namespace Camera{
@@ -312,3 +312,4 @@ bool MotionFilter::ProcessFrame( SharedClassificationTask TaskData )
 }
 
 }}
+#endif

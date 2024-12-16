@@ -9,18 +9,18 @@ public:
 
 	struct TimedTrigger
 	{
-		function<void()> Callback;
+		std::function<void()> Callback;
 		int Period;
 		int64_t LastTrigger;
 	};
 
-	TimerWorker(const shared_ptr<MessageBus>& MessageBus)
+	TimerWorker(const std::shared_ptr<MessageBus>& MessageBus)
 	: WorkerBase( MessageBus )
 	{}
 
-	void AddTimer(function<void()> Callback,int Period)
+	void AddTimer(std::function<void()> Callback,int Period)
 	{
-		lock_guard<mutex> Lock( Mutex );
+		std::lock_guard<std::mutex> Lock( Mutex );
 
 		TimedTrigger Trigger;
 		Trigger.Callback = Callback;
@@ -34,7 +34,7 @@ private:
 
 	virtual void WorkerMain() override;
 
-	mutable mutex Mutex;
+	mutable std::mutex Mutex;
 
-	vector<TimedTrigger> Triggers;
+	std::vector<TimedTrigger> Triggers;
 };

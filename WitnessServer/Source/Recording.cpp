@@ -9,10 +9,10 @@
 
 #include <windows.h>
 
-void WitnessServer::StartCameraRecording( const shared_ptr<CameraWorker>& Worker, uint64_t Timestamp, int CameraID, bool IsManual, const ClassificationResult& Result )
+void WitnessServer::StartCameraRecording( const std::shared_ptr<CameraWorker>& Worker, uint64_t Timestamp, int CameraID, bool IsManual, const ClassificationResult& Result )
 {
 	bool First = true;
-	string TagsA = "";
+	std::string TagsA = "";
 	for( auto& Tag : Result.Tags )
 	{
 		if( First )
@@ -32,7 +32,7 @@ void WitnessServer::StartCameraRecording( const shared_ptr<CameraWorker>& Worker
 	stringstream_t TargetFilename;
 	TargetFilename << CachePath << _T("\\") << CameraID << (IsManual ? _T("_Manual_") : _T("_Auto_")) << Timestamp << ".mp4";
 
-	auto StartRecord = make_shared<CameraStartRecordMessage>( CameraID, Timestamp, TargetFilename.str() );
+	auto StartRecord = std::make_shared<CameraStartRecordMessage>( CameraID, Timestamp, TargetFilename.str() );
 			
 	if( Worker )
 	{
@@ -55,7 +55,7 @@ void WitnessServer::StartCameraRecording( const shared_ptr<CameraWorker>& Worker
 void WitnessServer::StopCameraRecording( const ClipStatistics& ClipStats, int CameraID, const ClassificationResult& Result )
 {
 	bool First = true;
-	string TagsA = "";
+	std::string TagsA = "";
 	for( auto& Tag : Result.Tags )
 	{
 		if( First )
@@ -92,7 +92,7 @@ void WitnessServer::StopCameraRecording( const ClipStatistics& ClipStats, int Ca
 	UpdateClip->Bind( "@MaxMotion", ClipStats.LargestMotionDelta );
 	UpdateClip->Execute( nullptr );
 
-	auto WriteThumbnailMessage = make_shared<CameraWriteThumbnailMessage>( CameraID );
+	auto WriteThumbnailMessage = std::make_shared<CameraWriteThumbnailMessage>( CameraID );
 	
 	string_t CachePath;
 
@@ -114,7 +114,7 @@ void WitnessServer::StopCameraRecording( const ClipStatistics& ClipStats, int Ca
 	//Could get no image, in which case don't send it as we've got nothing to save out.
 	if( !WriteThumbnailMessage->Jpeg.empty() )
 	{	
-		WriteThumbnailMessage->Filename = GetClipName( *Context, CameraID, ClipStats.TimestampClipStarted, false, false );;
+		WriteThumbnailMessage->Filename = GetClipName( *Context, CameraID, ClipStats.TimestampClipStarted, false, false );
 	
 		Context->MessageBus->SendToClient( Worker.get(), WriteThumbnailMessage );
 	}
@@ -137,5 +137,5 @@ void WitnessServer::StatusMessage( int Camera, string_t NewStatus, string_t Reas
 		}
 	}
 
-	tcout << CameraName << _T(": ") << Reason << endl;
+	std::tcout << CameraName << _T(": ") << Reason << std::endl;
 };

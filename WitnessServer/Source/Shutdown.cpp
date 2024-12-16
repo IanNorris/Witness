@@ -21,7 +21,7 @@ void WitnessServer::RequestShutdown()
 	Server->Stop();
 
 	{
-		lock_guard<mutex> Lock(Context->Mutex);
+		std::lock_guard<std::mutex> Lock(Context->Mutex);
 
 		for (auto& Camera : Context->GetCameraMap())
 		{
@@ -36,9 +36,9 @@ void WitnessServer::RequestShutdown()
 		}
 	}
 
-	MessageClient->Push(make_shared<ThreadShutdownMessage>());
+	MessageClient->Push(std::make_shared<ThreadShutdownMessage>());
 
-	Context->MessageBus->SendToClient(nullptr, make_shared<ThreadShutdownMessage>());
+	Context->MessageBus->SendToClient(nullptr, std::make_shared<ThreadShutdownMessage>());
 	if (Worker)
 	{
 		Worker->RequestShutdown();
