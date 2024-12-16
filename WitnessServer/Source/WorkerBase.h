@@ -23,7 +23,7 @@ public:
 		const TCHAR* Action;
 	};
 
-	WorkerBase(const shared_ptr<MessageBus>& MessageBus)
+	WorkerBase(const std::shared_ptr<MessageBus>& MessageBus)
 	: MessageBusObject( MessageBus )
 	, Shutdown( false )
 	, Complete( false )
@@ -35,7 +35,7 @@ public:
 	void Start( Priority ThreadPriority )
 	{
 		UpdateLastTimedAction(_T("Thread starting..."));
-		Thread = make_unique<thread>( &WorkerBase::WorkerThread, this );
+		Thread = std::make_unique<std::thread>( &WorkerBase::WorkerThread, this );
 
 		SetPriority(ThreadPriority);
 	}
@@ -45,7 +45,7 @@ public:
 		Shutdown = true;
 		if (MessageBusQueue)
 		{
-			MessageBusQueue->Push(make_shared<ThreadShutdownMessage>());
+			MessageBusQueue->Push(std::make_shared<ThreadShutdownMessage>());
 		}
 	}
 
@@ -62,12 +62,12 @@ public:
 		Join();
 	}
 
-	const atomic<AtomicTimedActionData>* GetLastTimedAction() const { return &LastTimedAction; }
+	const std::atomic<AtomicTimedActionData>* GetLastTimedAction() const { return &LastTimedAction; }
 
 protected:
 
-	shared_ptr<MessageBus> MessageBusObject;
-	shared_ptr<MessageBusQueue> MessageBusQueue;
+	std::shared_ptr<MessageBus> MessageBusObject;
+	std::shared_ptr<MessageBusQueue> MessageBusQueue;
 
 	void UpdateLastTimedAction( const TCHAR* NewAction )
 	{
@@ -82,9 +82,9 @@ private:
 
 	void WorkerThread();
 
-	atomic<AtomicTimedActionData> LastTimedAction;
+	std::atomic<AtomicTimedActionData> LastTimedAction;
 
-	unique_ptr<thread> Thread;
+	std::unique_ptr<std::thread> Thread;
 
 	bool Shutdown;
 	bool Complete;

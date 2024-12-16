@@ -61,7 +61,7 @@ class LongPollScope
 {
 public:
 
-	LongPollScope( shared_ptr<LongPollDispatch> InDispatcher)
+	LongPollScope(std::shared_ptr<LongPollDispatch> InDispatcher)
 	: Dispatcher( InDispatcher )
 	, Lock( Dispatcher->EnterLock() )
 	{

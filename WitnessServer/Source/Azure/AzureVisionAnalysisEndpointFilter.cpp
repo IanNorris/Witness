@@ -105,7 +105,7 @@ bool AzureVisionAnalysisEndpointFilter::ProcessFrame( SharedClassificationTask T
 		Continue( TaskData, false );
 	}
 
-	auto TaskCollect = make_shared<AzureVisionResultsCollect>();
+	auto TaskCollect = std::make_shared<AzureVisionResultsCollect>();
 	TaskCollect->TaskData = TaskData;
 	TaskCollect->WaitingForResults = Regions;
 	TaskCollect->Matched = false;
@@ -183,7 +183,7 @@ bool AzureVisionAnalysisEndpointFilter::ProcessFrame( SharedClassificationTask T
 			char Buffer[128];
 			sprintf_s( Buffer, 128, "X:\\WitnessTemp\\%d.jpg", FrameIndex++ );
 
-			ofstream Output( Buffer, ofstream::binary );
+			std::ofstream Output( Buffer, std::ofstream::binary );
 
 			Output.write( (const char*)&Data[0], Data.size() );
 
@@ -213,7 +213,7 @@ bool AzureVisionAnalysisEndpointFilter::ProcessFrame( SharedClassificationTask T
 							if( Tag.has_string_field(_T("name")) && Tag.has_double_field(_T("confidence")) )
 							{
 								string_t Name = Tag[_T("name")].as_string();
-								string NameA = std::string( Name.begin(), Name.end() );
+								std::string NameA = StringToAnsi(Name);
 								double Confidence = Tag[_T("confidence")].as_double();
 
 								if( Confidence >= ConfidenceThreshold )
@@ -295,12 +295,12 @@ bool AzureVisionAnalysisEndpointFilter::ProcessFrame( SharedClassificationTask T
 				catch (web::http::http_exception e)
 				{
 					auto ExceptionString = Hostname;
-					std::cerr << "Error connecting to: " << std::string(ExceptionString.begin(), ExceptionString.end()) << ": " << e.what() << std::endl;
+					std::cerr << "Error connecting to: " << StringToAnsi(ExceptionString) << ": " << e.what() << std::endl;
 				}
 				catch (std::exception e)
 				{
 					auto ExceptionString = Hostname;
-					std::cerr << "Error connecting to: " << std::string(ExceptionString.begin(), ExceptionString.end()) << ": " << e.what() << std::endl;
+					std::cerr << "Error connecting to: " << StringToAnsi(ExceptionString) << ": " << e.what() << std::endl;
 				}
 
 				if( !MatchMade )

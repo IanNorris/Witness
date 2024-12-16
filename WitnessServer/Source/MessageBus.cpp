@@ -1,17 +1,17 @@
 #include "MessageBus.h"
 
-void MessageBusQueue::Push( const shared_ptr<Message>& Message )
+void MessageBusQueue::Push( const std::shared_ptr<Message>& Message )
 {
-	unique_lock<mutex> Lock( Mutex );
+	std::unique_lock<std::mutex> Lock( Mutex );
 
 	Queue.push_back( Message );
 
 	Condition.notify_one();
 }
 
-bool MessageBusQueue::TryPop( shared_ptr<Message>& Message )
+bool MessageBusQueue::TryPop(std::shared_ptr<Message>& Message )
 {
-	unique_lock<mutex> Lock( Mutex );
+	std::unique_lock<std::mutex> Lock( Mutex );
 
 	if( !Queue.empty() )
 	{
@@ -23,9 +23,9 @@ bool MessageBusQueue::TryPop( shared_ptr<Message>& Message )
 	return false;
 }
 
-void MessageBusQueue::Pop( shared_ptr<Message>& Message )
+void MessageBusQueue::Pop(std::shared_ptr<Message>& Message )
 {
-	unique_lock<mutex> Lock( Mutex );
+	std::unique_lock<std::mutex> Lock( Mutex );
 
 	while( Queue.empty() )
 	{

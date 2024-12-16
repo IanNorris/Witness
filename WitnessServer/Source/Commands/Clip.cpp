@@ -11,7 +11,7 @@
 #include <iostream>
 #include <chrono>
 #include <iostream>
-#include <experimental/filesystem>
+#include <filesystem>
 
 #ifdef _WIN32
 #include <winerror.h>
@@ -20,7 +20,7 @@
 using namespace web::json;
 using namespace web::http::client;
 
-namespace fs = std::experimental::filesystem;
+namespace fs = std::filesystem;
 
 const static int MaxClipsPerQuery = 100;
 
@@ -61,7 +61,7 @@ bool DeleteClip( const GlobalContext& Context, int CameraID, int64_t Timestamp, 
 	auto VideoPath = GetClipName( Context, CameraID, Timestamp, Manual, true );
 	
 	std::error_code error;
-	if( !std::experimental::filesystem::remove( ThumbnailPath, error) )
+	if( !std::filesystem::remove( ThumbnailPath, error) )
 	{
 		if( error.value() == E_ACCESSDENIED )
 		{
@@ -69,7 +69,7 @@ bool DeleteClip( const GlobalContext& Context, int CameraID, int64_t Timestamp, 
 		}
 	}
 
-	if( !std::experimental::filesystem::remove( VideoPath, error ) )
+	if( !std::filesystem::remove( VideoPath, error ) )
 	{
 		if( error.value() == E_ACCESSDENIED )
 		{
@@ -80,7 +80,7 @@ bool DeleteClip( const GlobalContext& Context, int CameraID, int64_t Timestamp, 
 	return true;
 }
 
-void Command_Clip::OnMessage( GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
+void Command_Clip::OnMessage( GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, std::vector<string_t>& ChildPath, bool IsPost )
 {
 	auto Packet = Message.extract_json().get();
 
@@ -151,7 +151,7 @@ void Command_Clip::OnThumbnailMessage( const GlobalContext& Context, http_reques
 
 	if( !Video )
 	{
-		lock_guard<mutex> Lock( Context.Mutex );
+		std::lock_guard<std::mutex> Lock( Context.Mutex );
 
 		auto IterCamera = Context.Cameras.find( TargetCameraInt );
 		if( IterCamera != Context.Cameras.end() )
@@ -222,7 +222,7 @@ void Command_Clip::OnEnumClipsMessage( const GlobalContext& Context, http_reques
 	uint64_t RangePeriodInt = _wtoll( RangePeriod.c_str() );
 	int PageOffsetInt = _wtoi( PageOffset.c_str() );
 
-	MaxCountInt = min( MaxCountInt, MaxClipsPerQuery );
+	MaxCountInt = std::min( MaxCountInt, MaxClipsPerQuery );
 
 	int UserUID = 0;
 	if( TargetCameraInt == -1 )
@@ -246,7 +246,7 @@ void Command_Clip::OnEnumClipsMessage( const GlobalContext& Context, http_reques
 
 	int Count = 0;
 	json::value Data;
-	vector<json::value> Array;
+	std::vector<json::value> Array;
 
 	{
 		SQLiteDatabaseQueryInstance CountClipsWithinRange( Context.Database, TargetCameraInt == -1 ? _T("CountClipsWithinRangeAll") : _T("CountClipsWithinRange") );
@@ -497,7 +497,7 @@ void Command_Clip::DeleteOldClips( const GlobalContext& Context, int DaysToDelet
 
 	if( ClipsToDelete.size() )
 	{
-		tcout << _T("Deleting ") << ClipsToDelete.size() << _T(" clips as they were more than ") << DaysToDelete << _T(" days old.") << endl;
+		std::tcout << _T("Deleting ") << ClipsToDelete.size() << _T(" clips as they were more than ") << DaysToDelete << _T(" days old.") << std::endl;
 	}
 
 	for( auto& Clip : ClipsToDelete )

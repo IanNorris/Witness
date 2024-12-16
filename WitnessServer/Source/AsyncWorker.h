@@ -5,7 +5,7 @@
 class AsyncWorker : public WorkerBase
 {
 public:
-	AsyncWorker(const shared_ptr<MessageBus>& MessageBus)
+	AsyncWorker(const std::shared_ptr<MessageBus>& MessageBus)
 	: WorkerBase( MessageBus )
 	{}
 

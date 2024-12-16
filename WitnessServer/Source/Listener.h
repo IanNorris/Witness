@@ -26,7 +26,7 @@ public:
 
 	void Stop();
 
-	const shared_ptr<GlobalContext>& GetGlobalContext() { return m_GlobalContext; }
+	const std::shared_ptr<GlobalContext>& GetGlobalContext() { return m_GlobalContext; }
 
 	const string_t& GetBaseUri() { return m_BaseUri; }
 
@@ -34,12 +34,12 @@ private:
 
 	void OnCommand( http_request Message, bool IsPost );
 
-	unique_ptr<http_listener> m_Listener;
-	shared_ptr<GlobalContext> m_GlobalContext;
+	std::unique_ptr<http_listener> m_Listener;
+	std::shared_ptr<GlobalContext> m_GlobalContext;
 
 	DebugConsole* DebugConsoleInstance;
 
-	unordered_map<string_t, unique_ptr<IListenerCommand>> m_Commands;
+	std::unordered_map<string_t, std::unique_ptr<IListenerCommand>> m_Commands;
 
 	string_t				m_BaseUri;
 };

@@ -55,26 +55,26 @@ private:
 	bool CreateProcessors( const std::unordered_map< string_t, string_t >& Settings );
 	bool InitializeContext( const std::shared_ptr<SQLiteDatabase>& Database );
 
-	void HandleActions( const shared_ptr<GlobalContext>& Context, CameraState& State, int CameraIndex, double MotionThreshold );
+	void HandleActions( const std::shared_ptr<GlobalContext>& Context, CameraState& State, int CameraIndex, double MotionThreshold );
 	void TriggerAction( const string_t& Command, const string_t& Param1, const string_t& Param2, const string_t& Param3, CameraState& State, int CameraIndex );
 
 	void StartCameraWorkers();
 
 	void StartCamera(const SQLiteDatabaseQuery& query);
 
-	void StartCameraRecording( const shared_ptr<CameraWorker>& Worker, uint64_t Timestamp, int CameraID, bool IsManual, const ClassificationResult& Result );
+	void StartCameraRecording( const std::shared_ptr<CameraWorker>& Worker, uint64_t Timestamp, int CameraID, bool IsManual, const ClassificationResult& Result );
 	void StopCameraRecording( const ClipStatistics& ClipStats, int CameraID, const ClassificationResult& Result );
 
-	unique_ptr<AsyncWorker> Worker;
-	unique_ptr<WatchdogWorker> Watchdog;
-	unique_ptr<TimerWorker> Timer;
-	unique_ptr<WitnessListener>	Server;
-	shared_ptr<GlobalContext> Context;
-	shared_ptr<MessageBusQueue> MessageClient;
+	std::unique_ptr<AsyncWorker> Worker;
+	std::unique_ptr<WatchdogWorker> Watchdog;
+	std::unique_ptr<TimerWorker> Timer;
+	std::unique_ptr<WitnessListener>	Server;
+	std::shared_ptr<GlobalContext> Context;
+	std::shared_ptr<MessageBusQueue> MessageClient;
 
 	DebugConsole* DebugConsoleInstance;
 
-	vector<shared_ptr<ImageProcessorWorker>> ImageWorkers;
+	std::vector<std::shared_ptr<ImageProcessorWorker>> ImageWorkers;
 
 	Witness::Camera::ImageProcessingJobQueue CommonImageProcessingJobQueue;
 

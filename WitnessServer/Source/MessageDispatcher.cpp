@@ -9,7 +9,7 @@
 #include <functional>
 #include <windows.h>
 
-#define MakeLambda( Name ) auto LambdaHandle##Name = bind( &WitnessServer::Handle##Name, this, placeholders::_1 )
+#define MakeLambda( Name ) auto LambdaHandle##Name = std::bind( &WitnessServer::Handle##Name, this, std::placeholders::_1 )
 #define HandleEvent( Name ) Msg->Handle<Name>(LambdaHandle##Name)
 
 void WitnessServer::MessageLoop( bool& ContinueRunning )
@@ -24,7 +24,7 @@ void WitnessServer::MessageLoop( bool& ContinueRunning )
 		
 	while( ContinueRunning )
 	{
-		shared_ptr<Message> Msg;
+		std::shared_ptr<Message> Msg;
 		MessageClient->Pop( Msg );
 
 		HandleEvent(CameraStartupMessage);
@@ -46,12 +46,12 @@ void WitnessServer::MessageLoop( bool& ContinueRunning )
 		{
 			StatusMessage( Data.Camera, _T(""), Data.Record ? _T("Manual Record: On") : _T("Manual Record: Off") );
 
-			shared_ptr<CameraWorker> Worker;
+			std::shared_ptr<CameraWorker> Worker;
 
 			bool Change = false;
 
 			{
-				lock_guard<mutex> Lock( Context->Mutex );
+				std::lock_guard<std::mutex> Lock( Context->Mutex );
 
 				auto Iter = Context->Cameras.find( Data.Camera );
 				if( Iter != Context->Cameras.end() )
@@ -77,7 +77,7 @@ void WitnessServer::MessageLoop( bool& ContinueRunning )
 				}
 				else
 				{
-					auto StopRecord = make_shared<CameraStopRecordMessage>( Data.Camera, true );
+					auto StopRecord = std::make_shared<CameraStopRecordMessage>( Data.Camera, true );
 					Context->MessageBus->SendToClient( Worker.get(), StopRecord );
 				}
 			}
@@ -85,7 +85,7 @@ void WitnessServer::MessageLoop( bool& ContinueRunning )
 
 		Msg->Handle< CameraAddedMessage>([&](const CameraAddedMessage& Data)
 		{
-			lock_guard<mutex> Lock(Context->Mutex);
+			std::lock_guard<std::mutex> Lock(Context->Mutex);
 
 			MAKE_QUERY(GetCamera);
 			GetCamera->Bind("@CameraId", Data.Camera);
@@ -104,10 +104,10 @@ void WitnessServer::MessageLoop( bool& ContinueRunning )
 
 		Msg->Handle<CameraRemovedMessage>([&](const CameraRemovedMessage& Data)
 		{
-			shared_ptr<CameraWorker> Worker;
+			std::shared_ptr<CameraWorker> Worker;
 
 			{
-				lock_guard<mutex> Lock(Context->Mutex);
+					std::lock_guard<std::mutex> Lock(Context->Mutex);
 
 				auto Iter = Context->Cameras.find(Data.Camera);
 				if (Iter != Context->Cameras.end())
@@ -120,7 +120,7 @@ void WitnessServer::MessageLoop( bool& ContinueRunning )
 			{
 				Watchdog->RemoveTarget(Worker);
 
-				Context->MessageBus->SendToClient(Worker.get(), make_shared<ThreadShutdownMessage>());
+				Context->MessageBus->SendToClient(Worker.get(), std::make_shared<ThreadShutdownMessage>());
 
 				Context->LongPoll->NotifyAll();
 			}

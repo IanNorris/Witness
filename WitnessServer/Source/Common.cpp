@@ -12,10 +12,13 @@
 #include <fstream>
 #include <sstream>
 
-string ReadFileToString(string_t Filename)
+#include <cwchar>
+#include <stdexcept>
+
+std::string ReadFileToString(string_t Filename)
 {
 	std::ifstream File( Filename );
-	stringstream Buffer;
+	std::stringstream Buffer;
 
 	Buffer << File.rdbuf();
 
@@ -56,7 +59,7 @@ string_t Trim( string_t tInput )
 	return tInput;
 }
 
-string Trim( string tInput )
+std::string Trim(std::string tInput )
 {
 	static const CHAR pszWhitespace[] = " \t\n\r";
 	tInput = tInput.erase( tInput.find_last_not_of( pszWhitespace )+1 );
@@ -64,9 +67,9 @@ string Trim( string tInput )
 	return tInput;
 }
 
-vector< string_t > SplitString( string_t tInput, string_t tSeparator, StringTrim eTrim, StringStrip eStrip )
+std::vector< string_t > SplitString( string_t tInput, string_t tSeparator, StringTrim eTrim, StringStrip eStrip )
 {
-	vector< string_t > tResult;
+	std::vector< string_t > tResult;
 
 	string_t::const_iterator tStart = tInput.begin();
 	string_t::const_iterator tEnd;
@@ -78,7 +81,7 @@ vector< string_t > SplitString( string_t tInput, string_t tSeparator, StringTrim
 
 	while( true )
 	{
-		tEnd = search< string_t::const_iterator, string_t::const_iterator >( tStart, tInput.end(), tSeparator.begin(), tSeparator.end() );
+		tEnd = std::search< string_t::const_iterator, string_t::const_iterator >( tStart, tInput.end(), tSeparator.begin(), tSeparator.end() );
 
 		string_t tSubString( tStart, tEnd );
 
@@ -103,12 +106,12 @@ vector< string_t > SplitString( string_t tInput, string_t tSeparator, StringTrim
 	return tResult;
 }
 
-vector< string > SplitString( string tInput, string tSeparator, StringTrim eTrim, StringStrip eStrip )
+std::vector< std::string > SplitString(std::string tInput, std::string tSeparator, StringTrim eTrim, StringStrip eStrip )
 {
-	vector< string > tResult;
+	std::vector< std::string > tResult;
 
-	string::const_iterator tStart = tInput.begin();
-	string::const_iterator tEnd;
+	std::string::const_iterator tStart = tInput.begin();
+	std::string::const_iterator tEnd;
 
 	if( tInput.size() == 0 )
 	{
@@ -117,9 +120,9 @@ vector< string > SplitString( string tInput, string tSeparator, StringTrim eTrim
 
 	while( true )
 	{
-		tEnd = search< string::const_iterator, string::const_iterator >( tStart, tInput.end(), tSeparator.begin(), tSeparator.end() );
+		tEnd = std::search< std::string::const_iterator, std::string::const_iterator >( tStart, tInput.end(), tSeparator.begin(), tSeparator.end() );
 
-		string tSubString( tStart, tEnd );
+		std::string tSubString( tStart, tEnd );
 
 		if( eTrim == StringTrim::Trim )
 		{
@@ -142,34 +145,39 @@ vector< string > SplitString( string tInput, string tSeparator, StringTrim eTrim
 	return tResult;
 }
 
-string StringPrintfA(char* Message, ...)
+std::string StringPrintfA(char* Message, ...)
 {
 	va_list Args;
 	va_start( Args, Message );
 
 	size_t Length = _vscprintf( Message, Args );
 
-	shared_ptr<char> Buffer( new char[ Length + 1 ], std::default_delete<char[]>() );
+	std::shared_ptr<char> Buffer( new char[ Length + 1 ], std::default_delete<char[]>() );
 
 	vsprintf_s( Buffer.get(), Length + 1, Message, Args );
 
 	va_end( Args );
 
-	return string(Buffer.get());
+	return std::string(Buffer.get());
 }
 
-wstring StringPrintfW(wchar_t* Message, ...)
+std::wstring StringPrintfW(wchar_t* Message, ...)
 {
 	va_list Args;
 	va_start( Args, Message );
 
 	size_t Length = _vscwprintf( Message, Args );
 
-	shared_ptr<wchar_t> Buffer( new wchar_t[ Length + 1 ], std::default_delete<wchar_t[]>() );
+	std::shared_ptr<wchar_t> Buffer( new wchar_t[ Length + 1 ], std::default_delete<wchar_t[]>() );
 
 	vswprintf_s( Buffer.get(), Length + 1, Message, Args );
 
 	va_end( Args );
 
-	return wstring(Buffer.get());
+	return std::wstring(Buffer.get());
+}
+
+std::string StringToAnsi(const std::wstring& wstr)
+{
+	return std::string(wstr.begin(), wstr.end());
 }

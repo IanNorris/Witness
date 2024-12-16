@@ -10,11 +10,11 @@
 
 void WitnessServer::HandleCameraBeginMotionMessage(const CameraBeginMotionMessage& Data)
 {
-	shared_ptr<CameraWorker> Worker;
+	std::shared_ptr<CameraWorker> Worker;
 	string_t CameraName;
 
 	{
-		lock_guard<mutex> Lock( Context->Mutex );
+		std::lock_guard<std::mutex> Lock( Context->Mutex );
 			
 		auto Iter = Context->Cameras.find( Data.Camera );
 		if( Iter != Context->Cameras.end() )
@@ -27,7 +27,7 @@ void WitnessServer::HandleCameraBeginMotionMessage(const CameraBeginMotionMessag
 			}
 			else
 			{
-				tcerr << _T("Clip thumbnail is empty") << endl;
+				std::tcerr << _T("Clip thumbnail is empty") << std::endl;
 			}
 			CameraName = CameraState.Name;
 			Worker = CameraState.Worker;
@@ -56,7 +56,7 @@ void WitnessServer::HandleCameraBeginMotionMessage(const CameraBeginMotionMessag
 void WitnessServer::HandleCameraUpdateMotionMessage(const CameraUpdateMotionMessage& Data)
 {
 	{
-		lock_guard<mutex> Lock( Context->Mutex );
+		std::lock_guard<std::mutex> Lock( Context->Mutex );
 			
 		auto Iter = Context->Cameras.find( Data.Camera );
 		if( Iter != Context->Cameras.end() )
@@ -72,12 +72,12 @@ void WitnessServer::HandleCameraUpdateMotionMessage(const CameraUpdateMotionMess
 
 void WitnessServer::HandleCameraEndMotionMessage(const CameraEndMotionMessage& Data)
 {
-	auto StopRecord = make_shared<CameraStopRecordMessage>( Data.Camera, false );
+	auto StopRecord = std::make_shared<CameraStopRecordMessage>( Data.Camera, false );
 
-	shared_ptr<CameraWorker> Worker;
+	std::shared_ptr<CameraWorker> Worker;
 
 	{
-		lock_guard<mutex> Lock( Context->Mutex );
+		std::lock_guard<std::mutex> Lock( Context->Mutex );
 
 		auto Iter = Context->Cameras.find( Data.Camera );
 		if( Iter != Context->Cameras.end() )
@@ -99,7 +99,7 @@ void WitnessServer::HandleCameraEndMotionMessage(const CameraEndMotionMessage& D
 	}
 };
 
-void WitnessServer::HandleActions( const shared_ptr<GlobalContext>& Context, CameraState& State, int CameraIndex, double MotionThreshold )
+void WitnessServer::HandleActions( const std::shared_ptr<GlobalContext>& Context, CameraState& State, int CameraIndex, double MotionThreshold )
 {
 	SQLiteDatabaseQueryInstance FindActions( Context->Database, _T("FindActions") );
 	FindActions->Bind( "@CameraUID", CameraIndex );
@@ -109,7 +109,7 @@ void WitnessServer::HandleActions( const shared_ptr<GlobalContext>& Context, Cam
 
 	bool Success = false;
 
-	vector<int> ActionsToTake;
+	std::vector<int> ActionsToTake;
 
 	struct ActionCommand
 	{
@@ -119,7 +119,7 @@ void WitnessServer::HandleActions( const shared_ptr<GlobalContext>& Context, Cam
 		string_t Param2;
 		string_t Param3;
 	};
-	vector<ActionCommand> Commands;
+	std::vector<ActionCommand> Commands;
 
 	FindActions->Execute( 
 		[&]( const SQLiteDatabaseQuery& query )
@@ -186,6 +186,6 @@ void WitnessServer::TriggerAction( const string_t& Command, const string_t& Para
 	}
 	else
 	{
-		tcerr << _T("Unknown command: ") << Command << endl;
+		std::tcerr << _T("Unknown command: ") << Command << std::endl;
 	}
 }

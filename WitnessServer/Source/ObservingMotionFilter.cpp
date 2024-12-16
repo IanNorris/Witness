@@ -22,7 +22,7 @@ int DrawObjectLabels = 0;
 
 int ObserverFirstCameraOnly = 0;
 
-ObservingMotionFilter::ObservingMotionFilter( const MotionChainNode& Chain, const int CameraID, const shared_ptr<MessageBus>& MessageBusIn )
+ObservingMotionFilter::ObservingMotionFilter( const MotionChainNode& Chain, const int CameraID, const std::shared_ptr<MessageBus>& MessageBusIn )
 : IRecordFilter( Chain )
 , MessageBusPtr( MessageBusIn )
 , LastLargePreviewTimestamp(0)
@@ -83,7 +83,7 @@ bool ObservingMotionFilter::ProcessFrame( SharedClassificationTask TaskData )
 				DrawBounds.width = ROI.Width;
 				DrawBounds.height = ROI.Height;
 
-				string Label = ROI.CustomLabel;
+				std::string Label = ROI.CustomLabel;
 				if( Label.empty() )
 				{
 					if( (ROI.Classification & ClassificationResult::Motion_Person) != 0 )
@@ -164,7 +164,7 @@ bool ObservingMotionFilter::ProcessFrame( SharedClassificationTask TaskData )
 		{
 			State = MotionState::Current;
 
-			auto MotionMessage = make_shared<CameraBeginMotionMessage>( CameraID );
+			auto MotionMessage = std::make_shared<CameraBeginMotionMessage>( CameraID );
 
 			{
 				std::lock_guard<std::mutex> Lock(Mutex);
@@ -197,7 +197,7 @@ bool ObservingMotionFilter::ProcessFrame( SharedClassificationTask TaskData )
 			{
 				ClipStats.LargestMotionDelta = TaskData->Result.MotionAmount;
 
-				auto MotionMessage = make_shared<CameraUpdateMotionMessage>( CameraID );
+				auto MotionMessage = std::make_shared<CameraUpdateMotionMessage>( CameraID );
 
 				MotionMessage->ClipStats = ClipStats;
 				MotionMessage->Result = TaskData->Result;
@@ -221,7 +221,7 @@ bool ObservingMotionFilter::ProcessFrame( SharedClassificationTask TaskData )
 			{
 				State = MotionState::None;
 
-				auto MotionMessage = make_shared<CameraEndMotionMessage>( CameraID );
+				auto MotionMessage = std::make_shared<CameraEndMotionMessage>( CameraID );
 
 				ClipStats.TimestampClipEnded = TimestampNow;
 				MotionMessage->ClipStats = ClipStats;
@@ -258,7 +258,7 @@ bool ObservingMotionFilter::ProcessFrame( SharedClassificationTask TaskData )
 	{
 		SaveNextFrame = false;
 
-		auto SaveFrameMessage = make_shared<CameraSnapshotMessage>( CameraID );
+		auto SaveFrameMessage = std::make_shared<CameraSnapshotMessage>( CameraID );
 
 		const int TargetSize = SaveLarge ? TargetLargeThumbnailSize : TargetThumbnailSize;
 		const int Quality = SaveLarge ? 70 : 65;
@@ -279,7 +279,7 @@ bool ObservingMotionFilter::ProcessFrame( SharedClassificationTask TaskData )
 	return TaskData->Result.ClassificationSuperset != 0;
 }
 
-void ObservingMotionFilter::CreateJpegPreview( FilterFrame& Frame, vector<unsigned char>& OutputBuffer, unsigned int OutputWidth, int OutputQuality, std::function<void(cv::Mat&)> Action )
+void ObservingMotionFilter::CreateJpegPreview( FilterFrame& Frame, std::vector<unsigned char>& OutputBuffer, unsigned int OutputWidth, int OutputQuality, std::function<void(cv::Mat&)> Action )
 {
 	FilterFrameStatScope Scope( Frame.Stats, FilterStat_JpegEncoding );
 

@@ -10,14 +10,14 @@
 using namespace web::json;
 using namespace web::http::client;
 
-namespace fs = std::experimental::filesystem;
+namespace fs = std::filesystem;
 
 Command_Debug::Command_Debug( DebugConsole* DebugConsoleInstance )
 : DebugConsoleInstance( DebugConsoleInstance )
 {
 }
 
-void Command_Debug::OnMessage( GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, vector<string_t>& ChildPath, bool IsPost )
+void Command_Debug::OnMessage( GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, std::vector<string_t>& ChildPath, bool IsPost )
 {
 	if( ChildPath.size() == 1 )
 	{
@@ -68,15 +68,15 @@ void Command_Debug::OnEnumMessage( const GlobalContext& Context, http_request& M
 	}
 
 	json::value Data;
-	vector<json::value> Array;
+	std::vector<json::value> Array;
 
 	const auto& Values = DebugConsoleInstance->GetValues();
 	for( const auto& Value : Values )
 	{
 		json::value ValueOut;
 
-		const string Name = Value->GetName();
-		const string ValueStr = Value->Get();
+		const std::string Name = Value->GetName();
+		const std::string ValueStr = Value->Get();
 
 		ValueOut[ _T("name") ] = json::value( string_t( Name.begin(), Name.end() ) );
 		ValueOut[ _T("value") ] = json::value( string_t( ValueStr.begin(), ValueStr.end() ) );
@@ -119,12 +119,12 @@ void Command_Debug::OnSetMessage( const GlobalContext& Context, http_request& Me
 	{
 		json::value ValueOut;
 
-		const string NameStr = Value->GetName();
+		const std::string NameStr = Value->GetName();
 		const string_t NameWide = string_t( NameStr.begin(), NameStr.end() );
 
 		if( NameWide.compare( Name ) == 0 )
 		{
-			Success = Value->Set( string(ValueIn.begin(), ValueIn.end()).c_str() );
+			Success = Value->Set(StringToAnsi(ValueIn).c_str() );
 
 			break;
 		}
@@ -168,7 +168,7 @@ void Command_Debug::OnResetMessage( const GlobalContext& Context, http_request& 
 	{
 		json::value ValueOut;
 
-		const string NameStr = Value->GetName();
+		const std::string NameStr = Value->GetName();
 		const string_t NameWide = string_t( Name.begin(), Name.end() );
 
 		if( NameWide.compare( Name ) == 0 )

@@ -18,9 +18,9 @@ void CameraWorker::CreateInputStream()
 	Setup.HistoricalPacketBufferSeconds = Video.ClipHistoryPeriod;
 	Setup.ExportMotionVectors = Video.ExportMotionVectors != 0;
 
-	std::string CamPath = std::string( Camera.Path.begin(), Camera.Path.end() );
+	std::string CamPath = StringToAnsi(Camera.Path);
 
-	CameraStream = make_shared<InputStream>( Setup, Camera.ID, Camera.JobQueue, CamPath );
+	CameraStream = std::make_shared<InputStream>( Setup, Camera.ID, Camera.JobQueue, CamPath );
 
 	if (_strnicmp(CamPath.c_str(), "rtsp://", 7) == 0)
 	{
@@ -34,7 +34,7 @@ void CameraWorker::WorkerInit()
 
 	MotionChainNode NoContinuation;
 	
-	Observer = make_shared<ObservingMotionFilter>( NoContinuation, Camera.ID, MessageBusObject );
+	Observer = std::make_shared<ObservingMotionFilter>( NoContinuation, Camera.ID, MessageBusObject );
 
 	MotionChainNode Observing;
 	Observing.OnSuccess = Observer;
@@ -69,10 +69,10 @@ void CameraWorker::WorkerInit()
 		Azure.ExclusiveFilter = 0;
 		Azure.MinimumThreshold = 0.0f;
 
-		MVF.OnSuccess = make_shared<AzureVisionAnalysisEndpointFilter>( Azure, VisionSettings );
+		MVF.OnSuccess = std::make_shared<AzureVisionAnalysisEndpointFilter>( Azure, VisionSettings );
 	}
 
-	shared_ptr<MotionVectorFilter> RootFilter = make_shared<MotionVectorFilter>( MVF, Camera.BlackoutMaskPath.c_str(), Camera.FocusMaskPath.c_str() );
+	std::shared_ptr<MotionVectorFilter> RootFilter = std::make_shared<MotionVectorFilter>( MVF, Camera.BlackoutMaskPath.c_str(), Camera.FocusMaskPath.c_str() );
 	
 	/*auto SecondPassMotionNode = make_shared<MotionChainNode>();
 	RootMotionNode->OnSuccess = SecondPassMotionNode;
@@ -94,7 +94,7 @@ void CameraWorker::WorkerInit()
 
 	Filter = RootFilter;
 
-	MessageBusObject->SendToClient( nullptr, make_shared<CameraStartupMessage>( Camera.ID ) );
+	MessageBusObject->SendToClient( nullptr, std::make_shared<CameraStartupMessage>( Camera.ID ) );
 
 	UpdateLastTimedAction(_T("Starting camera connection..."));
 
@@ -107,14 +107,14 @@ void CameraWorker::WorkerShutdown()
 	Filter = nullptr;
 	CameraStream = nullptr;
 
-	MessageBusObject->SendToClient( nullptr, make_shared<ThreadShutdownMessage>() );
+	MessageBusObject->SendToClient( nullptr, std::make_shared<ThreadShutdownMessage>() );
 }
 
 void CameraWorker::WorkerMain()
 {
 	UpdateLastTimedAction(_T("Work..."));
 
-	shared_ptr<Message> Msg;
+	std::shared_ptr<Message> Msg;
 	while( MessageBusQueue->TryPop( Msg ) )
 	{
 		Msg->Handle<ThreadShutdownMessage>([&](const ThreadShutdownMessage& Data)
@@ -132,7 +132,7 @@ void CameraWorker::WorkerMain()
 			OnClipFinished(false);
 				
 			Observer->SetManualClipStart( Data.Timestamp );
-			RecordStream = make_shared<OutputStream>( string( Data.Path.begin(), Data.Path.end() ), CameraStream.get() );
+			RecordStream = std::make_shared<OutputStream>(StringToAnsi(Data.Path), CameraStream.get() );
 			RecordStream->Initialize();
 
 			Context->LongPoll->NotifyAll();
@@ -168,7 +168,7 @@ void CameraWorker::WorkerMain()
 	const double NanoSecondsToSeconds = 1000.0 * 1000.0 * 1000.0;
 	uint64_t Start = std::chrono::high_resolution_clock::now().time_since_epoch().count();
 	
-	CameraStreamError Error = CameraStream->ProcessFrame( static_pointer_cast<IRecordFilter>(Filter), RecordStream.get() );
+	CameraStreamError Error = CameraStream->ProcessFrame(std::static_pointer_cast<IRecordFilter>(Filter), RecordStream.get() );
 
 	if( Error == CameraStreamError::Success )
 	{
@@ -176,7 +176,7 @@ void CameraWorker::WorkerMain()
 		{
 			IsConnected = true;
 
-			MessageBusObject->SendToClient( nullptr, make_shared<CameraConnectedMessage>( Camera.ID ) );
+			MessageBusObject->SendToClient( nullptr, std::make_shared<CameraConnectedMessage>( Camera.ID ) );
 		}
 	}
 	else
@@ -188,13 +188,13 @@ void CameraWorker::WorkerMain()
 		string_t ErrorStr = GetCameraStreamErrorMessage(Error);
 		if( CameraStream->GetFFMPEGErrorMessage()[0] != '\0')
 		{
-			string FFMPEGError = CameraStream->GetFFMPEGErrorMessage();
+			std::string FFMPEGError = CameraStream->GetFFMPEGErrorMessage();
 			string_t FFMPEGErrorT = string_t(FFMPEGError.begin(), FFMPEGError.end());
 			ErrorStr += _T(": ");
 			ErrorStr += FFMPEGErrorT;
 		}
 
-		MessageBusObject->SendToClient( nullptr, make_shared<CameraReconnectMessage>( Camera.ID, ErrorStr ) );
+		MessageBusObject->SendToClient( nullptr, std::make_shared<CameraReconnectMessage>( Camera.ID, ErrorStr ) );
 
 		CreateInputStream();
 		LastFrameTime = 0;
@@ -234,7 +234,7 @@ void CameraWorker::OnClipFinished(bool ManualStop)
 	{
 		Observer->SetManualClipEnd( datetime::utc_timestamp() );
 
-		auto FinishedMessage = make_shared<CameraClipFinishedMessage>( Camera.ID, ManualStop );
+		auto FinishedMessage = std::make_shared<CameraClipFinishedMessage>( Camera.ID, ManualStop );
 		FinishedMessage->Result = Observer->GetCurrentResult();
 		FinishedMessage->ClipStats = Observer->GetClipStatistics();
 		MessageBusObject->SendToClient( nullptr, FinishedMessage );

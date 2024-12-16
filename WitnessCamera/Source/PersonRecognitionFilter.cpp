@@ -15,16 +15,9 @@
 
 #include <string.h>
 
-#pragma warning(push)
-#pragma warning(disable:4099)
-#pragma warning(disable:4267)
-#include "package_bgs/bgslibrary.h"
-#pragma warning(pop)
-
 #include "FilterData.h"
 
 using namespace cv;
-using namespace std;
 
 namespace Witness{
 namespace Camera{

@@ -28,7 +28,7 @@ public:
 		GracePeriod,
 	};
 
-	ObservingMotionFilter( const MotionChainNode& NextChain, const int CameraID, const shared_ptr<MessageBus>& MessageBusIn );
+	ObservingMotionFilter( const MotionChainNode& NextChain, const int CameraID, const std::shared_ptr<MessageBus>& MessageBusIn );
 	virtual ~ObservingMotionFilter();
 	
 	virtual bool ProcessFrame( SharedClassificationTask TaskData ) override;
@@ -45,8 +45,8 @@ public:
 		return Result;
 	}
 
-	void SetManualClipStart( uint64_t ClipStart ) { ClipStats.TimestampClipStarted = min( ClipStart, ClipStats.TimestampClipStarted ); }
-	void SetManualClipEnd( uint64_t ClipEnd ) { ClipStats.TimestampClipEnded = max( ClipEnd, ClipStats.TimestampClipEnded ); }
+	void SetManualClipStart( uint64_t ClipStart ) { ClipStats.TimestampClipStarted = std::min( ClipStart, ClipStats.TimestampClipStarted ); }
+	void SetManualClipEnd( uint64_t ClipEnd ) { ClipStats.TimestampClipEnded = std::max( ClipEnd, ClipStats.TimestampClipEnded ); }
 
 	virtual void ClearStateThis() override { ClipStats.Clear(); }
 
@@ -56,15 +56,15 @@ public:
 		LastSmallPreviewTimestamp = Small;
 	}
 
-	void CreateJpegPreview( FilterFrame& Frame, vector<unsigned char>& OutputBuffer, unsigned int OutputWidth, int OutputQuality, std::function<void(cv::Mat&)> Action );
+	void CreateJpegPreview( FilterFrame& Frame, std::vector<unsigned char>& OutputBuffer, unsigned int OutputWidth, int OutputQuality, std::function<void(cv::Mat&)> Action );
 
 private:
 
 	mutable std::mutex		Mutex;
 
-	shared_ptr<MotionChainNode>	MotionChain;
+	std::shared_ptr<MotionChainNode>	MotionChain;
 
-	shared_ptr<MessageBus>	MessageBusPtr;
+	std::shared_ptr<MessageBus>	MessageBusPtr;
 
 	uint64_t				LastLargePreviewTimestamp;
 	uint64_t				LastSmallPreviewTimestamp;

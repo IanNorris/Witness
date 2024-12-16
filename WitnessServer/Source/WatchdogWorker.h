@@ -8,24 +8,24 @@ public:
 
 	struct WatchdogTarget
 	{
-		shared_ptr<WorkerBase> Thread;
+		std::shared_ptr<WorkerBase> Thread;
 		string_t Name;
 	};
 
-	WatchdogWorker(const shared_ptr<MessageBus>& MessageBus)
+	WatchdogWorker(const std::shared_ptr<MessageBus>& MessageBus)
 	: WorkerBase( MessageBus )
 	{}
 
-	void AddTarget(const shared_ptr<WorkerBase>& ThreadIn, const string_t& NameIn)
+	void AddTarget(const std::shared_ptr<WorkerBase>& ThreadIn, const string_t& NameIn)
 	{
-		lock_guard<mutex> Lock( Mutex );
+		std::lock_guard<std::mutex> Lock( Mutex );
 
 		Targets.push_back( WatchdogTarget{ ThreadIn, NameIn } );
 	}
 
-	void RemoveTarget(const shared_ptr<WorkerBase>& ThreadIn)
+	void RemoveTarget(const std::shared_ptr<WorkerBase>& ThreadIn)
 	{
-		lock_guard<mutex> Lock( Mutex );
+		std::lock_guard<std::mutex> Lock( Mutex );
 
 		for( auto Iter = Targets.begin(); Iter != Targets.end(); ++Iter )
 		{
@@ -41,7 +41,7 @@ private:
 
 	virtual void WorkerMain() override;
 
-	mutable mutex Mutex;
+	mutable std::mutex Mutex;
 
-	vector<WatchdogTarget> Targets;
+	std::vector<WatchdogTarget> Targets;
 };

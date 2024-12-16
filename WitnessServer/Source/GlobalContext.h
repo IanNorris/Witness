@@ -22,24 +22,24 @@ class GlobalContext
 public:
 
 	GlobalContext()
-	: LongPoll(make_shared<LongPollDispatch>())
+	: LongPoll(std::make_shared<LongPollDispatch>())
 	{}
 
-	mutable mutex Mutex;
+	mutable std::mutex Mutex;
 
 	string_t CachePath;
 
-	shared_ptr<SQLiteDatabase> Database;
-	unordered_map< int, CameraState> Cameras;
+	std::shared_ptr<SQLiteDatabase> Database;
+	std::unordered_map< int, CameraState> Cameras;
 	Witness::Camera::ImageProcessingJobQueue* CommonImageProcessingJobQueue;
 
-	vector<SettingsMap> AzureSettings;
+	std::vector<SettingsMap> AzureSettings;
 
-	shared_ptr<MessageBus> MessageBus;
+	std::shared_ptr<MessageBus> MessageBus;
 
-	shared_ptr<AzureVisionAnalysisEndpointFilter> AzureVisionEndpoint;
+	std::shared_ptr<AzureVisionAnalysisEndpointFilter> AzureVisionEndpoint;
 
 	uint16_t Port;
 
-	mutable shared_ptr<LongPollDispatch> LongPoll;
+	mutable std::shared_ptr<LongPollDispatch> LongPoll;
 };

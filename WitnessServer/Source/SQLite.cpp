@@ -4,7 +4,7 @@
 #define AssertQuery( condition, message, ... ) if( !(condition) ) { m_database->ThrowError( StringPrintfA( message, __VA_ARGS__ ) ); }
 #define AssertDB( condition, message, ... ) if( !(condition) ) { ThrowError( StringPrintfA( message, __VA_ARGS__ ) ); }
 
-SQLiteDatabaseQuery::SQLiteDatabaseQuery( shared_ptr<SQLiteDatabase> database )
+SQLiteDatabaseQuery::SQLiteDatabaseQuery(std::shared_ptr<SQLiteDatabase> database )
 : m_database( database )	
 , m_lastInsertId( -1 )
 , m_reset( true )
@@ -158,7 +158,7 @@ const int SQLiteDatabaseQuery::GetColumnCount() const
 	return sqlite3_column_count( m_statements.back() );
 }
 
-SQLiteDatabase::SQLiteDatabase( const string_t& filename, const string& initScript, bool writeAccess, function<void(const string & )> onErrorCallback )
+SQLiteDatabase::SQLiteDatabase( const string_t& filename, const std::string& initScript, bool writeAccess, std::function<void(const std::string & )> onErrorCallback )
 : m_onErrorCallback( onErrorCallback )
 , m_filename( filename )
 , m_database( nullptr )
@@ -166,7 +166,7 @@ SQLiteDatabase::SQLiteDatabase( const string_t& filename, const string& initScri
 {
 	if (!m_onErrorCallback)
 	{
-		m_onErrorCallback = [](string error){};
+		m_onErrorCallback = [](std::string error){};
 	}
 
 	int flags = 0;
@@ -179,7 +179,7 @@ SQLiteDatabase::SQLiteDatabase( const string_t& filename, const string& initScri
 		flags = SQLITE_OPEN_READONLY | SQLITE_OPEN_SHAREDCACHE | SQLITE_OPEN_WAL;
 	}
 
-	string NewFilename( filename.begin(), filename.end() );
+	std::string NewFilename = StringToAnsi(filename);
 
 	int result = sqlite3_open_v2( NewFilename.c_str(), &m_database, flags, nullptr );
 	AssertDB( result == 0, "Failed to open database: %s\n%s", NewFilename.c_str(), sqlite3_errmsg( m_database ) );
@@ -206,16 +206,16 @@ SQLiteDatabase::~SQLiteDatabase()
 	}
 }
 
-void SQLiteDatabase::ThrowError( const string& Message )
+void SQLiteDatabase::ThrowError( const std::string& Message )
 {
 	m_onErrorCallback( Message );
 }
 
-shared_ptr<SQLiteDatabaseQuery> SQLiteDatabase::CreateQuery( const string_t& queryName, const string_t& query )
+std::shared_ptr<SQLiteDatabaseQuery> SQLiteDatabase::CreateQuery( const string_t& queryName, const string_t& query )
 {
 	AssertDB( m_database, "Database was not valid" );
 
-	auto generatedQuery = make_shared<SQLiteDatabaseQuery>( shared_from_this() );
+	auto generatedQuery = std::make_shared<SQLiteDatabaseQuery>( shared_from_this() );
 
 	string_t newQuery = query;
 	const TCHAR* nextStatement = newQuery.c_str();
@@ -225,7 +225,7 @@ shared_ptr<SQLiteDatabaseQuery> SQLiteDatabase::CreateQuery( const string_t& que
 		if( newQuery.length() )
 		{
 			int result = sqlite3_prepare16_v2( m_database, newQuery.c_str(), -1, &newStatement, (const void**)&nextStatement );
-			AssertDB( result == 0 && newStatement, "Failed to prepare statement: %s\n:%s", string( newQuery.begin(), newQuery.end() ).c_str(), sqlite3_errmsg( m_database ) );
+			AssertDB( result == 0 && newStatement, "Failed to prepare statement: %s\n:%s", StringToAnsi(newQuery).c_str(), sqlite3_errmsg( m_database ) );
 
 			generatedQuery->AddStatement( newStatement );
 		}

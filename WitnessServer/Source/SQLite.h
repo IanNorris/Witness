@@ -8,8 +8,6 @@
 #include "Common.h"
 #include "sqlite3.h"
 
-using namespace std;
-
 class SQLiteDatabase;
 
 #define MAKE_QUERY( Name ) SQLiteDatabaseQueryInstance Name( Context->Database, _T(#Name) )
@@ -17,7 +15,7 @@ class SQLiteDatabase;
 class SQLiteDatabaseQuery
 {
 public:
-	SQLiteDatabaseQuery( shared_ptr<SQLiteDatabase> database );
+	SQLiteDatabaseQuery(std::shared_ptr<SQLiteDatabase> database );
 	~SQLiteDatabaseQuery();
 
 	void AddStatement( sqlite3_stmt* statement )
@@ -43,45 +41,45 @@ public:
 
 	inline int64_t GetLastInsertionId(){ return m_lastInsertId; }
 
-	mutex& PrepareQueryMutex() { return m_tMutex; }
+	std::mutex& PrepareQueryMutex() { return m_tMutex; }
 
 	string_t GetLastError() { return m_lastError; }
 
 private:
 
-	mutex													m_tMutex;
+	std::mutex												m_tMutex;
 
 	string_t												m_lastError;
-	shared_ptr<SQLiteDatabase>								m_database;
-	vector<sqlite3_stmt*>									m_statements;
+	std::shared_ptr<SQLiteDatabase>							m_database;
+	std::vector<sqlite3_stmt*>								m_statements;
 	int64_t													m_lastInsertId;
 	bool													m_reset;
 };
 
-class SQLiteDatabase : public enable_shared_from_this<SQLiteDatabase>
+class SQLiteDatabase : public std::enable_shared_from_this<SQLiteDatabase>
 {
 public:
 
-	SQLiteDatabase( const string_t& filename, const string& initScript, bool writeAccess, function<void(const string&)> onErrorCallback );
+	SQLiteDatabase( const string_t& filename, const std::string& initScript, bool writeAccess, std::function<void(const std::string&)> onErrorCallback );
 	~SQLiteDatabase();
 
 	inline sqlite3*	GetDatabase() { return m_database; };
 
 	void Initialise( void );
 
-	shared_ptr<SQLiteDatabaseQuery> CreateQuery( const string_t& queryName, const string_t& query );
+	std::shared_ptr<SQLiteDatabaseQuery> CreateQuery( const string_t& queryName, const string_t& query );
 
-	const shared_ptr<SQLiteDatabaseQuery>& GetQuery(const string_t& queryName) { return m_queries[queryName]; }
+	const std::shared_ptr<SQLiteDatabaseQuery>& GetQuery(const string_t& queryName) { return m_queries[queryName]; }
 
 	bool IsNewlyCreated() const { return m_databaseNewlyCreated; }
 
-	void ThrowError( const string& Message );
+	void ThrowError( const std::string& Message );
 
 private:
 
-	unordered_map<string_t, shared_ptr<SQLiteDatabaseQuery>>	m_queries;
+	std::unordered_map<string_t, std::shared_ptr<SQLiteDatabaseQuery>>	m_queries;
 
-	function<void(const string&)>								m_onErrorCallback;
+	std::function<void(const std::string&)>								m_onErrorCallback;
 
 	string_t		m_filename;
 	sqlite3*	m_database;
@@ -91,19 +89,19 @@ private:
 class SQLiteDatabaseQueryInstance
 {
 public:
-	SQLiteDatabaseQueryInstance( const shared_ptr<SQLiteDatabase>& DB, const TCHAR* QueryName )
+	SQLiteDatabaseQueryInstance( const std::shared_ptr<SQLiteDatabase>& DB, const TCHAR* QueryName )
 	: m_Query( DB->GetQuery( QueryName ) )
 	, m_Lock( m_Query->PrepareQueryMutex() )
 	{
 	}
 
-	shared_ptr<SQLiteDatabaseQuery> operator ->()
+	std::shared_ptr<SQLiteDatabaseQuery> operator ->()
 	{
 		return m_Query;
 	}
 
 private:
 
-	shared_ptr<SQLiteDatabaseQuery> m_Query;
-	lock_guard<mutex> m_Lock;
+	std::shared_ptr<SQLiteDatabaseQuery> m_Query;
+	std::lock_guard<std::mutex> m_Lock;
 };

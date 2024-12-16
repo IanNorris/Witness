@@ -1,7 +1,6 @@
 #include "Common.h"
 #include "cpprest/json.h"
 
-using namespace std;
 using namespace web;
 using namespace utility;
 
@@ -67,7 +66,7 @@ string_t GetValueFromString(const string_t& ValueString)
 template<>
 double GetValueFromString(const string_t& ValueString)
 {
-	string Conv(ValueString.begin(), ValueString.end());
+	std::string Conv = StringToAnsi(ValueString);
 
 	return atof( Conv.c_str() );
 }
@@ -76,7 +75,7 @@ double GetValueFromString(const string_t& ValueString)
 template<>
 int GetValueFromString(const string_t& ValueString)
 {
-	string Conv(ValueString.begin(), ValueString.end());
+	std::string Conv = StringToAnsi(ValueString);
 
 	return atoi(Conv.c_str());
 }

@@ -7,38 +7,37 @@
 #include "Message.h"
 
 using namespace web;
-using namespace std;
 
 class MessageBusQueue
 {
 public:
 	
-	void Push( const shared_ptr<Message>& Message );
-	bool TryPop( shared_ptr<Message>& Message );
-	void Pop( shared_ptr<Message>& Message );
+	void Push( const std::shared_ptr<Message>& Message );
+	bool TryPop(std::shared_ptr<Message>& Message );
+	void Pop(std::shared_ptr<Message>& Message );
 
-	void TryPop( std::function< void(shared_ptr<Message>) > );
-	void Pop( std::function< void(shared_ptr<Message>) > );
+	void TryPop( std::function< void(std::shared_ptr<Message>) > );
+	void Pop( std::function< void(std::shared_ptr<Message>) > );
 
 private:
 
-	mutable mutex Mutex;
-	condition_variable Condition;
+	mutable std::mutex Mutex;
+	std::condition_variable Condition;
 
-	vector< shared_ptr<Message> > Queue;
+	std::vector< std::shared_ptr<Message> > Queue;
 };
 
 class MessageBus
 {
 public:
 
-	shared_ptr<MessageBusQueue> AddClient( void* Client )
+	std::shared_ptr<MessageBusQueue> AddClient( void* Client )
 	{
-		lock_guard<mutex> lock( Mutex );
+		std::lock_guard<std::mutex> lock( Mutex );
 
 		if (Clients.find(Client) == Clients.end())
 		{
-			auto Queue = make_shared<MessageBusQueue>();
+			auto Queue = std::make_shared<MessageBusQueue>();
 			Clients[ Client ] = Queue;
 
 			return Queue;
@@ -51,7 +50,7 @@ public:
 
 	void RemoveClient( void* Client )
 	{
-		lock_guard<mutex> lock( Mutex );
+		std::lock_guard<std::mutex> lock( Mutex );
 
 		if (Clients.find(Client) != Clients.end())
 		{
@@ -63,12 +62,12 @@ public:
 		}
 	}
 
-	bool SendToClient( void* ClientTo, const shared_ptr<Message>& Message )
+	bool SendToClient( void* ClientTo, const std::shared_ptr<Message>& Message )
 	{
-		shared_ptr<MessageBusQueue> Queue;
+		std::shared_ptr<MessageBusQueue> Queue;
 
 		{
-			lock_guard<mutex> lock( Mutex );
+			std::lock_guard<std::mutex> lock( Mutex );
 
 			auto Iter = Clients.find( ClientTo );
 
@@ -89,7 +88,7 @@ public:
 	}
 
 	template<class T>
-	void Forward( void* ClientTo, const shared_ptr<Message>& Message )
+	void Forward( void* ClientTo, const std::shared_ptr<Message>& Message )
 	{
 		T* Object = dynamic_cast<T*>(Message.get());
 		if (Object)
@@ -100,7 +99,7 @@ public:
 
 private:
 
-	mutable mutex Mutex;
+	mutable std::mutex Mutex;
 
-	unordered_map< void*, shared_ptr<MessageBusQueue> > Clients;
+	std::unordered_map< void*, std::shared_ptr<MessageBusQueue> > Clients;
 };

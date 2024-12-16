@@ -2,8 +2,6 @@
 
 #include <functional>
 
-using namespace std;
-
 struct Message
 {
 public:

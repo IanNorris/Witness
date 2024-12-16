@@ -6,7 +6,6 @@
 #include <vector>
 #include <stdint.h>
 
-using namespace std;
 using namespace utility;
 
 struct ClipStatistics
@@ -35,7 +34,7 @@ struct CameraSnapshotMessage : public Message
 
 	int Camera;
 
-	vector<unsigned char> Jpeg;
+	std::vector<unsigned char> Jpeg;
 };
 
 struct CameraBeginMotionMessage : public Message
@@ -48,7 +47,7 @@ struct CameraBeginMotionMessage : public Message
 	double MotionPercentage;
 	int Camera;
 
-	vector<unsigned char> Jpeg;
+	std::vector<unsigned char> Jpeg;
 };
 
 struct CameraUpdateMotionMessage : public Message
@@ -60,7 +59,7 @@ struct CameraUpdateMotionMessage : public Message
 	
 	int Camera;
 
-	vector<unsigned char> Jpeg;
+	std::vector<unsigned char> Jpeg;
 };
 
 struct CameraEndMotionMessage : public Message
@@ -133,7 +132,7 @@ struct CameraWriteThumbnailMessage : public Message
 {
 	CameraWriteThumbnailMessage( int CamIndex ) : Camera( CamIndex ) {}
 
-	vector<unsigned char> Jpeg;
+	std::vector<unsigned char> Jpeg;
 
 	string_t Filename;
 

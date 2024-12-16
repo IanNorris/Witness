@@ -5,7 +5,7 @@
 
 void WatchdogWorker::WorkerMain()
 {
-	shared_ptr<Message> Msg;
+	std::shared_ptr<Message> Msg;
 	if( MessageBusQueue->TryPop( Msg ) )
 	{
 		Msg->Handle<ThreadShutdownMessage>([&](const ThreadShutdownMessage& Data)
@@ -18,7 +18,7 @@ void WatchdogWorker::WorkerMain()
 	const int64_t WatchdogTime = 5;
 
 	{
-		lock_guard<mutex> Lock( Mutex );
+		std::lock_guard<std::mutex> Lock( Mutex );
 
 		for( auto Iter = Targets.begin(); Iter != Targets.end(); ++Iter )
 		{
@@ -26,7 +26,7 @@ void WatchdogWorker::WorkerMain()
 
 			if( TimeNow - WatchdogTime > (int64_t)Data.Timestamp )
 			{
-				tcerr << Iter->Name << ": Timeout of " << WatchdogTime << "s hit, last action was: " << Data.Action << endl;
+				std::tcerr << Iter->Name << ": Timeout of " << WatchdogTime << "s hit, last action was: " << Data.Action << std::endl;
 			}
 		}
 	}
