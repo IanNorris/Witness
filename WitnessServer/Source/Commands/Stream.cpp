@@ -14,6 +14,7 @@
 #include <ctime>
 #include <iostream>
 #include <filesystem>
+#include <format>
 
 #ifdef _WIN32
 #include <winerror.h>
@@ -97,7 +98,7 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 	
 	stringstream_t Playlist;
 	Playlist << "#EXTM3U" << "\n";
-	Playlist << "#EXT-X-VERSION:3" << "\n";
+	Playlist << "#EXT-X-VERSION:6" << "\n";
 	//Playlist << "#EXT-X-I-FRAMES-ONLY" << endl;
 	//Playlist << "#EXT-X-ALLOW-CACHE:YES" << endl;
 
@@ -115,30 +116,32 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 		{
 			LiveStreamSegment& Segment = Segments[segment];
 
-			double NewDuration = Segment.Stream->GetClipLength();
-			if (NewDuration > MaxLength)
+			if (Segment.Stream)
 			{
-				MaxLength = NewDuration;
-			}
+				double NewDuration = Segment.Stream->GetClipLength();
+				if (NewDuration > MaxLength)
+				{
+					MaxLength = NewDuration;
+				}
 
-			if (Segment.Stream->GetSegmentIndex() == msnStart)
-			{
-				MaxLength = NewDuration;
-				startAtSegment = segment;
+				if (Segment.Stream->GetSegmentIndex() == msnStart)
+				{
+					MaxLength = NewDuration;
+					startAtSegment = segment;
+				}
 			}
 		}
 
-		double HoldbackLength = 1.0 * MaxLength;
-		Playlist << "#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,PART-HOLD-BACK=" << HoldbackLength << "\n";
-		Playlist << "#EXT-X-PART-INF:PART-TARGET=0.334" << HoldbackLength << "\n";
+		double HoldbackLength = 0.125;
+		Playlist << "#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=NO,PART-HOLD-BACK=" << HoldbackLength << "\n";
+		Playlist << "#EXT-X-PART-INF:PART-TARGET=" << HoldbackLength << "\n";
 
 		//
 		
 
 		Playlist << "#EXT-X-MEDIA-SEQUENCE:" << Segments[startAtSegment].Stream->GetSegmentIndex() << std::endl;
-		Playlist << "#EXT-X-TARGETDURATION:" << MaxLength + 1 << std::endl;
-		Playlist << "#EXT-X-INDEPENDENT-SEGMENTS" << "\n";
-		Playlist << "#EXT-X-MAP:URI=\"/stream/segment/" << TargetCameraInt << "/" << Segments[0].Stream->GetSegmentIndex() << ".mp4\"" << "\n";
+		Playlist << "#EXT-X-TARGETDURATION:" << MaxLength << std::endl;
+		//Playlist << "#EXT-X-MAP:URI=\"/stream/segment/" << TargetCameraInt << "/" << Segments[0].Stream->GetSegmentIndex() << ".mp4\"" << "\n";
 		//Playlist << "#EXT-X-MAP:URI=\"" << "/stream/segment/" << TargetCameraInt << "/Init.mp4\"\n";
 		Playlist << "" << "\n";
 
@@ -146,16 +149,47 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 
 		double LastTime = 0;
 
+		int lastIndex = 0;
+
 		for (int segment = startAtSegment; segment < bufferSegments; segment++)
 		{
 			LiveStreamSegment& Segment = Segments[segment];
 
-			auto Length = Segment.Stream->GetClipLength();
-			Playlist << "#EXTINF:" << Length << "," << "\n";
-			Playlist << "#EXT-X-PROGRAM-DATE-TIME:" << std::put_time(&Segment.StreamStartTime, L"%FT%T") << "\n";
+			if (Segment.Stream)
+			{
+				std::string dateTimeFormat = std::format("{:%Y-%m-%dT%H:%M:%S}", Segment.SegmentTime);
 
-			Playlist << "/stream/segment/" << TargetCameraInt << "/" << Segment.Stream->GetSegmentIndex() << ".mp4" << "\n";
+				Playlist << "#EXT-X-PROGRAM-DATE-TIME:" << string_t(dateTimeFormat.begin(), dateTimeFormat.end()) << "\n";
+			}
+			
+			for (auto Part : Segment.PartialStreams)
+			{
+				if (Part->GetClipLength() > 0)
+				{
+					Playlist << "#EXT-X-PART:DURATION=" << Part->GetClipLength() << ",URI=\"/stream/segment/" << TargetCameraInt << "/" << Part->GetSegmentIndex() << "." << Part->GetPartIndex() << ".mp4\"";
+					if (Part->IsIsolated())
+					{
+						Playlist << ",INDEPENDENT=YES" << "\n";
+					}
+					else
+					{
+						Playlist << "\n";
+					}
+				}
+			}
+
+			if (Segment.Stream)
+			{
+				lastIndex = Segment.Stream->GetSegmentIndex();
+
+				auto Length = Segment.Stream->GetClipLength();
+
+				Playlist << "#EXTINF:" << Length << "," << "\n";
+				Playlist << "/stream/segment/" << TargetCameraInt << "/" << Segment.Stream->GetSegmentIndex() << ".mp4" << "\n";
+			}
 		}
+
+		//Playlist << "#EXT-X-PRELOAD-HINT:TYPE=PART,URI=\"/stream/segment/" << TargetCameraInt << "/" << (lastIndex+1) << ".mp4\"" << "\n";
 		
 		/*auto NextTime = Segments[0].StreamStartTime + Segments[0].Stream->GetClipLength();
 

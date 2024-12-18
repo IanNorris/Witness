@@ -42,7 +42,20 @@ public:
 	void SetSegmentIndex(int index) { m_SegmentIndex = index; }
 	int GetSegmentIndex() { return m_SegmentIndex; }
 
+	void SetPartIndex(int index) { m_PartIndex = index; }
+	int GetPartIndex() { return m_PartIndex; }
+
 	CameraStreamError GenerateInitSegment(const std::string& InitSegmentPath);
+
+	bool IsIsolated()
+	{
+		return m_Isolated;
+	}
+
+	void SetIsolated(bool Isolated)
+	{
+		m_Isolated = Isolated;
+	}
 
 private:
 
@@ -59,15 +72,11 @@ private:
 	bool m_FileOpened;
 	bool m_InMemory;
 	bool m_Live;
+	bool m_Isolated;
 
 	double m_ClipLength;
 	int m_SegmentIndex;
-};
-
-struct LiveStreamSegment
-{
-	OutputStream* Stream;
-	std::tm StreamStartTime;
+	int m_PartIndex;
 };
 
 }}

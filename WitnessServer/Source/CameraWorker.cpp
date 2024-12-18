@@ -23,7 +23,7 @@ void CameraWorker::CreateInputStream()
 	std::string CachePath = std::string(Context->CachePath.begin(), Context->CachePath.end());
 
 	CameraStream = std::make_shared<InputStream>( Setup, Camera.ID, Camera.JobQueue, CamPath );
-	LiveStream = std::make_shared<LiveOutputStream>(CachePath, CameraStream.get(), 2);
+	LiveStream = std::make_shared<LiveOutputStream>(CachePath, CameraStream.get(), 1);
 
 	if (_strnicmp(CamPath.c_str(), "rtsp://", 7) == 0)
 	{

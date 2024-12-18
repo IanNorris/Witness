@@ -17,8 +17,10 @@ OutputStream::OutputStream( const std::string& Path, InputStream * InputStream, 
 , m_FileOpened( false )
 , m_InMemory( InMemory )
 , m_Live(LiveStream)
+, m_Isolated(false)
 , m_ClipLength( 0.0 )
 , m_SegmentIndex(-1)
+, m_PartIndex(-1)
 {
 	m_InputStream->Initialize();
 
@@ -62,6 +64,7 @@ OutputStream::OutputStream( const std::string& Path, unsigned int Width, unsigne
 , m_FileOpened( false )
 , m_InMemory( false )
 , m_Live( false )
+, m_Isolated(false)
 , m_ClipLength( 0.0 )
 , m_SegmentIndex(-1)
 {
@@ -208,6 +211,8 @@ CameraStreamError OutputStream::Initialize()
 		}
 
 		OutStream->time_base = m_InputStream->GetData().FormatContext->streams[0]->time_base;
+		ID.CodecContext->time_base = OutStream->time_base;
+
 		Params->format = OutputPixelFormat;
 		Params->codec_tag = 0;
 		Params->codec_id = ID.CodecID;
@@ -258,11 +263,12 @@ CameraStreamError OutputStream::Initialize()
 		STREAM_ERROR( EncoderCreationError );
 	}*/
 
+	/*
 	//https://github.com/iinfer/leandromoreira_ffmpeg-libav-tutorial
 	if (m_Live)
 	{
 		av_dict_set(&EncoderOptions, "movflags", "frag_keyframe+empty_moov+default_base_moof", 0);
-	}
+	}*/
 
 	Result = avcodec_open2( ID.CodecContext, Encoder, &EncoderOptions );
 	if( Result < 0 )
@@ -396,7 +402,7 @@ CameraStreamError OutputStream::WriteInterleavedPacket( const AVPacket* Packet )
 
 	//Calc length before we adjust for the time base, otherwise we need to
 	//adjust the calculation to the new timebase.
-	m_ClipLength = (double)(PacketCopy.dts + PacketCopy.duration) / 90000.0;
+	m_ClipLength = (double)((PacketCopy.dts + PacketCopy.duration) * ID.FormatContext->streams[0]->time_base.num) / ID.FormatContext->streams[0]->time_base.den;
 
 	if( m_InputStream )
 	{
@@ -484,7 +490,7 @@ CameraStreamError OutputStream::SendAll( void )
 				STREAM_ERROR( WriteFailed, Result );
 			}
 
-			m_ClipLength = (double)TempPacket.pts / 90000.0;
+			m_ClipLength = (double)(TempPacket.pts * ID.FormatContext->streams[0]->time_base.num) / ID.FormatContext->streams[0]->time_base.den;
 
 			av_packet_unref( &TempPacket );
 		}
