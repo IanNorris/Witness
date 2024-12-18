@@ -23,7 +23,7 @@ void CameraWorker::CreateInputStream()
 	std::string CachePath = std::string(Context->CachePath.begin(), Context->CachePath.end());
 
 	CameraStream = std::make_shared<InputStream>( Setup, Camera.ID, Camera.JobQueue, CamPath );
-	LiveStream = std::make_shared<LiveOutputStream>(CachePath, CameraStream.get(), 1);
+	LiveStream = std::make_shared<LiveOutputStream>(CachePath, CameraStream.get(), 2);
 
 	if (_strnicmp(CamPath.c_str(), "rtsp://", 7) == 0)
 	{
@@ -136,7 +136,7 @@ void CameraWorker::WorkerMain()
 			OnClipFinished(false);
 				
 			Observer->SetManualClipStart( Data.Timestamp );
-			RecordStream = std::make_shared<OutputStream>( std::string( Data.Path.begin(), Data.Path.end() ), CameraStream.get(), false );
+			RecordStream = std::make_shared<OutputStream>( std::string( Data.Path.begin(), Data.Path.end() ), CameraStream.get(), false, false );
 			RecordStream->Initialize();
 
 			Context->LongPoll->NotifyAll();

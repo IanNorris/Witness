@@ -110,10 +110,18 @@ void Command_Static::OnMessage( GlobalContext& Context, http_request& Message, c
 
 				auto FileHandle = concurrency::streams::file_stream<uint8_t>::open_istream(fullPath.native());
 
-				Concurrency::streams::istream& FileHandleStream = FileHandle.get(); 
+				Concurrency::streams::istream FileHandleStream = FileHandle.get(); 
 
-				//Matching file
-				Message.reply( status_codes::OK, FileHandleStream, FileSize, Iter->second );
+				http_response response(status_codes::OK);
+				//response.headers().add(U("Content-Security-Policy"), U("default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; worker-src 'self' blob:; style-src 'self' 'unsafe-inline'; script-src-elem 'self' 'unsafe-inline' 'unsafe-eval'; style-src-attr 'self' 'unsafe-inline'; img-src 'self' data: 'self' blob:; font-src 'self' data:; media-src 'self' blob:;"));
+
+				response.headers().add(U("Content-Security-Policy"), U("default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://maxcdn.bootstrapcdn.com https://ajax.googleapis.com/ https://cdnjs.cloudflare.com/ https://cloud.githubusercontent.com/; worker-src 'self' blob:; style-src 'self' 'unsafe-inline' https://maxcdn.bootstrapcdn.com https://ajax.googleapis.com/ https://cdnjs.cloudflare.com/ https://cloud.githubusercontent.com/; script-src-elem 'self' 'unsafe-inline' 'unsafe-eval' https://maxcdn.bootstrapcdn.com https://ajax.googleapis.com/ https://cdnjs.cloudflare.com/ https://cloud.githubusercontent.com/; style-src-attr 'self' 'unsafe-inline' https://maxcdn.bootstrapcdn.com https://ajax.googleapis.com/ https://cdnjs.cloudflare.com/ https://cloud.githubusercontent.com/; img-src 'self' data: 'self' blob: https://maxcdn.bootstrapcdn.com https://ajax.googleapis.com/ https://cdnjs.cloudflare.com/ https://cloud.githubusercontent.com/; font-src 'self' data:; media-src 'self' blob:;"));
+
+				//https://maxcdn.bootstrapcdn.com/
+				
+				response.set_body(FileHandleStream, FileSize, Iter->second);
+				Message.reply(response);
+
 				return;
 			}
 

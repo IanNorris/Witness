@@ -6,6 +6,8 @@
 
 #include <atomic>
 #include <sstream>
+#include <chrono>
+#include <format>
 
 namespace Witness{
 namespace Camera{
@@ -125,12 +127,17 @@ void LiveOutputStream::FinishStream()
 
 		_StreamBacklog->erase(_StreamBacklog->begin());
 	}
+	/*
+	auto now = std::chrono::system_clock::now();
+	auto localTime = std::chrono::current_zone()->to_local(now);
+	auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(localTime.time_since_epoch());
 
-	std::time_t CurrentTime = std::time(nullptr);
+	std::string dateTimeFormat = std::format("{:%Y-%m-%dT%H:%M:%S}.{:03}", localTime, milliseconds.count());*/
 
 	LiveStreamSegment NewSegment;
 	NewSegment.Stream = _CurrentStream;
 
+	std::time_t CurrentTime = std::time(nullptr);
 	localtime_s( &NewSegment.StreamStartTime, &CurrentTime);
 
 	_CurrentStream->SetSegmentIndex(_CurrentSegmentIndex);
@@ -147,7 +154,7 @@ CameraStreamError LiveOutputStream::StartNewStream(const AVPacket* Packet)
 
 	std::string FinishedPath = TargetFilename.str();
 
-	_CurrentStream = new OutputStream(FinishedPath, _InputStream, false);
+	_CurrentStream = new OutputStream(FinishedPath, _InputStream, false, true);
 	CameraStreamError Result  = _CurrentStream->Initialize();
 	if (Result != CameraStreamError::Success)
 	{

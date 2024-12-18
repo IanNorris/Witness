@@ -20,7 +20,7 @@ class InputStream;
 class CAMERA_API OutputStream : public Stream
 {
 public:
-	OutputStream( const std::string& Path, InputStream * InputStream, bool InMemory );
+	OutputStream( const std::string& Path, InputStream * InputStream, bool InMemory, bool LiveStream);
 	OutputStream( const std::string& Path, unsigned int Width, unsigned int Height, int Framerate, bool IsBGR );
 	virtual ~OutputStream();
 
@@ -31,7 +31,7 @@ public:
 	CameraStreamError WriteInterleavedPacket( const AVPacket* Packet );
 	CameraStreamError WriteFrame( FFMPEG::Frame* Frame );
 
-	CameraStreamError CloseFile();
+	CameraStreamError CloseFile(bool Flush = true, bool WriteTrailer = true);
 
 	int GetStreamIndex();
 
@@ -41,6 +41,8 @@ public:
 
 	void SetSegmentIndex(int index) { m_SegmentIndex = index; }
 	int GetSegmentIndex() { return m_SegmentIndex; }
+
+	CameraStreamError GenerateInitSegment(const std::string& InitSegmentPath);
 
 private:
 
@@ -56,6 +58,7 @@ private:
 
 	bool m_FileOpened;
 	bool m_InMemory;
+	bool m_Live;
 
 	double m_ClipLength;
 	int m_SegmentIndex;

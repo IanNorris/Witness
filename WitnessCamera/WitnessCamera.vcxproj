@@ -73,6 +73,7 @@
       <PreprocessorDefinitions>_DEBUG;_WINDOWS;_USRDLL;WITNESSCAMERA_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
       <AdditionalOptions>/utf-8</AdditionalOptions>
+      <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
     <Link>
       <AdditionalDependencies>$(SolutionDir)\ThirdParty\SubModules\opencv\bin\install\x64\vc15\lib\opencv_world400d.lib;%(AdditionalDependencies)</AdditionalDependencies>
@@ -89,6 +90,7 @@
       <PreprocessorDefinitions>NDEBUG;_WINDOWS;_USRDLL;WITNESSCAMERA_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
       <AdditionalOptions>/utf-8</AdditionalOptions>
+      <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>

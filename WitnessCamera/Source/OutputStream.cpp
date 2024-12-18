@@ -8,7 +8,7 @@ namespace Camera{
 
 int OutputStream::GlobalOutputStreamIndex = 0;
 
-OutputStream::OutputStream( const std::string& Path, InputStream * InputStream, bool InMemory )
+OutputStream::OutputStream( const std::string& Path, InputStream * InputStream, bool InMemory, bool LiveStream)
 : Stream()
 , m_InputStream( InputStream )
 , m_IOContext( nullptr )
@@ -16,6 +16,7 @@ OutputStream::OutputStream( const std::string& Path, InputStream * InputStream, 
 , StreamIndex( GlobalOutputStreamIndex++ )
 , m_FileOpened( false )
 , m_InMemory( InMemory )
+, m_Live(LiveStream)
 , m_ClipLength( 0.0 )
 , m_SegmentIndex(-1)
 {
@@ -60,6 +61,7 @@ OutputStream::OutputStream( const std::string& Path, unsigned int Width, unsigne
 , FrameIndex( 0 )
 , m_FileOpened( false )
 , m_InMemory( false )
+, m_Live( false )
 , m_ClipLength( 0.0 )
 , m_SegmentIndex(-1)
 {
@@ -256,6 +258,12 @@ CameraStreamError OutputStream::Initialize()
 		STREAM_ERROR( EncoderCreationError );
 	}*/
 
+	//https://github.com/iinfer/leandromoreira_ffmpeg-libav-tutorial
+	if (m_Live)
+	{
+		av_dict_set(&EncoderOptions, "movflags", "frag_keyframe+empty_moov+default_base_moof", 0);
+	}
+
 	Result = avcodec_open2( ID.CodecContext, Encoder, &EncoderOptions );
 	if( Result < 0 )
 	{
@@ -286,7 +294,14 @@ CameraStreamError OutputStream::Initialize()
 		m_FileOpened = true;
 	}
 
-	Result = avformat_write_header( ID.FormatContext, nullptr );
+	//https://github.com/iinfer/leandromoreira_ffmpeg-libav-tutorial
+	AVDictionary* options = nullptr;
+	if (m_Live)
+	{
+		av_dict_set(&options, "movflags", "frag_keyframe+empty_moov+default_base_moof", 0);
+	}
+
+	Result = avformat_write_header( ID.FormatContext, &options);
 	if( Result < 0 )
 	{
 		STREAM_ERROR( WriteFailed, Result );
@@ -505,35 +520,38 @@ void OutputStream::Shutdown()
 	Stream::Shutdown();
 }
 
-CameraStreamError OutputStream::CloseFile()
+CameraStreamError OutputStream::CloseFile(bool Flush, bool WriteTrailer)
 {
 	auto& ID = *m_InternalData;
 
-	while( true )
+	if (Flush)
 	{
-		//Flush
-		int Result = avcodec_send_frame( ID.CodecContext, nullptr );
-		if( Result == 0 )
+		while (true)
 		{
-			CameraStreamError StrError = SendAll();
-			if( StrError != CameraStreamError::Success )
+			//Flush
+			int Result = avcodec_send_frame(ID.CodecContext, nullptr);
+			if (Result == 0)
 			{
-				if( !(ID.FormatContext->oformat->flags& AVFMT_NOFILE) || m_FileOpened )
+				CameraStreamError StrError = SendAll();
+				if (StrError != CameraStreamError::Success)
 				{
-					m_FileOpened = false;
-					avio_close( ID.FormatContext->pb );
-				}
+					if (!(ID.FormatContext->oformat->flags & AVFMT_NOFILE) || m_FileOpened)
+					{
+						m_FileOpened = false;
+						avio_close(ID.FormatContext->pb);
+					}
 
-				return StrError;
+					return StrError;
+				}
 			}
-		}
-		else if( Result == AVERROR_EOF )
-		{
-			break;
-		}
-		else
-		{
-			STREAM_ERROR( WriteFailed, Result );
+			else if (Result == AVERROR_EOF)
+			{
+				break;
+			}
+			else
+			{
+				STREAM_ERROR(WriteFailed, Result);
+			}
 		}
 	}
 
@@ -554,6 +572,49 @@ CameraStreamError OutputStream::CloseFile()
 	}
 
 
+	return CameraStreamError::Success;
+}
+
+CameraStreamError OutputStream::GenerateInitSegment(const std::string& InitSegmentPath)
+{/*
+	// Ensure we've initialized the format context and written the header:
+	CameraStreamError InitError = Initialize();
+	if (InitError != CameraStreamError::Success) {
+		return InitError;
+	}
+
+	auto& ID = *m_InternalData;
+
+	// At this point, avformat_write_header() should have already been called inside Initialize().
+	// That call should have written out the ftyp/moov boxes for the initialization.
+	// If we are using in-memory mode, we can extract that data now.
+	if (!m_InMemory || !m_IOContext) {
+		// Without in-memory mode, you'd have to set up a separate context
+		// or another mechanism to capture the init segment.
+		return CameraStreamError::UnknownError;
+	}
+
+	// Extract the buffer that contains the written data.
+	size_t size = 0;
+	uint8_t* buffer = m_IOContext->GetBuffer(&size);
+	if (!buffer || size == 0) {
+		return CameraStreamError::UnknownError;
+	}
+
+	// The buffer now should contain at least the init segment (ftyp + moov).
+	// Write this buffer out to a file:
+	std::ofstream outFile(InitSegmentPath, std::ios::binary);
+	if (!outFile.is_open()) {
+		return CameraStreamError::FileNotWriteable;
+	}
+
+	outFile.write(reinterpret_cast<char*>(buffer), size);
+	outFile.close();
+
+	// We've now exported the init segment. 
+	// You can reset the memory IO if you want to start from a clean buffer for actual fragments.
+	// Typically, you might want to re-init your output to start producing the moof fragments.
+	*/
 	return CameraStreamError::Success;
 }
 

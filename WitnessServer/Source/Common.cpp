@@ -145,7 +145,7 @@ std::vector< std::string > SplitString(std::string tInput, std::string tSeparato
 	return tResult;
 }
 
-std::string StringPrintfA(char* Message, ...)
+std::string StringPrintfA(const char* Message, ...)
 {
 	va_list Args;
 	va_start( Args, Message );
@@ -161,7 +161,7 @@ std::string StringPrintfA(char* Message, ...)
 	return std::string(Buffer.get());
 }
 
-std::wstring StringPrintfW(wchar_t* Message, ...)
+std::wstring StringPrintfW(const wchar_t* Message, ...)
 {
 	va_list Args;
 	va_start( Args, Message );

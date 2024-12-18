@@ -202,7 +202,7 @@ void Command_Clip::OnThumbnailMessage( const GlobalContext& Context, http_reques
 
 		auto FileHandle = concurrency::streams::file_stream<uint8_t>::open_istream(ClipFilename.c_str());
 
-		Concurrency::streams::istream& FileHandleStream = FileHandle.get(); 
+		Concurrency::streams::istream FileHandleStream = FileHandle.get(); 
 
 		//Matching file
 		Message.reply( status_codes::OK, FileHandleStream, FileSize, Video ? _T("video/mp4") : _T("image/jpeg") );

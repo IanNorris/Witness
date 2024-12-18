@@ -46,8 +46,18 @@ void Command_Stream::OnSegmentMessage(const GlobalContext& Context, http_request
 
 		auto FileHandle = concurrency::streams::file_stream<uint8_t>::open_istream(StreamPath.c_str());
 
-		Concurrency::streams::istream& FileHandleStream = FileHandle.get(); 
-		Message.reply( status_codes::OK, FileHandleStream, FileSize, _T("video/mp4") );
+		Concurrency::streams::istream FileHandleStream = FileHandle.get(); 
+
+		http_response response(status_codes::OK);
+
+		//For testing with hls-demo
+//#if _DEBUG
+		response.headers().add(U("Access-Control-Allow-Origin"), U("*"));
+//#endif
+
+		response.set_body(FileHandleStream, FileSize, _T("video/mp4"));
+		Message.reply(response);
+
 		return;
 	}
 
@@ -56,6 +66,9 @@ void Command_Stream::OnSegmentMessage(const GlobalContext& Context, http_request
 
 void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_request& Message, const string_t& TargetCamera, const json::value& Packet)
 {
+	auto queryMap = web::uri::split_query(Message.request_uri().query());
+	auto msnIter = queryMap.find(_T("_HLS_msn"));
+
 	int TargetCameraInt = _wtoi(TargetCamera.c_str());
 	
 	if (!Command_Authenticate::IsCameraAuthenticated(Context, Message, Packet, Command_Authenticate::Action::Read, Command_Authenticate::Privilege::Normal, TargetCameraInt))
@@ -88,11 +101,14 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 	//Playlist << "#EXT-X-I-FRAMES-ONLY" << endl;
 	//Playlist << "#EXT-X-ALLOW-CACHE:YES" << endl;
 
+	uint64_t msnStart = msnIter != queryMap.end() ? _wtoi64((*msnIter).second.c_str()) : 0;
+
+	int startAtSegment = 0;
 	if (bufferSegments > 0)
 	{
 		bufferSegments--;
 		
-		const size_t extraBufferSegments = 0;
+		const size_t extraBufferSegments = 5;
 
 		double MaxLength = 0.0;
 		for (int segment = 0; segment < bufferSegments; segment++)
@@ -104,37 +120,67 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 			{
 				MaxLength = NewDuration;
 			}
+
+			if (Segment.Stream->GetSegmentIndex() == msnStart)
+			{
+				MaxLength = NewDuration;
+				startAtSegment = segment;
+			}
 		}
 
 		double HoldbackLength = 1.0 * MaxLength;
-		//Playlist << "#EXT-X-SERVER-CONTROL:PART-HOLD-BACK=" << HoldbackLength << endl;
+		Playlist << "#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,PART-HOLD-BACK=" << HoldbackLength << "\n";
+		Playlist << "#EXT-X-PART-INF:PART-TARGET=0.334" << HoldbackLength << "\n";
 
+		//
 		
 
-		Playlist << "#EXT-X-MEDIA-SEQUENCE:" << Segments[0].Stream->GetSegmentIndex() << std::endl;
+		Playlist << "#EXT-X-MEDIA-SEQUENCE:" << Segments[startAtSegment].Stream->GetSegmentIndex() << std::endl;
 		Playlist << "#EXT-X-TARGETDURATION:" << MaxLength + 1 << std::endl;
 		Playlist << "#EXT-X-INDEPENDENT-SEGMENTS" << "\n";
+		Playlist << "#EXT-X-MAP:URI=\"/stream/segment/" << TargetCameraInt << "/" << Segments[0].Stream->GetSegmentIndex() << ".mp4\"" << "\n";
+		//Playlist << "#EXT-X-MAP:URI=\"" << "/stream/segment/" << TargetCameraInt << "/Init.mp4\"\n";
 		Playlist << "" << "\n";
 
 		Playlist.precision(4);
 
-		for (int segment = 0; segment < bufferSegments; segment++)
+		double LastTime = 0;
+
+		for (int segment = startAtSegment; segment < bufferSegments; segment++)
 		{
 			LiveStreamSegment& Segment = Segments[segment];
 
 			auto Length = Segment.Stream->GetClipLength();
-			Playlist << "#EXINF:" << Length << "," << "\n";
+			Playlist << "#EXTINF:" << Length << "," << "\n";
 			Playlist << "#EXT-X-PROGRAM-DATE-TIME:" << std::put_time(&Segment.StreamStartTime, L"%FT%T") << "\n";
 
 			Playlist << "/stream/segment/" << TargetCameraInt << "/" << Segment.Stream->GetSegmentIndex() << ".mp4" << "\n";
 		}
+		
+		/*auto NextTime = Segments[0].StreamStartTime + Segments[0].Stream->GetClipLength();
+
+		for (int segment = 0; segment < extraBufferSegments; segment++)
+		{
+			LiveStreamSegment& Segment = Segments[segment];
+
+			auto Length = Segments[0].Stream->GetClipLength();
+			Playlist << "#EXTINF:" << Length << "," << "\n";
+			Playlist << "#EXT-X-PROGRAM-DATE-TIME:" << std::put_time(&Segment.StreamStartTime, L"%FT%T") << "\n";
+
+			Playlist << "/stream/segment/" << TargetCameraInt << "/" << Segment.Stream->GetSegmentIndex() << ".mp4" << "\n";
+		}*/
 	}
 
 	http_response Response;
 	Response.set_status_code(status_codes::OK);
 	Response.set_body(Playlist.str());
-	Response.headers().set_content_type(_T("application/x-mpegURL"));
+	Response.headers().set_content_type(_T("application/vnd.apple.mpegurl"));
 	Response.headers().set_cache_control(_T("no-cache, no-store, must-revalidate"));
+
+	//For testing with hls-demo
+//#if _DEBUG
+	Response.headers().add(U("Access-Control-Allow-Origin"), U("*"));
+//#endif
 
 	Message.reply(Response);
 }

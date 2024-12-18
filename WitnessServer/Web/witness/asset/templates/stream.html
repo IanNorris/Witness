@@ -16,10 +16,12 @@
   "liveDurationInfinity": true
 };
 	  if (Hls.isSupported()) {
-		var video = document.getElementById('video');
-		var hls = new Hls(config);
+		  var video = document.getElementById('video');
+		  video.removeAttribute('src');
+		  var hls = new Hls(config);
+		  hls.loadSource('/stream/pl/3/pl.m3u8');
+		  hls.attachMedia(video);
 		// bind them together
-		hls.attachMedia(video);
 		hls.on(Hls.Events.ERROR, function (event, data) {
 		  if (data.fatal) {
 			switch (data.type) {
@@ -33,20 +35,20 @@
 				hls.recoverMediaError();
 				break;
 			  default:
-				// cannot recover
+					// cannot recover
+				console.log('fatal error');
 				hls.destroy();
 				break;
 			}
 		  }
 		});
 		hls.on(Hls.Events.MEDIA_ATTACHED, function () {
-		  hls.loadSource('/stream/pl/3/pl.m3u8');
+			
+			
 		  hls.on(Hls.Events.MANIFEST_PARSED, function (event, data) {
 			console.log(
 			  'manifest loaded, found ' + data.levels.length + ' quality level'
 			);
-			
-			//video.play();
 		  });
 		});
 	  }
