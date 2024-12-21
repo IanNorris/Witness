@@ -26,18 +26,37 @@ using namespace web::http::client;
 namespace fs = std::filesystem;
 
 
-void Command_Stream::OnSegmentMessage(const GlobalContext& Context, http_request& Message, const string_t& TargetCamera, const string_t& TargetSegment, const json::value& Packet)
+void Command_Stream::OnSegmentMessage(const GlobalContext& Context, http_request& Message, const string_t& TargetCamera, const string_t& TargetSegment, const string_t& TargetPart, const json::value& Packet)
 {
+	
 	int TargetCameraInt = _wtoi(TargetCamera.c_str());
 	int TargetSegmentInt = _wtoi(TargetSegment.c_str());
 
+	bool IsFull = TargetPart.length() != 0 && TargetPart[0] == 'f';
+	bool IsInit = TargetPart.length() != 0 && TargetPart[0] == 'i';
+	int TargetPartInt = (IsFull || IsInit) ? 0 : _wtoi(TargetPart.c_str());
+
+#if !_DEBUG
 	if (!Command_Authenticate::IsCameraAuthenticated(Context, Message, Packet, Command_Authenticate::Action::Read, Command_Authenticate::Privilege::Normal, TargetCameraInt))
 	{
 		return;
 	}
+#endif
 
 	stringstream_t StreamPathBuf;
-	StreamPathBuf << Context.CachePath << "\\Live_" << TargetCameraInt << "_" << TargetSegmentInt << ".mp4";
+
+	if (IsInit)
+	{
+		StreamPathBuf << Context.CachePath << "\\Live_" << TargetCameraInt << "_Init.mp4";
+	}
+	else if (IsFull)
+	{
+		StreamPathBuf << Context.CachePath << "\\Live_" << TargetCameraInt << "_" << TargetSegmentInt << ".mp4";
+	}
+	else
+	{
+		StreamPathBuf << Context.CachePath << "\\Live_" << TargetCameraInt << "_" << TargetSegmentInt << "." << TargetPartInt << ".mp4";
+	}
 
 	auto StreamPath = StreamPathBuf.str();
 
@@ -72,10 +91,12 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 
 	int TargetCameraInt = _wtoi(TargetCamera.c_str());
 	
+#if !_DEBUG
 	if (!Command_Authenticate::IsCameraAuthenticated(Context, Message, Packet, Command_Authenticate::Action::Read, Command_Authenticate::Privilege::Normal, TargetCameraInt))
 	{
 		return;
 	}
+#endif
 
 	//TODO: Use a SRW here. Write only when updating the array.
 
@@ -98,9 +119,7 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 	
 	stringstream_t Playlist;
 	Playlist << "#EXTM3U" << "\n";
-	Playlist << "#EXT-X-VERSION:6" << "\n";
-	//Playlist << "#EXT-X-I-FRAMES-ONLY" << endl;
-	//Playlist << "#EXT-X-ALLOW-CACHE:YES" << endl;
+	Playlist << "#EXT-X-VERSION:7" << "\n";
 
 	uint64_t msnStart = msnIter != queryMap.end() ? _wtoi64((*msnIter).second.c_str()) : 0;
 
@@ -108,8 +127,6 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 	if (bufferSegments > 0)
 	{
 		bufferSegments--;
-		
-		const size_t extraBufferSegments = 5;
 
 		double MaxLength = 0.0;
 		for (int segment = 0; segment < bufferSegments; segment++)
@@ -136,12 +153,13 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 		Playlist << "#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=NO,PART-HOLD-BACK=" << HoldbackLength << "\n";
 		Playlist << "#EXT-X-PART-INF:PART-TARGET=" << HoldbackLength << "\n";
 
-		//
-		
+		// Allow some slop in future segment lengths
+		MaxLength *= 0.9;
 
-		Playlist << "#EXT-X-MEDIA-SEQUENCE:" << Segments[startAtSegment].Stream->GetSegmentIndex() << std::endl;
-		Playlist << "#EXT-X-TARGETDURATION:" << MaxLength << std::endl;
-		//Playlist << "#EXT-X-MAP:URI=\"/stream/segment/" << TargetCameraInt << "/" << Segments[0].Stream->GetSegmentIndex() << ".mp4\"" << "\n";
+		Playlist << "#EXT-X-MEDIA-SEQUENCE:" << Segments[startAtSegment].Stream->GetSegmentIndex() << "\n";
+		Playlist << "#EXT-X-INDEPENDENT-SEGMENTS\n";
+		Playlist << "#EXT-X-TARGETDURATION:" << MaxLength << "\n";
+		Playlist << "#EXT-X-MAP:URI=\"" << TargetCameraInt << "/0/i\"" << "\n";
 		//Playlist << "#EXT-X-MAP:URI=\"" << "/stream/segment/" << TargetCameraInt << "/Init.mp4\"\n";
 		Playlist << "" << "\n";
 
@@ -162,11 +180,12 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 				Playlist << "#EXT-X-PROGRAM-DATE-TIME:" << string_t(dateTimeFormat.begin(), dateTimeFormat.end()) << "\n";
 			}
 			
+			/*
 			for (auto Part : Segment.PartialStreams)
 			{
 				if (Part->GetClipLength() > 0)
 				{
-					Playlist << "#EXT-X-PART:DURATION=" << Part->GetClipLength() << ",URI=\"/stream/segment/" << TargetCameraInt << "/" << Part->GetSegmentIndex() << "." << Part->GetPartIndex() << ".mp4\"";
+					Playlist << "#EXT-X-PART:DURATION=" << Part->GetClipLength() << ",URI=\"" << TargetCameraInt << "/" << Part->GetSegmentIndex() << "/" << Part->GetPartIndex() << "\"";
 					if (Part->IsIsolated())
 					{
 						Playlist << ",INDEPENDENT=YES" << "\n";
@@ -176,7 +195,7 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 						Playlist << "\n";
 					}
 				}
-			}
+			}*/
 
 			if (Segment.Stream)
 			{
@@ -185,24 +204,9 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 				auto Length = Segment.Stream->GetClipLength();
 
 				Playlist << "#EXTINF:" << Length << "," << "\n";
-				Playlist << "/stream/segment/" << TargetCameraInt << "/" << Segment.Stream->GetSegmentIndex() << ".mp4" << "\n";
+				Playlist << TargetCameraInt << "/" << Segment.Stream->GetSegmentIndex() << "/f\n";
 			}
 		}
-
-		//Playlist << "#EXT-X-PRELOAD-HINT:TYPE=PART,URI=\"/stream/segment/" << TargetCameraInt << "/" << (lastIndex+1) << ".mp4\"" << "\n";
-		
-		/*auto NextTime = Segments[0].StreamStartTime + Segments[0].Stream->GetClipLength();
-
-		for (int segment = 0; segment < extraBufferSegments; segment++)
-		{
-			LiveStreamSegment& Segment = Segments[segment];
-
-			auto Length = Segments[0].Stream->GetClipLength();
-			Playlist << "#EXTINF:" << Length << "," << "\n";
-			Playlist << "#EXT-X-PROGRAM-DATE-TIME:" << std::put_time(&Segment.StreamStartTime, L"%FT%T") << "\n";
-
-			Playlist << "/stream/segment/" << TargetCameraInt << "/" << Segment.Stream->GetSegmentIndex() << ".mp4" << "\n";
-		}*/
 	}
 
 	http_response Response;
@@ -223,23 +227,19 @@ void Command_Stream::OnMessage( GlobalContext& Context, http_request& Message, c
 {
 	auto Packet = Message.extract_json().get();
 
-	if (ChildPath.size() == 3 && !IsPost)
+	// /stream/1 (ChildPath = ["1"])
+	if (ChildPath.size() == 1 && !IsPost)
 	{
-		auto Command = ChildPath.front();
-		if( Command.compare( _T("pl") ) == 0 )
-		{
-			OnPlaylistMessage( Context, Message, ChildPath[1], Packet );
-		}
-		else if (Command.compare(_T("segment")) == 0)
-		{
-			OnSegmentMessage(Context, Message, ChildPath[1], ChildPath[2], Packet);
-		}
-		else
-		{
-			Message.reply( status_codes::NotFound );
-		}
-
-		return;
+		OnPlaylistMessage(Context, Message, ChildPath[0], Packet);
+	}
+	// /stream/1/45/14 (ChildPath = ["1", "45", "14"]) or /stream/1/45/f (ChildPath = ["1", "45", "f"]) for full segments
+	else if (ChildPath.size() == 3)
+	{
+		OnSegmentMessage(Context, Message, ChildPath[0], ChildPath[1], ChildPath[2], Packet);
+	}
+	else
+	{
+		Message.reply(status_codes::NotFound);
 	}
 
 	Message.reply( status_codes::NotFound );

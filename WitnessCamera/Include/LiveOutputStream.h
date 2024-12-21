@@ -50,12 +50,14 @@ private:
 	void FinishPartStream();
 	CameraStreamError StartNewStream(const AVPacket* Packet);
 	CameraStreamError StartNewPartStream(const AVPacket* Packet);
+	CameraStreamError CreateInitSegment(const AVPacket* Packet);
 
 	const std::string* _LiveCachePath;
 
 	std::vector<LiveStreamSegment>* _StreamBacklog;
 	OutputStream* _CurrentStream;
 	OutputStream* _CurrentPartStream;
+	OutputStream* _InitSegment;
 
 	InputStream* _InputStream;
 

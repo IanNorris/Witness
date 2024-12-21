@@ -136,7 +136,7 @@ void CameraWorker::WorkerMain()
 			OnClipFinished(false);
 				
 			Observer->SetManualClipStart( Data.Timestamp );
-			RecordStream = std::make_shared<OutputStream>( std::string( Data.Path.begin(), Data.Path.end() ), CameraStream.get(), false, false );
+			RecordStream = std::make_shared<OutputStream>( std::string( Data.Path.begin(), Data.Path.end() ), CameraStream.get(), false, false, false, false );
 			RecordStream->Initialize();
 
 			Context->LongPoll->NotifyAll();

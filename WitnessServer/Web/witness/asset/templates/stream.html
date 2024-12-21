@@ -2,55 +2,5 @@
 	<h3>Live stream</h3>
 </div>
 <div class="panel-body">
-	<!--<video width="1920" height="1080" autoplay>
-		<source data-bind="attr: { src: camera.livePreviewPath }" type="application/x-mpegURL">
-	</video>-->
-	
-	<video id="video" autoplay controls></video>
-	<script>
-	
-	  var config = {
-  "debug": true,
-  "enableWorker": true,
-  "lowLatencyMode": false,
-  "liveDurationInfinity": true
-};
-	  if (Hls.isSupported()) {
-		  var video = document.getElementById('video');
-		  video.removeAttribute('src');
-		  var hls = new Hls(config);
-		  hls.loadSource('/stream/pl/3/pl.m3u8');
-		  hls.attachMedia(video);
-		// bind them together
-		hls.on(Hls.Events.ERROR, function (event, data) {
-		  if (data.fatal) {
-			switch (data.type) {
-			  case Hls.ErrorTypes.NETWORK_ERROR:
-				// try to recover network error
-				console.log('fatal network error encountered, try to recover');
-				hls.startLoad();
-				break;
-			  case Hls.ErrorTypes.MEDIA_ERROR:
-				console.log('fatal media error encountered, try to recover');
-				hls.recoverMediaError();
-				break;
-			  default:
-					// cannot recover
-				console.log('fatal error');
-				hls.destroy();
-				break;
-			}
-		  }
-		});
-		hls.on(Hls.Events.MEDIA_ATTACHED, function () {
-			
-			
-		  hls.on(Hls.Events.MANIFEST_PARSED, function (event, data) {
-			console.log(
-			  'manifest loaded, found ' + data.levels.length + ' quality level'
-			);
-		  });
-		});
-	  }
-	</script>
+	<video id="video" data-bind="hlsStream: cameraID" controls></video>
 </div>

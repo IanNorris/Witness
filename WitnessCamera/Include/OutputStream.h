@@ -20,7 +20,7 @@ class InputStream;
 class CAMERA_API OutputStream : public Stream
 {
 public:
-	OutputStream( const std::string& Path, InputStream * InputStream, bool InMemory, bool LiveStream);
+	OutputStream( const std::string& Path, InputStream * InputStream, bool InMemory, bool LiveStream, bool Part, bool InitSegment);
 	OutputStream( const std::string& Path, unsigned int Width, unsigned int Height, int Framerate, bool IsBGR );
 	virtual ~OutputStream();
 
@@ -73,6 +73,8 @@ private:
 	bool m_InMemory;
 	bool m_Live;
 	bool m_Isolated;
+	bool m_Part;
+	bool m_InitSegment;
 
 	double m_ClipLength;
 	int m_SegmentIndex;
