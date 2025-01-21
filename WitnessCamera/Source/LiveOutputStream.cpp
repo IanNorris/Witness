@@ -217,7 +217,7 @@ CameraStreamError LiveOutputStream::StartNewStream(const AVPacket* Packet)
 	NewSegment.Ready = false;
 	NewSegment.Stream = _CurrentStream;
 
-	int StreamDelayMS = 500;
+	int StreamDelayMS = 3000;
 
 	OutputStream* PrevStream = nullptr;
 	if (_StreamBacklog->size() && _StreamBacklog->back().Stream)

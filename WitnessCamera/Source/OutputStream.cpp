@@ -309,15 +309,15 @@ CameraStreamError OutputStream::Initialize()
 	AVDictionary* options = nullptr;
 	if (m_InitSegment)
 	{
-		av_dict_set(&options, "movflags", "empty_moov+default_base_moof+omit_tfhd_offset", 0);
+		av_dict_set(&options, "movflags", "empty_moov+default_base_moof+omit_tfhd_offset+dash", 0);
 	}
 	else if (m_Live && m_Part)
 	{
-		av_dict_set(&options, "movflags", "empty_moov+frag_keyframe+omit_tfhd_offset", 0);
+		av_dict_set(&options, "movflags", "empty_moov+frag_keyframe+omit_tfhd_offset+dash", 0);
 	}
 	else if (m_Live)
 	{
-		av_dict_set(&options, "movflags", "empty_moov+omit_tfhd_offset", 0);
+		av_dict_set(&options, "movflags", "empty_moov+omit_tfhd_offset+dash", 0);
 	}
 
 	//ID.FormatContext->avoid_negative_ts = AVFMT_AVOID_NEG_TS_MAKE_NON_NEGATIVE;

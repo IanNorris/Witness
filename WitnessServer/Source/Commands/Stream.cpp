@@ -133,7 +133,7 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 		{
 			LiveStreamSegment& Segment = Segments[segment];
 
-			if (Segment.Stream)
+			if (Segment.Stream && Segment.Ready)
 			{
 				double NewDuration = Segment.Stream->GetClipLength();
 				if (NewDuration > MaxLength)
@@ -149,12 +149,12 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 			}
 		}
 
-		double HoldbackLength = 0.125;
+		double HoldbackLength = 0.5;
 		Playlist << "#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=NO,PART-HOLD-BACK=" << HoldbackLength << "\n";
 		Playlist << "#EXT-X-PART-INF:PART-TARGET=" << HoldbackLength << "\n";
 
-		// Allow some slop in future segment lengths
-		MaxLength *= 0.9;
+		// Allow some slop in future segment lengths (spec says no more than 20%)
+		MaxLength *= 1.18; 
 
 		Playlist << "#EXT-X-MEDIA-SEQUENCE:" << Segments[startAtSegment].Stream->GetSegmentIndex() << "\n";
 		Playlist << "#EXT-X-INDEPENDENT-SEGMENTS\n";
@@ -173,7 +173,7 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 		{
 			LiveStreamSegment& Segment = Segments[segment];
 
-			if (Segment.Stream)
+			if (Segment.Stream && Segment.Ready)
 			{
 				std::string dateTimeFormat = std::format("{:%Y-%m-%dT%H:%M:%S}", Segment.SegmentTime);
 
@@ -197,7 +197,7 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 				}
 			}*/
 
-			if (Segment.Stream)
+			if (Segment.Stream && Segment.Ready)
 			{
 				lastIndex = Segment.Stream->GetSegmentIndex();
 
