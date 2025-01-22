@@ -126,8 +126,6 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 	int startAtSegment = 0;
 	if (bufferSegments > 0)
 	{
-		bufferSegments--;
-
 		double MaxLength = 0.0;
 		for (int segment = 0; segment < bufferSegments; segment++)
 		{
@@ -160,7 +158,6 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 		Playlist << "#EXT-X-INDEPENDENT-SEGMENTS\n";
 		Playlist << "#EXT-X-TARGETDURATION:" << MaxLength << "\n";
 		Playlist << "#EXT-X-MAP:URI=\"" << TargetCameraInt << "/0/i\"" << "\n";
-		//Playlist << "#EXT-X-MAP:URI=\"" << "/stream/segment/" << TargetCameraInt << "/Init.mp4\"\n";
 		Playlist << "" << "\n";
 
 		Playlist.precision(4);
