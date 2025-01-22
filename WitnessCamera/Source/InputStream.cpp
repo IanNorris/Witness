@@ -99,14 +99,13 @@ CameraStreamError InputStream::Initialize()
 	
 	av_read_play( ID.FormatContext );
 
-	AVCodec* OutputCodec = avcodec_find_decoder(AV_CODEC_ID_H264);
+	const AVCodec* OutputCodec = avcodec_find_decoder(AV_CODEC_ID_H264);
 	if( !OutputCodec )
 	{
 		STREAM_ERROR( NoH264Support, 0 );
 	}
 
-	ID.CodecContext = avcodec_alloc_context3( nullptr );
-	avcodec_get_context_defaults3( ID.CodecContext, OutputCodec );
+	ID.CodecContext = avcodec_alloc_context3(OutputCodec);
 	avcodec_parameters_to_context( ID.CodecContext, ID.FormatContext->streams[ ID.ChosenStreamIndex ]->codecpar );
 	
 	//Export motion vectors for use by our motion detection algorithm
@@ -147,8 +146,6 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 	}
 
 	auto& ID = *m_InternalData;
-
-	av_init_packet( &ID.Packet );
 
 	IsConnecting = true;
 	TimeStarted = std::chrono::high_resolution_clock::now().time_since_epoch().count();

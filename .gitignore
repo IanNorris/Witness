@@ -296,6 +296,7 @@ ThirdParty/ffmpeg-4.0-win64-dev/
 ThirdParty/ffmpeg-4.1-win64-shared/
 ThirdParty/ffmpeg-4.1-win64-dev/
 ThirdParty/ffmpeg-4.1-win64-custom/
+ThirdParty/ffmpeg-7.1-win64/
 ThirdParty/opencv-3.4.2/
 WitnessServer/Data/Cascades/
 enc_temp_folder/

@@ -123,8 +123,6 @@ CameraStreamError OutputStream::Initialize()
 		STREAM_ERROR( NoStreamInput, 0 );
 	}
 
-	av_init_packet( &ID.Packet );
-
 	int Result = avformat_alloc_output_context2( &ID.FormatContext, nullptr, m_InMemory ? "mp4" : nullptr, m_InMemory ? nullptr : ID.Path.c_str());
 	if( Result < 0 || !ID.FormatContext )
 	{
@@ -133,12 +131,13 @@ CameraStreamError OutputStream::Initialize()
 
 	if (m_InMemory)
 	{
-		ID.FormatContext->oformat->flags |= AVFMT_NOFILE;
+		//TODO
+		//ID.FormatContext->oformat->flags |= AVFMT_NOFILE;
 
 		ID.FormatContext->pb = m_IOContext->GetContext();
 	}
 
-	AVCodec* Encoder = avcodec_find_encoder( ID.CodecID );
+	const AVCodec* Encoder = avcodec_find_encoder( ID.CodecID );
 
 	if( !Encoder )
 	{
@@ -166,14 +165,7 @@ CameraStreamError OutputStream::Initialize()
 		ID.CodecContext->framerate = ID.Framerate;
 		ID.CodecContext->time_base = av_inv_q(ID.Framerate);
 
-		if( Encoder->pix_fmts )
-		{
-			ID.CodecContext->pix_fmt = Encoder->pix_fmts[0];
-		}
-		else
-		{
-			ID.CodecContext->pix_fmt = ID.PixelFormat;
-		}
+		ID.CodecContext->pix_fmt = ID.PixelFormat;
 	}
 	else
 	{
@@ -480,7 +472,7 @@ CameraStreamError OutputStream::WriteFrame( FFMPEG::Frame* Frame )
 
 	int OutputSliceSize = sws_scale( m_InternalData->ConversionContext, Frame->GetFrame()->data, Frame->GetFrame()->linesize, 0, Frame->GetHeight(), ID.Output->GetFrame()->data, ID.Output->GetFrame()->linesize );
 
-	ID.Output->GetFrame()->pts = ID.CodecContext->frame_number;
+	ID.Output->GetFrame()->pts = FrameIndex;
 	
 	int Result = avcodec_send_frame( GetData().CodecContext, ID.Output->GetFrame() );
 	if( Result == AVERROR(EAGAIN) )
@@ -515,7 +507,6 @@ CameraStreamError OutputStream::SendAll( void )
 	do 
 	{
 		AVPacket TempPacket = {};
-		av_init_packet( &TempPacket );
 
 		Result = avcodec_receive_packet( GetData().CodecContext, &TempPacket );
 		if( Result == 0 )

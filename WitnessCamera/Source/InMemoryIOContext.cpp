@@ -13,7 +13,7 @@ InMemoryIOContext::InMemoryIOContext(const char* Filename)
 {
 	_Filename = new std::string(Filename);
 
-	_TempBuffer = new unsigned char[ContextBufferSize];
+	_TempBuffer = new uint8_t[ContextBufferSize];
 
 	fopen_s(&_Handle, Filename, "wb");
 
@@ -44,14 +44,14 @@ void InMemoryIOContext::Close()
 	DeleteFileA(_Filename->c_str());
 }
 
-int InMemoryIOContext::Read(void* Opaque, unsigned char* Buffer, int BufferSize)
+int InMemoryIOContext::Read(void* Opaque, uint8_t* Buffer, int BufferSize)
 {
 	InMemoryIOContext* This = (InMemoryIOContext*)Opaque;
 
 	return (int)fread(Buffer, 1, BufferSize, This->_Handle);
 }
 
-int InMemoryIOContext::Write(void* Opaque, unsigned char* Buffer, int BufferSize)
+int InMemoryIOContext::Write(void* Opaque, const uint8_t* Buffer, int BufferSize)
 {
 	InMemoryIOContext* This = (InMemoryIOContext*)Opaque;
 

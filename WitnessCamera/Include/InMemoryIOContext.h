@@ -21,14 +21,14 @@ public:
 
 	void Close();
 
-	static int Read(void* Opaque, unsigned char* Buffer, int BufferSize);
-	static int Write(void* Opaque, unsigned char* Buffer, int BufferSize);
+	static int Read(void* Opaque, uint8_t* Buffer, int BufferSize);
+	static int Write(void* Opaque, const uint8_t* Buffer, int BufferSize);
 	static int64_t Seek(void* Opaque, int64_t Offset, int Origin);
 
 private:
 
 	std::string* _Filename;
-	unsigned char* _TempBuffer;
+	uint8_t* _TempBuffer;
 	FILE* _Handle;
 	AVIOContext* _Context;
 };
