@@ -32,7 +32,7 @@ textarea:focus {
   border:1px solid #ddd !important;
 }
 
-video,
+video:not(.CameraPreview),
 audio {
   width: 100% !important;
   height: auto !important;
@@ -6535,6 +6535,12 @@ ul li a:focus {
 	top: 50%;
 	width: 100px;
 	height: 100px;
+}
+
+.CameraPreview {
+	height: auto;
+	object-fit: contain;
+	vertical-align: top;
 }
 
 .CameraPreviewRec {

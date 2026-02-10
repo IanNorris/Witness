@@ -7,7 +7,7 @@
         )
         </h3>
 		<div data-bind="foreach: cameras">
-			<img class="CameraPreview" data-bind="attr: { src: previewPath }, css: { 'CameraPreviewRec': isRecording }, click: toggleRecording, style: { 'width': witness.cameraPreviewScale() + '%' }" />
+			<video class="CameraPreview" muted autoplay playsinline data-bind="hlsPreview: id, css: { 'CameraPreviewRec': isRecording }, click: toggleRecording, style: { 'width': witness.cameraPreviewScale() + '%' }"></video>
 		</div>
 	</div>
 	

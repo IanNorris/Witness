@@ -1,3 +1,45 @@
+ko.bindingHandlers.hlsPreview = {
+    init: function (element, valueAccessor, allBindings, viewModel, bindingContext) {
+        var cameraID = ko.unwrap(valueAccessor());
+
+        var config = {
+            enableWorker: true,
+            lowLatencyMode: false,
+            liveDurationInfinity: true
+        };
+
+        if (Hls.isSupported()) {
+            var hls = new Hls(config);
+            var sourceUrl = "/stream/" + cameraID;
+            hls.loadSource(sourceUrl);
+            hls.attachMedia(element);
+
+            hls.on(Hls.Events.ERROR, function (event, data) {
+                if (data.fatal) {
+                    if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                        hls.recoverMediaError();
+                    } else {
+                        // Retry after a delay
+                        setTimeout(function () {
+                            hls.loadSource(sourceUrl);
+                            hls.attachMedia(element);
+                        }, 5000);
+                    }
+                }
+            });
+
+            hls.on(Hls.Events.MEDIA_ATTACHED, function () {
+                element.muted = true;
+                element.play();
+            });
+
+            ko.utils.domNodeDisposal.addDisposeCallback(element, function () {
+                hls.destroy();
+            });
+        }
+    }
+};
+
 ko.bindingHandlers.hlsStream = {
     init: function (element, valueAccessor, allBindings, viewModel, bindingContext) {
 
