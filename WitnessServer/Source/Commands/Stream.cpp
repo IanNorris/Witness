@@ -35,7 +35,6 @@ void Command_Stream::OnSegmentMessage(const GlobalContext& Context, http_request
 
 	bool IsFull = TargetPart.length() != 0 && TargetPart[0] == 'f';
 	bool IsInit = TargetPart.length() != 0 && TargetPart[0] == 'i';
-	int TargetPartInt = (IsFull || IsInit) ? 0 : _wtoi(TargetPart.c_str());
 
 #if !_DEBUG
 	if (!Command_Authenticate::IsCameraAuthenticated(Context, Message, Packet, Command_Authenticate::Action::Read, Command_Authenticate::Privilege::Normal, TargetCameraInt))
@@ -44,42 +43,50 @@ void Command_Stream::OnSegmentMessage(const GlobalContext& Context, http_request
 	}
 #endif
 
-	stringstream_t StreamPathBuf;
+	auto CameraState = Context.FindCameraById(TargetCameraInt);
+	if (!CameraState)
+	{
+		Message.reply(status_codes::NotFound);
+		return;
+	}
+
+	std::shared_ptr<LiveOutputStream>& LiveStream = CameraState->Worker->GetLiveStream();
+	if (!LiveStream)
+	{
+		Message.reply(status_codes::ServiceUnavailable);
+		return;
+	}
 
 	if (IsInit)
 	{
-		StreamPathBuf << Context.CachePath << "\\Live_" << TargetCameraInt << "_Init.mp4";
+		SegmentBuffer InitData = LiveStream->GetInitSegment();
+		if (InitData && !InitData->empty())
+		{
+			http_response response(status_codes::OK);
+			response.headers().add(U("Access-Control-Allow-Origin"), U("*"));
+			response.headers().set_content_type(_T("video/mp4"));
+			response.set_body(*InitData);
+			Message.reply(response);
+			return;
+		}
 	}
 	else if (IsFull)
 	{
-		StreamPathBuf << Context.CachePath << "\\Live_" << TargetCameraInt << "_" << TargetSegmentInt << ".mp4";
-	}
-	else
-	{
-		StreamPathBuf << Context.CachePath << "\\Live_" << TargetCameraInt << "_" << TargetSegmentInt << "." << TargetPartInt << ".mp4";
-	}
+		std::vector<LiveStreamSegment> Segments;
+		LiveStream->GetSegments(Segments);
 
-	auto StreamPath = StreamPathBuf.str();
-
-	if( fs::exists(StreamPath) )
-	{
-		size64_t FileSize = fs::file_size(StreamPath);
-
-		auto FileHandle = concurrency::streams::file_stream<uint8_t>::open_istream(StreamPath.c_str());
-
-		Concurrency::streams::istream FileHandleStream = FileHandle.get(); 
-
-		http_response response(status_codes::OK);
-
-		//For testing with hls-demo
-//#if _DEBUG
-		response.headers().add(U("Access-Control-Allow-Origin"), U("*"));
-//#endif
-
-		response.set_body(FileHandleStream, FileSize, _T("video/mp4"));
-		Message.reply(response);
-
-		return;
+		for (auto& Seg : Segments)
+		{
+			if (Seg.SegmentIndex == TargetSegmentInt && Seg.Ready && Seg.Data && !Seg.Data->empty())
+			{
+				http_response response(status_codes::OK);
+				response.headers().add(U("Access-Control-Allow-Origin"), U("*"));
+				response.headers().set_content_type(_T("video/mp4"));
+				response.set_body(*Seg.Data);
+				Message.reply(response);
+				return;
+			}
+		}
 	}
 
 	Message.reply( status_codes::NotFound );
@@ -108,6 +115,11 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 	}
 
 	std::shared_ptr<LiveOutputStream>& LiveStream = CameraState->Worker->GetLiveStream();
+	if (!LiveStream)
+	{
+		Message.reply(status_codes::ServiceUnavailable);
+		return;
+	}
 
 	std::vector<LiveStreamSegment> Segments;
 	LiveStream->GetSegments(Segments);

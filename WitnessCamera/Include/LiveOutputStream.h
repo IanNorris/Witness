@@ -5,18 +5,23 @@
 #include <mutex>
 #include <chrono>
 #include <string>
+#include <vector>
+#include <memory>
 
 struct AVPacket;
 struct AVRational;
 struct AVFormatContext;
 struct AVCodecContext;
+struct AVIOContext;
 
 namespace Witness{
 namespace Camera{
 
+typedef std::shared_ptr<std::vector<uint8_t>> SegmentBuffer;
+
 struct LiveStreamSegment
 {
-	std::string FilePath;
+	SegmentBuffer Data;
 	double Duration;
 	int SegmentIndex;
 	std::chrono::time_point<std::chrono::system_clock> SegmentTime;
@@ -47,14 +52,25 @@ public:
 		OutSegments = *_StreamBacklog;
 	}
 
+	SegmentBuffer GetInitSegment()
+	{
+		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
+
+		return _InitSegmentData;
+	}
+
 private:
 
 	CameraStreamError InitFormatContext();
 	CameraStreamError StartNewSegment(const AVPacket* Packet);
 	void FinishCurrentSegment();
 
+	void SetupMemoryIO();
+
+	static int WriteBuffer(void* Opaque, const uint8_t* Buffer, int BufferSize);
+	static int64_t SeekBuffer(void* Opaque, int64_t Offset, int Origin);
+
 	std::string _LiveCachePath;
-	std::string _InitSegmentPath;
 
 	std::vector<LiveStreamSegment>* _StreamBacklog;
 
@@ -62,12 +78,21 @@ private:
 
 	// Single persistent format context for the entire live stream
 	AVFormatContext* _FormatContext;
-	AVCodecContext* _CodecContext;
+	AVIOContext* _AVIOContext;
+	uint8_t* _AVIOBuffer;
+
+	// Current write target — FFmpeg writes here via callbacks
+	SegmentBuffer _CurrentBuffer;
+
+	// Init segment stored in memory
+	SegmentBuffer _InitSegmentData;
 
 	bool _HeaderWritten;
 	bool _InitSegmentCaptured;
-	bool _FirstPacketSeen;
+	bool _HasInitialDTS;
 
+	int64_t _InitialDTS;
+	int64_t _LastWrittenDTS;
 	int64_t _SegmentStartDTS;
 	double _CurrentSegmentDuration;
 
