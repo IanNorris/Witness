@@ -568,6 +568,11 @@ CameraStreamError OutputStream::CloseFile(bool Flush, bool WriteTrailer)
 	{
 		while (true)
 		{
+			if (ID.CodecContext == nullptr)
+			{
+				return CameraStreamError::NoStreams;
+			}
+
 			//Flush
 			int Result = avcodec_send_frame(ID.CodecContext, nullptr);
 			if (Result == 0)
@@ -593,6 +598,11 @@ CameraStreamError OutputStream::CloseFile(bool Flush, bool WriteTrailer)
 				STREAM_ERROR(WriteFailed, Result);
 			}
 		}
+	}
+
+	if (ID.FormatContext == nullptr)
+	{
+		return CameraStreamError::NoStreams;
 	}
 
 	if (WriteTrailer)
