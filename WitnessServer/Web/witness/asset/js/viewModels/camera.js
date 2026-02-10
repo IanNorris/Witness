@@ -33,6 +33,7 @@ var CameraViewModel = function( witness, id, enabled, name, description, connect
 	self.status = ko.observable(status);
 	self.isSelected = ko.observable(false);
 	self.isRecording = ko.observable(cameraRecording);
+	self.hlsActive = ko.observable(false);
 	self.groups = ko.observableArray(groups);
 	
 	self.lastTimestamp = ko.observable(allData.lastTimestamp);

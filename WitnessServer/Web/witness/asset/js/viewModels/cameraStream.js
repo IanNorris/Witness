@@ -4,8 +4,9 @@ ko.bindingHandlers.hlsPreview = {
 
         var config = {
             enableWorker: true,
-            lowLatencyMode: false,
-            liveDurationInfinity: true
+            lowLatencyMode: true,
+            liveDurationInfinity: true,
+            backBufferLength: 5
         };
 
         if (Hls.isSupported()) {
@@ -14,12 +15,46 @@ ko.bindingHandlers.hlsPreview = {
             hls.loadSource(sourceUrl);
             hls.attachMedia(element);
 
+            // Activity indicator — find the sibling dot element
+            var spinner = element.parentNode.querySelector('.CameraActivityIndicator');
+            var connLost = element.parentNode.querySelector('.CameraConnectionLost');
+            var connectionLostTimer = null;
+
+            function resetConnectionLostTimer() {
+                clearTimeout(connectionLostTimer);
+                connectionLostTimer = setTimeout(function () {
+                    if (connLost) connLost.classList.add('stalled');
+                    if (spinner) spinner.style.display = 'none';
+                }, 4000);
+            }
+
+            hls.on(Hls.Events.FRAG_BUFFERED, function () {
+                if (spinner) spinner.style.display = '';
+                if (connLost) {
+                    connLost.classList.remove('stalled');
+                    resetConnectionLostTimer();
+                }
+                viewModel.hlsActive(true);
+            });
+
+            hls.on(Hls.Events.LEVEL_UPDATED, function () {
+                if (connLost) {
+                    connLost.classList.remove('stalled');
+                    resetConnectionLostTimer();
+                }
+                viewModel.hlsActive(true);
+            });
+
             hls.on(Hls.Events.ERROR, function (event, data) {
+                if (data.details === Hls.ErrorDetails.BUFFER_STALLED_ERROR) {
+                    if (connLost) connLost.classList.add('stalled');
+                    if (spinner) spinner.style.display = 'none';
+                }
                 if (data.fatal) {
+                    viewModel.hlsActive(false);
                     if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
                         hls.recoverMediaError();
                     } else {
-                        // Retry after a delay
                         setTimeout(function () {
                             hls.loadSource(sourceUrl);
                             hls.attachMedia(element);
@@ -34,6 +69,7 @@ ko.bindingHandlers.hlsPreview = {
             });
 
             ko.utils.domNodeDisposal.addDisposeCallback(element, function () {
+                clearTimeout(connectionLostTimer);
                 hls.destroy();
             });
         }
@@ -48,8 +84,9 @@ ko.bindingHandlers.hlsStream = {
         var config = {
             debug: true,
             enableWorker: true,
-            lowLatencyMode: false,
-            liveDurationInfinity: true
+            lowLatencyMode: true,
+            liveDurationInfinity: true,
+            backBufferLength: 5
         };
 
         if (Hls.isSupported()) {

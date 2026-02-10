@@ -7,7 +7,15 @@
         )
         </h3>
 		<div data-bind="foreach: cameras">
-			<video class="CameraPreview" muted autoplay playsinline data-bind="hlsPreview: id, css: { 'CameraPreviewRec': isRecording }, click: toggleRecording, style: { 'width': witness.cameraPreviewScale() + '%' }"></video>
+			<div class="CameraPreviewContainer" data-bind="style: { 'width': witness.cameraPreviewScale() + '%' }">
+				<video class="CameraPreview" muted autoplay playsinline data-bind="hlsPreview: id, css: { 'CameraPreviewRec': isRecording }, click: toggleRecording"></video>
+				<span class="CameraActivityIndicator"><i class="fa fa-spinner fa-spin"></i></span>
+				<span class="CameraConnectionLost"><i class="fa fa-wifi"></i></span>
+				<div class="CameraDisconnectedOverlay" data-bind="visible: status() !== 'Connected' && !hlsActive()">
+					<i class="fa fa-chain-broken"></i>
+					<span data-bind="text: status"></span>
+				</div>
+			</div>
 		</div>
 	</div>
 	

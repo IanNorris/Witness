@@ -73,6 +73,8 @@ public:
 		return _PartialTargetDuration;
 	}
 
+	void ResetForReconnect(InputStream* NewInputStream);
+
 private:
 
 	CameraStreamError InitFormatContext();
@@ -121,6 +123,7 @@ private:
 	double _CurrentPartialDuration;
 	double _PartialTargetDuration;
 	bool _CurrentPartialIsIndependent;
+	size_t _PartialBufferOffset;
 
 	std::chrono::time_point<std::chrono::system_clock> _CurrentSegmentWallTime;
 

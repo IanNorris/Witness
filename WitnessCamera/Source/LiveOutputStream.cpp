@@ -34,6 +34,7 @@ LiveOutputStream::LiveOutputStream(const std::string& LiveCachePath, InputStream
 	, _CurrentPartialDuration(0.0)
 	, _PartialTargetDuration(0.33)
 	, _CurrentPartialIsIndependent(false)
+	, _PartialBufferOffset(0)
 	, _SegmentsMutex( new std::mutex )
 {
 }
@@ -90,6 +91,46 @@ void LiveOutputStream::Shutdown()
 	}
 
 	_CurrentBuffer.reset();
+}
+
+void LiveOutputStream::ResetForReconnect(InputStream* NewInputStream)
+{
+	// Tear down FFmpeg state but keep segments/init so HLS.js doesn't lose its reference
+	if (_FormatContext)
+	{
+		if (_FormatContext->pb)
+		{
+			av_write_frame(_FormatContext, nullptr);
+			avio_flush(_FormatContext->pb);
+		}
+		_FormatContext->pb = nullptr;
+		avformat_free_context(_FormatContext);
+		_FormatContext = nullptr;
+	}
+
+	if (_AVIOContext)
+	{
+		av_free(_AVIOContext);
+		_AVIOContext = nullptr;
+	}
+
+	if (_AVIOBuffer)
+	{
+		av_free(_AVIOBuffer);
+		_AVIOBuffer = nullptr;
+	}
+
+	_CurrentBuffer.reset();
+	_InputStream = NewInputStream;
+	_HeaderWritten = false;
+	_InitSegmentCaptured = false;
+	_HasInitialDTS = false;
+	_InitialDTS = 0;
+	_LastWrittenDTS = AV_NOPTS_VALUE;
+	_PartialBufferOffset = 0;
+	_CurrentPartialDuration = 0.0;
+	_CurrentPartialIsIndependent = false;
+	_SkipInitialKeyframes = 1;
 }
 
 int LiveOutputStream::WriteBuffer(void* Opaque, const uint8_t* Buffer, int BufferSize)
@@ -302,6 +343,12 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 		STREAM_ERROR(WriteFailed, Result);
 	}
 
+	// Flush a partial segment when we've accumulated enough duration
+	if (_CurrentPartialDuration >= _PartialTargetDuration)
+	{
+		FlushPartialSegment(_CurrentPartialIsIndependent);
+	}
+
 	return CameraStreamError::Success;
 }
 
@@ -315,14 +362,18 @@ void LiveOutputStream::FlushPartialSegment(bool IsIndependent)
 	avio_flush(_FormatContext->pb);
 
 	// Only create a partial if we actually accumulated data since the last flush
-	if (_CurrentBuffer->empty() || _CurrentPartialDuration <= 0.0)
+	size_t CurrentSize = _CurrentBuffer->size();
+	if (CurrentSize <= _PartialBufferOffset || _CurrentPartialDuration <= 0.0)
 		return;
 
-	// Snapshot the current buffer as a partial segment
-	SegmentBuffer PartialData = _CurrentBuffer;
+	// Create a partial that references the byte range [_PartialBufferOffset, CurrentSize)
+	// within the single segment buffer
+	auto PartialData = std::make_shared<std::vector<uint8_t>>(
+		_CurrentBuffer->begin() + _PartialBufferOffset,
+		_CurrentBuffer->begin() + CurrentSize
+	);
 
-	// Start a new buffer for the next partial
-	_CurrentBuffer = std::make_shared<std::vector<uint8_t>>();
+	_PartialBufferOffset = CurrentSize;
 
 	LiveStreamPartialSegment Partial;
 	Partial.Data = PartialData;
@@ -380,6 +431,10 @@ CameraStreamError LiveOutputStream::StartNewSegment(const AVPacket* Packet)
 
 	_SegmentStartDTS = Packet->dts;
 	_CurrentSegmentDuration = 0.0;
+	_CurrentPartialIndex = 0;
+	_CurrentPartialDuration = 0.0;
+	_CurrentPartialIsIndependent = true; // first partial starts with keyframe
+	_PartialBufferOffset = 0;
 	_CurrentSegmentWallTime = std::chrono::system_clock::now();
 
 	{
@@ -411,9 +466,8 @@ void LiveOutputStream::FinishCurrentSegment()
 		return;
 	}
 
-	// Flush the current fragment into the buffer
-	av_write_frame(_FormatContext, nullptr);
-	avio_flush(_FormatContext->pb);
+	// Flush remaining data as the final partial of this segment
+	FlushPartialSegment(_CurrentPartialIsIndependent);
 
 	{
 		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);

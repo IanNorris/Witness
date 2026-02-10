@@ -6537,7 +6537,14 @@ ul li a:focus {
 	height: 100px;
 }
 
+.CameraPreviewContainer {
+	display: inline-block;
+	position: relative;
+	vertical-align: top;
+}
+
 .CameraPreview {
+	width: 100%;
 	height: auto;
 	object-fit: contain;
 	vertical-align: top;
@@ -6545,6 +6552,57 @@ ul li a:focus {
 
 .CameraPreviewRec {
 	border: 3px solid red;
+}
+
+.CameraActivityIndicator {
+	position: absolute;
+	top: 6px;
+	left: 8px;
+	font-size: 18px;
+	color: rgba(255, 255, 255, 0.7);
+	pointer-events: none;
+}
+
+.CameraConnectionLost {
+	position: absolute;
+	top: 6px;
+	right: 8px;
+	font-size: 28px;
+	pointer-events: none;
+	opacity: 0;
+	transition: opacity 0.3s ease;
+}
+
+.CameraConnectionLost.stalled {
+	opacity: 1;
+	color: #f44;
+	animation: cameraBlink 1s infinite;
+}
+
+.CameraDisconnectedOverlay {
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	background: rgba(0, 0, 0, 0.6);
+	color: #f44;
+	font-size: 14px;
+	pointer-events: none;
+}
+
+.CameraDisconnectedOverlay i {
+	font-size: 32px;
+	margin-bottom: 6px;
+}
+
+@keyframes cameraBlink {
+	0%, 100% { opacity: 1; }
+	50% { opacity: 0.2; }
 }
 
 .signin-outer {

@@ -35,6 +35,7 @@ void Command_Stream::OnSegmentMessage(const GlobalContext& Context, http_request
 
 	bool IsFull = TargetPart.length() != 0 && TargetPart[0] == 'f';
 	bool IsInit = TargetPart.length() != 0 && TargetPart[0] == 'i';
+	bool IsPartial = TargetPart.length() != 0 && TargetPart[0] >= '0' && TargetPart[0] <= '9';
 
 #if !_DEBUG
 	if (!Command_Authenticate::IsCameraAuthenticated(Context, Message, Packet, Command_Authenticate::Action::Read, Command_Authenticate::Privilege::Normal, TargetCameraInt))
@@ -85,6 +86,34 @@ void Command_Stream::OnSegmentMessage(const GlobalContext& Context, http_request
 				response.set_body(*Seg.Data);
 				Message.reply(response);
 				return;
+			}
+		}
+	}
+	else if (IsPartial)
+	{
+		int TargetPartInt = _wtoi(TargetPart.c_str());
+
+		std::vector<LiveStreamSegment> Segments;
+		LiveStream->GetSegments(Segments);
+
+		for (auto& Seg : Segments)
+		{
+			if (Seg.SegmentIndex == TargetSegmentInt)
+			{
+				if (TargetPartInt >= 0 && TargetPartInt < (int)Seg.Partials.size())
+				{
+					auto& Partial = Seg.Partials[TargetPartInt];
+					if (Partial.Data && !Partial.Data->empty())
+					{
+						http_response response(status_codes::OK);
+						response.headers().add(U("Access-Control-Allow-Origin"), U("*"));
+						response.headers().set_content_type(_T("video/mp4"));
+						response.set_body(*Partial.Data);
+						Message.reply(response);
+						return;
+					}
+				}
+				break;
 			}
 		}
 	}
@@ -158,9 +187,10 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 			}
 		}
 
-		double HoldbackLength = 0.5;
+		double PartialTarget = LiveStream->GetPartialTargetDuration();
+		double HoldbackLength = PartialTarget * 3.0;
 		Playlist << "#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=NO,PART-HOLD-BACK=" << HoldbackLength << "\n";
-		Playlist << "#EXT-X-PART-INF:PART-TARGET=" << HoldbackLength << "\n";
+		Playlist << "#EXT-X-PART-INF:PART-TARGET=" << PartialTarget << "\n";
 
 		double TargetDuration = MaxLength * 1.18;
 		if (TargetDuration < 1.0) TargetDuration = 1.0;
@@ -182,8 +212,31 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 				std::string dateTimeFormat = std::format("{:%Y-%m-%dT%H:%M:%S}", Segment.SegmentTime);
 
 				Playlist << "#EXT-X-PROGRAM-DATE-TIME:" << string_t(dateTimeFormat.begin(), dateTimeFormat.end()) << "\n";
+
+				// Emit EXT-X-PART tags for each partial within this completed segment
+				for (auto& Partial : Segment.Partials)
+				{
+					Playlist << "#EXT-X-PART:DURATION=" << Partial.Duration
+						<< ",URI=\"" << TargetCameraInt << "/" << Segment.SegmentIndex << "/" << Partial.PartIndex << "\"";
+					if (Partial.Independent)
+						Playlist << ",INDEPENDENT=YES";
+					Playlist << "\n";
+				}
+
 				Playlist << "#EXTINF:" << Segment.Duration << "," << "\n";
 				Playlist << TargetCameraInt << "/" << Segment.SegmentIndex << "/f\n";
+			}
+			else
+			{
+				// In-progress segment: emit partials available so far
+				for (auto& Partial : Segment.Partials)
+				{
+					Playlist << "#EXT-X-PART:DURATION=" << Partial.Duration
+						<< ",URI=\"" << TargetCameraInt << "/" << Segment.SegmentIndex << "/" << Partial.PartIndex << "\"";
+					if (Partial.Independent)
+						Playlist << ",INDEPENDENT=YES";
+					Playlist << "\n";
+				}
 			}
 		}
 	}
