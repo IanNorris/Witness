@@ -2,53 +2,43 @@
 #include "OutputStream.h"
 #include "InputStream.h"
 #include "StreamData.h"
-#include "InMemoryIOContext.h"
 
-#include <atomic>
 #include <sstream>
 #include <chrono>
 #include <format>
+#include <filesystem>
 
 namespace Witness{
 namespace Camera{
 
 LiveOutputStream::LiveOutputStream(const std::string& LiveCachePath, InputStream* InputStream, int KeyframesPerSegment)
 	: Stream()
-	, _LiveCachePath( new std::string(LiveCachePath))
+	, _LiveCachePath( LiveCachePath )
 	, _StreamBacklog( new std::vector<LiveStreamSegment>() )
-	, _CurrentStream( nullptr )
-	, _CurrentPartStream(nullptr)
-	, _InitSegment(nullptr)
 	, _InputStream(InputStream)
+	, _FormatContext( nullptr )
+	, _CodecContext( nullptr )
+	, _HeaderWritten( false )
+	, _InitSegmentCaptured( false )
+	, _FirstPacketSeen( false )
+	, _SegmentStartDTS( 0 )
+	, _CurrentSegmentDuration( 0.0 )
 	, _KeyframesPerSegment(KeyframesPerSegment)
-	, _KeyframesPerSegmentLeft(KeyframesPerSegment)
 	, _SkipInitialKeyframes(1)
 	, _CurrentSegmentIndex(0)
-	, _CurrentPartIndex(0)
 	, _SegmentsMutex( new std::mutex )
 {
-	m_LastPartTime = std::chrono::high_resolution_clock::now();
 }
 
 LiveOutputStream::~LiveOutputStream()
 {
+	Shutdown();
+
 	delete _StreamBacklog;
 	_StreamBacklog = nullptr;
 
-	delete _LiveCachePath;
-	_LiveCachePath = nullptr;
-
 	delete _SegmentsMutex;
 	_SegmentsMutex = nullptr;
-
-	delete _CurrentPartStream;
-	_CurrentPartStream = nullptr;
-
-	delete _CurrentStream;
-	_CurrentStream = nullptr;
-
-	delete _InitSegment;
-	_InitSegment = nullptr;
 }
 
 CameraStreamError LiveOutputStream::Initialize()
@@ -63,227 +53,258 @@ CameraStreamError LiveOutputStream::ProcessFrame(const std::shared_ptr<IRecordFi
 
 void LiveOutputStream::Shutdown()
 {
+	if (_FormatContext)
+	{
+		if (_FormatContext->pb)
+		{
+			// Flush any remaining fragment data
+			av_write_frame(_FormatContext, nullptr);
+			avio_flush(_FormatContext->pb);
+			avio_closep(&_FormatContext->pb);
+		}
 
+		avformat_free_context(_FormatContext);
+		_FormatContext = nullptr;
+	}
+
+	if (_CodecContext)
+	{
+		avcodec_free_context(&_CodecContext);
+		_CodecContext = nullptr;
+	}
+}
+
+CameraStreamError LiveOutputStream::InitFormatContext()
+{
+	if (_FormatContext)
+	{
+		return CameraStreamError::Success;
+	}
+
+	_InputStream->Initialize();
+
+	auto& InID = _InputStream->GetData();
+	if (!InID.CodecContext)
+	{
+		STREAM_ERROR(NoStreamInput, 0);
+	}
+
+	// Create format context for fragmented MP4 output
+	int Result = avformat_alloc_output_context2(&_FormatContext, nullptr, "mp4", nullptr);
+	if (Result < 0 || !_FormatContext)
+	{
+		STREAM_ERROR(UnknownError, Result);
+	}
+
+	// Create output stream by copying codec parameters from input (remux, no encode)
+	AVStream* OutStream = avformat_new_stream(_FormatContext, nullptr);
+	if (!OutStream)
+	{
+		STREAM_ERROR(UnknownError, 0);
+	}
+
+	Result = avcodec_parameters_from_context(OutStream->codecpar, InID.CodecContext);
+	if (Result < 0)
+	{
+		STREAM_ERROR(DecoderReceiverError, Result);
+	}
+
+	// Remap deprecated pixel formats
+	switch (OutStream->codecpar->format)
+	{
+	case AV_PIX_FMT_YUVJ420P: OutStream->codecpar->format = AV_PIX_FMT_YUV420P; break;
+	case AV_PIX_FMT_YUVJ422P: OutStream->codecpar->format = AV_PIX_FMT_YUV422P; break;
+	case AV_PIX_FMT_YUVJ444P: OutStream->codecpar->format = AV_PIX_FMT_YUV444P; break;
+	case AV_PIX_FMT_YUVJ440P: OutStream->codecpar->format = AV_PIX_FMT_YUV440P; break;
+	}
+
+	OutStream->codecpar->codec_tag = 0;
+
+	// Copy the input stream's timebase so timestamps pass through unchanged
+	OutStream->time_base = InID.FormatContext->streams[0]->time_base;
+
+	return CameraStreamError::Success;
 }
 
 CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packet)
 {
-	auto CurrentTime = std::chrono::high_resolution_clock::now();
-	auto TimeSinceLastPart = std::chrono::duration_cast<std::chrono::milliseconds>(CurrentTime - m_LastPartTime).count();
+	// Skip the first keyframe(s) to let the decoder stabilize
 	if (Packet->flags & AV_PKT_FLAG_KEY)
 	{
 		if (_SkipInitialKeyframes > 0)
 		{
 			_SkipInitialKeyframes--;
-
 			return CameraStreamError::Success;
 		}
+	}
 
-		if (_InitSegment == nullptr)
-		{
-			CreateInitSegment(Packet);
-		}
-
-		if (_CurrentPartStream)
-		{
-			FinishPartStream();
-		}
-
-		if (_CurrentStream)
-		{
-			FinishStream();
-		}
-
-		CameraStreamError Result = StartNewStream(Packet);
-		if (Result != CameraStreamError::Success)
-		{
-			return Result;
-		}
-
-		m_LastPartTime = CurrentTime;
-		Result = StartNewPartStream(Packet);
+	// Lazy-init the format context on first usable packet
+	if (!_FormatContext)
+	{
+		CameraStreamError Result = InitFormatContext();
 		if (Result != CameraStreamError::Success)
 		{
 			return Result;
 		}
 	}
-	else if (TimeSinceLastPart >= 125 && _CurrentStream)
+
+	// On keyframe: finish current segment, start new one
+	if (Packet->flags & AV_PKT_FLAG_KEY)
 	{
-		if (_CurrentPartStream)
+		if (_HeaderWritten)
 		{
-			FinishPartStream();
+			// Flush the current fragment and close the segment file
+			FinishCurrentSegment();
 		}
 
-		m_LastPartTime = CurrentTime;
-		CameraStreamError Result = StartNewPartStream(Packet);
+		CameraStreamError Result = StartNewSegment(Packet);
 		if (Result != CameraStreamError::Success)
 		{
 			return Result;
 		}
 	}
-	
-	if (_CurrentStream)
+
+	// Don't write until we have an open segment
+	if (!_HeaderWritten || !_FormatContext->pb)
 	{
-		CameraStreamError Result = _CurrentStream->WriteInterleavedPacket(Packet);
-		if (Result != CameraStreamError::Success)
-		{
-			memcpy(m_ErrorMessage, _CurrentStream->GetFFMPEGErrorMessage(), 256);
-			return Result;
-		}
+		return CameraStreamError::Success;
 	}
 
-	if (_CurrentPartStream)
+	// Copy the packet and pass timestamps through unchanged
+	AVPacket PacketCopy;
+	memset(&PacketCopy, 0, sizeof(PacketCopy));
+	int Result = av_packet_ref(&PacketCopy, Packet);
+	if (Result < 0)
 	{
-		CameraStreamError Result = _CurrentPartStream->WriteInterleavedPacket(Packet);
-		if (Result != CameraStreamError::Success)
-		{
-			memcpy(m_ErrorMessage, _CurrentPartStream->GetFFMPEGErrorMessage(), 256);
-			return Result;
-		}
+		STREAM_ERROR(RefError, Result);
+	}
+
+	PacketCopy.stream_index = 0;
+	PacketCopy.pos = -1;
+
+	// Track segment duration using packet timestamps
+	AVRational TimeBase = _FormatContext->streams[0]->time_base;
+	double PacketDurationSec = (double)(PacketCopy.duration * TimeBase.num) / TimeBase.den;
+	_CurrentSegmentDuration += PacketDurationSec;
+
+	Result = av_interleaved_write_frame(_FormatContext, &PacketCopy);
+	if (Result < 0)
+	{
+		STREAM_ERROR(WriteFailed, Result);
 	}
 
 	return CameraStreamError::Success;
 }
 
-void LiveOutputStream::FinishStream()
+CameraStreamError LiveOutputStream::StartNewSegment(const AVPacket* Packet)
 {
-	_CurrentStream->Shutdown();
+	CreateDirectoryA(_LiveCachePath.c_str(), nullptr);
 
-	const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
-
-	if (_StreamBacklog->size() > 0)
+	if (!_InitSegmentCaptured)
 	{
-		_StreamBacklog->back().Ready = true;
+		// Write the init segment (ftyp + moov with empty sample tables).
+		// empty_moov: writes ftyp+moov immediately in avformat_write_header
+		// frag_custom: we control fragment boundaries via av_write_frame(NULL)
+		// dash: fragments start with styp instead of ftyp
+		// default_base_moof: CMAF compliance (moof-relative offsets in trun)
+		// negative_cts_offsets: CTTS v1 instead of edit lists (no edts/elst)
+		std::stringstream InitPath;
+		InitPath << _LiveCachePath << "\\Live_" << _InputStream->GetSourceId() << "_Init.mp4";
+		_InitSegmentPath = InitPath.str();
+
+		int Result = avio_open(&_FormatContext->pb, _InitSegmentPath.c_str(), AVIO_FLAG_WRITE);
+		if (Result < 0)
+		{
+			STREAM_ERROR(FileNotWriteable, Result);
+		}
+
+		AVDictionary* options = nullptr;
+		av_dict_set(&options, "movflags", "empty_moov+frag_custom+dash+default_base_moof+negative_cts_offsets", 0);
+		av_dict_set(&options, "brand", "iso6", 0);
+
+		Result = avformat_write_header(_FormatContext, &options);
+		av_dict_free(&options);
+		if (Result < 0)
+		{
+			STREAM_ERROR(WriteFailed, Result);
+		}
+
+		_HeaderWritten = true;
+
+		// Init segment is now written (ftyp + moov). Close the file.
+		avio_flush(_FormatContext->pb);
+		avio_closep(&_FormatContext->pb);
+
+		_InitSegmentCaptured = true;
+	}
+
+	// Open a new file for this segment
+	std::stringstream SegPath;
+	SegPath << _LiveCachePath << "\\Live_" << _InputStream->GetSourceId() << "_" << _CurrentSegmentIndex << ".mp4";
+	std::string SegmentPath = SegPath.str();
+
+	int Result = avio_open(&_FormatContext->pb, SegmentPath.c_str(), AVIO_FLAG_WRITE);
+	if (Result < 0)
+	{
+		STREAM_ERROR(FileNotWriteable, Result);
+	}
+
+	_SegmentStartDTS = Packet->dts;
+	_CurrentSegmentDuration = 0.0;
+	_CurrentSegmentWallTime = std::chrono::system_clock::now();
+
+	// Add segment entry to backlog
+	{
+		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
+
+		// Trim old segments
+		while (_StreamBacklog->size() >= 5)
+		{
+			// Delete the old segment file
+			auto& OldSeg = _StreamBacklog->front();
+			std::error_code ec;
+			std::filesystem::remove(OldSeg.FilePath, ec);
+			_StreamBacklog->erase(_StreamBacklog->begin());
+		}
+
+		LiveStreamSegment NewSegment;
+		NewSegment.FilePath = SegmentPath;
+		NewSegment.Duration = 0.0;
+		NewSegment.SegmentIndex = _CurrentSegmentIndex;
+		NewSegment.SegmentTime = _CurrentSegmentWallTime;
+		NewSegment.Ready = false;
+
+		_StreamBacklog->push_back(NewSegment);
+	}
+
+	return CameraStreamError::Success;
+}
+
+void LiveOutputStream::FinishCurrentSegment()
+{
+	if (!_FormatContext || !_FormatContext->pb)
+	{
+		return;
+	}
+
+	// Flush the current fragment
+	av_write_frame(_FormatContext, nullptr);
+	avio_flush(_FormatContext->pb);
+	avio_closep(&_FormatContext->pb);
+
+	// Mark the segment as ready with its final duration
+	{
+		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
+
+		if (!_StreamBacklog->empty())
+		{
+			auto& Seg = _StreamBacklog->back();
+			Seg.Duration = _CurrentSegmentDuration;
+			Seg.Ready = true;
+		}
 	}
 
 	_CurrentSegmentIndex++;
-}
-
-void LiveOutputStream::FinishPartStream()
-{
-	_CurrentPartStream->Shutdown();
-
-	const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
-
-	if (_StreamBacklog->size() > 0)
-	{
-		_StreamBacklog->back().PartialStreams.push_back(_CurrentPartStream);
-	}
-
-	_CurrentPartIndex++;
-}
-
-CameraStreamError LiveOutputStream::StartNewStream(const AVPacket* Packet)
-{
-	if (_StreamBacklog->size() >= 3)
-	{
-		delete _StreamBacklog->front().Stream;
-
-		for (auto PartStream : _StreamBacklog->front().PartialStreams)
-		{
-			delete PartStream;
-		}
-
-		_StreamBacklog->erase(_StreamBacklog->begin());
-	}
-
-	_CurrentPartIndex = 0;
-	int NewSegmentIndex = _CurrentSegmentIndex;
-
-	CreateDirectoryA(_LiveCachePath->c_str(), nullptr);
-	std::stringstream TargetFilename;
-	TargetFilename << *_LiveCachePath << "\\Live_" << _InputStream->GetSourceId() << "_" << NewSegmentIndex << ".mp4";
-
-	std::string FinishedPath = TargetFilename.str();
-
-	_CurrentStream = new OutputStream(FinishedPath, _InputStream, false, true, false, false);
-	_CurrentStream->SetSegmentIndex(NewSegmentIndex);
-
-	CameraStreamError Result  = _CurrentStream->Initialize();
-	if (Result != CameraStreamError::Success)
-	{
-		memcpy(m_ErrorMessage, _CurrentStream->GetFFMPEGErrorMessage(), 256);
-		return Result;
-	}
-
-	if (Packet->flags & AV_PKT_FLAG_KEY)
-	{
-		_CurrentStream->SetIsolated(true);
-	}
-
-	//Create a placeholder, we'll insert the real stream here on close.
-	LiveStreamSegment NewSegment;
-	
-	NewSegment.Ready = false;
-	NewSegment.Stream = _CurrentStream;
-
-	int StreamDelayMS = 3000;
-
-	OutputStream* PrevStream = nullptr;
-	if (_StreamBacklog->size() && _StreamBacklog->back().Stream)
-	{
-		PrevStream = _StreamBacklog->back().Stream;
-		double ClipLength = PrevStream->GetClipLength();
-		int WholeSeconds = (int)ClipLength;
-		int Milliseconds = (int)((ClipLength - WholeSeconds) * 1000);
-		NewSegment.SegmentTime = _StreamBacklog->back().SegmentTime + std::chrono::seconds(WholeSeconds) + std::chrono::milliseconds(Milliseconds) + std::chrono::milliseconds(StreamDelayMS);
-	}
-	else
-	{
-		NewSegment.SegmentTime = std::chrono::system_clock::now() + std::chrono::milliseconds(StreamDelayMS);
-	}
-
-	_StreamBacklog->push_back(NewSegment);
-
-	return CameraStreamError::Success;
-}
-
-CameraStreamError LiveOutputStream::StartNewPartStream(const AVPacket* Packet)
-{
-	CreateDirectoryA(_LiveCachePath->c_str(), nullptr);
-	std::stringstream TargetFilename;
-	TargetFilename << *_LiveCachePath << "\\Live_" << _InputStream->GetSourceId() << "_" << (_CurrentSegmentIndex) << "." << _CurrentPartIndex << ".mp4";
-	
-	std::string FinishedPath = TargetFilename.str();
-
-	_CurrentPartStream = new OutputStream(FinishedPath, _InputStream, false, true, true, false);
-	CameraStreamError Result = _CurrentPartStream->Initialize();
-	if (Result != CameraStreamError::Success)
-	{
-		memcpy(m_ErrorMessage, _CurrentPartStream->GetFFMPEGErrorMessage(), 256);
-		return Result;
-	}
-
-	if (Packet->flags & AV_PKT_FLAG_KEY)
-	{
-		_CurrentPartStream->SetIsolated(true);
-	}
-
-	_CurrentPartStream->SetSegmentIndex(_CurrentSegmentIndex);
-	_CurrentPartStream->SetPartIndex(_CurrentPartIndex);
-
-	return CameraStreamError::Success;
-}
-
-CameraStreamError LiveOutputStream::CreateInitSegment(const AVPacket* Packet)
-{
-	CreateDirectoryA(_LiveCachePath->c_str(), nullptr);
-	std::stringstream TargetFilename;
-	TargetFilename << *_LiveCachePath << "\\Live_" << _InputStream->GetSourceId() << "_Init.mp4";
-
-	std::string FinishedPath = TargetFilename.str();
-
-	_InitSegment = new OutputStream(FinishedPath, _InputStream, false, true, true, true);
-	CameraStreamError Result = _InitSegment->Initialize();
-	if (Result != CameraStreamError::Success)
-	{
-		memcpy(m_ErrorMessage, _InitSegment->GetFFMPEGErrorMessage(), 256);
-		return Result;
-	}
-
-	_InitSegment->Shutdown();
-
-	return CameraStreamError::Success;
 }
 
 }}

@@ -2,20 +2,23 @@
 
 #include "Stream.h"
 #include "InputStream.h"
-#include "OutputStream.h"
 #include <mutex>
 #include <chrono>
+#include <string>
 
 struct AVPacket;
 struct AVRational;
+struct AVFormatContext;
+struct AVCodecContext;
 
 namespace Witness{
 namespace Camera{
 
 struct LiveStreamSegment
 {
-	OutputStream* Stream;
-	std::vector<OutputStream*> PartialStreams;
+	std::string FilePath;
+	double Duration;
+	int SegmentIndex;
 	std::chrono::time_point<std::chrono::system_clock> SegmentTime;
 	bool Ready;
 };
@@ -46,30 +49,34 @@ public:
 
 private:
 
-	void FinishStream();
-	void FinishPartStream();
-	CameraStreamError StartNewStream(const AVPacket* Packet);
-	CameraStreamError StartNewPartStream(const AVPacket* Packet);
-	CameraStreamError CreateInitSegment(const AVPacket* Packet);
+	CameraStreamError InitFormatContext();
+	CameraStreamError StartNewSegment(const AVPacket* Packet);
+	void FinishCurrentSegment();
 
-	const std::string* _LiveCachePath;
+	std::string _LiveCachePath;
+	std::string _InitSegmentPath;
 
 	std::vector<LiveStreamSegment>* _StreamBacklog;
-	OutputStream* _CurrentStream;
-	OutputStream* _CurrentPartStream;
-	OutputStream* _InitSegment;
 
 	InputStream* _InputStream;
 
+	// Single persistent format context for the entire live stream
+	AVFormatContext* _FormatContext;
+	AVCodecContext* _CodecContext;
+
+	bool _HeaderWritten;
+	bool _InitSegmentCaptured;
+	bool _FirstPacketSeen;
+
+	int64_t _SegmentStartDTS;
+	double _CurrentSegmentDuration;
+
 	const int _KeyframesPerSegment;
-	int _KeyframesPerSegmentLeft;
 	int _SkipInitialKeyframes;
 
-	std::chrono::time_point<std::chrono::high_resolution_clock> m_LastSegmentTime;
-	std::chrono::time_point<std::chrono::high_resolution_clock> m_LastPartTime;
-
 	int _CurrentSegmentIndex;
-	int _CurrentPartIndex;
+
+	std::chrono::time_point<std::chrono::system_clock> _CurrentSegmentWallTime;
 
 	std::mutex* _SegmentsMutex;
 };

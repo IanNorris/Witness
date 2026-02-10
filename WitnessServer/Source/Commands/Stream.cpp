@@ -12,6 +12,7 @@
 #include <iomanip>
 #include <chrono>
 #include <ctime>
+#include <cmath>
 #include <iostream>
 #include <filesystem>
 #include <format>
@@ -98,8 +99,6 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 	}
 #endif
 
-	//TODO: Use a SRW here. Write only when updating the array.
-
 	auto CameraState = Context.FindCameraById(TargetCameraInt);
 
 	if (!CameraState)
@@ -131,15 +130,15 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 		{
 			LiveStreamSegment& Segment = Segments[segment];
 
-			if (Segment.Stream && Segment.Ready)
+			if (Segment.Ready)
 			{
-				double NewDuration = Segment.Stream->GetClipLength();
+				double NewDuration = Segment.Duration;
 				if (NewDuration > MaxLength)
 				{
 					MaxLength = NewDuration;
 				}
 
-				if (Segment.Stream->GetSegmentIndex() == msnStart)
+				if (Segment.SegmentIndex == msnStart)
 				{
 					MaxLength = NewDuration;
 					startAtSegment = segment;
@@ -151,57 +150,28 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 		Playlist << "#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=NO,PART-HOLD-BACK=" << HoldbackLength << "\n";
 		Playlist << "#EXT-X-PART-INF:PART-TARGET=" << HoldbackLength << "\n";
 
-		// Allow some slop in future segment lengths (spec says no more than 20%)
-		MaxLength *= 1.18; 
+		double TargetDuration = MaxLength * 1.18;
+		if (TargetDuration < 1.0) TargetDuration = 1.0;
 
-		Playlist << "#EXT-X-MEDIA-SEQUENCE:" << Segments[startAtSegment].Stream->GetSegmentIndex() << "\n";
+		Playlist << "#EXT-X-MEDIA-SEQUENCE:" << Segments[startAtSegment].SegmentIndex << "\n";
 		Playlist << "#EXT-X-INDEPENDENT-SEGMENTS\n";
-		Playlist << "#EXT-X-TARGETDURATION:" << MaxLength << "\n";
+		Playlist << "#EXT-X-TARGETDURATION:" << (int)std::ceil(TargetDuration) << "\n";
 		Playlist << "#EXT-X-MAP:URI=\"" << TargetCameraInt << "/0/i\"" << "\n";
 		Playlist << "" << "\n";
 
 		Playlist.precision(4);
 
-		double LastTime = 0;
-
-		int lastIndex = 0;
-
 		for (int segment = startAtSegment; segment < bufferSegments; segment++)
 		{
 			LiveStreamSegment& Segment = Segments[segment];
 
-			if (Segment.Stream && Segment.Ready)
+			if (Segment.Ready)
 			{
 				std::string dateTimeFormat = std::format("{:%Y-%m-%dT%H:%M:%S}", Segment.SegmentTime);
 
 				Playlist << "#EXT-X-PROGRAM-DATE-TIME:" << string_t(dateTimeFormat.begin(), dateTimeFormat.end()) << "\n";
-			}
-			
-			/*
-			for (auto Part : Segment.PartialStreams)
-			{
-				if (Part->GetClipLength() > 0)
-				{
-					Playlist << "#EXT-X-PART:DURATION=" << Part->GetClipLength() << ",URI=\"" << TargetCameraInt << "/" << Part->GetSegmentIndex() << "/" << Part->GetPartIndex() << "\"";
-					if (Part->IsIsolated())
-					{
-						Playlist << ",INDEPENDENT=YES" << "\n";
-					}
-					else
-					{
-						Playlist << "\n";
-					}
-				}
-			}*/
-
-			if (Segment.Stream && Segment.Ready)
-			{
-				lastIndex = Segment.Stream->GetSegmentIndex();
-
-				auto Length = Segment.Stream->GetClipLength();
-
-				Playlist << "#EXTINF:" << Length << "," << "\n";
-				Playlist << TargetCameraInt << "/" << Segment.Stream->GetSegmentIndex() << "/f\n";
+				Playlist << "#EXTINF:" << Segment.Duration << "," << "\n";
+				Playlist << TargetCameraInt << "/" << Segment.SegmentIndex << "/f\n";
 			}
 		}
 	}
@@ -213,9 +183,9 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 	Response.headers().set_cache_control(_T("no-cache, no-store, must-revalidate"));
 
 	//For testing with hls-demo
-//#if _DEBUG
+#if _DEBUG
 	Response.headers().add(U("Access-Control-Allow-Origin"), U("*"));
-//#endif
+#endif
 
 	Message.reply(Response);
 }
@@ -238,6 +208,4 @@ void Command_Stream::OnMessage( GlobalContext& Context, http_request& Message, c
 	{
 		Message.reply(status_codes::NotFound);
 	}
-
-	Message.reply( status_codes::NotFound );
 }
