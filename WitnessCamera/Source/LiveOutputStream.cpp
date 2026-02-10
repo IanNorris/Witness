@@ -29,6 +29,11 @@ LiveOutputStream::LiveOutputStream(const std::string& LiveCachePath, InputStream
 	, _KeyframesPerSegment(KeyframesPerSegment)
 	, _SkipInitialKeyframes(1)
 	, _CurrentSegmentIndex(0)
+	, _CurrentPartialIndex(0)
+	, _PartialStartDTS(AV_NOPTS_VALUE)
+	, _CurrentPartialDuration(0.0)
+	, _PartialTargetDuration(0.33)
+	, _CurrentPartialIsIndependent(false)
 	, _SegmentsMutex( new std::mutex )
 {
 }
@@ -254,21 +259,23 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 		return CameraStreamError::Success;
 	}
 
-	// Synthesize missing PTS from DTS — some cameras (e.g. Tapo) deliver
-	// packets with AV_NOPTS_VALUE for PTS, which the MP4 muxer rejects.
-	if (PacketCopy.pts == AV_NOPTS_VALUE)
-		PacketCopy.pts = PacketCopy.dts;
+	// For live HLS passthrough, force PTS = DTS. B-frame streams have
+	// PTS != DTS (and sometimes PTS == AV_NOPTS_VALUE), which causes the
+	// MP4 muxer to compute negative durations internally. The client
+	// browser uses tfdt + sample_duration for timing, not CTS offsets.
+	PacketCopy.pts = PacketCopy.dts;
 
 	PacketCopy.stream_index = 0;
 	PacketCopy.pos = -1;
 
-	// Enforce strictly monotonic DTS — some cameras (Tapo with B-frames)
-	// deliver packets with duplicate DTS values.
+	// Drop packets with non-monotonic DTS — B-frame streams can deliver
+	// packets with duplicate or decreasing DTS. The frag_custom MP4 muxer
+	// cannot handle these; dropping them is safe since they're B-frames
+	// that only affect visual quality slightly.
 	if (_LastWrittenDTS != AV_NOPTS_VALUE && PacketCopy.dts <= _LastWrittenDTS)
 	{
-		PacketCopy.dts = _LastWrittenDTS + 1;
-		if (PacketCopy.pts < PacketCopy.dts)
-			PacketCopy.pts = PacketCopy.dts;
+		av_packet_unref(&PacketCopy);
+		return CameraStreamError::Success;
 	}
 	_LastWrittenDTS = PacketCopy.dts;
 
@@ -279,6 +286,11 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 	AVRational TimeBase = _FormatContext->streams[0]->time_base;
 	double PacketDurationSec = (double)(PacketCopy.duration * TimeBase.num) / TimeBase.den;
 	_CurrentSegmentDuration += PacketDurationSec;
+	_CurrentPartialDuration += PacketDurationSec;
+
+	// Track whether this partial contains a keyframe (first partial of segment)
+	if (PacketCopy.flags & AV_PKT_FLAG_KEY)
+		_CurrentPartialIsIndependent = true;
 
 	// Use av_write_frame (non-interleaving) — packets arrive in DTS order
 	// from the RTSP demuxer, so interleaving is unnecessary and its internal
@@ -291,6 +303,45 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 	}
 
 	return CameraStreamError::Success;
+}
+
+void LiveOutputStream::FlushPartialSegment(bool IsIndependent)
+{
+	if (!_FormatContext || !_CurrentBuffer)
+		return;
+
+	// Flush current fragment data into the buffer
+	av_write_frame(_FormatContext, nullptr);
+	avio_flush(_FormatContext->pb);
+
+	// Only create a partial if we actually accumulated data since the last flush
+	if (_CurrentBuffer->empty() || _CurrentPartialDuration <= 0.0)
+		return;
+
+	// Snapshot the current buffer as a partial segment
+	SegmentBuffer PartialData = _CurrentBuffer;
+
+	// Start a new buffer for the next partial
+	_CurrentBuffer = std::make_shared<std::vector<uint8_t>>();
+
+	LiveStreamPartialSegment Partial;
+	Partial.Data = PartialData;
+	Partial.Duration = _CurrentPartialDuration;
+	Partial.PartIndex = _CurrentPartialIndex;
+	Partial.Independent = IsIndependent;
+
+	{
+		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
+
+		if (!_StreamBacklog->empty())
+		{
+			_StreamBacklog->back().Partials.push_back(Partial);
+		}
+	}
+
+	_CurrentPartialIndex++;
+	_CurrentPartialDuration = 0.0;
+	_CurrentPartialIsIndependent = false;
 }
 
 CameraStreamError LiveOutputStream::StartNewSegment(const AVPacket* Packet)

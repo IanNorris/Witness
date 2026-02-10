@@ -19,6 +19,14 @@ namespace Camera{
 
 typedef std::shared_ptr<std::vector<uint8_t>> SegmentBuffer;
 
+struct LiveStreamPartialSegment
+{
+	SegmentBuffer Data;
+	double Duration;
+	int PartIndex;
+	bool Independent; // true if starts with a keyframe
+};
+
 struct LiveStreamSegment
 {
 	SegmentBuffer Data;
@@ -26,6 +34,7 @@ struct LiveStreamSegment
 	int SegmentIndex;
 	std::chrono::time_point<std::chrono::system_clock> SegmentTime;
 	bool Ready;
+	std::vector<LiveStreamPartialSegment> Partials;
 };
 
 class CAMERA_API LiveOutputStream : public Stream
@@ -59,11 +68,17 @@ public:
 		return _InitSegmentData;
 	}
 
+	double GetPartialTargetDuration()
+	{
+		return _PartialTargetDuration;
+	}
+
 private:
 
 	CameraStreamError InitFormatContext();
 	CameraStreamError StartNewSegment(const AVPacket* Packet);
 	void FinishCurrentSegment();
+	void FlushPartialSegment(bool IsIndependent);
 
 	void SetupMemoryIO();
 
@@ -100,6 +115,12 @@ private:
 	int _SkipInitialKeyframes;
 
 	int _CurrentSegmentIndex;
+
+	int _CurrentPartialIndex;
+	int64_t _PartialStartDTS;
+	double _CurrentPartialDuration;
+	double _PartialTargetDuration;
+	bool _CurrentPartialIsIndependent;
 
 	std::chrono::time_point<std::chrono::system_clock> _CurrentSegmentWallTime;
 

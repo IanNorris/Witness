@@ -23,6 +23,7 @@ OutputStream::OutputStream( const std::string& Path, InputStream * InputStream, 
 , m_ClipLength( 0.0 )
 , m_SegmentIndex(-1)
 , m_PartIndex(-1)
+, m_LastWrittenDTS( AV_NOPTS_VALUE )
 {
 	m_InputStream->Initialize();
 
@@ -71,6 +72,7 @@ OutputStream::OutputStream( const std::string& Path, unsigned int Width, unsigne
 , m_InitSegment(false)
 , m_ClipLength( 0.0 )
 , m_SegmentIndex(-1)
+, m_LastWrittenDTS( AV_NOPTS_VALUE )
 {
 	auto& ID = *m_InternalData;
 
@@ -420,7 +422,24 @@ CameraStreamError OutputStream::WriteInterleavedPacket( const AVPacket* Packet )
 		}
 	}
 
+	// Handle missing PTS — some cameras deliver AV_NOPTS_VALUE
+	if (PacketCopy.pts == AV_NOPTS_VALUE)
+		PacketCopy.pts = PacketCopy.dts;
+
 	PacketCopy.pos = -1;
+
+	// Drop packets with non-monotonic DTS — B-frame streams (e.g. Tapo)
+	// can deliver packets that cause av_interleaved_write_frame to fail.
+	if (m_LastWrittenDTS != AV_NOPTS_VALUE && PacketCopy.dts <= m_LastWrittenDTS)
+	{
+		av_packet_unref(&PacketCopy);
+		return CameraStreamError::Success;
+	}
+	m_LastWrittenDTS = PacketCopy.dts;
+
+	// Clamp negative durations from B-frame reordering
+	if (PacketCopy.duration < 0)
+		PacketCopy.duration = 0;
 
 	//Calc length before we adjust for the time base, otherwise we need to
 	//adjust the calculation to the new timebase.

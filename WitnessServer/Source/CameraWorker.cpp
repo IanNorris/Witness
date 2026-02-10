@@ -137,7 +137,13 @@ void CameraWorker::WorkerMain()
 				
 			Observer->SetManualClipStart( Data.Timestamp );
 			RecordStream = std::make_shared<OutputStream>( std::string( Data.Path.begin(), Data.Path.end() ), CameraStream.get(), false, false, false, false );
-			RecordStream->Initialize();
+			CameraStreamError InitResult = RecordStream->Initialize();
+			if (InitResult != CameraStreamError::Success)
+			{
+				printf("Recording init failed for camera %d: %s\n", Camera.ID, RecordStream->GetFFMPEGErrorMessage());
+				fflush(stdout);
+				RecordStream.reset();
+			}
 
 			Context->LongPoll->NotifyAll();
 		});

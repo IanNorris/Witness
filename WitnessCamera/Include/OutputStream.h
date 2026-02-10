@@ -79,6 +79,7 @@ private:
 	double m_ClipLength;
 	int m_SegmentIndex;
 	int m_PartIndex;
+	int64_t m_LastWrittenDTS;
 };
 
 }}
