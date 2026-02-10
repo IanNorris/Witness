@@ -45,7 +45,11 @@ public:
 		return Result;
 	}
 
-	void SetManualClipStart( uint64_t ClipStart ) { ClipStats.TimestampClipStarted = std::min( ClipStart, ClipStats.TimestampClipStarted ); }
+	void SetManualClipStart( uint64_t ClipStart )
+	{
+		ClipStats.TimestampClipStarted = std::min( ClipStart, ClipStats.TimestampClipStarted );
+		WantManualThumbnail = true;
+	}
 	void SetManualClipEnd( uint64_t ClipEnd ) { ClipStats.TimestampClipEnded = std::max( ClipEnd, ClipStats.TimestampClipEnded ); }
 
 	virtual void ClearStateThis() override { ClipStats.Clear(); }
@@ -74,6 +78,7 @@ private:
 	int						FrameIndex;
 	int						LastMotionIndex;
 	bool					SaveNextFrame;
+	bool					WantManualThumbnail;
 
 	ClassificationResult	Result;
 	ClipStatistics			ClipStats;
