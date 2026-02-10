@@ -113,7 +113,6 @@ private:
 	int64_t _SegmentStartDTS;
 	double _CurrentSegmentDuration;
 
-	const int _KeyframesPerSegment;
 	int _SkipInitialKeyframes;
 
 	int _CurrentSegmentIndex;

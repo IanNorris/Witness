@@ -26,7 +26,6 @@ LiveOutputStream::LiveOutputStream(const std::string& LiveCachePath, InputStream
 	, _LastWrittenDTS( AV_NOPTS_VALUE )
 	, _SegmentStartDTS( 0 )
 	, _CurrentSegmentDuration( 0.0 )
-	, _KeyframesPerSegment(KeyframesPerSegment)
 	, _SkipInitialKeyframes(1)
 	, _CurrentSegmentIndex(0)
 	, _CurrentPartialIndex(0)
@@ -338,6 +337,7 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 	// reorder buffer causes spurious "non monotonically increasing dts" errors
 	// with B-frame streams (e.g. Tapo cameras).
 	Result = av_write_frame(_FormatContext, &PacketCopy);
+	av_packet_unref(&PacketCopy);
 	if (Result < 0)
 	{
 		STREAM_ERROR(WriteFailed, Result);
@@ -478,6 +478,14 @@ void LiveOutputStream::FinishCurrentSegment()
 			Seg.Data = _CurrentBuffer;
 			Seg.Duration = _CurrentSegmentDuration;
 			Seg.Ready = true;
+
+			// Release partial data buffers — the full segment contains
+			// all the data. Keep Duration/PartIndex/Independent for the
+			// playlist EXT-X-PART tags but free the actual byte buffers.
+			for (auto& Partial : Seg.Partials)
+			{
+				Partial.Data.reset();
+			}
 		}
 	}
 
