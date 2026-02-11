@@ -24,6 +24,9 @@ OutputStream::OutputStream( const std::string& Path, InputStream * InputStream, 
 , m_SegmentIndex(-1)
 , m_PartIndex(-1)
 , m_LastWrittenDTS( AV_NOPTS_VALUE )
+, m_HasAudioStream( false )
+, m_AudioInputStreamIndex( -1 )
+, m_InitialAudioDTS( AV_NOPTS_VALUE )
 {
 	m_InputStream->Initialize();
 
@@ -73,6 +76,9 @@ OutputStream::OutputStream( const std::string& Path, unsigned int Width, unsigne
 , m_ClipLength( 0.0 )
 , m_SegmentIndex(-1)
 , m_LastWrittenDTS( AV_NOPTS_VALUE )
+, m_HasAudioStream( false )
+, m_AudioInputStreamIndex( -1 )
+, m_InitialAudioDTS( AV_NOPTS_VALUE )
 {
 	auto& ID = *m_InternalData;
 
@@ -208,7 +214,7 @@ CameraStreamError OutputStream::Initialize()
 			break;
 		}
 
-		OutStream->time_base = m_InputStream->GetData().FormatContext->streams[0]->time_base;
+		OutStream->time_base = m_InputStream->GetData().FormatContext->streams[m_InputStream->GetData().ChosenStreamIndex]->time_base;
 		ID.CodecContext->time_base = OutStream->time_base;
 
 		Params->format = OutputPixelFormat;
@@ -288,6 +294,42 @@ CameraStreamError OutputStream::Initialize()
 
 	OutStream->time_base = ID.CodecContext->time_base;
 	OutStream->avg_frame_rate= av_inv_q(OutStream->time_base);
+
+	// Add audio stream if the input has one and codec is MP4-compatible
+	m_HasAudioStream = false;
+	if (m_InputStream)
+	{
+		auto& InID = m_InputStream->GetData();
+		if (InID.HasAudio && InID.ChosenAudioStreamIndex >= 0)
+		{
+			AVStream* AudioInStream = InID.FormatContext->streams[InID.ChosenAudioStreamIndex];
+			AVCodecID AudioCodec = AudioInStream->codecpar->codec_id;
+
+			bool AudioCodecSupported =
+				AudioCodec == AV_CODEC_ID_AAC ||
+				AudioCodec == AV_CODEC_ID_MP3 ||
+				AudioCodec == AV_CODEC_ID_AC3 ||
+				AudioCodec == AV_CODEC_ID_EAC3 ||
+				AudioCodec == AV_CODEC_ID_FLAC ||
+				AudioCodec == AV_CODEC_ID_OPUS;
+
+			if (AudioCodecSupported)
+			{
+				AVStream* AudioOutStream = avformat_new_stream(ID.FormatContext, nullptr);
+				if (AudioOutStream)
+				{
+					Result = avcodec_parameters_copy(AudioOutStream->codecpar, AudioInStream->codecpar);
+					if (Result >= 0)
+					{
+						AudioOutStream->codecpar->codec_tag = 0;
+						AudioOutStream->time_base = AudioInStream->time_base;
+						m_HasAudioStream = true;
+						m_AudioInputStreamIndex = InID.ChosenAudioStreamIndex;
+					}
+				}
+			}
+		}
+	}
 
 	if( !( ID.FormatContext->oformat->flags & AVFMT_NOFILE ) )
 	{
@@ -390,6 +432,8 @@ CameraStreamError OutputStream::WriteInterleavedPacket( const AVPacket* Packet )
 		return InitError;
 	}
 
+	bool IsAudioPacket = m_HasAudioStream && Packet->stream_index == m_AudioInputStreamIndex;
+
 	AVPacket PacketCopy;
 	memset( &PacketCopy, 0, sizeof(PacketCopy) );
 	int Result = av_packet_ref( &PacketCopy, Packet );
@@ -399,6 +443,55 @@ CameraStreamError OutputStream::WriteInterleavedPacket( const AVPacket* Packet )
 	}
 
 	auto& ID = *m_InternalData;
+
+	if (IsAudioPacket)
+	{
+		// Audio DTS normalization — independent from video
+		if (m_InitialAudioDTS == AV_NOPTS_VALUE && PacketCopy.dts != AV_NOPTS_VALUE)
+		{
+			m_InitialAudioDTS = PacketCopy.dts;
+		}
+
+		if (m_InitialAudioDTS != AV_NOPTS_VALUE)
+		{
+			if (PacketCopy.dts != AV_NOPTS_VALUE)
+				PacketCopy.dts -= m_InitialAudioDTS;
+			if (PacketCopy.pts != AV_NOPTS_VALUE)
+				PacketCopy.pts -= m_InitialAudioDTS;
+		}
+
+		if (PacketCopy.dts != AV_NOPTS_VALUE && PacketCopy.dts < 0)
+		{
+			av_packet_unref(&PacketCopy);
+			return CameraStreamError::Success;
+		}
+
+		PacketCopy.stream_index = 1;
+		PacketCopy.pos = -1;
+
+		// Rescale from input audio timebase to output audio timebase
+		if (m_InputStream)
+		{
+			auto& InID = m_InputStream->GetData();
+			AVRational InTimeBase = InID.FormatContext->streams[InID.ChosenAudioStreamIndex]->time_base;
+			av_packet_rescale_ts(&PacketCopy, InTimeBase, ID.FormatContext->streams[1]->time_base);
+		}
+
+		// Clamp negative durations from timebase conversion rounding
+		if (PacketCopy.duration < 0)
+			PacketCopy.duration = 0;
+
+		if (PacketCopy.pts == AV_NOPTS_VALUE)
+			PacketCopy.pts = PacketCopy.dts;
+
+		Result = av_interleaved_write_frame( ID.FormatContext, &PacketCopy );
+		if( Result < 0 )
+		{
+			STREAM_ERROR( WriteFailed, Result );
+		}
+
+		return CameraStreamError::Success;
+	}
 	
 	if (m_Live)
 	{
@@ -465,6 +558,8 @@ CameraStreamError OutputStream::WriteInterleavedPacket( const AVPacket* Packet )
 				ID.FormatContext->streams[0]->time_base);
 		}
 	}
+
+	PacketCopy.stream_index = 0;
 
 	Result = av_interleaved_write_frame( ID.FormatContext, &PacketCopy );
 	if( Result < 0 )

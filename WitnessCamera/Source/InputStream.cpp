@@ -1,5 +1,6 @@
 #include "InputStream.h"
 #include "OutputStream.h"
+#include "LiveOutputStream.h"
 #include "StreamManager.h"
 #include "StreamData.h"
 #include "ImageProcessingData.h"
@@ -83,6 +84,8 @@ CameraStreamError InputStream::Initialize()
 	}
 
 	ID.ChosenStreamIndex = 0;
+	ID.ChosenAudioStreamIndex = -1;
+	ID.HasAudio = false;
 	for( unsigned int i = 0; i < ID.FormatContext->nb_streams; i++ )
 	{
 		if( ID.FormatContext->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO )
@@ -90,7 +93,14 @@ CameraStreamError InputStream::Initialize()
 			if( ID.StreamIndex == i || ID.StreamIndex == 0 )
 			{
 				ID.ChosenStreamIndex = i;
-				break;
+			}
+		}
+		else if( ID.FormatContext->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO )
+		{
+			if( ID.ChosenAudioStreamIndex < 0 )
+			{
+				ID.ChosenAudioStreamIndex = i;
+				ID.HasAudio = true;
 			}
 		}
 	}
@@ -364,6 +374,21 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 					ID.Input->Unref();
 				}
 			}
+		}
+	}
+	else if (ID.HasAudio && ID.Packet.stream_index == ID.ChosenAudioStreamIndex)
+	{
+		OutputStream* Output = dynamic_cast<OutputStream*>(TargetStream);
+		LiveOutputStream* Live = dynamic_cast<LiveOutputStream*>(LiveStream);
+
+		if (Output)
+		{
+			Output->WriteInterleavedPacket(&ID.Packet);
+		}
+
+		if (Live)
+		{
+			Live->WriteInterleavedPacket(&ID.Packet);
 		}
 	}
 

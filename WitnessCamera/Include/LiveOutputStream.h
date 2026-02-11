@@ -107,13 +107,16 @@ private:
 	bool _HeaderWritten;
 	bool _InitSegmentCaptured;
 	bool _HasInitialDTS;
+	bool _HasAudioStream;
 
 	int64_t _InitialDTS;
+	int64_t _InitialAudioDTS;
 	int64_t _LastWrittenDTS;
 	int64_t _SegmentStartDTS;
 	double _CurrentSegmentDuration;
 
 	int _SkipInitialKeyframes;
+	int _AudioInputStreamIndex;
 
 	int _CurrentSegmentIndex;
 
