@@ -235,41 +235,11 @@ CameraStreamError LiveOutputStream::InitFormatContext()
 	OutStream->codecpar->codec_tag = 0;
 	OutStream->time_base = InID.FormatContext->streams[InID.ChosenStreamIndex]->time_base;
 
-	// Add audio stream if available and codec is supported in MP4
+	// Audio is not included in the live HLS path — av_write_frame (non-interleaving)
+	// with frag_custom produces invalid multi-track fragments that browsers reject.
+	// Audio is included in recorded clips via OutputStream instead.
 	_HasAudioStream = false;
 	_AudioInputStreamIndex = -1;
-	if (InID.HasAudio && InID.ChosenAudioStreamIndex >= 0)
-	{
-		AVStream* AudioInStream = InID.FormatContext->streams[InID.ChosenAudioStreamIndex];
-		AVCodecID AudioCodec = AudioInStream->codecpar->codec_id;
-
-		// Only add audio if the codec is supported in MP4 container.
-		// PCM/G.711 variants (pcm_alaw, pcm_mulaw) from cameras like
-		// Hikvision are not supported in fragmented MP4.
-		bool AudioCodecSupported =
-			AudioCodec == AV_CODEC_ID_AAC ||
-			AudioCodec == AV_CODEC_ID_MP3 ||
-			AudioCodec == AV_CODEC_ID_AC3 ||
-			AudioCodec == AV_CODEC_ID_EAC3 ||
-			AudioCodec == AV_CODEC_ID_FLAC ||
-			AudioCodec == AV_CODEC_ID_OPUS;
-
-		if (AudioCodecSupported)
-		{
-			AVStream* AudioOutStream = avformat_new_stream(_FormatContext, nullptr);
-			if (AudioOutStream)
-			{
-				Result = avcodec_parameters_copy(AudioOutStream->codecpar, AudioInStream->codecpar);
-				if (Result >= 0)
-				{
-					AudioOutStream->codecpar->codec_tag = 0;
-					AudioOutStream->time_base = AudioInStream->time_base;
-					_HasAudioStream = true;
-					_AudioInputStreamIndex = InID.ChosenAudioStreamIndex;
-				}
-			}
-		}
-	}
 
 	// Set up in-memory I/O
 	SetupMemoryIO();
@@ -300,18 +270,28 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 		}
 	}
 
-	// Segment boundaries are driven by video keyframes only
+	// Segment boundaries are driven by video keyframes only, but only split
+	// if enough duration has accumulated. Cameras with very frequent keyframes
+	// (e.g. Tapo ~100ms GOP) would otherwise create tiny unusable segments.
 	if (!IsAudioPacket && (Packet->flags & AV_PKT_FLAG_KEY))
 	{
-		if (_HeaderWritten)
+		if (_HeaderWritten && _CurrentSegmentDuration >= 1.0)
 		{
 			FinishCurrentSegment();
-		}
 
-		CameraStreamError Result = StartNewSegment(Packet);
-		if (Result != CameraStreamError::Success)
+			CameraStreamError Result = StartNewSegment(Packet);
+			if (Result != CameraStreamError::Success)
+			{
+				return Result;
+			}
+		}
+		else if (!_HeaderWritten)
 		{
-			return Result;
+			CameraStreamError Result = StartNewSegment(Packet);
+			if (Result != CameraStreamError::Success)
+			{
+				return Result;
+			}
 		}
 	}
 
@@ -522,8 +502,8 @@ CameraStreamError LiveOutputStream::StartNewSegment(const AVPacket* Packet)
 	{
 		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
 
-		// Trim old segments
-		while (_StreamBacklog->size() >= 5)
+		// Trim old segments — keep enough for HLS.js to start playback
+		while (_StreamBacklog->size() >= 15)
 		{
 			_StreamBacklog->erase(_StreamBacklog->begin());
 		}

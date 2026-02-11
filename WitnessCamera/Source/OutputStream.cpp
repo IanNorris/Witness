@@ -27,6 +27,8 @@ OutputStream::OutputStream( const std::string& Path, InputStream * InputStream, 
 , m_HasAudioStream( false )
 , m_AudioInputStreamIndex( -1 )
 , m_InitialAudioDTS( AV_NOPTS_VALUE )
+, m_AudioInputTimeBaseNum( 0 )
+, m_AudioInputTimeBaseDen( 1 )
 {
 	m_InputStream->Initialize();
 
@@ -79,6 +81,8 @@ OutputStream::OutputStream( const std::string& Path, unsigned int Width, unsigne
 , m_HasAudioStream( false )
 , m_AudioInputStreamIndex( -1 )
 , m_InitialAudioDTS( AV_NOPTS_VALUE )
+, m_AudioInputTimeBaseNum( 0 )
+, m_AudioInputTimeBaseDen( 1 )
 {
 	auto& ID = *m_InternalData;
 
@@ -325,6 +329,8 @@ CameraStreamError OutputStream::Initialize()
 						AudioOutStream->time_base = AudioInStream->time_base;
 						m_HasAudioStream = true;
 						m_AudioInputStreamIndex = InID.ChosenAudioStreamIndex;
+						m_AudioInputTimeBaseNum = AudioInStream->time_base.num;
+						m_AudioInputTimeBaseDen = AudioInStream->time_base.den;
 					}
 				}
 			}
@@ -470,12 +476,9 @@ CameraStreamError OutputStream::WriteInterleavedPacket( const AVPacket* Packet )
 		PacketCopy.pos = -1;
 
 		// Rescale from input audio timebase to output audio timebase
-		if (m_InputStream)
-		{
-			auto& InID = m_InputStream->GetData();
-			AVRational InTimeBase = InID.FormatContext->streams[InID.ChosenAudioStreamIndex]->time_base;
-			av_packet_rescale_ts(&PacketCopy, InTimeBase, ID.FormatContext->streams[1]->time_base);
-		}
+		// Use cached timebase — m_InputStream may be invalidated by reconnect
+		AVRational AudioInTB = { m_AudioInputTimeBaseNum, m_AudioInputTimeBaseDen };
+		av_packet_rescale_ts(&PacketCopy, AudioInTB, ID.FormatContext->streams[1]->time_base);
 
 		// Clamp negative durations from timebase conversion rounding
 		if (PacketCopy.duration < 0)
@@ -545,18 +548,12 @@ CameraStreamError OutputStream::WriteInterleavedPacket( const AVPacket* Packet )
 		m_ClipLength = (double)((PacketCopy.dts + PacketCopy.duration) * ID.FormatContext->streams[0]->time_base.num) / ID.FormatContext->streams[0]->time_base.den;
 	}
 
-	if( m_InputStream )
+	if( !m_Live )
 	{
-		if (!m_Live)
-		{
-			AVRational TimeBase;
-			m_InputStream->GetTimebase( &TimeBase );
-
-			av_packet_rescale_ts(
-				&PacketCopy,
-				TimeBase,
-				ID.FormatContext->streams[0]->time_base);
-		}
+		av_packet_rescale_ts(
+			&PacketCopy,
+			ID.Timebase,
+			ID.FormatContext->streams[0]->time_base);
 	}
 
 	PacketCopy.stream_index = 0;

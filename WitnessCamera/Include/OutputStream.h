@@ -83,6 +83,8 @@ private:
 	bool m_HasAudioStream;
 	int m_AudioInputStreamIndex;
 	int64_t m_InitialAudioDTS;
+	int m_AudioInputTimeBaseNum;
+	int m_AudioInputTimeBaseDen;
 };
 
 }}
