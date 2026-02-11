@@ -97,11 +97,9 @@ void LiveOutputStream::ResetForReconnect(InputStream* NewInputStream)
 	// Tear down FFmpeg state but keep segments/init so HLS.js doesn't lose its reference
 	if (_FormatContext)
 	{
-		if (_FormatContext->pb)
-		{
-			av_write_frame(_FormatContext, nullptr);
-			avio_flush(_FormatContext->pb);
-		}
+		// Do NOT call av_write_frame(NULL)/avio_flush here — the muxer may
+		// be in an inconsistent state (e.g. audio stream created but no
+		// audio packets written), and flushing can cause a crash.
 		_FormatContext->pb = nullptr;
 		avformat_free_context(_FormatContext);
 		_FormatContext = nullptr;
@@ -130,6 +128,16 @@ void LiveOutputStream::ResetForReconnect(InputStream* NewInputStream)
 	_CurrentPartialDuration = 0.0;
 	_CurrentPartialIsIndependent = false;
 	_SkipInitialKeyframes = 1;
+
+	// Remove any orphaned incomplete segment from the backlog —
+	// otherwise HLS.js will try to load it and get a 404.
+	{
+		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
+		if (!_StreamBacklog->empty() && !_StreamBacklog->back().Ready)
+		{
+			_StreamBacklog->pop_back();
+		}
+	}
 }
 
 int LiveOutputStream::WriteBuffer(void* Opaque, const uint8_t* Buffer, int BufferSize)
@@ -221,7 +229,7 @@ CameraStreamError LiveOutputStream::InitFormatContext()
 	}
 
 	OutStream->codecpar->codec_tag = 0;
-	OutStream->time_base = InID.FormatContext->streams[0]->time_base;
+	OutStream->time_base = InID.FormatContext->streams[InID.ChosenStreamIndex]->time_base;
 
 	// Set up in-memory I/O
 	SetupMemoryIO();
@@ -251,15 +259,24 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 
 	if (Packet->flags & AV_PKT_FLAG_KEY)
 	{
-		if (_HeaderWritten)
-		{
-			FinishCurrentSegment();
-		}
+		// Enforce a minimum segment duration of 1 second.
+		// Cameras like Tapo send keyframes every ~50-100ms, which would
+		// create unusable micro-segments. Absorb keyframes that arrive
+		// before the minimum duration is reached.
+		bool ShouldSplit = !_HeaderWritten || _CurrentSegmentDuration >= 1.0;
 
-		CameraStreamError Result = StartNewSegment(Packet);
-		if (Result != CameraStreamError::Success)
+		if (ShouldSplit)
 		{
-			return Result;
+			if (_HeaderWritten)
+			{
+				FinishCurrentSegment();
+			}
+
+			CameraStreamError Result = StartNewSegment(Packet);
+			if (Result != CameraStreamError::Success)
+			{
+				return Result;
+			}
 		}
 	}
 
@@ -441,7 +458,7 @@ CameraStreamError LiveOutputStream::StartNewSegment(const AVPacket* Packet)
 		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
 
 		// Trim old segments
-		while (_StreamBacklog->size() >= 5)
+		while (_StreamBacklog->size() >= 15)
 		{
 			_StreamBacklog->erase(_StreamBacklog->begin());
 		}

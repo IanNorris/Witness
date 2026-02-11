@@ -208,7 +208,7 @@ CameraStreamError OutputStream::Initialize()
 			break;
 		}
 
-		OutStream->time_base = m_InputStream->GetData().FormatContext->streams[0]->time_base;
+		OutStream->time_base = m_InputStream->GetData().FormatContext->streams[m_InputStream->GetData().ChosenStreamIndex]->time_base;
 		ID.CodecContext->time_base = OutStream->time_base;
 
 		Params->format = OutputPixelFormat;
@@ -452,18 +452,12 @@ CameraStreamError OutputStream::WriteInterleavedPacket( const AVPacket* Packet )
 		m_ClipLength = (double)((PacketCopy.dts + PacketCopy.duration) * ID.FormatContext->streams[0]->time_base.num) / ID.FormatContext->streams[0]->time_base.den;
 	}
 
-	if( m_InputStream )
+	if( !m_Live )
 	{
-		if (!m_Live)
-		{
-			AVRational TimeBase;
-			m_InputStream->GetTimebase( &TimeBase );
-
-			av_packet_rescale_ts(
-				&PacketCopy,
-				TimeBase,
-				ID.FormatContext->streams[0]->time_base);
-		}
+		av_packet_rescale_ts(
+			&PacketCopy,
+			ID.Timebase,
+			ID.FormatContext->streams[0]->time_base);
 	}
 
 	Result = av_interleaved_write_frame( ID.FormatContext, &PacketCopy );
