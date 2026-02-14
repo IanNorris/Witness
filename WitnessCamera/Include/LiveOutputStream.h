@@ -119,8 +119,6 @@ private:
 	int64_t _SegmentStartDTS;
 	double _CurrentSegmentDuration;
 
-	int _SkipInitialKeyframes;
-
 	int _CurrentSegmentIndex;
 
 	int _CurrentPartialIndex;

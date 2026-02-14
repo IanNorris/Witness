@@ -26,12 +26,11 @@ LiveOutputStream::LiveOutputStream(const std::string& LiveCachePath, InputStream
 	, _LastWrittenDTS( AV_NOPTS_VALUE )
 	, _SegmentStartDTS( 0 )
 	, _CurrentSegmentDuration( 0.0 )
-	, _SkipInitialKeyframes(1)
 	, _CurrentSegmentIndex(0)
 	, _CurrentPartialIndex(0)
 	, _PartialStartDTS(AV_NOPTS_VALUE)
 	, _CurrentPartialDuration(0.0)
-	, _PartialTargetDuration(0.10)
+	, _PartialTargetDuration(0.33)
 	, _CurrentPartialIsIndependent(false)
 	, _PartialBufferOffset(0)
 	, _DiscontinuityPending(false)
@@ -129,7 +128,6 @@ void LiveOutputStream::ResetForReconnect(InputStream* NewInputStream)
 	_PartialBufferOffset = 0;
 	_CurrentPartialDuration = 0.0;
 	_CurrentPartialIsIndependent = false;
-	_SkipInitialKeyframes = 1;
 	_DiscontinuityPending = true;
 	_InitGeneration++;
 
@@ -243,15 +241,6 @@ CameraStreamError LiveOutputStream::InitFormatContext()
 
 CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packet)
 {
-	if (Packet->flags & AV_PKT_FLAG_KEY)
-	{
-		if (_SkipInitialKeyframes > 0)
-		{
-			_SkipInitialKeyframes--;
-			return CameraStreamError::Success;
-		}
-	}
-
 	if (!_FormatContext)
 	{
 		CameraStreamError Result = InitFormatContext();
@@ -321,18 +310,17 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 	}
 
 	// For live HLS passthrough, force PTS = DTS. B-frame streams have
-	// PTS != DTS (and sometimes PTS == AV_NOPTS_VALUE), which causes the
-	// MP4 muxer to compute negative durations internally. The client
-	// browser uses tfdt + sample_duration for timing, not CTS offsets.
+	// PTS != DTS (display order differs from decode order), which causes
+	// the browser to reorder frames for display — creating visible stutter
+	// in live playback. Forcing PTS=DTS makes frames display in decode
+	// order, which is slightly incorrect but produces smooth playback.
 	PacketCopy.pts = PacketCopy.dts;
 
 	PacketCopy.stream_index = 0;
 	PacketCopy.pos = -1;
 
-	// Drop packets with non-monotonic DTS — B-frame streams can deliver
-	// packets with duplicate or decreasing DTS. The frag_custom MP4 muxer
-	// cannot handle these; dropping them is safe since they're B-frames
-	// that only affect visual quality slightly.
+	// Drop packets with non-monotonic DTS — a safety net in case the
+	// demuxer delivers out-of-order or duplicate packets.
 	if (_LastWrittenDTS != AV_NOPTS_VALUE && PacketCopy.dts <= _LastWrittenDTS)
 	{
 		av_packet_unref(&PacketCopy);
@@ -424,7 +412,7 @@ CameraStreamError LiveOutputStream::StartNewSegment(const AVPacket* Packet)
 		_CurrentBuffer = std::make_shared<std::vector<uint8_t>>();
 
 		AVDictionary* options = nullptr;
-		av_dict_set(&options, "movflags", "empty_moov+frag_custom+dash+default_base_moof+negative_cts_offsets", 0);
+		av_dict_set(&options, "movflags", "empty_moov+frag_custom+dash+default_base_moof", 0);
 		av_dict_set(&options, "brand", "iso6", 0);
 
 		int Result = avformat_write_header(_FormatContext, &options);
@@ -502,13 +490,10 @@ void LiveOutputStream::FinishCurrentSegment()
 			Seg.Duration = _CurrentSegmentDuration;
 			Seg.Ready = true;
 
-			// Release partial data buffers — the full segment contains
-			// all the data. Keep Duration/PartIndex/Independent for the
-			// playlist EXT-X-PART tags but free the actual byte buffers.
-			for (auto& Partial : Seg.Partials)
-			{
-				Partial.Data.reset();
-			}
+			// Keep partial data buffers alive — HLS.js in lowLatencyMode
+			// requests partials even for completed segments. The partial
+			// buffers are slices of _CurrentBuffer which we retain anyway,
+			// so there's no additional memory cost.
 		}
 	}
 

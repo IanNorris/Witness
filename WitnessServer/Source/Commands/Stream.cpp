@@ -100,7 +100,6 @@ void Command_Stream::OnSegmentMessage(const GlobalContext& Context, http_request
 		{
 			if (Seg.SegmentIndex == TargetSegmentInt)
 			{
-				// Try serving the partial segment data
 				if (TargetPartInt >= 0 && TargetPartInt < (int)Seg.Partials.size())
 				{
 					auto& Partial = Seg.Partials[TargetPartInt];
@@ -113,17 +112,6 @@ void Command_Stream::OnSegmentMessage(const GlobalContext& Context, http_request
 						Message.reply(response);
 						return;
 					}
-				}
-
-				// Partial data was released (completed segment) — serve full segment instead
-				if (Seg.Ready && Seg.Data && !Seg.Data->empty())
-				{
-					http_response response(status_codes::OK);
-					response.headers().add(U("Access-Control-Allow-Origin"), U("*"));
-					response.headers().set_content_type(_T("video/mp4"));
-					response.set_body(*Seg.Data);
-					Message.reply(response);
-					return;
 				}
 				break;
 			}
@@ -234,7 +222,6 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 
 				Playlist << "#EXT-X-PROGRAM-DATE-TIME:" << string_t(dateTimeFormat.begin(), dateTimeFormat.end()) << "\n";
 
-				// Emit EXT-X-PART tags for each partial within this completed segment
 				for (auto& Partial : Segment.Partials)
 				{
 					Playlist << "#EXT-X-PART:DURATION=" << Partial.Duration

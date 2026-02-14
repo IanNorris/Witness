@@ -6,7 +6,10 @@ ko.bindingHandlers.hlsPreview = {
             enableWorker: true,
             lowLatencyMode: true,
             liveDurationInfinity: true,
-            backBufferLength: 5
+            backBufferLength: 5,
+            liveSyncDuration: 2,
+            liveMaxLatencyDuration: 5,
+            maxLiveSyncPlaybackRate: 1.05
         };
 
         if (Hls.isSupported()) {
@@ -86,7 +89,10 @@ ko.bindingHandlers.hlsStream = {
             enableWorker: true,
             lowLatencyMode: true,
             liveDurationInfinity: true,
-            backBufferLength: 5
+            backBufferLength: 5,
+            liveSyncDuration: 2,
+            liveMaxLatencyDuration: 5,
+            maxLiveSyncPlaybackRate: 1.05
         };
 
         if (Hls.isSupported()) {
