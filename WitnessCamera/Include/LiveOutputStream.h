@@ -34,6 +34,7 @@ struct LiveStreamSegment
 	int SegmentIndex;
 	std::chrono::time_point<std::chrono::system_clock> SegmentTime;
 	bool Ready;
+	bool Discontinuity; // true if this segment follows a camera reconnect
 	std::vector<LiveStreamPartialSegment> Partials;
 };
 
@@ -66,6 +67,11 @@ public:
 		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
 
 		return _InitSegmentData;
+	}
+
+	int GetInitGeneration()
+	{
+		return _InitGeneration;
 	}
 
 	double GetPartialTargetDuration()
@@ -123,6 +129,10 @@ private:
 	double _PartialTargetDuration;
 	bool _CurrentPartialIsIndependent;
 	size_t _PartialBufferOffset;
+
+	bool _DiscontinuityPending; // set on reconnect, consumed by next segment
+
+	int _InitGeneration; // incremented on reconnect so HLS.js refetches init segment
 
 	std::chrono::time_point<std::chrono::system_clock> _CurrentSegmentWallTime;
 

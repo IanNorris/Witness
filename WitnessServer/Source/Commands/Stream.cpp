@@ -166,6 +166,7 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 	LiveStream->GetSegments(Segments);
 
 	int CurrentSegment = LiveStream->GetCurrentSegment();
+	int InitGeneration = LiveStream->GetInitGeneration();
 
 	size_t bufferSegments = Segments.size();
 	
@@ -210,7 +211,7 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 		Playlist << "#EXT-X-MEDIA-SEQUENCE:" << Segments[startAtSegment].SegmentIndex << "\n";
 		Playlist << "#EXT-X-INDEPENDENT-SEGMENTS\n";
 		Playlist << "#EXT-X-TARGETDURATION:" << (int)std::ceil(TargetDuration) << "\n";
-		Playlist << "#EXT-X-MAP:URI=\"" << TargetCameraInt << "/0/i\"" << "\n";
+		Playlist << "#EXT-X-MAP:URI=\"" << TargetCameraInt << "/0/i?g=" << InitGeneration << "\"" << "\n";
 		Playlist << "" << "\n";
 
 		Playlist.precision(4);
@@ -221,6 +222,14 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 
 			if (Segment.Ready)
 			{
+				// Signal discontinuity after camera reconnect — timestamps
+				// and codec parameters may have changed
+				if (Segment.Discontinuity)
+				{
+					Playlist << "#EXT-X-DISCONTINUITY\n";
+					Playlist << "#EXT-X-MAP:URI=\"" << TargetCameraInt << "/0/i?g=" << InitGeneration << "\"" << "\n";
+				}
+
 				std::string dateTimeFormat = std::format("{:%Y-%m-%dT%H:%M:%S}", Segment.SegmentTime);
 
 				Playlist << "#EXT-X-PROGRAM-DATE-TIME:" << string_t(dateTimeFormat.begin(), dateTimeFormat.end()) << "\n";
@@ -240,6 +249,12 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 			}
 			else
 			{
+				if (Segment.Discontinuity)
+				{
+					Playlist << "#EXT-X-DISCONTINUITY\n";
+					Playlist << "#EXT-X-MAP:URI=\"" << TargetCameraInt << "/0/i?g=" << InitGeneration << "\"" << "\n";
+				}
+
 				// In-progress segment: emit partials available so far
 				for (auto& Partial : Segment.Partials)
 				{

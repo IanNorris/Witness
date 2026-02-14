@@ -31,9 +31,11 @@ LiveOutputStream::LiveOutputStream(const std::string& LiveCachePath, InputStream
 	, _CurrentPartialIndex(0)
 	, _PartialStartDTS(AV_NOPTS_VALUE)
 	, _CurrentPartialDuration(0.0)
-	, _PartialTargetDuration(0.33)
+	, _PartialTargetDuration(0.10)
 	, _CurrentPartialIsIndependent(false)
 	, _PartialBufferOffset(0)
+	, _DiscontinuityPending(false)
+	, _InitGeneration(0)
 	, _SegmentsMutex( new std::mutex )
 {
 }
@@ -128,6 +130,8 @@ void LiveOutputStream::ResetForReconnect(InputStream* NewInputStream)
 	_CurrentPartialDuration = 0.0;
 	_CurrentPartialIsIndependent = false;
 	_SkipInitialKeyframes = 1;
+	_DiscontinuityPending = true;
+	_InitGeneration++;
 
 	// Remove any orphaned incomplete segment from the backlog —
 	// otherwise HLS.js will try to load it and get a 404.
@@ -469,6 +473,8 @@ CameraStreamError LiveOutputStream::StartNewSegment(const AVPacket* Packet)
 		NewSegment.SegmentIndex = _CurrentSegmentIndex;
 		NewSegment.SegmentTime = _CurrentSegmentWallTime;
 		NewSegment.Ready = false;
+		NewSegment.Discontinuity = _DiscontinuityPending;
+		_DiscontinuityPending = false;
 
 		_StreamBacklog->push_back(NewSegment);
 	}
