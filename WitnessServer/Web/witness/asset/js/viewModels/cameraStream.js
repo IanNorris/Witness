@@ -1,140 +1,371 @@
+// ── Stream Diagnostics ──────────────────────────────────────────────
+// Per-camera event log and stats, retained for up to 24h (reset on page refresh).
+// Accessible globally via window._witnessDiag[cameraID] for DevTools use.
+
+var DIAG_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+function StreamDiagnostics(cameraID) {
+    this.cameraID = cameraID;
+    this.startTime = Date.now();
+    this.events = [];
+    this.stats = {
+        restartCount: 0,
+        stallCount: 0,
+        errorCount: 0,
+        maxLatencyMs: 0,
+        minLatencyMs: Infinity,
+        totalFragments: 0
+    };
+    this._element = null;
+    this._hls = null;
+}
+
+StreamDiagnostics.prototype.setRefs = function (element, hls) {
+    this._element = element;
+    this._hls = hls;
+};
+
+StreamDiagnostics.prototype.log = function (type, extra) {
+    var now = Date.now();
+    var entry = { t: new Date(now).toISOString(), type: type };
+    if (extra) {
+        for (var k in extra) { if (extra.hasOwnProperty(k)) entry[k] = extra[k]; }
+    }
+    this.events.push(entry);
+    // Prune entries older than 24h
+    var cutoff = now - DIAG_MAX_AGE_MS;
+    while (this.events.length > 0 && new Date(this.events[0].t).getTime() < cutoff) {
+        this.events.shift();
+    }
+};
+
+StreamDiagnostics.prototype.recordLatency = function (latencyMs) {
+    if (latencyMs > this.stats.maxLatencyMs) this.stats.maxLatencyMs = latencyMs;
+    if (latencyMs < this.stats.minLatencyMs) this.stats.minLatencyMs = latencyMs;
+};
+
+StreamDiagnostics.prototype.snapshot = function () {
+    var el = this._element;
+    var hls = this._hls;
+    var bufferedRanges = [];
+    if (el && el.buffered) {
+        for (var i = 0; i < el.buffered.length; i++) {
+            bufferedRanges.push([el.buffered.start(i), el.buffered.end(i)]);
+        }
+    }
+    return {
+        stats: {
+            restartCount: this.stats.restartCount,
+            stallCount: this.stats.stallCount,
+            errorCount: this.stats.errorCount,
+            maxLatencyMs: this.stats.maxLatencyMs,
+            minLatencyMs: this.stats.minLatencyMs === Infinity ? null : this.stats.minLatencyMs,
+            totalFragments: this.stats.totalFragments,
+            uptimeMs: Date.now() - this.startTime
+        },
+        currentState: {
+            readyState: el ? el.readyState : null,
+            currentTime: el ? el.currentTime : null,
+            bufferedRanges: bufferedRanges,
+            paused: el ? el.paused : null,
+            networkState: el ? el.networkState : null,
+            hlsLiveSyncPosition: hls ? hls.liveSyncPosition : null
+        },
+        events: this.events
+    };
+};
+
+window._witnessDiag = window._witnessDiag || {};
+
+window._witnessDumpDiag = function () {
+    var dump = {
+        timestamp: new Date().toISOString(),
+        userAgent: navigator.userAgent,
+        cameras: {}
+    };
+    for (var id in window._witnessDiag) {
+        if (window._witnessDiag.hasOwnProperty(id)) {
+            dump.cameras[id] = window._witnessDiag[id].snapshot();
+        }
+    }
+    var blob = new Blob([JSON.stringify(dump, null, 2)], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'witness-hls-debug-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+};
+
+// ── HLS Binding Helpers ─────────────────────────────────────────────
+
+// Segments arrive every ~2s in bursts of partials. Spinner timeout must
+// exceed the segment interval to avoid flickering between deliveries.
+var HLS_SPINNER_TIMEOUT_MS = 3000;
+var HLS_RESTART_TIMEOUT_MS = 5000;
+var HLS_WATCHDOG_INTERVAL_MS = 250;
+
+function createHlsConfig(debug) {
+    return {
+        debug: !!debug,
+        enableWorker: true,
+        lowLatencyMode: true,
+        liveDurationInfinity: true,
+        backBufferLength: 5,
+        liveSyncDuration: 2,
+        liveMaxLatencyDuration: 5,
+        maxLiveSyncPlaybackRate: 1.05
+    };
+}
+
+function startHlsStream(hls, sourceUrl, element) {
+    hls.loadSource(sourceUrl);
+    hls.attachMedia(element);
+}
+
+// ── hlsPreview binding ──────────────────────────────────────────────
+
 ko.bindingHandlers.hlsPreview = {
     init: function (element, valueAccessor, allBindings, viewModel, bindingContext) {
         var cameraID = ko.unwrap(valueAccessor());
+        var sourceUrl = "/stream/" + cameraID;
 
-        var config = {
-            enableWorker: true,
-            lowLatencyMode: true,
-            liveDurationInfinity: true,
-            backBufferLength: 5,
-            liveSyncDuration: 2,
-            liveMaxLatencyDuration: 5,
-            maxLiveSyncPlaybackRate: 1.05
-        };
+        var diag = new StreamDiagnostics(cameraID);
+        window._witnessDiag[cameraID] = diag;
 
-        if (Hls.isSupported()) {
-            var hls = new Hls(config);
-            var sourceUrl = "/stream/" + cameraID;
-            hls.loadSource(sourceUrl);
-            hls.attachMedia(element);
+        var spinner = element.parentNode.querySelector('.CameraActivityIndicator');
+        var connLost = element.parentNode.querySelector('.CameraConnectionLost');
 
-            // Activity indicator — find the sibling dot element
-            var spinner = element.parentNode.querySelector('.CameraActivityIndicator');
-            var connLost = element.parentNode.querySelector('.CameraConnectionLost');
-            var connectionLostTimer = null;
+        if (spinner) spinner.style.display = 'none';
 
-            function resetConnectionLostTimer() {
-                clearTimeout(connectionLostTimer);
-                connectionLostTimer = setTimeout(function () {
-                    if (connLost) connLost.classList.add('stalled');
-                    if (spinner) spinner.style.display = 'none';
-                }, 4000);
-            }
+        if (!Hls.isSupported()) return;
 
-            hls.on(Hls.Events.FRAG_BUFFERED, function () {
-                if (spinner) spinner.style.display = '';
-                if (connLost) {
-                    connLost.classList.remove('stalled');
-                    resetConnectionLostTimer();
+        var hls = new Hls(createHlsConfig(false));
+        var lastFragTime = 0;
+        var restartInProgress = false;
+        var watchdog = null;
+
+        diag.setRefs(element, hls);
+        diag.log('start');
+
+        function attachEvents(h) {
+            h.on(Hls.Events.FRAG_BUFFERED, function () {
+                lastFragTime = Date.now();
+                diag.stats.totalFragments++;
+                var latencyMs = null;
+                if (h.liveSyncPosition != null) {
+                    latencyMs = Math.round((h.liveSyncPosition - element.currentTime) * 1000);
+                    diag.recordLatency(latencyMs);
                 }
+                diag.log('frag', { latencyMs: latencyMs });
                 viewModel.hlsActive(true);
             });
 
-            hls.on(Hls.Events.LEVEL_UPDATED, function () {
-                if (connLost) {
-                    connLost.classList.remove('stalled');
-                    resetConnectionLostTimer();
-                }
+            h.on(Hls.Events.LEVEL_UPDATED, function () {
+                diag.log('levelUpdated');
                 viewModel.hlsActive(true);
             });
 
-            hls.on(Hls.Events.ERROR, function (event, data) {
-                if (data.details === Hls.ErrorDetails.BUFFER_STALLED_ERROR) {
-                    if (connLost) connLost.classList.add('stalled');
-                    if (spinner) spinner.style.display = 'none';
-                }
+            h.on(Hls.Events.ERROR, function (event, data) {
+                diag.stats.errorCount++;
+                diag.log('error', { detail: data.details, fatal: data.fatal, type: data.type });
                 if (data.fatal) {
                     viewModel.hlsActive(false);
                     if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
-                        hls.recoverMediaError();
-                    } else {
-                        setTimeout(function () {
-                            hls.loadSource(sourceUrl);
-                            hls.attachMedia(element);
-                        }, 5000);
+                        h.recoverMediaError();
                     }
+                    // Non-media fatal errors will be caught by the watchdog restart
                 }
             });
 
-            hls.on(Hls.Events.MEDIA_ATTACHED, function () {
+            h.on(Hls.Events.MEDIA_ATTACHED, function () {
                 element.muted = true;
                 element.play();
-            });
-
-            ko.utils.domNodeDisposal.addDisposeCallback(element, function () {
-                clearTimeout(connectionLostTimer);
-                hls.destroy();
+                diag.log('mediaAttached');
+                restartInProgress = false;
             });
         }
+
+        function restartStream() {
+            if (restartInProgress) return;
+            restartInProgress = true;
+            diag.stats.restartCount++;
+            diag.log('restart', { reason: 'timeout' });
+            hls.destroy();
+            hls = new Hls(createHlsConfig(false));
+            diag.setRefs(element, hls);
+            attachEvents(hls);
+            startHlsStream(hls, sourceUrl, element);
+        }
+
+        attachEvents(hls);
+        startHlsStream(hls, sourceUrl, element);
+
+        // Poll-based watchdog: drives spinner, connection-lost, and restart.
+        // We do NOT seek the playhead — HLS.js has its own recovery for
+        // buffer gaps (bufferSeekOverHole, nudgeOnStall). Seeking from
+        // outside fights those mechanisms and causes thrashing loops.
+        // Instead, if the stream is genuinely stuck, do a full restart.
+        var lowReadyStateSince = 0;
+        watchdog = setInterval(function () {
+            // Detect sustained low readyState (frozen frame, playhead
+            // stranded outside buffer). If stuck for 3s, full restart.
+            if (!element.paused && element.readyState <= 1 && lastFragTime > 0) {
+                if (lowReadyStateSince === 0) {
+                    lowReadyStateSince = Date.now();
+                } else if (Date.now() - lowReadyStateSince > 3000) {
+                    diag.log('stuckRestart', {
+                        readyState: element.readyState,
+                        currentTime: element.currentTime,
+                        liveSyncPosition: hls.liveSyncPosition
+                    });
+                    lowReadyStateSince = 0;
+                    restartStream();
+                    return;
+                }
+            } else {
+                lowReadyStateSince = 0;
+            }
+
+            if (lastFragTime === 0) return; // haven't received first fragment yet
+            var elapsed = Date.now() - lastFragTime;
+
+            if (elapsed <= HLS_SPINNER_TIMEOUT_MS) {
+                // Data is flowing
+                if (spinner) spinner.style.display = '';
+                if (connLost) connLost.classList.remove('stalled');
+            } else {
+                // No recent data
+                if (spinner) spinner.style.display = 'none';
+
+                if (elapsed > HLS_RESTART_TIMEOUT_MS) {
+                    if (connLost) connLost.classList.add('stalled');
+                    if (!restartInProgress) {
+                        diag.stats.stallCount++;
+                        diag.log('stall', { timeSinceLastFragMs: elapsed });
+                        restartStream();
+                    }
+                }
+            }
+        }, HLS_WATCHDOG_INTERVAL_MS);
+
+        ko.utils.domNodeDisposal.addDisposeCallback(element, function () {
+            clearInterval(watchdog);
+            hls.destroy();
+        });
     }
 };
+
+// ── hlsStream binding ───────────────────────────────────────────────
 
 ko.bindingHandlers.hlsStream = {
     init: function (element, valueAccessor, allBindings, viewModel, bindingContext) {
-
         var cameraID = ko.unwrap(valueAccessor());
+        var sourceUrl = "/stream/" + cameraID;
 
-        var config = {
-            debug: true,
-            enableWorker: true,
-            lowLatencyMode: true,
-            liveDurationInfinity: true,
-            backBufferLength: 5,
-            liveSyncDuration: 2,
-            liveMaxLatencyDuration: 5,
-            maxLiveSyncPlaybackRate: 1.05
-        };
+        var diag = new StreamDiagnostics(cameraID + '_stream');
+        window._witnessDiag[cameraID + '_stream'] = diag;
 
-        if (Hls.isSupported()) {
-            var hls = new Hls(config);
+        if (!Hls.isSupported()) return;
 
-            var sourceUrl = "/stream/" + cameraID;
-            hls.loadSource(sourceUrl);
-            hls.attachMedia(element);
+        var hls = new Hls(createHlsConfig(true));
+        var lastFragTime = 0;
+        var restartInProgress = false;
+        var watchdog = null;
 
-            hls.on(Hls.Events.ERROR, function (event, data) {
+        diag.setRefs(element, hls);
+        diag.log('start');
+
+        function attachEvents(h) {
+            h.on(Hls.Events.FRAG_BUFFERED, function () {
+                lastFragTime = Date.now();
+                diag.stats.totalFragments++;
+                var latencyMs = null;
+                if (h.liveSyncPosition != null) {
+                    latencyMs = Math.round((h.liveSyncPosition - element.currentTime) * 1000);
+                    diag.recordLatency(latencyMs);
+                }
+                diag.log('frag', { latencyMs: latencyMs });
+            });
+
+            h.on(Hls.Events.ERROR, function (event, data) {
+                diag.stats.errorCount++;
+                diag.log('error', { detail: data.details, fatal: data.fatal, type: data.type });
                 if (data.fatal) {
-                    switch (data.type) {
-                        case Hls.ErrorTypes.NETWORK_ERROR:
-                            console.log("fatal network error encountered, try to recover");
-                            hls.startLoad();
-                            break;
-                        case Hls.ErrorTypes.MEDIA_ERROR:
-                            console.log("fatal media error encountered, try to recover");
-                            hls.recoverMediaError();
-                            break;
-                        default:
-                            console.log("fatal error, destroying HLS instance");
-                            hls.destroy();
-                            break;
+                    if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                        console.log("fatal media error encountered, try to recover");
+                        h.recoverMediaError();
                     }
                 }
             });
 
-            hls.on(Hls.Events.MEDIA_ATTACHED, function () {
+            h.on(Hls.Events.MEDIA_ATTACHED, function () {
                 element.muted = true;
                 element.play();
+                diag.log('mediaAttached');
                 console.log("Video attached and playback started");
+                restartInProgress = false;
             });
 
-            hls.on(Hls.Events.MANIFEST_PARSED, function (event, data) {
-                console.log(
-                    "Manifest loaded, found " + data.levels.length + " quality level(s)"
-                );
+            h.on(Hls.Events.MANIFEST_PARSED, function (event, data) {
+                console.log("Manifest loaded, found " + data.levels.length + " quality level(s)");
             });
         }
+
+        function restartStream() {
+            if (restartInProgress) return;
+            restartInProgress = true;
+            diag.stats.restartCount++;
+            diag.log('restart', { reason: 'timeout' });
+            console.log("HLS stream stalled, restarting");
+            hls.destroy();
+            hls = new Hls(createHlsConfig(true));
+            diag.setRefs(element, hls);
+            attachEvents(hls);
+            startHlsStream(hls, sourceUrl, element);
+        }
+
+        attachEvents(hls);
+        startHlsStream(hls, sourceUrl, element);
+
+        var lowReadyStateSince = 0;
+        watchdog = setInterval(function () {
+            if (!element.paused && element.readyState <= 1 && lastFragTime > 0) {
+                if (lowReadyStateSince === 0) {
+                    lowReadyStateSince = Date.now();
+                } else if (Date.now() - lowReadyStateSince > 3000) {
+                    diag.log('stuckRestart', {
+                        readyState: element.readyState,
+                        currentTime: element.currentTime,
+                        liveSyncPosition: hls.liveSyncPosition
+                    });
+                    lowReadyStateSince = 0;
+                    restartStream();
+                    return;
+                }
+            } else {
+                lowReadyStateSince = 0;
+            }
+
+            if (lastFragTime === 0) return;
+            var elapsed = Date.now() - lastFragTime;
+            if (elapsed > HLS_RESTART_TIMEOUT_MS && !restartInProgress) {
+                diag.stats.stallCount++;
+                diag.log('stall', { timeSinceLastFragMs: elapsed });
+                restartStream();
+            }
+        }, HLS_WATCHDOG_INTERVAL_MS);
+
+        ko.utils.domNodeDisposal.addDisposeCallback(element, function () {
+            clearInterval(watchdog);
+            hls.destroy();
+        });
     }
 };
+
+// ── CameraStreamViewModel ───────────────────────────────────────────
 
 var CameraStreamViewModel = function (parent, camera, cameraID) {
     "use strict";

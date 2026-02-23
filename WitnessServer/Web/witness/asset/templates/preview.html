@@ -4,6 +4,7 @@
             <button class="btn btn-circle btn-mn btn-primary" data-bind="click:increaseScale"><i class="fa fa-plus"></i></button>
             <span data-bind="text: cameraPreviewScale"></span><span>%</span>
             <button class="btn btn-circle btn-mn btn-primary" data-bind="click:decreaseScale"><i class="fa fa-minus"></i></button>
+            <button class="btn btn-circle btn-mn btn-default" onclick="window._witnessDumpDiag()" title="Download HLS debug log"><i class="fa fa-download"></i></button>
         )
         </h3>
 		<div data-bind="foreach: cameras">
