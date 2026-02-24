@@ -113,28 +113,26 @@ void Command_Camera::OnPreviewMessage( GlobalContext& Context, http_request& Mes
 		return;
 	}
 
-	std::lock_guard<std::mutex> Lock( Context.Mutex );
-
-	auto Iter = Context.Cameras.find( TargetCameraInt );
-	if( Iter != Context.Cameras.end() )
+	auto Camera = Context.FindCameraById(TargetCameraInt);
+	if(Camera)
 	{
 		if( LargePreview )
 		{
-			(*Iter).second.LastLargePreviewTimestamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+			Camera->LastLargePreviewTimestamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
 		}
 		else
 		{
-			(*Iter).second.LastSmallPreviewTimestamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+			Camera->LastSmallPreviewTimestamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
 		}
 
 		auto PreviewRequest = std::make_shared<CameraPreviewRequestMessage>();
-		PreviewRequest->LastLargePreviewTimestamp = (*Iter).second.LastLargePreviewTimestamp;
-		PreviewRequest->LastSmallPreviewTimestamp = (*Iter).second.LastSmallPreviewTimestamp;
-		Context.MessageBus->SendToClient( (*Iter).second.Worker.get(), PreviewRequest );
+		PreviewRequest->LastLargePreviewTimestamp = Camera->LastLargePreviewTimestamp;
+		PreviewRequest->LastSmallPreviewTimestamp = Camera->LastSmallPreviewTimestamp;
+		Context.MessageBus->SendToClient( Camera->Worker.get(), PreviewRequest );
 
 		http_response Response;
 		Response.set_status_code( status_codes::OK );
-		Response.set_body( (*Iter).second.PreviewThumbnail );
+		Response.set_body( Camera->PreviewThumbnail );
 		Response.headers().set_content_type( _T("image/jpeg") );
 		Response.headers().set_cache_control( _T("no-cache, no-store, must-revalidate") );
 
@@ -211,21 +209,19 @@ void Command_Camera::OnEnumMessage( const GlobalContext& Context, http_request& 
 						Camera[_T("groups")] = json::value::array(Groups);
 
 						{
-							std::lock_guard<std::mutex> Lock(Context.Mutex);
-
-							auto Iter = Context.Cameras.find(ID);
-							if (Iter != Context.Cameras.end())
+							auto CameraState = Context.FindCameraById(ID);
+							if (CameraState)
 							{
 								if (LongPoll)
 								{
-									State.push_back((*Iter).first);
-									State.push_back((*Iter).second.IsRecording);
+									State.push_back(ID);
+									State.push_back(CameraState->IsRecording);
 								}
 
-								Camera[_T("status")] = json::value((*Iter).second.Status);
-								Camera[_T("recording")] = json::value((*Iter).second.IsRecording);
+								Camera[_T("status")] = json::value(CameraState->Status);
+								Camera[_T("recording")] = json::value(CameraState->IsRecording);
 
-								auto StreamStats = (*Iter).second.Worker->GetStreamStats();
+								auto StreamStats = CameraState->Worker->GetStreamStats();
 
 								auto ImgStats = Context.CommonImageProcessingJobQueue->GetStats(ID);
 								Camera[_T("lastTimestamp")] = json::value(ImgStats.LastTimestamp);
@@ -430,10 +426,8 @@ void Command_Camera::OnRecordMessage( const GlobalContext& Context, http_request
 	bool ValidCamera = false;
 
 	{
-		std::lock_guard<std::mutex> Lock( Context.Mutex );
-
-		auto Iter = Context.Cameras.find( TargetCameraInt );
-		if( Iter != Context.Cameras.end() )
+		auto CameraState = Context.FindCameraById( TargetCameraInt );
+		if( CameraState )
 		{
 			//Don't set recording value here, need to ensure it gets toggled correctly
 			ValidCamera = true;
@@ -458,7 +452,7 @@ void Command_Camera::OnResetStatsMessage( const GlobalContext& Context, http_req
 	{
 		std::lock_guard<std::mutex> Lock( Context.Mutex );
 
-		for( auto Camera : Context.Cameras )
+		for( auto Camera : Context.GetCameraMap() )
 		{
 			Context.CommonImageProcessingJobQueue->ResetStats( Camera.first );
 		}

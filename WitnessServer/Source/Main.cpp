@@ -155,7 +155,7 @@ BOOL WINAPI ConsoleHandlerRoutine(DWORD ControlType)
 	if (GlobalServer)
 	{
 		GlobalServer->RequestShutdown();
-		GlobalServer = false;
+		GlobalServer = nullptr;
 	}
 	return true;
 }
@@ -265,7 +265,7 @@ int wmain( int argc, wchar_t* argv[] )
 
 	SERVICE_TABLE_ENTRY Services[] =
 	{
-		{ SERVICE_NAME, ServiceMain },
+		{ const_cast<LPWSTR>(SERVICE_NAME), ServiceMain },
 		{ NULL, NULL }
 	};
 

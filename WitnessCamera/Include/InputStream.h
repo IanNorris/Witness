@@ -61,8 +61,10 @@ public:
 	virtual ~InputStream();
 
 	virtual CameraStreamError Initialize() override;
-	virtual CameraStreamError ProcessFrame( const std::shared_ptr<IRecordFilter>& Filter, Stream* TargetStream ) override;
+	virtual CameraStreamError ProcessFrame( const std::shared_ptr<IRecordFilter>& Filter, Stream* TargetStream, Stream* LiveStream ) override;
 	virtual void Shutdown() override;
+
+	virtual CameraStreamError WriteInterleavedPacket(const AVPacket* Packet);
 
 	void GetTimebase( AVRational* TimebaseOut );
 	void GetFramerate( AVRational* FramerateOut );
@@ -70,6 +72,8 @@ public:
 	double GetFramerateDouble();
 
 	StreamStats GetStats() { return Stats; }
+
+	int GetSourceId() const { return UniqueSourceID; }
 
 private:
 

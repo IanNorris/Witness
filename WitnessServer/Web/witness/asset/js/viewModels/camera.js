@@ -33,6 +33,7 @@ var CameraViewModel = function( witness, id, enabled, name, description, connect
 	self.status = ko.observable(status);
 	self.isSelected = ko.observable(false);
 	self.isRecording = ko.observable(cameraRecording);
+	self.hlsActive = ko.observable(false);
 	self.groups = ko.observableArray(groups);
 	
 	self.lastTimestamp = ko.observable(allData.lastTimestamp);
@@ -77,7 +78,11 @@ var CameraViewModel = function( witness, id, enabled, name, description, connect
 	};
 	
 	self.setNextCameraLiveFrame = function() {
-		self.livePreviewPath( '/camera/previewLarge/' + self.id + '#' + self.liveFrameIndex );
+		if (witness.streamingMode() === 'jpeg') {
+			self.livePreviewPath( '/camera/previewLarge/' + self.id + '#' + self.liveFrameIndex );
+		} else {
+			self.livePreviewPath( '/stream/pl/' + self.id );
+		}
 		self.liveFrameIndex++;
 	};
 	
@@ -131,12 +136,16 @@ var CameraViewModel = function( witness, id, enabled, name, description, connect
 	}
 	
 	self.setNextCameraFrame();
-	window.setInterval( function() {
-		self.setNextCameraFrame();		
-	}, 250 );
+	if (witness.streamingMode() === 'jpeg') {
+		window.setInterval(function () {
+			self.setNextCameraFrame();
+		}, 250);
+	}
 	
 	self.setNextCameraLiveFrame();
-	window.setInterval( function() {
-		self.setNextCameraLiveFrame();
-	}, 40 );
+	if (witness.streamingMode() === 'jpeg') {
+		window.setInterval(function () {
+			self.setNextCameraLiveFrame();
+		}, 250);
+	}
 };

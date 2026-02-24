@@ -97,18 +97,16 @@ void WitnessServer::StopCameraRecording( const ClipStatistics& ClipStats, int Ca
 	string_t CachePath;
 
 	{
-		std::lock_guard<std::mutex> Lock( Context->Mutex );
-
 		CachePath = Context->CachePath;
 			
-		auto Iter = Context->Cameras.find( CameraID );
-		if( Iter != Context->Cameras.end() )
+		auto CameraState = Context->FindCameraById( CameraID );
+		if( CameraState )
 		{
-			WriteThumbnailMessage->Jpeg = (*Iter).second.ClipThumbnails[ ClipStats.TimestampClipStarted ];
+			WriteThumbnailMessage->Jpeg = CameraState->ClipThumbnails[ ClipStats.TimestampClipStarted ];
 
 			if( WriteThumbnailMessage->Jpeg.empty() )
 			{
-				WriteThumbnailMessage->Jpeg = (*Iter).second.PreviewThumbnail;
+				WriteThumbnailMessage->Jpeg = CameraState->PreviewThumbnail;
 			}
 		}
 	}
@@ -127,17 +125,15 @@ void WitnessServer::StatusMessage( int Camera, string_t NewStatus, string_t Reas
 	string_t CameraName;
 
 	{
-		std::lock_guard<std::mutex> Lock( Context->Mutex );
-			
-		auto Iter = Context->Cameras.find( Camera );
-		if( Iter != Context->Cameras.end() )
+		auto CameraState = Context->FindCameraById( Camera );
+		if( CameraState )
 		{
 			if( NewStatus.length() > 0 )
 			{
-				(*Iter).second.Status = NewStatus;
+				CameraState->Status = NewStatus;
 			}
 
-			CameraName = (*Iter).second.Name;
+			CameraName = CameraState->Name;
 		}
 	}
 

@@ -15,7 +15,7 @@
 	<link rel="stylesheet" type="text/css" href="asset/css/jquery.toast.min.css" />
 	<link rel="stylesheet" type="text/css" href="asset/css/plugins/datatables.bootstrap.min.css">
 	<link rel="stylesheet" type="text/css" href="asset/select2/css/select2.min.css" />
-
+	
 	<link href="asset/css/style.css" rel="stylesheet">
 
 	<link rel="shortcut icon" href="asset/img/shortcut.png">
@@ -34,7 +34,7 @@
 					</a>
 				</div>
 
-				<ul class="nav navbar-nav navbar-right user-nav" data-bind="with: authentication" template-path="userMenu.html"/>
+				<ul class="nav navbar-nav navbar-right user-nav" data-bind="with: authentication" template-path="userMenu.html"></ul>
 			</div>
 		</nav>
 		<!-- end: Header -->
@@ -76,55 +76,59 @@
 			<div class="spinner-container"></div>
 			<div class="spinner-container2"></div>
 		</div>
+	</div>
 
-		<script src="asset/js/jquery.min.js"></script>
-		<script src="asset/js/jquery.ui.min.js"></script>
-		<script src="asset/js/jquery.toast.min.js"></script>
-		<script src="asset/js/bootstrap.min.js"></script>
+	<script src="asset/js/jquery.min.js"></script>
+	<script src="asset/js/jquery.ui.min.js"></script>
+	<script src="asset/js/jquery.toast.min.js"></script>
+	<script src="asset/js/bootstrap.min.js"></script>
 
-		<script src="asset/js/knockout-3.4.2.js"></script>
+	<script src="asset/js/knockout-3.4.2.js"></script>
 
-		<script src="asset/js/knockout-utilities.js"></script>
+	<script src="asset/js/knockout-utilities.js"></script>
 
-		<script src="asset/js/plugins/moment.min.js"></script>
-		<script src="asset/js/plugins/jquery.nicescroll.js"></script>
-		<script src="asset/js/plugins/jquery.datatables.min.js"></script>
-		<script src="asset/js/plugins/moment.min.js"></script>
-		<script src="asset/js/plugins/datatables.bootstrap.min.js"></script>
-		<script src="asset/select2/js/select2.full.min.js"></script>
+	<script src="asset/js/plugins/moment.min.js"></script>
+	<script src="asset/js/plugins/jquery.nicescroll.js"></script>
+	<script src="asset/js/plugins/jquery.datatables.min.js"></script>
+	<script src="asset/js/plugins/moment.min.js"></script>
+	<script src="asset/js/plugins/datatables.bootstrap.min.js"></script>
+	<script src="asset/select2/js/select2.full.min.js"></script>
 		
-		<script>
-			//Load all the templates
-			var jobsStarted = 0;
-			var basePath = "/witness/asset/templates/"
-			$('[template-path]').each( function() {
-				jobsStarted++;
-				$(this).load( basePath + $(this).attr('template-path'), function(){
-					if( --jobsStarted == 0 ) {
-						$('body').trigger("witnessTemplatesLoaded");
-					}
-				});
-			} );
-		</script>
+	<script src="asset/js/hls.js/hls.js"></script>
 		
-		<script src="asset/js/utilities.js"></script>
-		
-		<script src="asset/js/viewModels/admin.js"></script>
-		<script src="asset/js/viewModels/adminCameras.js"></script>
-		<script src="asset/js/viewModels/adminGroup.js"></script>
-		<script src="asset/js/viewModels/adminGroups.js"></script>
-		<script src="asset/js/viewModels/adminUser.js"></script>
-		<script src="asset/js/viewModels/adminUsers.js"></script>
-		<script src="asset/js/viewModels/adminDebugValue.js"></script>
-		<script src="asset/js/viewModels/adminDebug.js"></script>
-		<script src="asset/js/viewModels/authentication.js"></script>
-		<script src="asset/js/viewModels/camera.js"></script>
-		<script src="asset/js/viewModels/cameraClips.js"></script>
-		<script src="asset/js/viewModels/cameraStream.js"></script>
-		<script src="asset/js/viewModels/clip.js"></script>
-		<script src="asset/js/viewModels/witness.js"></script>
+	<script>
+		//Load all the templates
+		var jobsStarted = 0;
+		var basePath = "/witness/asset/templates/"
+		$('[template-path]').each( function() {
+			jobsStarted++;
+			$(this).load( basePath + $(this).attr('template-path'), function(){
+				if( --jobsStarted == 0 ) {
+					$('body').trigger("witnessTemplatesLoaded");
+				}
+			});
+		} );
+	</script>
 
-		<script src="asset/js/main-ui.js"></script>
-		<script src="asset/js/main.js"></script>
+		
+	<script src="asset/js/utilities.js"></script>
+		
+	<script src="asset/js/viewModels/admin.js"></script>
+	<script src="asset/js/viewModels/adminCameras.js"></script>
+	<script src="asset/js/viewModels/adminGroup.js"></script>
+	<script src="asset/js/viewModels/adminGroups.js"></script>
+	<script src="asset/js/viewModels/adminUser.js"></script>
+	<script src="asset/js/viewModels/adminUsers.js"></script>
+	<script src="asset/js/viewModels/adminDebugValue.js"></script>
+	<script src="asset/js/viewModels/adminDebug.js"></script>
+	<script src="asset/js/viewModels/authentication.js"></script>
+	<script src="asset/js/viewModels/camera.js"></script>
+	<script src="asset/js/viewModels/cameraClips.js"></script>
+	<script src="asset/js/viewModels/cameraStream.js"></script>
+	<script src="asset/js/viewModels/clip.js"></script>
+	<script src="asset/js/viewModels/witness.js"></script>
+
+	<script src="asset/js/main-ui.js"></script>
+	<script src="asset/js/main.js"></script>
 </body>
 </html>

@@ -32,6 +32,7 @@ ObservingMotionFilter::ObservingMotionFilter( const MotionChainNode& Chain, cons
 , FrameIndex( 0 )
 , LastMotionIndex( INT_MIN )
 , SaveNextFrame( false )
+, WantManualThumbnail( false )
 , State( MotionState::None )
 , DB_DrawObjectLabels( ObserverFirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "Observer Draw Object Labels", &DrawObjectLabels )
 {
@@ -272,6 +273,15 @@ bool ObservingMotionFilter::ProcessFrame( SharedClassificationTask TaskData )
 		} );
 
 		MessageBusPtr->SendToClient( nullptr, SaveFrameMessage );
+	}
+
+	if ( WantManualThumbnail )
+	{
+		WantManualThumbnail = false;
+
+		auto SnapshotMessage = std::make_shared<CameraSnapshotMessage>( CameraID );
+		CreateJpegPreview( TaskData->Frame, SnapshotMessage->Jpeg, TargetThumbnailSize, DefaultQuality, nullptr );
+		MessageBusPtr->SendToClient( nullptr, SnapshotMessage );
 	}
 
 	TaskData->FrameOwner->InputFrame->Unref();

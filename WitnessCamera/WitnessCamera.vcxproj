@@ -53,15 +53,15 @@
   </PropertyGroup>
   <ItemDefinitionGroup>
     <ClCompile>
-      <AdditionalIncludeDirectories>.\Include;$(SolutionDir)\ThirdParty\ffmpeg-4.1-win64-dev\include\;$(SolutionDir)\ThirdParty\SubModules\opencv\bin\install\include;$(SolutionDir)\ThirdParty\SubModules\cpprestsdk\Release\include\pplx;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>.\Include;$(SolutionDir)\ThirdParty\ffmpeg-7.1-win64\include\;$(SolutionDir)\ThirdParty\SubModules\opencv\bin\install\include;$(SolutionDir)\ThirdParty\SubModules\cpprestsdk\Release\include\pplx;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
-      <AdditionalDependencies>$(SolutionDir)\ThirdParty\ffmpeg-20181226-d702600-custom-win64-dev\bin\avcodec.lib;$(SolutionDir)\ThirdParty\ffmpeg-4.1-win64-dev\lib\avformat.lib;$(SolutionDir)\ThirdParty\ffmpeg-4.1-win64-dev\lib\swscale.lib;$(SolutionDir)\ThirdParty\ffmpeg-4.1-win64-dev\lib\avutil.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(SolutionDir)\ThirdParty\ffmpeg-7.1-win64\lib\avcodec.lib;$(SolutionDir)\ThirdParty\ffmpeg-7.1-win64\lib\avformat.lib;$(SolutionDir)\ThirdParty\ffmpeg-7.1-win64\lib\swscale.lib;$(SolutionDir)\ThirdParty\ffmpeg-7.1-win64\lib\avutil.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
     <PostBuildEvent>
-      <Command>cmd /C xcopy /D /Y $(SolutionDir)\ThirdParty\ffmpeg-4.1-win64-shared\bin\*.dll $(OutputPath) &amp;&amp; xcopy /D /Y $(SolutionDir)\ThirdParty\SubModules\opencv\bin\bin\Release\opencv_world400.dll $(OutputPath)</Command>
+      <Command>cmd /C xcopy /D /Y $(SolutionDir)\ThirdParty\ffmpeg-7.1-win64\bin\*.dll $(OutputPath) &amp;&amp; xcopy /D /Y $(SolutionDir)\ThirdParty\SubModules\opencv\bin\bin\Release\opencv_world400.dll $(OutputPath)</Command>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -73,6 +73,7 @@
       <PreprocessorDefinitions>_DEBUG;_WINDOWS;_USRDLL;WITNESSCAMERA_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
       <AdditionalOptions>/utf-8</AdditionalOptions>
+      <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
     <Link>
       <AdditionalDependencies>$(SolutionDir)\ThirdParty\SubModules\opencv\bin\install\x64\vc15\lib\opencv_world400d.lib;%(AdditionalDependencies)</AdditionalDependencies>
@@ -89,6 +90,7 @@
       <PreprocessorDefinitions>NDEBUG;_WINDOWS;_USRDLL;WITNESSCAMERA_EXPORTS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
       <AdditionalOptions>/utf-8</AdditionalOptions>
+      <LanguageStandard>stdcpp20</LanguageStandard>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -101,6 +103,8 @@
   <ItemGroup>
     <ClCompile Include="Source\DebugBind.cpp" />
     <ClCompile Include="Source\FilterFrame.cpp" />
+    <ClCompile Include="Source\InMemoryIOContext.cpp" />
+    <ClCompile Include="Source\LiveOutputStream.cpp" />
     <ClCompile Include="Source\MotionVectorFilter.cpp" />
     <ClCompile Include="Source\PersonRecognitionFilter.cpp" />
     <ClCompile Include="Source\FFMPEG\Frame.cpp" />
@@ -115,6 +119,8 @@
     <ClInclude Include="Include\DebugBind.h" />
     <ClInclude Include="Include\Export.h" />
     <ClInclude Include="Include\FFMPEG\Frame.h" />
+    <ClInclude Include="Include\InMemoryIOContext.h" />
+    <ClInclude Include="Include\LiveOutputStream.h" />
     <ClInclude Include="Include\MotionVectorFilter.h" />
     <ClInclude Include="Include\PersonRecognitionFilter.h" />
     <ClInclude Include="Include\ImageProcessingJob.h" />

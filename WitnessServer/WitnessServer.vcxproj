@@ -64,7 +64,7 @@
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>_SILENCE_STDEXT_ARR_ITERS_DEPRECATION_WARNING;_WIN32;_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
-      <LanguageStandard>stdcpp17</LanguageStandard>
+      <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8</AdditionalOptions>
     </ClCompile>
     <Link>
@@ -86,7 +86,7 @@
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <PreprocessorDefinitions>_SILENCE_STDEXT_ARR_ITERS_DEPRECATION_WARNING;NDEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <SDLCheck>true</SDLCheck>
-      <LanguageStandard>stdcpp17</LanguageStandard>
+      <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalOptions>/utf-8</AdditionalOptions>
     </ClCompile>
     <Link>
@@ -113,6 +113,7 @@
     <ClCompile Include="Source\Commands\Debug.cpp" />
     <ClCompile Include="Source\Commands\Group.cpp" />
     <ClCompile Include="Source\Commands\Static.cpp" />
+    <ClCompile Include="Source\Commands\Stream.cpp" />
     <ClCompile Include="Source\Common.cpp" />
     <ClCompile Include="Source\Database.cpp" />
     <ClCompile Include="Source\ImageProcessorWorker.cpp" />
@@ -153,6 +154,7 @@
     <ClInclude Include="Source\Commands\Debug.h" />
     <ClInclude Include="Source\Commands\Group.h" />
     <ClInclude Include="Source\Commands\Static.h" />
+    <ClInclude Include="Source\Commands\Stream.h" />
     <ClInclude Include="Source\Common.h" />
     <ClInclude Include="Source\Database.h" />
     <ClInclude Include="Source\GlobalContext.h" />

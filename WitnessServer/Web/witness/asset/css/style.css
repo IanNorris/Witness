@@ -32,7 +32,7 @@ textarea:focus {
   border:1px solid #ddd !important;
 }
 
-video,
+video:not(.CameraPreview),
 audio {
   width: 100% !important;
   height: auto !important;
@@ -6537,8 +6537,163 @@ ul li a:focus {
 	height: 100px;
 }
 
+.CameraPreviewContainer {
+	display: inline-block;
+	position: relative;
+	vertical-align: top;
+}
+
+.CameraPreview {
+	width: 100%;
+	height: auto;
+	object-fit: contain;
+	vertical-align: top;
+}
+
 .CameraPreviewRec {
 	border: 3px solid red;
+}
+
+.CameraActivityIndicator {
+	position: absolute;
+	top: 6px;
+	left: 8px;
+	font-size: 18px;
+	color: rgba(255, 255, 255, 0.7);
+	pointer-events: none;
+}
+
+.CameraConnectionLost {
+	position: absolute;
+	top: 6px;
+	right: 8px;
+	font-size: 28px;
+	pointer-events: none;
+	opacity: 0;
+	transition: opacity 0.3s ease;
+}
+
+.CameraConnectionLost.stalled {
+	opacity: 1;
+	color: #f44;
+	animation: cameraBlink 1s infinite;
+}
+
+.CameraDisconnectedOverlay {
+	position: absolute;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	background: rgba(0, 0, 0, 0.6);
+	color: #f44;
+	font-size: 14px;
+	pointer-events: none;
+}
+
+.CameraDisconnectedOverlay i {
+	font-size: 32px;
+	margin-bottom: 6px;
+}
+
+@keyframes cameraBlink {
+	0%, 100% { opacity: 1; }
+	50% { opacity: 0.2; }
+}
+
+/* ── Fullscreen camera view ──────────────────────────────────────── */
+
+body.witness-fullscreen {
+	background: #000 !important;
+	overflow: hidden !important;
+}
+
+body.witness-fullscreen .navbar,
+body.witness-fullscreen #left-menu,
+body.witness-fullscreen #content > .col-md-12 {
+	display: none !important;
+}
+
+body.witness-fullscreen .mimin-wrapper {
+	padding: 0 !important;
+	margin: 0 !important;
+}
+
+body.witness-fullscreen #content {
+	margin: 0 !important;
+	padding: 0 !important;
+}
+
+body.witness-fullscreen .content-header {
+	position: fixed !important;
+	top: 0;
+	left: 0;
+	right: 0;
+	bottom: 0;
+	margin: 0 !important;
+	padding: 0 !important;
+	z-index: 9999;
+	background: #000;
+	border: none !important;
+	box-shadow: none !important;
+}
+
+body.witness-fullscreen .content-header .panel-body {
+	height: 100vh;
+	padding: 0 !important;
+	margin: 0 !important;
+}
+
+body.witness-fullscreen .content-header .panel-body > .col-md-12 {
+	width: 100% !important;
+	height: 100vh;
+	padding: 0 !important;
+	margin: 0 !important;
+	float: none !important;
+	overflow: hidden;
+}
+
+body.witness-fullscreen .content-header .panel-body > .col-md-12 > [data-bind*="foreach"] {
+	display: flex;
+	flex-wrap: wrap;
+	align-content: center;
+	justify-content: center;
+	height: 100vh;
+}
+
+body.witness-fullscreen .CameraPreviewContainer {
+	display: block;
+	float: none !important;
+}
+
+.CameraPreviewFullscreen {
+	flex: 0 0 auto;
+}
+
+.witness-fullscreen-toolbar {
+	position: fixed;
+	bottom: 8px;
+	right: 8px;
+	z-index: 10000;
+	opacity: 0.3;
+	transition: opacity 0.2s ease;
+}
+
+.witness-fullscreen-toolbar .btn {
+	transform: scale(0.5);
+	margin: -4px;
+}
+
+.witness-fullscreen-toolbar .btn i {
+	font-size: 2em;
+}
+
+.witness-fullscreen-toolbar:hover {
+	opacity: 1;
 }
 
 .signin-outer {

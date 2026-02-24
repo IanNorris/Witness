@@ -151,12 +151,10 @@ void Command_Clip::OnThumbnailMessage( const GlobalContext& Context, http_reques
 
 	if( !Video )
 	{
-		std::lock_guard<std::mutex> Lock( Context.Mutex );
-
-		auto IterCamera = Context.Cameras.find( TargetCameraInt );
-		if( IterCamera != Context.Cameras.end() )
+		auto CameraState = Context.FindCameraById( TargetCameraInt );
+		if(CameraState)
 		{
-			const auto& Camera = (*IterCamera).second.ClipThumbnails;
+			const auto& Camera = CameraState->ClipThumbnails;
 			auto IterClip = Camera.find( TargetCameraTimestamp );
 			if( IterClip != Camera.end() && (*IterClip).second.size() != 0 )
 			{
@@ -204,7 +202,7 @@ void Command_Clip::OnThumbnailMessage( const GlobalContext& Context, http_reques
 
 		auto FileHandle = concurrency::streams::file_stream<uint8_t>::open_istream(ClipFilename.c_str());
 
-		Concurrency::streams::istream& FileHandleStream = FileHandle.get(); 
+		Concurrency::streams::istream FileHandleStream = FileHandle.get(); 
 
 		//Matching file
 		Message.reply( status_codes::OK, FileHandleStream, FileSize, Video ? _T("video/mp4") : _T("image/jpeg") );

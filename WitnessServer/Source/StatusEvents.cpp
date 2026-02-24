@@ -11,13 +11,11 @@ void WitnessServer::HandleCameraReconnectMessage(const CameraReconnectMessage& D
 {
 	StatusMessage( Data.Camera, _T("Reconnecting"), Data.Error );
 
-	std::lock_guard<std::mutex> Lock( Context->Mutex );
-			
-	auto Iter = Context->Cameras.find( Data.Camera );
-	if( Iter != Context->Cameras.end() )
+	auto CameraState = Context->FindCameraById( Data.Camera );
+	if(CameraState)
 	{
-		(*Iter).second.IsRecording = false;
-		(*Iter).second.IsManualRecording = false;
+		CameraState->IsRecording = false;
+		CameraState->IsManualRecording = false;
 	}
 }
 
@@ -28,11 +26,9 @@ void WitnessServer::HandleCameraConnectedMessage(const CameraConnectedMessage& D
 
 void WitnessServer::HandleCameraSnapshotMessage(const CameraSnapshotMessage& Data)
 {
-	std::lock_guard<std::mutex> Lock( Context->Mutex );
-			
-	auto Iter = Context->Cameras.find( Data.Camera );
-	if( Iter != Context->Cameras.end() )
+	auto CameraState = Context->FindCameraById( Data.Camera );
+	if(CameraState)
 	{
-		(*Iter).second.PreviewThumbnail = Data.Jpeg;
+		CameraState->PreviewThumbnail = Data.Jpeg;
 	}
 }

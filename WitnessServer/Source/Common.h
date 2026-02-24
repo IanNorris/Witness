@@ -55,8 +55,8 @@ std::vector< string_t > SplitString( string_t tInput, string_t tSeparator, Strin
 std::string Trim(std::string tInput );
 std::vector< std::string > SplitString(std::string tInput, std::string tSeparator, StringTrim eTrim = StringTrim::Trim, StringStrip eStrip = StringStrip::RemoveEmpty );
 
-std::string StringPrintfA(char* Message, ...);
-std::wstring StringPrintfW(wchar_t* Message, ...);
+std::string StringPrintfA(const char* Message, ...);
+std::wstring StringPrintfW(const wchar_t* Message, ...);
 
 #if defined(UNICODE) || defined(_UNICODE)
 #define StringPrintfT StringPrintfW

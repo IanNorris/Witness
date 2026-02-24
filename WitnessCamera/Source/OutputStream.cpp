@@ -1,20 +1,36 @@
 #include "OutputStream.h"
 #include "InputStream.h"
 #include "StreamData.h"
+#include "InMemoryIOContext.h"
 
 namespace Witness{
 namespace Camera{
 
 int OutputStream::GlobalOutputStreamIndex = 0;
 
-OutputStream::OutputStream( const std::string& Path, InputStream * InputStream )
+OutputStream::OutputStream( const std::string& Path, InputStream * InputStream, bool InMemory, bool LiveStream, bool Part, bool InitSegment)
 : Stream()
 , m_InputStream( InputStream )
+, m_IOContext( nullptr )
 , FrameIndex( 0 )
 , StreamIndex( GlobalOutputStreamIndex++ )
 , m_FileOpened( false )
+, m_InMemory( InMemory )
+, m_Live(LiveStream)
+, m_Part(Part)
+, m_Isolated(false)
+, m_InitSegment(InitSegment)
+, m_ClipLength( 0.0 )
+, m_SegmentIndex(-1)
+, m_PartIndex(-1)
+, m_LastWrittenDTS( AV_NOPTS_VALUE )
 {
 	m_InputStream->Initialize();
+
+	if (m_InMemory)
+	{
+		m_IOContext = new FFMPEG::InMemoryIOContext(Path.c_str());
+	}
 
 	auto& ID = *m_InternalData;
 	auto& InID = m_InputStream->GetData();
@@ -46,8 +62,17 @@ OutputStream::OutputStream( const std::string& Path, InputStream * InputStream )
 OutputStream::OutputStream( const std::string& Path, unsigned int Width, unsigned int Height, int Framerate, bool IsBGR )
 : Stream()
 , m_InputStream( nullptr )
+, m_IOContext( nullptr )
 , FrameIndex( 0 )
 , m_FileOpened( false )
+, m_InMemory( false )
+, m_Live( false )
+, m_Part( false )
+, m_Isolated(false)
+, m_InitSegment(false)
+, m_ClipLength( 0.0 )
+, m_SegmentIndex(-1)
+, m_LastWrittenDTS( AV_NOPTS_VALUE )
 {
 	auto& ID = *m_InternalData;
 
@@ -70,7 +95,12 @@ OutputStream::OutputStream( const std::string& Path, unsigned int Width, unsigne
 }
 
 OutputStream::~OutputStream()
-{}
+{
+	if( m_IOContext )
+	{
+		delete m_IOContext;
+	}
+}
 
 CameraStreamError OutputStream::Initialize()
 {
@@ -95,15 +125,21 @@ CameraStreamError OutputStream::Initialize()
 		STREAM_ERROR( NoStreamInput, 0 );
 	}
 
-	av_init_packet( &ID.Packet );
-
-	int Result = avformat_alloc_output_context2( &ID.FormatContext, nullptr, nullptr, ID.Path.c_str() );
+	int Result = avformat_alloc_output_context2( &ID.FormatContext, nullptr, m_InMemory ? "mp4" : nullptr, m_InMemory ? nullptr : ID.Path.c_str());
 	if( Result < 0 || !ID.FormatContext )
 	{
 		STREAM_ERROR( UnknownError, Result );
 	}
 
-	AVCodec* Encoder = avcodec_find_encoder( ID.CodecID );
+	if (m_InMemory)
+	{
+		//TODO
+		//ID.FormatContext->oformat->flags |= AVFMT_NOFILE;
+
+		ID.FormatContext->pb = m_IOContext->GetContext();
+	}
+
+	const AVCodec* Encoder = avcodec_find_encoder( ID.CodecID );
 
 	if( !Encoder )
 	{
@@ -111,6 +147,7 @@ CameraStreamError OutputStream::Initialize()
 	}
 
 	AVStream* OutStream = avformat_new_stream( ID.FormatContext, Encoder );
+	//TODO: Do we not need to delete this? :|
 	if( !OutStream )
 	{
 		STREAM_ERROR( UnknownError, 0 );
@@ -130,14 +167,7 @@ CameraStreamError OutputStream::Initialize()
 		ID.CodecContext->framerate = ID.Framerate;
 		ID.CodecContext->time_base = av_inv_q(ID.Framerate);
 
-		if( Encoder->pix_fmts )
-		{
-			ID.CodecContext->pix_fmt = Encoder->pix_fmts[0];
-		}
-		else
-		{
-			ID.CodecContext->pix_fmt = ID.PixelFormat;
-		}
+		ID.CodecContext->pix_fmt = ID.PixelFormat;
 	}
 	else
 	{
@@ -177,6 +207,9 @@ CameraStreamError OutputStream::Initialize()
 			OutputPixelFormat = AV_PIX_FMT_YUV440P;
 			break;
 		}
+
+		OutStream->time_base = m_InputStream->GetData().FormatContext->streams[m_InputStream->GetData().ChosenStreamIndex]->time_base;
+		ID.CodecContext->time_base = OutStream->time_base;
 
 		Params->format = OutputPixelFormat;
 		Params->codec_tag = 0;
@@ -228,6 +261,13 @@ CameraStreamError OutputStream::Initialize()
 		STREAM_ERROR( EncoderCreationError );
 	}*/
 
+	/*
+	//https://github.com/iinfer/leandromoreira_ffmpeg-libav-tutorial
+	if (m_Live)
+	{
+		av_dict_set(&EncoderOptions, "movflags", "frag_keyframe+empty_moov+default_base_moof", 0);
+	}*/
+
 	Result = avcodec_open2( ID.CodecContext, Encoder, &EncoderOptions );
 	if( Result < 0 )
 	{
@@ -240,10 +280,11 @@ CameraStreamError OutputStream::Initialize()
 		STREAM_ERROR( EncoderCreationError, Result );
 	}
 
-	if( ID.FormatContext->oformat->flags & AVFMT_GLOBALHEADER )
+	/*if (ID.FormatContext->oformat->flags & AVFMT_GLOBALHEADER)
 	{
 		ID.CodecContext->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
-	}
+	}*/
+	ID.CodecContext->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
 
 	OutStream->time_base = ID.CodecContext->time_base;
 	OutStream->avg_frame_rate= av_inv_q(OutStream->time_base);
@@ -258,14 +299,34 @@ CameraStreamError OutputStream::Initialize()
 		m_FileOpened = true;
 	}
 
-	Result = avformat_write_header( ID.FormatContext, nullptr );
+	//https://github.com/iinfer/leandromoreira_ffmpeg-libav-tutorial
+	AVDictionary* options = nullptr;
+	if (m_InitSegment)
+	{
+		av_dict_set(&options, "movflags", "empty_moov+default_base_moof+omit_tfhd_offset+dash", 0);
+	}
+	else if (m_Live && m_Part)
+	{
+		av_dict_set(&options, "movflags", "empty_moov+frag_keyframe+omit_tfhd_offset+dash", 0);
+	}
+	else if (m_Live)
+	{
+		av_dict_set(&options, "movflags", "empty_moov+omit_tfhd_offset+dash", 0);
+	}
+
+	//ID.FormatContext->avoid_negative_ts = AVFMT_AVOID_NEG_TS_MAKE_NON_NEGATIVE;
+
+	Result = avformat_write_header( ID.FormatContext, &options);
 	if( Result < 0 )
 	{
 		STREAM_ERROR( WriteFailed, Result );
 	}
 
-	ID.Output = std::make_unique<FFMPEG::Frame>( ID.CodecContext->width, ID.CodecContext->height, ID.CodecContext->pix_fmt );
-	//ID.Output->Prepare(); //Necessary?
+	if (!m_Live)
+	{
+		ID.Output = std::make_unique<FFMPEG::Frame>(ID.CodecContext->width, ID.CodecContext->height, ID.CodecContext->pix_fmt);
+		//ID.Output->Prepare(); //Necessary?
+	}
 
 	//Remap deprecated formats to avoid the warning output.
 	switch(ID.PixelFormat)
@@ -287,24 +348,29 @@ CameraStreamError OutputStream::Initialize()
 		break;
 	}
 
-	ID.ConversionContext = sws_getCachedContext(
-		ID.ConversionContext,
-		ID.Width,
-		ID.Height,
-		ID.PixelFormat,
-		ID.CodecContext->width,
-		ID.CodecContext->height,
-		ID.CodecContext->pix_fmt,
-		SWS_BICUBIC,
-		NULL,
-		NULL,
-		NULL );
+	if (!m_Live)
+	{
+		ID.ConversionContext = sws_getCachedContext(
+			ID.ConversionContext,
+			ID.Width,
+			ID.Height,
+			ID.PixelFormat,
+			ID.CodecContext->width,
+			ID.CodecContext->height,
+			ID.CodecContext->pix_fmt,
+			SWS_BICUBIC,
+			NULL,
+			NULL,
+			NULL);
+	}
 
 	return CameraStreamError::Success;
 }
 
-CameraStreamError OutputStream::ProcessFrame( const std::shared_ptr<IRecordFilter>& Filter, Stream* TargetStream )
+CameraStreamError OutputStream::ProcessFrame( const std::shared_ptr<IRecordFilter>& Filter, Stream* TargetStream, Stream* TargetStream2 )
 {
+	assert(m_Live == false);
+
 	CameraStreamError InitError = Initialize();
 	if( InitError != CameraStreamError::Success )
 	{
@@ -334,30 +400,64 @@ CameraStreamError OutputStream::WriteInterleavedPacket( const AVPacket* Packet )
 
 	auto& ID = *m_InternalData;
 	
-	if (ID.IsFirstFrame)
+	if (m_Live)
 	{
-		ID.DTS = Packet->dts;
-		ID.PTS = Packet->pts;
-		PacketCopy.dts = 0;
-		PacketCopy.pts = 0;
-
-		ID.IsFirstFrame = false;
+		
 	}
 	else
 	{
-		PacketCopy.dts -= ID.DTS;
-		PacketCopy.pts -= ID.PTS;
-	}
-	
-	if( m_InputStream )
-	{
-		AVRational TimeBase;
-		m_InputStream->GetTimebase( &TimeBase );
+		if (ID.IsFirstFrame)
+		{
+			ID.DTS = Packet->dts;
+			ID.PTS = Packet->pts;
+			PacketCopy.dts = 0;
+			PacketCopy.pts = 0;
 
-		av_packet_rescale_ts( 
-			&PacketCopy, 
-			TimeBase,
-			ID.FormatContext->streams[0]->time_base );
+			ID.IsFirstFrame = false;
+		}
+		else
+		{
+			PacketCopy.dts -= ID.DTS;
+			PacketCopy.pts -= ID.PTS;
+		}
+	}
+
+	// Handle missing PTS — some cameras deliver AV_NOPTS_VALUE
+	if (PacketCopy.pts == AV_NOPTS_VALUE)
+		PacketCopy.pts = PacketCopy.dts;
+
+	PacketCopy.pos = -1;
+
+	// Drop packets with non-monotonic DTS — B-frame streams (e.g. Tapo)
+	// can deliver packets that cause av_interleaved_write_frame to fail.
+	if (m_LastWrittenDTS != AV_NOPTS_VALUE && PacketCopy.dts <= m_LastWrittenDTS)
+	{
+		av_packet_unref(&PacketCopy);
+		return CameraStreamError::Success;
+	}
+	m_LastWrittenDTS = PacketCopy.dts;
+
+	// Clamp negative durations from B-frame reordering
+	if (PacketCopy.duration < 0)
+		PacketCopy.duration = 0;
+
+	//Calc length before we adjust for the time base, otherwise we need to
+	//adjust the calculation to the new timebase.
+	if (m_Live)
+	{
+		m_ClipLength += (double)((PacketCopy.duration) * ID.FormatContext->streams[0]->time_base.num) / ID.FormatContext->streams[0]->time_base.den;
+	}
+	else
+	{
+		m_ClipLength = (double)((PacketCopy.dts + PacketCopy.duration) * ID.FormatContext->streams[0]->time_base.num) / ID.FormatContext->streams[0]->time_base.den;
+	}
+
+	if( !m_Live )
+	{
+		av_packet_rescale_ts(
+			&PacketCopy,
+			ID.Timebase,
+			ID.FormatContext->streams[0]->time_base);
 	}
 
 	Result = av_interleaved_write_frame( ID.FormatContext, &PacketCopy );
@@ -385,7 +485,7 @@ CameraStreamError OutputStream::WriteFrame( FFMPEG::Frame* Frame )
 
 	int OutputSliceSize = sws_scale( m_InternalData->ConversionContext, Frame->GetFrame()->data, Frame->GetFrame()->linesize, 0, Frame->GetHeight(), ID.Output->GetFrame()->data, ID.Output->GetFrame()->linesize );
 
-	ID.Output->GetFrame()->pts = ID.CodecContext->frame_number;
+	ID.Output->GetFrame()->pts = FrameIndex;
 	
 	int Result = avcodec_send_frame( GetData().CodecContext, ID.Output->GetFrame() );
 	if( Result == AVERROR(EAGAIN) )
@@ -420,19 +520,23 @@ CameraStreamError OutputStream::SendAll( void )
 	do 
 	{
 		AVPacket TempPacket = {};
-		av_init_packet( &TempPacket );
 
 		Result = avcodec_receive_packet( GetData().CodecContext, &TempPacket );
 		if( Result == 0 )
 		{
-			av_packet_rescale_ts( &TempPacket, ID.CodecContext->time_base, ID.FormatContext->streams[0]->time_base );
-
-			TempPacket.stream_index = ID.FormatContext->streams[0]->index;
-
-			Result = av_interleaved_write_frame( ID.FormatContext, &TempPacket );
-			if( Result < 0 )
+			if(!m_Live)
 			{
-				STREAM_ERROR( WriteFailed, Result );
+				av_packet_rescale_ts(&TempPacket, ID.CodecContext->time_base, ID.FormatContext->streams[0]->time_base);
+
+				TempPacket.stream_index = ID.FormatContext->streams[0]->index;
+
+				Result = av_interleaved_write_frame( ID.FormatContext, &TempPacket );
+				if( Result < 0 )
+				{
+					STREAM_ERROR( WriteFailed, Result );
+				}
+
+				m_ClipLength = (double)(TempPacket.pts * ID.FormatContext->streams[0]->time_base.num) / ID.FormatContext->streams[0]->time_base.den;
 			}
 
 			av_packet_unref( &TempPacket );
@@ -460,7 +564,7 @@ void OutputStream::Shutdown()
 
 	if( ID.FormatContext )
 	{
-		CloseFile();
+		CloseFile(true, !m_Live || m_Isolated);
 				
 		avformat_free_context( ID.FormatContext );
 		ID.FormatContext = nullptr;
@@ -469,48 +573,64 @@ void OutputStream::Shutdown()
 	Stream::Shutdown();
 }
 
-CameraStreamError OutputStream::CloseFile()
+CameraStreamError OutputStream::CloseFile(bool Flush, bool WriteTrailer)
 {
 	auto& ID = *m_InternalData;
 
-	while( true )
+	if (Flush)
 	{
-		//Flush
-		int Result = avcodec_send_frame( ID.CodecContext, nullptr );
-		if( Result == 0 )
+		while (true)
 		{
-			CameraStreamError StrError = SendAll();
-			if( StrError != CameraStreamError::Success )
+			if (ID.CodecContext == nullptr)
 			{
-				if( !(ID.FormatContext->oformat->flags& AVFMT_NOFILE) || m_FileOpened )
-				{
-					m_FileOpened = false;
-					avio_close( ID.FormatContext->pb );
-				}
+				return CameraStreamError::NoStreams;
+			}
 
-				return StrError;
+			//Flush
+			int Result = avcodec_send_frame(ID.CodecContext, nullptr);
+			if (Result == 0)
+			{
+				CameraStreamError StrError = SendAll();
+				if (StrError != CameraStreamError::Success)
+				{
+					if (!(ID.FormatContext->oformat->flags & AVFMT_NOFILE) || m_FileOpened)
+					{
+						m_FileOpened = false;
+						avio_close(ID.FormatContext->pb);
+					}
+
+					return StrError;
+				}
+			}
+			else if (Result == AVERROR_EOF)
+			{
+				break;
+			}
+			else
+			{
+				STREAM_ERROR(WriteFailed, Result);
 			}
 		}
-		else if( Result == AVERROR_EOF )
-		{
-			break;
-		}
-		else
-		{
-			STREAM_ERROR( WriteFailed, Result );
-		}
 	}
-	
-	int Result = av_write_trailer( ID.FormatContext );
-	if( Result < 0 )
+
+	if (ID.FormatContext == nullptr)
 	{
-		STREAM_ERROR( WriteFailed, Result );
+		return CameraStreamError::NoStreams;
+	}
+
+	if (WriteTrailer)
+	{
+		int Result = av_write_trailer(ID.FormatContext);
+		if (Result < 0)
+		{
+			STREAM_ERROR(WriteFailed, Result);
+		}
 	}
 
 	if( !(ID.FormatContext->oformat->flags& AVFMT_NOFILE) || m_FileOpened )
 	{
 		m_FileOpened = false;
-		Result = avio_close( ID.FormatContext->pb );
+		int Result = avio_close( ID.FormatContext->pb );
 		if( Result < 0 )
 		{
 			STREAM_ERROR( WriteFailed, Result );
@@ -518,6 +638,49 @@ CameraStreamError OutputStream::CloseFile()
 	}
 
 
+	return CameraStreamError::Success;
+}
+
+CameraStreamError OutputStream::GenerateInitSegment(const std::string& InitSegmentPath)
+{/*
+	// Ensure we've initialized the format context and written the header:
+	CameraStreamError InitError = Initialize();
+	if (InitError != CameraStreamError::Success) {
+		return InitError;
+	}
+
+	auto& ID = *m_InternalData;
+
+	// At this point, avformat_write_header() should have already been called inside Initialize().
+	// That call should have written out the ftyp/moov boxes for the initialization.
+	// If we are using in-memory mode, we can extract that data now.
+	if (!m_InMemory || !m_IOContext) {
+		// Without in-memory mode, you'd have to set up a separate context
+		// or another mechanism to capture the init segment.
+		return CameraStreamError::UnknownError;
+	}
+
+	// Extract the buffer that contains the written data.
+	size_t size = 0;
+	uint8_t* buffer = m_IOContext->GetBuffer(&size);
+	if (!buffer || size == 0) {
+		return CameraStreamError::UnknownError;
+	}
+
+	// The buffer now should contain at least the init segment (ftyp + moov).
+	// Write this buffer out to a file:
+	std::ofstream outFile(InitSegmentPath, std::ios::binary);
+	if (!outFile.is_open()) {
+		return CameraStreamError::FileNotWriteable;
+	}
+
+	outFile.write(reinterpret_cast<char*>(buffer), size);
+	outFile.close();
+
+	// We've now exported the init segment. 
+	// You can reset the memory IO if you want to start from a clean buffer for actual fragments.
+	// Typically, you might want to re-init your output to start producing the moof fragments.
+	*/
 	return CameraStreamError::Success;
 }
 

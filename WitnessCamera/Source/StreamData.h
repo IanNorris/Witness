@@ -14,6 +14,7 @@ void FFMPEGErrorToString(int ErrorCode, char* Buffer, size_t BufferSize);
 #define STREAM_ERROR( X, Result )\
 	FFMPEGErrorToString(Result, m_ErrorMessage, sizeof(m_ErrorMessage)/sizeof(m_ErrorMessage[0]));\
 	m_LineNumber = __LINE__;\
+	m_InternalData->HasInitialized = false;\
 	/*if( IsDebuggerPresent() ) __debugbreak();*/\
 	return CameraStreamError::X;
 #else

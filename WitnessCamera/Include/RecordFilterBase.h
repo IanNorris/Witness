@@ -14,7 +14,7 @@ class CAMERA_API RecordFilterBase : public Pimpl<FilterDataType>, public IRecord
 {
 public:
 
-	RecordFilterBase( const MotionChainNode& Chain ) : Pimpl(), IRecordFilter( Chain )  {}
+	RecordFilterBase( const MotionChainNode& Chain ) : Pimpl<FilterDataType>(), IRecordFilter( Chain )  {}
 	virtual ~RecordFilterBase(){}
 };
 

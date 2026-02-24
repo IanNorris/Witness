@@ -9,7 +9,7 @@
 struct TagToClassification
 {
 	unsigned int Classification;
-	TCHAR* Name;
+	const TCHAR* Name;
 };
 
 const static TagToClassification TagClassifications[] = {

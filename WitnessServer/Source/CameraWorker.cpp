@@ -20,7 +20,18 @@ void CameraWorker::CreateInputStream()
 
 	std::string CamPath = StringToAnsi(Camera.Path);
 
+	std::string CachePath = std::string(Context->CachePath.begin(), Context->CachePath.end());
+
 	CameraStream = std::make_shared<InputStream>( Setup, Camera.ID, Camera.JobQueue, CamPath );
+
+	if (LiveStream)
+	{
+		LiveStream->ResetForReconnect(CameraStream.get());
+	}
+	else
+	{
+		LiveStream = std::make_shared<LiveOutputStream>(CachePath, CameraStream.get(), 1);
+	}
 
 	if (_strnicmp(CamPath.c_str(), "rtsp://", 7) == 0)
 	{
@@ -105,6 +116,7 @@ void CameraWorker::WorkerShutdown()
 {
 	//Ensure destruction is done on the worker thread
 	Filter = nullptr;
+	LiveStream = nullptr;
 	CameraStream = nullptr;
 
 	MessageBusObject->SendToClient( nullptr, std::make_shared<ThreadShutdownMessage>() );
@@ -132,8 +144,14 @@ void CameraWorker::WorkerMain()
 			OnClipFinished(false);
 				
 			Observer->SetManualClipStart( Data.Timestamp );
-			RecordStream = std::make_shared<OutputStream>(StringToAnsi(Data.Path), CameraStream.get() );
-			RecordStream->Initialize();
+			RecordStream = std::make_shared<OutputStream>( std::string( Data.Path.begin(), Data.Path.end() ), CameraStream.get(), false, false, false, false );
+			CameraStreamError InitResult = RecordStream->Initialize();
+			if (InitResult != CameraStreamError::Success)
+			{
+				printf("Recording init failed for camera %d: %s\n", Camera.ID, RecordStream->GetFFMPEGErrorMessage());
+				fflush(stdout);
+				RecordStream.reset();
+			}
 
 			Context->LongPoll->NotifyAll();
 		});
@@ -168,7 +186,7 @@ void CameraWorker::WorkerMain()
 	const double NanoSecondsToSeconds = 1000.0 * 1000.0 * 1000.0;
 	uint64_t Start = std::chrono::high_resolution_clock::now().time_since_epoch().count();
 	
-	CameraStreamError Error = CameraStream->ProcessFrame(std::static_pointer_cast<IRecordFilter>(Filter), RecordStream.get() );
+	CameraStreamError Error = CameraStream->ProcessFrame( std::static_pointer_cast<IRecordFilter>(Filter), RecordStream.get(), LiveStream.get() );
 
 	if( Error == CameraStreamError::Success )
 	{

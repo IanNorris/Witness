@@ -22,15 +22,56 @@ class GlobalContext
 public:
 
 	GlobalContext()
-	: LongPoll(std::make_shared<LongPollDispatch>())
+	: Mutex()
+	, LongPoll(std::make_shared<LongPollDispatch>())
 	{}
+
+	CameraState* FindCameraById(int Id)
+	{
+		std::lock_guard<std::mutex> lock(Mutex);
+
+		auto Iter = Cameras.find(Id);
+		if (Iter != Cameras.end())
+		{
+			return &((*Iter).second);
+		}
+		else
+		{
+			return nullptr;
+		}
+	}
+
+	const CameraState* FindCameraById(int Id) const
+	{
+		std::lock_guard<std::mutex> lock(Mutex);
+
+		auto Iter = Cameras.find(Id);
+		if (Iter != Cameras.end())
+		{
+			return &((*Iter).second);
+		}
+		else
+		{
+			return nullptr;
+		}
+	}
+
+	const std::unordered_map<int, CameraState>& GetCameraMap() const
+	{
+		return Cameras;
+	}
+
+	std::unordered_map<int, CameraState>& GetCameraMap()
+	{
+		return Cameras;
+	}
 
 	mutable std::mutex Mutex;
 
 	string_t CachePath;
 
 	std::shared_ptr<SQLiteDatabase> Database;
-	std::unordered_map< int, CameraState> Cameras;
+
 	Witness::Camera::ImageProcessingJobQueue* CommonImageProcessingJobQueue;
 
 	std::vector<SettingsMap> AzureSettings;
@@ -42,4 +83,7 @@ public:
 	uint16_t Port;
 
 	mutable std::shared_ptr<LongPollDispatch> LongPoll;
+
+private:
+	std::unordered_map< int, CameraState> Cameras;
 };
