@@ -1,14 +1,19 @@
 <div class="panel-body">
 	<div class="col-md-12 col-sm-12">
-		<h3 class="animated fadeInLeft">Cameras (
+		<h3 class="animated fadeInLeft" data-bind="visible: !fullscreenMode()">Cameras (
             <button class="btn btn-circle btn-mn btn-primary" data-bind="click:increaseScale"><i class="fa fa-plus"></i></button>
             <span data-bind="text: cameraPreviewScale"></span><span>%</span>
             <button class="btn btn-circle btn-mn btn-primary" data-bind="click:decreaseScale"><i class="fa fa-minus"></i></button>
             <button class="btn btn-circle btn-mn btn-default" onclick="window._witnessDumpDiag()" title="Download HLS debug log"><i class="fa fa-download"></i></button>
+            <button class="btn btn-circle btn-mn btn-default" data-bind="click:toggleFullscreen" title="Fullscreen camera view"><i class="fa fa-arrows-alt"></i></button>
         )
         </h3>
+		<div class="witness-fullscreen-toolbar" data-bind="visible: fullscreenMode">
+			<button class="btn btn-circle btn-sm btn-default" data-bind="click:toggleFullscreen" title="Exit fullscreen"><i class="fa fa-compress"></i></button>
+			<button class="btn btn-circle btn-sm btn-default" onclick="window._witnessDumpDiag()" title="Download HLS debug log"><i class="fa fa-download"></i></button>
+		</div>
 		<div data-bind="foreach: cameras">
-			<div class="CameraPreviewContainer" data-bind="style: { 'width': witness.cameraPreviewScale() + '%' }">
+			<div class="CameraPreviewContainer" data-bind="style: { 'width': $parent.fullscreenMode() ? witness.fullscreenCameraWidth() : witness.cameraPreviewScale() + '%' }, css: { 'CameraPreviewFullscreen': $parent.fullscreenMode() }">
 				<video class="CameraPreview" muted autoplay playsinline data-bind="hlsPreview: id, css: { 'CameraPreviewRec': isRecording }, click: toggleRecording"></video>
 				<span class="CameraActivityIndicator"><i class="fa fa-spinner fa-spin"></i></span>
 				<span class="CameraConnectionLost"><i class="fa fa-wifi"></i></span>

@@ -54,6 +54,24 @@ var WitnessViewModel = function() {
 
     self.cameraPreviewScale = ko.observable( localStorage.cameraPreviewScale ? parseInt(localStorage.cameraPreviewScale) : 15 );
 
+	self.fullscreenMode = ko.observable(false);
+	self.toggleFullscreen = function () {
+		self.fullscreenMode(!self.fullscreenMode());
+		if (self.fullscreenMode()) {
+			document.body.classList.add('witness-fullscreen');
+		} else {
+			document.body.classList.remove('witness-fullscreen');
+		}
+	};
+
+	// Compute optimal grid width per camera in fullscreen based on count.
+	// Picks columns to best fill the viewport at 16:9 aspect ratio.
+	self.fullscreenCameraWidth = ko.computed(function () {
+		var count = self.cameras().length || 1;
+		var cols = Math.ceil(Math.sqrt(count));
+		return (100 / cols).toFixed(2) + '%';
+	});
+
     self.increaseScale = function () {
         self.cameraPreviewScale( Math.min( self.cameraPreviewScale() + 5, 100 ) );
 		localStorage.cameraPreviewScale = self.cameraPreviewScale();
