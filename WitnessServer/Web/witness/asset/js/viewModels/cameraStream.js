@@ -144,6 +144,7 @@ ko.bindingHandlers.hlsPreview = {
 
         var hls = new Hls(createHlsConfig(false));
         var lastFragTime = 0;
+        var streamStartTime = Date.now();
         var restartInProgress = false;
         var watchdog = null;
 
@@ -197,6 +198,8 @@ ko.bindingHandlers.hlsPreview = {
             hls = new Hls(createHlsConfig(false));
             diag.setRefs(element, hls);
             attachEvents(hls);
+            lastFragTime = 0;
+            streamStartTime = Date.now();
             startHlsStream(hls, sourceUrl, element);
         }
 
@@ -209,27 +212,47 @@ ko.bindingHandlers.hlsPreview = {
         // outside fights those mechanisms and causes thrashing loops.
         // Instead, if the stream is genuinely stuck, do a full restart.
         var lowReadyStateSince = 0;
+        var stuckBackoffMs = 3000;
         watchdog = setInterval(function () {
             // Detect sustained low readyState (frozen frame, playhead
-            // stranded outside buffer). If stuck for 3s, full restart.
+            // stranded outside buffer). Exponential backoff on restarts
+            // to avoid churn on streams that can't recover (e.g. pre-
+            // recorded content with misaligned timestamps).
             if (!element.paused && element.readyState <= 1 && lastFragTime > 0) {
                 if (lowReadyStateSince === 0) {
                     lowReadyStateSince = Date.now();
-                } else if (Date.now() - lowReadyStateSince > 3000) {
+                } else if (Date.now() - lowReadyStateSince > stuckBackoffMs) {
                     diag.log('stuckRestart', {
                         readyState: element.readyState,
                         currentTime: element.currentTime,
-                        liveSyncPosition: hls.liveSyncPosition
+                        liveSyncPosition: hls.liveSyncPosition,
+                        backoffMs: stuckBackoffMs
                     });
                     lowReadyStateSince = 0;
+                    stuckBackoffMs = Math.min(stuckBackoffMs * 2, 30000);
                     restartStream();
                     return;
                 }
             } else {
                 lowReadyStateSince = 0;
+                // Stream recovered — reset backoff
+                if (element.readyState >= 3) stuckBackoffMs = 3000;
             }
 
-            if (lastFragTime === 0) return; // haven't received first fragment yet
+            if (lastFragTime === 0) {
+                // No fragment received yet — check for initial connection timeout
+                var sinceLaunch = Date.now() - streamStartTime;
+                if (sinceLaunch > HLS_RESTART_TIMEOUT_MS) {
+                    if (connLost) connLost.classList.add('stalled');
+                    if (spinner) spinner.style.display = 'none';
+                    if (!restartInProgress) {
+                        diag.stats.stallCount++;
+                        diag.log('initialTimeout', { sinceLaunchMs: sinceLaunch });
+                        restartStream();
+                    }
+                }
+                return;
+            }
             var elapsed = Date.now() - lastFragTime;
 
             if (elapsed <= HLS_SPINNER_TIMEOUT_MS) {
@@ -272,6 +295,7 @@ ko.bindingHandlers.hlsStream = {
 
         var hls = new Hls(createHlsConfig(true));
         var lastFragTime = 0;
+        var streamStartTime = Date.now();
         var restartInProgress = false;
         var watchdog = null;
 
@@ -324,6 +348,8 @@ ko.bindingHandlers.hlsStream = {
             hls = new Hls(createHlsConfig(true));
             diag.setRefs(element, hls);
             attachEvents(hls);
+            lastFragTime = 0;
+            streamStartTime = Date.now();
             startHlsStream(hls, sourceUrl, element);
         }
 
@@ -331,25 +357,37 @@ ko.bindingHandlers.hlsStream = {
         startHlsStream(hls, sourceUrl, element);
 
         var lowReadyStateSince = 0;
+        var stuckBackoffMs = 3000;
         watchdog = setInterval(function () {
             if (!element.paused && element.readyState <= 1 && lastFragTime > 0) {
                 if (lowReadyStateSince === 0) {
                     lowReadyStateSince = Date.now();
-                } else if (Date.now() - lowReadyStateSince > 3000) {
+                } else if (Date.now() - lowReadyStateSince > stuckBackoffMs) {
                     diag.log('stuckRestart', {
                         readyState: element.readyState,
                         currentTime: element.currentTime,
-                        liveSyncPosition: hls.liveSyncPosition
+                        liveSyncPosition: hls.liveSyncPosition,
+                        backoffMs: stuckBackoffMs
                     });
                     lowReadyStateSince = 0;
+                    stuckBackoffMs = Math.min(stuckBackoffMs * 2, 30000);
                     restartStream();
                     return;
                 }
             } else {
                 lowReadyStateSince = 0;
+                if (element.readyState >= 3) stuckBackoffMs = 3000;
             }
 
-            if (lastFragTime === 0) return;
+            if (lastFragTime === 0) {
+                var sinceLaunch = Date.now() - streamStartTime;
+                if (sinceLaunch > HLS_RESTART_TIMEOUT_MS && !restartInProgress) {
+                    diag.stats.stallCount++;
+                    diag.log('initialTimeout', { sinceLaunchMs: sinceLaunch });
+                    restartStream();
+                }
+                return;
+            }
             var elapsed = Date.now() - lastFragTime;
             if (elapsed > HLS_RESTART_TIMEOUT_MS && !restartInProgress) {
                 diag.stats.stallCount++;
