@@ -4,16 +4,18 @@
             <button class="btn btn-circle btn-mn btn-primary" data-bind="click:increaseScale"><i class="fa fa-plus"></i></button>
             <span data-bind="text: cameraPreviewScale"></span><span>%</span>
             <button class="btn btn-circle btn-mn btn-primary" data-bind="click:decreaseScale"><i class="fa fa-minus"></i></button>
-            <button class="btn btn-circle btn-mn btn-default" onclick="window._witnessDumpDiag()" title="Download HLS debug log"><i class="fa fa-download"></i></button>
+            <button class="btn btn-circle btn-mn btn-default" onclick="window._witnessDumpDiag()" title="Download HLS debug log" data-bind="visible: isHlsMode"><i class="fa fa-download"></i></button>
             <button class="btn btn-circle btn-mn btn-default" data-bind="click:toggleFullscreen" title="Fullscreen camera view"><i class="fa fa-arrows-alt"></i></button>
+            <button class="btn btn-mn" data-bind="click: toggleStreamingMode, css: { 'btn-success': isHlsMode(), 'btn-warning': !isHlsMode() }" title="Toggle streaming mode"><i class="fa fa-video-camera"></i> <span data-bind="text: isHlsMode() ? 'HLS' : 'JPEG'"></span></button>
         )
         </h3>
 		<div class="witness-fullscreen-toolbar" data-bind="visible: fullscreenMode">
 			<button class="btn btn-circle btn-sm btn-default" data-bind="click:toggleFullscreen" title="Exit fullscreen"><i class="fa fa-compress"></i></button>
-			<button class="btn btn-circle btn-sm btn-default" onclick="window._witnessDumpDiag()" title="Download HLS debug log"><i class="fa fa-download"></i></button>
+			<button class="btn btn-circle btn-sm btn-default" onclick="window._witnessDumpDiag()" title="Download HLS debug log" data-bind="visible: isHlsMode"><i class="fa fa-download"></i></button>
 		</div>
 		<div data-bind="foreach: cameras">
 			<div class="CameraPreviewContainer" data-bind="style: { 'width': $parent.fullscreenMode() ? witness.fullscreenCameraWidth() : witness.cameraPreviewScale() + '%' }, css: { 'CameraPreviewFullscreen': $parent.fullscreenMode() }">
+				<!-- ko if: witness.isHlsMode() -->
 				<video class="CameraPreview" muted autoplay playsinline data-bind="hlsPreview: id, css: { 'CameraPreviewRec': isRecording }, click: toggleRecording"></video>
 				<span class="CameraActivityIndicator"><i class="fa fa-spinner fa-spin"></i></span>
 				<span class="CameraConnectionLost"><i class="fa fa-wifi"></i></span>
@@ -21,6 +23,10 @@
 					<i class="fa fa-chain-broken"></i>
 					<span data-bind="text: status"></span>
 				</div>
+				<!-- /ko -->
+				<!-- ko ifnot: witness.isHlsMode() -->
+				<img class="CameraPreview" data-bind="attr: { src: previewPath }, css: { 'CameraPreviewRec': isRecording }, click: toggleRecording" />
+				<!-- /ko -->
 			</div>
 		</div>
 	</div>

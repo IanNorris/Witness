@@ -6676,11 +6676,20 @@ body.witness-fullscreen .CameraPreviewContainer {
 
 .witness-fullscreen-toolbar {
 	position: fixed;
-	top: 8px;
+	bottom: 8px;
 	right: 8px;
 	z-index: 10000;
 	opacity: 0.3;
 	transition: opacity 0.2s ease;
+}
+
+.witness-fullscreen-toolbar .btn {
+	transform: scale(0.5);
+	margin: -4px;
+}
+
+.witness-fullscreen-toolbar .btn i {
+	font-size: 2em;
 }
 
 .witness-fullscreen-toolbar:hover {
