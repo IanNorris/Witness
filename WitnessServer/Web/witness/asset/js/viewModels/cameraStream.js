@@ -229,7 +229,7 @@ ko.bindingHandlers.hlsPreview = {
                         backoffMs: stuckBackoffMs
                     });
                     lowReadyStateSince = 0;
-                    stuckBackoffMs = Math.min(stuckBackoffMs * 2, 30000);
+                    stuckBackoffMs = Math.min(stuckBackoffMs * 2, 10000);
                     restartStream();
                     return;
                 }
@@ -370,7 +370,7 @@ ko.bindingHandlers.hlsStream = {
                         backoffMs: stuckBackoffMs
                     });
                     lowReadyStateSince = 0;
-                    stuckBackoffMs = Math.min(stuckBackoffMs * 2, 30000);
+                    stuckBackoffMs = Math.min(stuckBackoffMs * 2, 10000);
                     restartStream();
                     return;
                 }
