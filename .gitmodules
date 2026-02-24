@@ -16,6 +16,3 @@
 [submodule "ThirdParty/SubModules/mallick_cascades"]
 	path = ThirdParty/SubModules/mallick_cascades
 	url = https://github.com/spmallick/mallick_cascades.git
-[submodule "ThirdParty/SubModules/cpprestsdk"]
-	path = ThirdParty/SubModules/cpprestsdk
-	url = https://github.com/Microsoft/cpprestsdk.git
