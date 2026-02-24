@@ -2,7 +2,8 @@
 #include "Messages.h"
 
 #include <fstream>
-#include <windows.h>
+#include <chrono>
+#include <thread>
 
 void TimerWorker::WorkerMain()
 {
@@ -34,5 +35,5 @@ void TimerWorker::WorkerMain()
 		}
 	}
 
-	Sleep(1000);
+	std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 }

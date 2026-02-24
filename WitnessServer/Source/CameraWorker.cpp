@@ -6,7 +6,8 @@
 #include "Azure/AzureVisionAnalysisEndpointFilter.h"
 #include "Commands/Clip.h"
 
-#include <windows.h>
+#include <chrono>
+#include <thread>
 
 void CameraWorker::CreateInputStream()
 {
@@ -221,7 +222,7 @@ void CameraWorker::WorkerMain()
 
 		if( Error != CameraStreamError::EndOfFile )
 		{
-			Sleep( 3000 );
+			std::this_thread::sleep_for(std::chrono::milliseconds(3000));
 		}
 	}
 
@@ -234,11 +235,11 @@ void CameraWorker::WorkerMain()
 		{
 			double MillisecondsToWait = ((FrameTime - Duration) * 1000.0);
 
-			MillisecondsToWait = max( MillisecondsToWait - BufferPeriodInMilliseconds, 0 );
+			MillisecondsToWait = std::max( MillisecondsToWait - BufferPeriodInMilliseconds, 0.0 );
 
 			if( MillisecondsToWait > 0.0 )
 			{
-				Sleep( (DWORD)MillisecondsToWait );
+				std::this_thread::sleep_for(std::chrono::milliseconds(static_cast<int>(MillisecondsToWait)));
 			}
 		}
 	}

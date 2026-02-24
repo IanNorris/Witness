@@ -10,6 +10,8 @@
 
 #include <windows.h>
 #include <minmax.h>
+#include <chrono>
+#include <thread>
 #pragma comment(lib, "winmm.lib")
 
 #define SERVICE_NAME L"WitnessCameraServer"
@@ -75,7 +77,7 @@ bool UpdateService(wchar_t* Path, bool Install)
 			int Turns = 60;
 
 			do {
-				Sleep(1000);
+				std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 				std::tcout << U(".");
 
 				if (Status.dwCurrentState == SERVICE_STOPPED)
@@ -176,7 +178,7 @@ void WINAPI ServiceMain(DWORD dwArgc, PWSTR* pszArgv)
 
 		UpdateStatus(SERVICE_START_PENDING, 30);
 
-		Sleep(10000);
+		std::this_thread::sleep_for(std::chrono::milliseconds(10000));
 	}
 	else
 	{

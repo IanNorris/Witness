@@ -1,7 +1,8 @@
 #include "WatchdogWorker.h"
 #include "Messages.h"
 
-#include <windows.h>
+#include <chrono>
+#include <thread>
 
 void WatchdogWorker::WorkerMain()
 {
@@ -31,5 +32,5 @@ void WatchdogWorker::WorkerMain()
 		}
 	}
 
-	Sleep(2000);
+	std::this_thread::sleep_for(std::chrono::milliseconds(2000));
 }
