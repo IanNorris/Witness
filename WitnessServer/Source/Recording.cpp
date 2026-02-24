@@ -7,7 +7,7 @@
 #include "ObservingMotionFilter.h"
 #include "Witness.h"
 
-#include <windows.h>
+#include <filesystem>
 
 void WitnessServer::StartCameraRecording( const std::shared_ptr<CameraWorker>& Worker, uint64_t Timestamp, int CameraID, bool IsManual, const ClassificationResult& Result )
 {
@@ -28,11 +28,12 @@ void WitnessServer::StartCameraRecording( const std::shared_ptr<CameraWorker>& W
 	}
 	string_t Tags( TagsA.begin(), TagsA.end() );
 
-	CreateDirectoryW( CachePath.c_str(), nullptr );
+	std::filesystem::create_directories( std::filesystem::path(CachePath) );
 	stringstream_t TargetFilename;
-	TargetFilename << CachePath << _T("\\") << CameraID << (IsManual ? _T("_Manual_") : _T("_Auto_")) << Timestamp << ".mp4";
+	TargetFilename << CameraID << (IsManual ? _T("_Manual_") : _T("_Auto_")) << Timestamp << ".mp4";
+	auto TargetPath = (std::filesystem::path(CachePath) / TargetFilename.str()).native();
 
-	auto StartRecord = std::make_shared<CameraStartRecordMessage>( CameraID, Timestamp, TargetFilename.str() );
+	auto StartRecord = std::make_shared<CameraStartRecordMessage>( CameraID, Timestamp, TargetPath );
 			
 	if( Worker )
 	{

@@ -27,7 +27,7 @@ const static int MaxClipsPerQuery = 100;
 string_t GetClipName( const GlobalContext& Context, int CameraID, int64_t Timestamp, bool Manual, bool Video)
 {
 	stringstream_t Stream;
-	Stream << Context.CachePath << _T("\\") << CameraID;
+	Stream << CameraID;
 
 	if( Video )
 	{
@@ -52,7 +52,7 @@ string_t GetClipName( const GlobalContext& Context, int CameraID, int64_t Timest
 		Stream << _T(".jpg");
 	}
 
-	return Stream.str();
+	return (fs::path(Context.CachePath) / Stream.str()).native();
 }
 
 bool DeleteClip( const GlobalContext& Context, int CameraID, int64_t Timestamp, bool Manual )

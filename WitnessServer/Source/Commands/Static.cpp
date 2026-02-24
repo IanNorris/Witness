@@ -35,19 +35,8 @@ Command_Static::Command_Static( const std::unordered_map< string_t, string_t >& 
 		if( !fs::is_directory(Iter) )
 		{
 			auto Path = Iter.path();
-			string_t PathString = string_t( Path.native() );
-
-			if( PathString.compare(0, m_root.length(), m_root, 0 ) == 0 )
-			{
-				PathString = PathString.substr( m_root.length() );
-			}
-
-			for_each( PathString.begin(), PathString.end(), []( char_t& Char ) { Char = (Char == '\\') ? '/' : Char; } );
-
-			if (PathString.length() > 1 && PathString[0] == '/' )
-			{
-				PathString = PathString.substr(1);
-			}
+			auto RelPath = fs::relative(Path, m_root);
+			string_t PathString = RelPath.generic_wstring();
 
 			string_t ContentType = U("application/octet-stream");
 

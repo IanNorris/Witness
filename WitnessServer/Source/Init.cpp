@@ -10,7 +10,9 @@ using namespace web::http::client;
 using namespace utility;
 
 #include <filesystem>
+#ifdef _WIN32
 #include <windows.h>
+#endif
 
 std::filesystem::path GetConfigFilePath( string_t Filename )
 {
@@ -23,14 +25,14 @@ std::filesystem::path GetConfigFilePath( string_t Filename )
 	assert( Result == S_OK );
 
 	std::filesystem::path ConfigPath = ProfileRoot;
-	ConfigPath.append( U("Witness") );
+	ConfigPath /= U("Witness");
 
-	CreateDirectory( ConfigPath.c_str(), NULL );
+	std::filesystem::create_directories( ConfigPath );
 #else
-	std::tr2::sys::path ConfigPath = getenv("HOME");
-	ConfigPath.append( U(".Witness") );
+	std::filesystem::path ConfigPath = getenv("HOME");
+	ConfigPath /= U(".Witness");
 
-	mkdir( ConfigPath.c_str(), 0600 );
+	std::filesystem::create_directories( ConfigPath );
 #endif
 
 	ConfigPath.append( Filename );
@@ -288,10 +290,10 @@ void WitnessServer::StartCamera(const SQLiteDatabaseQuery& query)
 	Camera.MotionFilterName = MotionFilterName && wcslen(MotionFilterName) ? MotionFilterName : Video.MotionFilterName.c_str();
 
 	auto FaceCascadeName = Video.FaceCascadeFilter + _T(".xml");
-	auto FaceCascade = Video.DataPath + _T("\\Cascades\\") + FaceCascadeName;
+	auto FaceCascade = (std::filesystem::path(Video.DataPath) / _T("Cascades") / FaceCascadeName).native();
 
 	auto BodyCascadeName = Video.FullBodyCascadeFilter + _T(".xml");
-	auto BodyCascade = Video.DataPath + _T("\\Cascades\\") + BodyCascadeName;
+	auto BodyCascade = (std::filesystem::path(Video.DataPath) / _T("Cascades") / BodyCascadeName).native();
 
 	Camera.FaceCascadeFilter = FaceCascade;
 	Camera.FullBodyCascadeFilter = BodyCascade;
