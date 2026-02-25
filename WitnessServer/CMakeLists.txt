@@ -96,3 +96,11 @@ target_link_libraries(WitnessServer PRIVATE
     unofficial-sodium::sodium
     unofficial::sqlite3::sqlite3
 )
+
+# Copy the Web directory next to the executable
+add_custom_command(TARGET WitnessServer POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E create_symlink
+        "${CMAKE_SOURCE_DIR}/WitnessServer/Web"
+        "$<TARGET_FILE_DIR:WitnessServer>/Web"
+    COMMENT "Symlinking Web directory"
+)
