@@ -9,14 +9,14 @@ public:
 	struct WatchdogTarget
 	{
 		std::shared_ptr<WorkerBase> Thread;
-		string_t Name;
+		StringT Name;
 	};
 
 	WatchdogWorker(const std::shared_ptr<MessageBus>& MessageBus)
 	: WorkerBase( MessageBus )
 	{}
 
-	void AddTarget(const std::shared_ptr<WorkerBase>& ThreadIn, const string_t& NameIn)
+	void AddTarget(const std::shared_ptr<WorkerBase>& ThreadIn, const StringT& NameIn)
 	{
 		std::lock_guard<std::mutex> Lock( Mutex );
 

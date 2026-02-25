@@ -5,9 +5,9 @@
 AzureEndpointFilter::AzureEndpointFilter( const MotionChainNode& Chain, const SettingsMap& Settings )
 : IRecordFilter( Chain )
 {
-	string_t EndpointName = _T("endpoint");
-	string_t KeyName = _T("key");
-	string_t MinFrameDistanceName = _T("min_frame_distance");
+	StringT EndpointName = _T("endpoint");
+	StringT KeyName = _T("key");
+	StringT MinFrameDistanceName = _T("min_frame_distance");
 
 	LastFrameTime = 0;
 
@@ -15,7 +15,7 @@ AzureEndpointFilter::AzureEndpointFilter( const MotionChainNode& Chain, const Se
 	auto ApiKeyIter = Settings.Settings.find(KeyName);
 	auto MinFrameDistanceIter = Settings.Settings.find(MinFrameDistanceName);
 
-	string_t EndpointUri;
+	StringT EndpointUri;
 
 	if (EndpointUriIter != Settings.Settings.end())
 	{
@@ -54,8 +54,8 @@ AzureEndpointFilter::AzureEndpointFilter( const MotionChainNode& Chain, const Se
 
 pplx::task<web::http::http_response> AzureEndpointFilter::SendCommand(int CommandType, const json::value& RequestData, const QueryPairs& QueryValues, const std::vector<unsigned char>& Data)
 {
-	const string_t FinalEndpointUri = CommandTypeToEndpoint(CommandType);
-	const string_t Method = CommandTypeToMethod(CommandType);
+	const StringT FinalEndpointUri = CommandTypeToEndpoint(CommandType);
+	const StringT Method = CommandTypeToMethod(CommandType);
 	
 	web::uri_builder Uri( FinalEndpointUri );
 
@@ -77,7 +77,7 @@ pplx::task<web::http::http_response> AzureEndpointFilter::SendCommand(int Comman
 	}
 	else
 	{
-		const string_t RestData = RequestData.serialize();
+		const StringT RestData = RequestData.serialize();
 		Request.set_body( RestData );
 		Request.headers().content_type() = _T("application/json");
 	}

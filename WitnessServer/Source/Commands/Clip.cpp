@@ -24,9 +24,9 @@ namespace fs = std::filesystem;
 
 const static int MaxClipsPerQuery = 100;
 
-string_t GetClipName( const GlobalContext& Context, int CameraID, int64_t Timestamp, bool Manual, bool Video)
+StringT GetClipName( const GlobalContext& Context, int CameraID, int64_t Timestamp, bool Manual, bool Video)
 {
-	stringstream_t Stream;
+	StringStreamT Stream;
 	Stream << CameraID;
 
 	if( Video )
@@ -80,7 +80,7 @@ bool DeleteClip( const GlobalContext& Context, int CameraID, int64_t Timestamp, 
 	return true;
 }
 
-void Command_Clip::OnMessage( GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, std::vector<string_t>& ChildPath, bool IsPost )
+void Command_Clip::OnMessage( GlobalContext& Context, http_request& Message, const StringT& CurrentCommand, std::vector<StringT>& ChildPath, bool IsPost )
 {
 	auto Packet = Message.extract_json().get();
 
@@ -139,7 +139,7 @@ void Command_Clip::OnMessage( GlobalContext& Context, http_request& Message, con
 	}
 }
 
-void Command_Clip::OnThumbnailMessage( const GlobalContext& Context, http_request& Message, bool Video, const string_t& TargetCamera, const string_t& TargetClip, const json::value& Packet )
+void Command_Clip::OnThumbnailMessage( const GlobalContext& Context, http_request& Message, bool Video, const StringT& TargetCamera, const StringT& TargetClip, const json::value& Packet )
 {
 	int TargetCameraInt = _wtoi( TargetCamera.c_str() );
 	uint64_t TargetCameraTimestamp = _wtoll( TargetClip.c_str() );
@@ -174,7 +174,7 @@ void Command_Clip::OnThumbnailMessage( const GlobalContext& Context, http_reques
 	SelectClip->Bind( "@CameraID", TargetCameraInt );
 	SelectClip->Bind( "@Timestamp", (int64_t)TargetCameraTimestamp );
 
-	string_t ClipFilename;
+	StringT ClipFilename;
 
 	bool Success = false;
 
@@ -212,7 +212,7 @@ void Command_Clip::OnThumbnailMessage( const GlobalContext& Context, http_reques
 	Message.reply( status_codes::NotFound );
 }
 
-void Command_Clip::OnEnumClipsMessage( const GlobalContext& Context, http_request& Message, const string_t& TargetCamera, const string_t& MaxCount, const string_t& StartDate, const string_t& RangePeriod, const string_t& PageOffset, const json::value& Packet )
+void Command_Clip::OnEnumClipsMessage( const GlobalContext& Context, http_request& Message, const StringT& TargetCamera, const StringT& MaxCount, const StringT& StartDate, const StringT& RangePeriod, const StringT& PageOffset, const json::value& Packet )
 {
 	int TargetCameraInt = _wtoi( TargetCamera.c_str() );
 	int MaxCountInt = _wtoi( MaxCount.c_str() );
@@ -299,11 +299,11 @@ void Command_Clip::OnEnumClipsMessage( const GlobalContext& Context, http_reques
 				double MaxMotion = query.GetColumnValueDouble(7);
 
 				const wchar_t* DescriptionStr = query.GetColumnValueText(8);
-				string_t Description = DescriptionStr ? DescriptionStr : _T("");
+				StringT Description = DescriptionStr ? DescriptionStr : _T("");
 
 				int Saved = query.GetColumnValueInt(9);
 
-				string_t Tags = query.GetColumnValueText(10) ? query.GetColumnValueText(10) : _T("");
+				StringT Tags = query.GetColumnValueText(10) ? query.GetColumnValueText(10) : _T("");
 			
 				json::value Camera;
 				Camera[ _T("clipUID") ] = json::value(ClipID);
@@ -333,7 +333,7 @@ void Command_Clip::OnEnumClipsMessage( const GlobalContext& Context, http_reques
 
 void Command_Clip::OnToggleSaveMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet )
 {
-	string_t Errors;
+	StringT Errors;
 	int ClipUID = 0;
 	bool Value = false;
 
@@ -384,7 +384,7 @@ void Command_Clip::OnToggleSaveMessage( const GlobalContext& Context, http_reque
 
 void Command_Clip::OnDeleteMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet )
 {
-	string_t Errors;
+	StringT Errors;
 	int ClipUID = 0;
 
 	bool Success = GetJsonField( Packet, _T("id"), ClipUID, Errors );

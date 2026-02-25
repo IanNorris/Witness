@@ -15,7 +15,7 @@
 #include <cwchar>
 #include <stdexcept>
 
-std::string ReadFileToString(string_t Filename)
+std::string ReadFileToString(StringT Filename)
 {
 	std::ifstream File( Filename );
 	std::stringstream Buffer;
@@ -51,7 +51,7 @@ void SetStdinEcho( bool Enable )
 #endif
 }
 
-string_t Trim( string_t tInput )
+StringT Trim( StringT tInput )
 {
 	static const TCHAR pszWhitespace[] = _T(" \t\n\r");
 	tInput = tInput.erase( tInput.find_last_not_of( pszWhitespace )+1 );
@@ -67,12 +67,12 @@ std::string Trim(std::string tInput )
 	return tInput;
 }
 
-std::vector< string_t > SplitString( string_t tInput, string_t tSeparator, StringTrim eTrim, StringStrip eStrip )
+std::vector< StringT > SplitString( StringT tInput, StringT tSeparator, StringTrim eTrim, StringStrip eStrip )
 {
-	std::vector< string_t > tResult;
+	std::vector< StringT > tResult;
 
-	string_t::const_iterator tStart = tInput.begin();
-	string_t::const_iterator tEnd;
+	StringT::const_iterator tStart = tInput.begin();
+	StringT::const_iterator tEnd;
 
 	if( tInput.size() == 0 )
 	{
@@ -81,9 +81,9 @@ std::vector< string_t > SplitString( string_t tInput, string_t tSeparator, Strin
 
 	while( true )
 	{
-		tEnd = std::search< string_t::const_iterator, string_t::const_iterator >( tStart, tInput.end(), tSeparator.begin(), tSeparator.end() );
+		tEnd = std::search< StringT::const_iterator, StringT::const_iterator >( tStart, tInput.end(), tSeparator.begin(), tSeparator.end() );
 
-		string_t tSubString( tStart, tEnd );
+		StringT tSubString( tStart, tEnd );
 
 		if( eTrim == StringTrim::Trim )
 		{

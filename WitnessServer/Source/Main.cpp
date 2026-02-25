@@ -26,7 +26,7 @@ using namespace web::json;
 using namespace web::http::client;
 using namespace utility;
 
-std::filesystem::path GetConfigFilePath(string_t Filename);
+std::filesystem::path GetConfigFilePath(StringT Filename);
 
 bool UpdateService(wchar_t* Path, bool Install)
 {

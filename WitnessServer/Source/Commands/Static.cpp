@@ -17,13 +17,13 @@ using namespace utility;
 
 namespace fs = std::filesystem;
 
-Command_Static::Command_Static( const std::unordered_map< string_t, string_t >& Settings )
+Command_Static::Command_Static( const std::unordered_map< StringT, StringT >& Settings )
 {
-	string_t Errors;
+	StringT Errors;
 
 	GetSettingsField(Settings, _T("server_root"), m_root, Errors);
 
-	std::unordered_map< string_t, string_t > MimeTypes;
+	std::unordered_map< StringT, StringT > MimeTypes;
 	MimeTypes[_T("css")] = _T("text/css");
 	MimeTypes[_T("html")] = _T("text/html");
 	MimeTypes[_T("js")] = _T("application/javascript");
@@ -36,13 +36,13 @@ Command_Static::Command_Static( const std::unordered_map< string_t, string_t >& 
 		{
 			auto Path = Iter.path();
 			auto RelPath = fs::relative(Path, m_root);
-			string_t PathString = RelPath.generic_wstring();
+			StringT PathString = RelPath.generic_wstring();
 
-			string_t ContentType = U("application/octet-stream");
+			StringT ContentType = U("application/octet-stream");
 
 			if( Path.has_extension() )
 			{
-				string_t PathExt = Path.extension().native().substr(1);
+				StringT PathExt = Path.extension().native().substr(1);
 
 				if (MimeTypes.find(PathExt) != MimeTypes.end())
 				{
@@ -57,15 +57,15 @@ Command_Static::Command_Static( const std::unordered_map< string_t, string_t >& 
 	if( result )
 	{
 		auto message = result.message();
-		std::tcerr << string_t( message.begin(), message.end() ) << std::endl;
+		std::tcerr << StringT( message.begin(), message.end() ) << std::endl;
 	}
 }
 
-void Command_Static::OnMessage( GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, std::vector<string_t>& ChildPath, bool IsPost )
+void Command_Static::OnMessage( GlobalContext& Context, http_request& Message, const StringT& CurrentCommand, std::vector<StringT>& ChildPath, bool IsPost )
 {
-	string_t Joined;
+	StringT Joined;
 	std::for_each( ChildPath.begin(), ChildPath.end(),
-		[&Joined]( const string_t& Next )
+		[&Joined]( const StringT& Next )
 		{
 			if( !Joined.empty() )
 			{

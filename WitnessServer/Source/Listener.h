@@ -20,7 +20,7 @@ public:
 	WitnessListener( utility::string_t Hostname, int Port, bool Secure, DebugConsole* DebugConsoleInstance );
 	virtual ~WitnessListener();
 
-	void Initialise( const std::unordered_map< string_t, string_t >& Settings );
+	void Initialise( const std::unordered_map< StringT, StringT >& Settings );
 
 	void Start();
 
@@ -28,7 +28,7 @@ public:
 
 	const std::shared_ptr<GlobalContext>& GetGlobalContext() { return m_GlobalContext; }
 
-	const string_t& GetBaseUri() { return m_BaseUri; }
+	const StringT& GetBaseUri() { return m_BaseUri; }
 
 private:
 
@@ -39,7 +39,7 @@ private:
 
 	DebugConsole* DebugConsoleInstance;
 
-	std::unordered_map<string_t, std::unique_ptr<IListenerCommand>> m_Commands;
+	std::unordered_map<StringT, std::unique_ptr<IListenerCommand>> m_Commands;
 
-	string_t				m_BaseUri;
+	StringT				m_BaseUri;
 };

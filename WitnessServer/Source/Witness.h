@@ -22,8 +22,8 @@ struct AndroidSettings
 	: UseAndroid(false)
 	{}
 
-	string_t	ServerKey;
-	string_t	TempUserId;
+	StringT	ServerKey;
+	StringT	TempUserId;
 	bool		UseAndroid;
 };
 
@@ -40,7 +40,7 @@ public:
 
 private:
 
-	void StatusMessage( int Camera, string_t NewStatus, string_t Reason );
+	void StatusMessage( int Camera, StringT NewStatus, StringT Reason );
 
 	void HandleCameraStartupMessage(const CameraStartupMessage& Data);
 	void HandleCameraReconnectMessage(const CameraReconnectMessage& Data);
@@ -50,13 +50,13 @@ private:
 	void HandleCameraUpdateMotionMessage(const CameraUpdateMotionMessage& Data);
 	void HandleCameraEndMotionMessage(const CameraEndMotionMessage& Data);
 
-	void LoadAndroidSettings( const std::unordered_map< string_t, string_t >& Settings );
-	bool CreateListener( const std::unordered_map< string_t, string_t >& Settings );
-	bool CreateProcessors( const std::unordered_map< string_t, string_t >& Settings );
+	void LoadAndroidSettings( const std::unordered_map< StringT, StringT >& Settings );
+	bool CreateListener( const std::unordered_map< StringT, StringT >& Settings );
+	bool CreateProcessors( const std::unordered_map< StringT, StringT >& Settings );
 	bool InitializeContext( const std::shared_ptr<SQLiteDatabase>& Database );
 
 	void HandleActions( const std::shared_ptr<GlobalContext>& Context, CameraState& State, int CameraIndex, double MotionThreshold );
-	void TriggerAction( const string_t& Command, const string_t& Param1, const string_t& Param2, const string_t& Param3, CameraState& State, int CameraIndex );
+	void TriggerAction( const StringT& Command, const StringT& Param1, const StringT& Param2, const StringT& Param3, CameraState& State, int CameraIndex );
 
 	void StartCameraWorkers();
 
@@ -81,5 +81,5 @@ private:
 	AndroidSettings	Android;
 	VideoSettings Video;
 
-	string_t CachePath;
+	StringT CachePath;
 };

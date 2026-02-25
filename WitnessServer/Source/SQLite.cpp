@@ -116,7 +116,7 @@ int SQLiteDatabaseQuery::Execute( const std::function< bool(const SQLiteDatabase
 			std::string ErrorString(sqlite3_errmsg( m_database->GetDatabase() ));
 
 
-			m_lastError = string_t( ErrorString.begin(), ErrorString.end() );
+			m_lastError = StringT( ErrorString.begin(), ErrorString.end() );
 			return -1;
 		}
 	}
@@ -158,7 +158,7 @@ const int SQLiteDatabaseQuery::GetColumnCount() const
 	return sqlite3_column_count( m_statements.back() );
 }
 
-SQLiteDatabase::SQLiteDatabase( const string_t& filename, const std::string& initScript, bool writeAccess, std::function<void(const std::string & )> onErrorCallback )
+SQLiteDatabase::SQLiteDatabase( const StringT& filename, const std::string& initScript, bool writeAccess, std::function<void(const std::string & )> onErrorCallback )
 : m_onErrorCallback( onErrorCallback )
 , m_filename( filename )
 , m_database( nullptr )
@@ -211,13 +211,13 @@ void SQLiteDatabase::ThrowError( const std::string& Message )
 	m_onErrorCallback( Message );
 }
 
-std::shared_ptr<SQLiteDatabaseQuery> SQLiteDatabase::CreateQuery( const string_t& queryName, const string_t& query )
+std::shared_ptr<SQLiteDatabaseQuery> SQLiteDatabase::CreateQuery( const StringT& queryName, const StringT& query )
 {
 	AssertDB( m_database, "Database was not valid" );
 
 	auto generatedQuery = std::make_shared<SQLiteDatabaseQuery>( shared_from_this() );
 
-	string_t newQuery = query;
+	StringT newQuery = query;
 	const TCHAR* nextStatement = newQuery.c_str();
 	do{
 		sqlite3_stmt* newStatement = nullptr;

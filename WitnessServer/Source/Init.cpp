@@ -14,7 +14,7 @@ using namespace utility;
 #include <windows.h>
 #endif
 
-std::filesystem::path GetConfigFilePath( string_t Filename )
+std::filesystem::path GetConfigFilePath( StringT Filename )
 {
 #if defined( _WINDOWS )
 
@@ -48,15 +48,15 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 
 	std::shared_ptr<SQLiteDatabase> Database = Database::InitializeDatabase(DatabaseFile);
 
-	std::unordered_map< string_t, string_t > Settings;
+	std::unordered_map< StringT, StringT > Settings;
 
 	SQLiteDatabaseQueryInstance GetAllSettings(Database, _T("GetAllSettings"));
 
 	int Result = GetAllSettings->Execute(
 		[&](const SQLiteDatabaseQuery& query)
 		{
-			string_t Name = query.GetColumnValueText(0);
-			string_t Value = query.GetColumnValueText(1);
+			StringT Name = query.GetColumnValueText(0);
+			StringT Value = query.GetColumnValueText(1);
 			Settings[Name] = Value;
 
 			return true;
@@ -69,7 +69,7 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 	Video.MotionFilterName = _T("BGS_LBMixtureOfGaussians");
 	
 	bool Success = true;
-	string_t Errors;
+	StringT Errors;
 
 	//Required
 	//Success &= GetSettingsField(Settings, _T("data_path"), Video.DataPath, Errors);
@@ -176,28 +176,28 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 	return true;
 }
 
-void WitnessServer::LoadAndroidSettings( const std::unordered_map< string_t, string_t >& Settings )
+void WitnessServer::LoadAndroidSettings( const std::unordered_map< StringT, StringT >& Settings )
 {
 	bool Success = true;
-	string_t Errors;
+	StringT Errors;
 
 	Success &= GetSettingsField( Settings, _T("fcm_server_key"), Android.ServerKey, Errors );
 	Success &= GetSettingsField( Settings, _T("fcm_user"), Android.TempUserId, Errors );
 	Android.UseAndroid = Success;
 }
 
-bool WitnessServer::CreateListener( const std::unordered_map< string_t, string_t >& Settings )
+bool WitnessServer::CreateListener( const std::unordered_map< StringT, StringT >& Settings )
 {
 	bool Success = true;
-	string_t Errors;
+	StringT Errors;
 
-	string_t Hostname;
+	StringT Hostname;
 	int Port;
-	string_t Security;
+	StringT Security;
 	bool Secure = true;
 
 	Success &= GetSettingsField( Settings, _T("server_hostname"), Hostname, Errors );
-	std::vector<string_t> SplitHostname = SplitString(Hostname, _T(":"));
+	std::vector<StringT> SplitHostname = SplitString(Hostname, _T(":"));
 
 	if (SplitHostname.size() != 2)
 	{
@@ -228,10 +228,10 @@ bool WitnessServer::CreateListener( const std::unordered_map< string_t, string_t
 	return true;
 }
 
-bool WitnessServer::CreateProcessors( const std::unordered_map< string_t, string_t >& Settings )
+bool WitnessServer::CreateProcessors( const std::unordered_map< StringT, StringT >& Settings )
 {
 	bool Success = true;
-	string_t Errors;
+	StringT Errors;
 
 	int ThreadCount = 0;
 

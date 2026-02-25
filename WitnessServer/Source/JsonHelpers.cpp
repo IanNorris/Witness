@@ -4,7 +4,7 @@
 using namespace web;
 using namespace utility;
 
-void ReportJsonError(const json::value& Object, const TCHAR* FieldName, string_t& Errors, const TCHAR* FieldType)
+void ReportJsonError(const json::value& Object, const TCHAR* FieldName, StringT& Errors, const TCHAR* FieldType)
 {
 	if (Object.has_field(FieldName))
 	{
@@ -24,7 +24,7 @@ void ReportJsonError(const json::value& Object, const TCHAR* FieldName, string_t
 
 #define BUILD_JSON_FIELD_ACCESSOR( AsFunction, IsFunction, Type, TypeName ) \
 	template<> \
-	bool GetJsonField( const json::value& Object, const TCHAR* FieldName, Type& ValueOut, string_t& Errors ) \
+	bool GetJsonField( const json::value& Object, const TCHAR* FieldName, Type& ValueOut, StringT& Errors ) \
 	{ \
 		if( Object.has_field( FieldName ) && Object.at(FieldName). IsFunction() ) \
 		{ \
@@ -38,12 +38,12 @@ void ReportJsonError(const json::value& Object, const TCHAR* FieldName, string_t
 		} \
 	}
 
-BUILD_JSON_FIELD_ACCESSOR(as_string, is_string, string_t, _T("string"))
+BUILD_JSON_FIELD_ACCESSOR(as_string, is_string, StringT, _T("string"))
 BUILD_JSON_FIELD_ACCESSOR(as_double, is_double, double, _T("double"))
 BUILD_JSON_FIELD_ACCESSOR(as_integer, is_integer, int, _T("int"))
 BUILD_JSON_FIELD_ACCESSOR(as_bool, is_boolean, bool, _T("bool"))
 
-bool GetSettingsString(const std::unordered_map< string_t, string_t >& Settings, const TCHAR* FieldName, string_t& OutString)
+bool GetSettingsString(const std::unordered_map< StringT, StringT >& Settings, const TCHAR* FieldName, StringT& OutString)
 {
 	auto Iter = Settings.find(FieldName);
 	if (Iter != Settings.end())
@@ -55,16 +55,16 @@ bool GetSettingsString(const std::unordered_map< string_t, string_t >& Settings,
 }
 
 template<typename ValueType>
-ValueType GetValueFromString(const string_t& ValueString);
+ValueType GetValueFromString(const StringT& ValueString);
 
 template<>
-string_t GetValueFromString(const string_t& ValueString)
+StringT GetValueFromString(const StringT& ValueString)
 {
 	return ValueString;
 }
 
 template<>
-double GetValueFromString(const string_t& ValueString)
+double GetValueFromString(const StringT& ValueString)
 {
 	std::string Conv = StringToAnsi(ValueString);
 
@@ -73,7 +73,7 @@ double GetValueFromString(const string_t& ValueString)
 
 
 template<>
-int GetValueFromString(const string_t& ValueString)
+int GetValueFromString(const StringT& ValueString)
 {
 	std::string Conv = StringToAnsi(ValueString);
 
@@ -82,16 +82,16 @@ int GetValueFromString(const string_t& ValueString)
 
 
 template<>
-bool GetValueFromString(const string_t& ValueString)
+bool GetValueFromString(const StringT& ValueString)
 {
 	return ValueString.compare(_T("True")) == 0;
 }
 
 #define BUILD_SETTINGS_FIELD_ACCESSOR( Type, TypeName ) \
 	template<> \
-	bool GetSettingsField( const std::unordered_map< string_t, string_t >& Settings, const TCHAR* FieldName, Type& ValueOut, string_t& Errors ) \
+	bool GetSettingsField( const std::unordered_map< StringT, StringT >& Settings, const TCHAR* FieldName, Type& ValueOut, StringT& Errors ) \
 	{ \
-		string_t Value; \
+		StringT Value; \
 		if( GetSettingsString( Settings, FieldName, Value ) ) \
 		{ \
 			ValueOut = GetValueFromString<Type>(Value); \
@@ -108,7 +108,7 @@ bool GetValueFromString(const string_t& ValueString)
 		} \
 	}
 
-BUILD_SETTINGS_FIELD_ACCESSOR(string_t, _T("string"))
+BUILD_SETTINGS_FIELD_ACCESSOR(StringT, _T("string"))
 BUILD_SETTINGS_FIELD_ACCESSOR(double, _T("double"))
 BUILD_SETTINGS_FIELD_ACCESSOR(int, _T("int"))
 BUILD_SETTINGS_FIELD_ACCESSOR(bool, _T("bool"))

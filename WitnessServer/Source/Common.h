@@ -32,8 +32,14 @@
 using namespace web;
 using namespace utility;
 
+// Our own string types - currently wide strings to match CppREST SDK.
+// When CppREST is replaced, change these to std::string/char/std::stringstream.
+using StringT = utility::string_t;
+using CharT = utility::char_t;
+using StringStreamT = utility::stringstream_t;
+
 void SetStdinEcho( bool Enable );
-std::string ReadFileToString( string_t Filename );
+std::string ReadFileToString( StringT Filename );
 
 ///Enum to determine whether a string should be trimmed when being split
 enum class StringTrim
@@ -49,8 +55,8 @@ enum class StringStrip
 	RemoveEmpty,		//!< Remove empty strings
 };
 
-string_t Trim( string_t tInput );
-std::vector< string_t > SplitString( string_t tInput, string_t tSeparator, StringTrim eTrim = StringTrim::Trim, StringStrip eStrip = StringStrip::RemoveEmpty );
+StringT Trim( StringT tInput );
+std::vector< StringT > SplitString( StringT tInput, StringT tSeparator, StringTrim eTrim = StringTrim::Trim, StringStrip eStrip = StringStrip::RemoveEmpty );
 
 std::string Trim(std::string tInput );
 std::vector< std::string > SplitString(std::string tInput, std::string tSeparator, StringTrim eTrim = StringTrim::Trim, StringStrip eStrip = StringStrip::RemoveEmpty );
@@ -65,7 +71,7 @@ std::wstring StringPrintfW(const wchar_t* Message, ...);
 #endif
 
 template<typename T>
-bool GetSettingsField( const std::unordered_map< string_t, string_t >& Settings, const TCHAR* FieldName, T& ValueOut, utility::string_t& Errors );
+bool GetSettingsField( const std::unordered_map< StringT, StringT >& Settings, const TCHAR* FieldName, T& ValueOut, utility::string_t& Errors );
 
 template<typename T>
 bool GetJsonField(const web::json::value& Object, const TCHAR* FieldName, T& ValueOut, utility::string_t& Errors);

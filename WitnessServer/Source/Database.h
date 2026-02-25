@@ -2,5 +2,5 @@
 
 namespace Database
 {
-	std::shared_ptr<SQLiteDatabase> InitializeDatabase( string_t Filename );
+	std::shared_ptr<SQLiteDatabase> InitializeDatabase( StringT Filename );
 }

@@ -11,7 +11,7 @@
 void WitnessServer::HandleCameraBeginMotionMessage(const CameraBeginMotionMessage& Data)
 {
 	std::shared_ptr<CameraWorker> Worker;
-	string_t CameraName;
+	StringT CameraName;
 
 	{
 		auto CameraState = Context->FindCameraById( Data.Camera );
@@ -41,7 +41,7 @@ void WitnessServer::HandleCameraBeginMotionMessage(const CameraBeginMotionMessag
 		}
 	}
 
-    stringstream_t ThumbPath;
+    StringStreamT ThumbPath;
     ThumbPath << Server->GetBaseUri() << _T("clip/thumb/") << Data.Camera << _T("/") << Data.ClipStats.TimestampClipStarted;
 						
 	SendAndroidNotification( Android.ServerKey, Android.TempUserId, _T("Camera info"), CameraName, ThumbPath.str(), nullptr );
@@ -95,7 +95,7 @@ void WitnessServer::HandleActions( const std::shared_ptr<GlobalContext>& Context
 	FindActions->Bind( "@CameraUID", CameraIndex );
 	FindActions->Bind( "@MDThreshold", (double)MotionThreshold );
 
-	string_t ClipFilename;
+	StringT ClipFilename;
 
 	bool Success = false;
 
@@ -103,11 +103,11 @@ void WitnessServer::HandleActions( const std::shared_ptr<GlobalContext>& Context
 
 	struct ActionCommand
 	{
-		string_t Name;
-		string_t Command;
-		string_t Param1;
-		string_t Param2;
-		string_t Param3;
+		StringT Name;
+		StringT Command;
+		StringT Param1;
+		StringT Param2;
+		StringT Param3;
 	};
 	std::vector<ActionCommand> Commands;
 
@@ -147,7 +147,7 @@ void WitnessServer::HandleActions( const std::shared_ptr<GlobalContext>& Context
 				ActionCommand Command;
 
 				//int ActionUID = query.GetColumnValueInt(0);
-				//string_t Name = query.GetColumnValueText(1);
+				//StringT Name = query.GetColumnValueText(1);
 				Command.Command = query.GetColumnValueText(2);
 				Command.Param1 = query.GetColumnValueText(3);
 				Command.Param2 = query.GetColumnValueText(4);
@@ -166,7 +166,7 @@ void WitnessServer::HandleActions( const std::shared_ptr<GlobalContext>& Context
 	}
 }
 
-void WitnessServer::TriggerAction( const string_t& Command, const string_t& Param1, const string_t& Param2, const string_t& Param3, CameraState& State, int CameraIndex )
+void WitnessServer::TriggerAction( const StringT& Command, const StringT& Param1, const StringT& Param2, const StringT& Param3, CameraState& State, int CameraIndex )
 {
 	if (Command.compare(_T("PlaySound")) == 0)
 	{

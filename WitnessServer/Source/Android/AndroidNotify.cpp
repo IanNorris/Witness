@@ -34,7 +34,7 @@ void SendAndroidNotification( utility::string_t ServerKey, utility::string_t Tar
 		Request.headers().add( U("Authorization"), U("key=") + ServerKey );
 		Request.set_request_uri( U("/fcm/send") );
 	
-		string_t PostData = PostParameters.serialize();
+		StringT PostData = PostParameters.serialize();
 
 		Request.set_body( PostData );
 

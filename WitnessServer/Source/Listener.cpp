@@ -42,7 +42,7 @@ WitnessListener::~WitnessListener()
 	Stop();
 }
 
-void WitnessListener::Initialise( const std::unordered_map< string_t, string_t >& Settings )
+void WitnessListener::Initialise( const std::unordered_map< StringT, StringT >& Settings )
 {
 	m_Commands[U("auth")] = std::make_unique<Command_Authenticate>( m_GlobalContext->Port );
 	m_Commands[U("static")] = std::make_unique<Command_Static>( Settings );

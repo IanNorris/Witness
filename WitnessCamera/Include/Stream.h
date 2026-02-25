@@ -7,7 +7,6 @@
 
 #include <string>
 #include <memory>
-#include <tchar.h>
 
 struct AVPacket;
 
@@ -42,73 +41,73 @@ enum class CameraStreamError
 	UnknownError,
 };
 
-static const TCHAR* GetCameraStreamErrorMessage( CameraStreamError Error )
+static const char* GetCameraStreamErrorMessage( CameraStreamError Error )
 {
 	switch( Error )
 	{
 	case CameraStreamError::Success:
-		return _T("Success");
+		return "Success";
 
 	case CameraStreamError::EndOfFile:
-		return _T("End of file");
+		return "End of file";
 
 	case CameraStreamError::ConnectionError:
-		return _T("Connection error");
+		return "Connection error";
 
 	case CameraStreamError::NoStreams:
-		return _T("No streams");
+		return "No streams";
 
 	case CameraStreamError::NoH264Support:
-		return _T("No H264 support");
+		return "No H264 support";
 
 	case CameraStreamError::UnsupportedStreamFormat:
-		return _T("Unsupported stream format");
+		return "Unsupported stream format";
 
 	case CameraStreamError::UnsupportedStreamType:
-		return _T("Unsupported stream type");
+		return "Unsupported stream type";
 
 	case CameraStreamError::EncodeFailed:
-		return _T("Encode failed");
+		return "Encode failed";
 
 	case CameraStreamError::FrameError:
-		return _T("Frame error");
+		return "Frame error";
 
 	case CameraStreamError::PacketError:
-		return _T("Packet error");
+		return "Packet error";
 
 	case CameraStreamError::DecoderReceiverError:
-		return _T("Decoder receiver error");
+		return "Decoder receiver error";
 
 	case CameraStreamError::EncoderCreationError:
-		return _T("Encoder creation error");
+		return "Encoder creation error";
 
 	case CameraStreamError::FileNotWriteable:
-		return _T("File not writable");
+		return "File not writable";
 
 	case CameraStreamError::WriteFailed:
-		return _T("Write failed");
+		return "Write failed";
 
 	case CameraStreamError::NoStreamInput:
-		return _T("Input stream is invalid");
+		return "Input stream is invalid";
 
 	case CameraStreamError::ProcessingQueueFull:
-		return _T("Frame processing queue is full. CPU is not powerful enough to handle current load.");
+		return "Frame processing queue is full. CPU is not powerful enough to handle current load.";
 
 	case CameraStreamError::InvalidPacket:
-		return _T("Invalid packet in buffer");
+		return "Invalid packet in buffer";
 
 	case CameraStreamError::InternalError:
-		return _T("Internal error");
+		return "Internal error";
 
 	case CameraStreamError::InvalidSetup:
-		return _T("One or more components of the setup struct were invalid.");
+		return "One or more components of the setup struct were invalid.";
 
 	case CameraStreamError::RefError:
-		return _T("Failed to modify ref count for a packet.");
+		return "Failed to modify ref count for a packet.";
 
 	case CameraStreamError::UnknownError:
 	default:
-		return _T("Unknown error");
+		return "Unknown error";
 	}
 }
 

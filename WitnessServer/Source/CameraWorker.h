@@ -23,10 +23,10 @@ struct VideoSettings
 	, ExportMotionVectors( 1 )
 	{}
 
-	string_t	DataPath;
-	string_t	MotionFilterName;
-	string_t	FullBodyCascadeFilter;
-	string_t	FaceCascadeFilter;
+	StringT	DataPath;
+	StringT	MotionFilterName;
+	StringT	FullBodyCascadeFilter;
+	StringT	FaceCascadeFilter;
 	double		ClipHistoryPeriod;
 	int			ExportMotionVectors;
 };
@@ -52,14 +52,14 @@ struct CameraSettings
 
 	ImageProcessingJobQueue* JobQueue;
 
-	string_t Name;
-	string_t Path;
-	string_t PathSub;
-	string_t MotionFilterName;
-	string_t FullBodyCascadeFilter;
-	string_t FaceCascadeFilter;
-	string_t BlackoutMaskPath;
-	string_t FocusMaskPath;
+	StringT Name;
+	StringT Path;
+	StringT PathSub;
+	StringT MotionFilterName;
+	StringT FullBodyCascadeFilter;
+	StringT FaceCascadeFilter;
+	StringT BlackoutMaskPath;
+	StringT FocusMaskPath;
 	double MDThreshold;
 	int ID;
 	int Enabled;

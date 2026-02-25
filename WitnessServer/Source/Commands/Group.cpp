@@ -12,7 +12,7 @@ using namespace web::http::client;
 
 namespace fs = std::filesystem;
 
-void Command_Group::OnMessage( GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, std::vector<string_t>& ChildPath, bool IsPost )
+void Command_Group::OnMessage( GlobalContext& Context, http_request& Message, const StringT& CurrentCommand, std::vector<StringT>& ChildPath, bool IsPost )
 {
 	if( ChildPath.size() == 1 )
 	{
@@ -76,8 +76,8 @@ void Command_Group::OnEnumMessage( const GlobalContext& Context, http_request& M
 			[&Array]( const SQLiteDatabaseQuery& query )
 			{
 				uint64_t GroupUID = query.GetColumnValueInt64(0);
-				string_t DisplayName = query.GetColumnValueText(1);
-				string_t Description = query.GetColumnValueText(2);
+				StringT DisplayName = query.GetColumnValueText(1);
+				StringT Description = query.GetColumnValueText(2);
 
 				json::value Camera;
 				Camera[ _T("id") ] = json::value(GroupUID);
@@ -104,11 +104,11 @@ void Command_Group::OnCreateMessage( const GlobalContext& Context, http_request&
 		return;
 	}
 
-	string_t Errors;
+	StringT Errors;
 	
 	bool Success = true;
-	string_t DisplayName;
-	string_t Description;
+	StringT DisplayName;
+	StringT Description;
 
 	Success &= GetJsonField( Packet, _T("displayName"), DisplayName, Errors );
 	Success &= GetJsonField( Packet, _T("description"), Description, Errors );
@@ -152,12 +152,12 @@ void Command_Group::OnUpdateMessage( const GlobalContext& Context, http_request&
 		return;
 	}
 
-	string_t Errors;
+	StringT Errors;
 	
 	bool Success = true;
 	int GroupUID;
-	string_t DisplayName;
-	string_t Description;
+	StringT DisplayName;
+	StringT Description;
 
 	
 	Success &= GetJsonField( Packet, _T("id"), GroupUID, Errors );
@@ -186,7 +186,7 @@ void Command_Group::OnDeleteMessage( const GlobalContext& Context, http_request&
 		return;
 	}
 
-	string_t Errors;
+	StringT Errors;
 	
 	bool Success = true;
 	int GroupUID;

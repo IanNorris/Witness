@@ -12,7 +12,7 @@ class AzureEndpointFilter : public Witness::Camera::IRecordFilter
 {
 public:
 
-	typedef std::pair<string_t,string_t> QueryPair;
+	typedef std::pair<StringT,StringT> QueryPair;
 	typedef std::vector<QueryPair> QueryPairs;
 
 
@@ -26,12 +26,12 @@ public:
 
 protected:
 
-	virtual const string_t CommandTypeToEndpoint( int CommandType ) = 0;
-	virtual const string_t CommandTypeToMethod( int CommandType ) = 0;
+	virtual const StringT CommandTypeToEndpoint( int CommandType ) = 0;
+	virtual const StringT CommandTypeToMethod( int CommandType ) = 0;
 	
-	string_t Hostname;
-	string_t EndpointBase;
-	string_t ApiKey;
+	StringT Hostname;
+	StringT EndpointBase;
+	StringT ApiKey;
 	double MinimumFrameDistance;
 	uint64_t LastFrameTime;
 };

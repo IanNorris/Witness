@@ -212,7 +212,7 @@ bool AzureVisionAnalysisEndpointFilter::ProcessFrame( SharedClassificationTask T
 						{
 							if( Tag.has_string_field(_T("name")) && Tag.has_double_field(_T("confidence")) )
 							{
-								string_t Name = Tag[_T("name")].as_string();
+								StringT Name = Tag[_T("name")].as_string();
 								std::string NameA = StringToAnsi(Name);
 								double Confidence = Tag[_T("confidence")].as_double();
 
@@ -316,7 +316,7 @@ bool AzureVisionAnalysisEndpointFilter::ProcessFrame( SharedClassificationTask T
 	return false;
 }
 
-const string_t AzureVisionAnalysisEndpointFilter::CommandTypeToEndpoint(int CommandType)
+const StringT AzureVisionAnalysisEndpointFilter::CommandTypeToEndpoint(int CommandType)
 {
 	switch (CommandType)
 	{
@@ -329,7 +329,7 @@ const string_t AzureVisionAnalysisEndpointFilter::CommandTypeToEndpoint(int Comm
 	}
 }
 
-const string_t AzureVisionAnalysisEndpointFilter::CommandTypeToMethod(int CommandType)
+const StringT AzureVisionAnalysisEndpointFilter::CommandTypeToMethod(int CommandType)
 {
 	switch (CommandType)
 	{

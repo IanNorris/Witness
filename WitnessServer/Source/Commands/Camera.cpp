@@ -14,7 +14,7 @@
 using namespace web::json;
 using namespace web::http::client;
 
-void Command_Camera::OnMessage( GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, std::vector<string_t>& ChildPath, bool IsPost )
+void Command_Camera::OnMessage( GlobalContext& Context, http_request& Message, const StringT& CurrentCommand, std::vector<StringT>& ChildPath, bool IsPost )
 {
 	auto Packet = Message.extract_json().get();
 
@@ -104,7 +104,7 @@ void Command_Camera::OnMessage( GlobalContext& Context, http_request& Message, c
 	}
 }
 
-void Command_Camera::OnPreviewMessage( GlobalContext& Context, http_request& Message, const string_t& TargetCamera, const json::value& Packet, bool LargePreview )
+void Command_Camera::OnPreviewMessage( GlobalContext& Context, http_request& Message, const StringT& TargetCamera, const json::value& Packet, bool LargePreview )
 {
 	int TargetCameraInt = _wtoi( TargetCamera.c_str() );
 	int UserUID = Command_Authenticate::IsCameraAuthenticated( Context, Message, Packet, Command_Authenticate::Action::Read, Command_Authenticate::Privilege::Normal, TargetCameraInt );
@@ -170,10 +170,10 @@ void Command_Camera::OnEnumMessage( const GlobalContext& Context, http_request& 
 				[&Array, &Context, LongPoll, &State, AsAdmin](const SQLiteDatabaseQuery& query)
 				{
 					int ID = query.GetColumnValueInt(0);
-					string_t Name = query.GetColumnValueText(1);
-					string_t ConnectionString = query.GetColumnValueText(2);
-					string_t ConnectionStringSub = query.GetColumnValueText(3);
-					string_t Description = query.GetColumnValueText(4) ? query.GetColumnValueText(4) : _T("");
+					StringT Name = query.GetColumnValueText(1);
+					StringT ConnectionString = query.GetColumnValueText(2);
+					StringT ConnectionStringSub = query.GetColumnValueText(3);
+					StringT Description = query.GetColumnValueText(4) ? query.GetColumnValueText(4) : _T("");
 					int Enabled = query.GetColumnValueInt(5);
 
 					if (Enabled || AsAdmin)
@@ -327,12 +327,12 @@ void Command_Camera::OnCreateMessage(const GlobalContext& Context, http_request&
 	}
 
 	bool Success = true;
-	string_t Errors;
+	StringT Errors;
 
-	string_t DisplayName;
-	string_t Description;
-	string_t ConnectionString;
-	string_t ConnectionStringSub;
+	StringT DisplayName;
+	StringT Description;
+	StringT ConnectionString;
+	StringT ConnectionStringSub;
 
 	Success &= GetJsonField(Packet, _T("displayName"), DisplayName, Errors);
 	Success &= GetJsonField(Packet, _T("description"), Description, Errors);
@@ -378,7 +378,7 @@ void Command_Camera::OnDeleteMessage(const GlobalContext& Context, http_request&
 		return;
 	}
 
-	string_t Errors;
+	StringT Errors;
 
 	bool Success = true;
 	int CameraUID;
@@ -402,7 +402,7 @@ void Command_Camera::OnDeleteMessage(const GlobalContext& Context, http_request&
 	Message.reply(status_codes::OK, Data);
 }
 
-void Command_Camera::OnRecordMessage( const GlobalContext& Context, http_request& Message, const string_t& TargetCamera, const json::value& Packet )
+void Command_Camera::OnRecordMessage( const GlobalContext& Context, http_request& Message, const StringT& TargetCamera, const json::value& Packet )
 {
 	int TargetCameraInt = _wtoi( TargetCamera.c_str() );
 	int UserUID = Command_Authenticate::IsCameraAuthenticated( Context, Message, Packet, Command_Authenticate::Action::Read, Command_Authenticate::Privilege::Normal, TargetCameraInt );
@@ -413,7 +413,7 @@ void Command_Camera::OnRecordMessage( const GlobalContext& Context, http_request
 
 	bool Success = true;
 	bool Record = false;
-	string_t Errors;
+	StringT Errors;
 
 	Success &= GetJsonField( Packet, _T("record"), Record, Errors );
 	
@@ -469,7 +469,7 @@ void Command_Camera::OnSetGroupsMessage( const GlobalContext& Context, http_requ
 		return;
 	}
 
-	string_t Errors;
+	StringT Errors;
 	int CameraID;
 	
 	std::vector<int> CameraGroupsRequested;

@@ -26,10 +26,10 @@ void WitnessServer::StartCameraRecording( const std::shared_ptr<CameraWorker>& W
 
 		TagsA += Tag;
 	}
-	string_t Tags( TagsA.begin(), TagsA.end() );
+	StringT Tags( TagsA.begin(), TagsA.end() );
 
 	std::filesystem::create_directories( std::filesystem::path(CachePath) );
-	stringstream_t TargetFilename;
+	StringStreamT TargetFilename;
 	TargetFilename << CameraID << (IsManual ? _T("_Manual_") : _T("_Auto_")) << Timestamp << ".mp4";
 	auto TargetPath = (std::filesystem::path(CachePath) / TargetFilename.str()).native();
 
@@ -70,7 +70,7 @@ void WitnessServer::StopCameraRecording( const ClipStatistics& ClipStats, int Ca
 
 		TagsA += Tag;
 	}
-	string_t Tags( TagsA.begin(), TagsA.end() );
+	StringT Tags( TagsA.begin(), TagsA.end() );
 
 	SQLiteDatabaseQueryInstance UpdateClip( Context->Database, _T("UpdateClip") );
 	UpdateClip->Bind( "@Timestamp", (int64_t)ClipStats.TimestampClipStarted );
@@ -95,7 +95,7 @@ void WitnessServer::StopCameraRecording( const ClipStatistics& ClipStats, int Ca
 
 	auto WriteThumbnailMessage = std::make_shared<CameraWriteThumbnailMessage>( CameraID );
 	
-	string_t CachePath;
+	StringT CachePath;
 
 	{
 		CachePath = Context->CachePath;
@@ -121,9 +121,9 @@ void WitnessServer::StopCameraRecording( const ClipStatistics& ClipStats, int Ca
 	}
 }
 
-void WitnessServer::StatusMessage( int Camera, string_t NewStatus, string_t Reason )
+void WitnessServer::StatusMessage( int Camera, StringT NewStatus, StringT Reason )
 {
-	string_t CameraName;
+	StringT CameraName;
 
 	{
 		auto CameraState = Context->FindCameraById( Camera );

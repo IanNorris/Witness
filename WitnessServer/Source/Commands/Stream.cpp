@@ -27,7 +27,7 @@ using namespace web::http::client;
 namespace fs = std::filesystem;
 
 
-void Command_Stream::OnSegmentMessage(const GlobalContext& Context, http_request& Message, const string_t& TargetCamera, const string_t& TargetSegment, const string_t& TargetPart, const json::value& Packet)
+void Command_Stream::OnSegmentMessage(const GlobalContext& Context, http_request& Message, const StringT& TargetCamera, const StringT& TargetSegment, const StringT& TargetPart, const json::value& Packet)
 {
 	
 	int TargetCameraInt = _wtoi(TargetCamera.c_str());
@@ -121,7 +121,7 @@ void Command_Stream::OnSegmentMessage(const GlobalContext& Context, http_request
 	Message.reply( status_codes::NotFound );
 }
 
-void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_request& Message, const string_t& TargetCamera, const json::value& Packet)
+void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_request& Message, const StringT& TargetCamera, const json::value& Packet)
 {
 	auto queryMap = web::uri::split_query(Message.request_uri().query());
 	auto msnIter = queryMap.find(_T("_HLS_msn"));
@@ -158,7 +158,7 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 
 	size_t bufferSegments = Segments.size();
 	
-	stringstream_t Playlist;
+	StringStreamT Playlist;
 	Playlist << "#EXTM3U" << "\n";
 	Playlist << "#EXT-X-VERSION:7" << "\n";
 
@@ -220,7 +220,7 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 
 				std::string dateTimeFormat = std::format("{:%Y-%m-%dT%H:%M:%S}", Segment.SegmentTime);
 
-				Playlist << "#EXT-X-PROGRAM-DATE-TIME:" << string_t(dateTimeFormat.begin(), dateTimeFormat.end()) << "\n";
+				Playlist << "#EXT-X-PROGRAM-DATE-TIME:" << StringT(dateTimeFormat.begin(), dateTimeFormat.end()) << "\n";
 
 				for (auto& Partial : Segment.Partials)
 				{
@@ -269,7 +269,7 @@ void Command_Stream::OnPlaylistMessage(const GlobalContext& Context, http_reques
 	Message.reply(Response);
 }
 
-void Command_Stream::OnMessage( GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, std::vector<string_t>& ChildPath, bool IsPost )
+void Command_Stream::OnMessage( GlobalContext& Context, http_request& Message, const StringT& CurrentCommand, std::vector<StringT>& ChildPath, bool IsPost )
 {
 	auto Packet = Message.extract_json().get();
 

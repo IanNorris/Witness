@@ -20,7 +20,7 @@ public:
 
 private:
 
-	virtual const string_t CommandTypeToEndpoint( int CommandType );
-	virtual const string_t CommandTypeToMethod( int CommandType );
+	virtual const StringT CommandTypeToEndpoint( int CommandType );
+	virtual const StringT CommandTypeToMethod( int CommandType );
 
 };

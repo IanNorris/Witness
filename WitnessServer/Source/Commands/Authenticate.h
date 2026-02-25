@@ -20,20 +20,20 @@ public:
 
 	Command_Authenticate( uint16_t Port ) : Port( Port ) {}
 
-	static string_t GetSessionToken( const http_request& Message, uint16_t PortIn );
+	static StringT GetSessionToken( const http_request& Message, uint16_t PortIn );
 
 	static int IsAuthenticated( const GlobalContext& Context, http_request& Message, const json::value& Packet, Action ActionType, Privilege RequiredPrivilege );
 
 	static int IsCameraAuthenticated( const GlobalContext& Context, http_request& Message, const json::value& Packet, Action ActionType, Privilege RequiredPrivilege, int CameraUID );
 
-	void OnMessage( GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, std::vector<string_t>& ChildPath, bool IsPost ) override;
+	void OnMessage( GlobalContext& Context, http_request& Message, const StringT& CurrentCommand, std::vector<StringT>& ChildPath, bool IsPost ) override;
 
-	void OnLoginMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, std::vector<string_t>& ChildPath, bool IsPost );
-	void OnLogoutMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, std::vector<string_t>& ChildPath, bool IsPost );
-	void OnGetProfileMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, std::vector<string_t>& ChildPath, bool IsPost );
-	void OnEnumUsersMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, std::vector<string_t>& ChildPath, bool IsPost );
-	void OnNewUserMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, std::vector<string_t>& ChildPath, bool IsPost );
-	void OnChangePasswordMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, std::vector<string_t>& ChildPath, bool IsPost );
+	void OnLoginMessage( const GlobalContext& Context, http_request& Message, const StringT& CurrentCommand, std::vector<StringT>& ChildPath, bool IsPost );
+	void OnLogoutMessage( const GlobalContext& Context, http_request& Message, const StringT& CurrentCommand, std::vector<StringT>& ChildPath, bool IsPost );
+	void OnGetProfileMessage( const GlobalContext& Context, http_request& Message, const StringT& CurrentCommand, std::vector<StringT>& ChildPath, bool IsPost );
+	void OnEnumUsersMessage( const GlobalContext& Context, http_request& Message, const StringT& CurrentCommand, std::vector<StringT>& ChildPath, bool IsPost );
+	void OnNewUserMessage( const GlobalContext& Context, http_request& Message, const StringT& CurrentCommand, std::vector<StringT>& ChildPath, bool IsPost );
+	void OnChangePasswordMessage( const GlobalContext& Context, http_request& Message, const StringT& CurrentCommand, std::vector<StringT>& ChildPath, bool IsPost );
 	void OnToggleEnabledMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet );
 	void OnToggleAdminMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet );
 	void OnSetDisplayNameMessage( const GlobalContext& Context, http_request& Message, const json::value& Packet );
@@ -45,6 +45,6 @@ private:
 
 };
 
-string_t GetRandomToken();
+StringT GetRandomToken();
 
 void OfflineCreationForFirstUser( const GlobalContext& Context );

@@ -17,7 +17,7 @@ Command_Debug::Command_Debug( DebugConsole* DebugConsoleInstance )
 {
 }
 
-void Command_Debug::OnMessage( GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, std::vector<string_t>& ChildPath, bool IsPost )
+void Command_Debug::OnMessage( GlobalContext& Context, http_request& Message, const StringT& CurrentCommand, std::vector<StringT>& ChildPath, bool IsPost )
 {
 	if( ChildPath.size() == 1 )
 	{
@@ -78,8 +78,8 @@ void Command_Debug::OnEnumMessage( const GlobalContext& Context, http_request& M
 		const std::string Name = Value->GetName();
 		const std::string ValueStr = Value->Get();
 
-		ValueOut[ _T("name") ] = json::value( string_t( Name.begin(), Name.end() ) );
-		ValueOut[ _T("value") ] = json::value( string_t( ValueStr.begin(), ValueStr.end() ) );
+		ValueOut[ _T("name") ] = json::value( StringT( Name.begin(), Name.end() ) );
+		ValueOut[ _T("value") ] = json::value( StringT( ValueStr.begin(), ValueStr.end() ) );
 
 		Array.push_back( ValueOut );
 	}
@@ -99,10 +99,10 @@ void Command_Debug::OnSetMessage( const GlobalContext& Context, http_request& Me
 
 	bool Success = true;
 
-	string_t Errors;
+	StringT Errors;
 	
-	string_t Name;
-	string_t ValueIn;
+	StringT Name;
+	StringT ValueIn;
 		
 	Success &= GetJsonField( Packet, _T("name"), Name, Errors );
 	Success &= GetJsonField( Packet, _T("value"), ValueIn, Errors );
@@ -120,7 +120,7 @@ void Command_Debug::OnSetMessage( const GlobalContext& Context, http_request& Me
 		json::value ValueOut;
 
 		const std::string NameStr = Value->GetName();
-		const string_t NameWide = string_t( NameStr.begin(), NameStr.end() );
+		const StringT NameWide = StringT( NameStr.begin(), NameStr.end() );
 
 		if( NameWide.compare( Name ) == 0 )
 		{
@@ -150,9 +150,9 @@ void Command_Debug::OnResetMessage( const GlobalContext& Context, http_request& 
 
 	bool Success = true;
 
-	string_t Errors;
+	StringT Errors;
 	
-	string_t Name;
+	StringT Name;
 		
 	Success &= GetJsonField( Packet, _T("name"), Name, Errors );
 
@@ -169,7 +169,7 @@ void Command_Debug::OnResetMessage( const GlobalContext& Context, http_request& 
 		json::value ValueOut;
 
 		const std::string NameStr = Value->GetName();
-		const string_t NameWide = string_t( Name.begin(), Name.end() );
+		const StringT NameWide = StringT( Name.begin(), Name.end() );
 
 		if( NameWide.compare( Name ) == 0 )
 		{

@@ -15,7 +15,7 @@
 using namespace web::json;
 using namespace web::http::client;
 
-string_t GetRandomToken()
+StringT GetRandomToken()
 {
 	unsigned char TokenBytes[ 32 ];
 	char TokenString[ (2*sizeof(TokenBytes))+1 ];
@@ -25,10 +25,10 @@ string_t GetRandomToken()
 	sodium_bin2hex( TokenString, sizeof(TokenString), TokenBytes, sizeof(TokenBytes) );
 
 	std::string TokenStringASCII = TokenString;
-	return string_t( TokenStringASCII.begin(), TokenStringASCII.end() );
+	return StringT( TokenStringASCII.begin(), TokenStringASCII.end() );
 }
 
-string_t GetHashedPasswordKey_Algorithm0( const string_t& Username, const string_t Password )
+StringT GetHashedPasswordKey_Algorithm0( const StringT& Username, const StringT Password )
 {
 	std::string CombinedUsernamePassword = StringToAnsi(Username);
 	CombinedUsernamePassword += ":";
@@ -43,10 +43,10 @@ string_t GetHashedPasswordKey_Algorithm0( const string_t& Username, const string
 
 	std::string KeyStr = HashedPassword;
 
-	return string_t( KeyStr.begin(), KeyStr.end() );
+	return StringT( KeyStr.begin(), KeyStr.end() );
 }
 
-bool CheckHashedPasswordKey_Algorithm0( const string_t& Key, const string_t& Username, const string_t Password )
+bool CheckHashedPasswordKey_Algorithm0( const StringT& Key, const StringT& Username, const StringT Password )
 {
 	std::string CombinedUsernamePassword = StringToAnsi(Username);
 	CombinedUsernamePassword += ":";
@@ -64,8 +64,8 @@ bool CheckHashedPasswordKey_Algorithm0( const string_t& Key, const string_t& Use
 
 void OfflineCreationForFirstUser( const GlobalContext& Context )
 {
-	string_t Username;
-	string_t Password;
+	StringT Username;
+	StringT Password;
 
 	bool Success = false;
 
@@ -97,13 +97,13 @@ void OfflineCreationForFirstUser( const GlobalContext& Context )
 		getline(std::tcin, Password );
 		SetStdinEcho( true );
 
-		string_t UsernameLC = Username;
+		StringT UsernameLC = Username;
 		std::transform(UsernameLC.begin(), UsernameLC.end(), UsernameLC.begin(), ::tolower);
 
 
 		std::tcout << std::endl << _T("Hashing password...") << std::endl;
 
-		string_t Hash = GetHashedPasswordKey_Algorithm0( UsernameLC, Password );
+		StringT Hash = GetHashedPasswordKey_Algorithm0( UsernameLC, Password );
 
 		std::tcout << _T("Storing password...") << std::endl;
 
@@ -124,7 +124,7 @@ void OfflineCreationForFirstUser( const GlobalContext& Context )
 	}
 }
 
-void Command_Authenticate::OnMessage( GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, std::vector<string_t>& ChildPath, bool IsPost )
+void Command_Authenticate::OnMessage( GlobalContext& Context, http_request& Message, const StringT& CurrentCommand, std::vector<StringT>& ChildPath, bool IsPost )
 {
 	if( ChildPath.size() == 1 && IsPost )
 	{
@@ -194,18 +194,18 @@ void Command_Authenticate::OnMessage( GlobalContext& Context, http_request& Mess
 	}
 }
 
-void Command_Authenticate::OnLoginMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, std::vector<string_t>& ChildPath, bool IsPost )
+void Command_Authenticate::OnLoginMessage( const GlobalContext& Context, http_request& Message, const StringT& CurrentCommand, std::vector<StringT>& ChildPath, bool IsPost )
 {
 	//DO NOT CHECK CSRF HERE
 
 	auto Packet = Message.extract_json().get();
 
-	string_t Errors;
+	StringT Errors;
 	
 	bool Success = true;
 	int UserUID;
-	string_t Username;
-	string_t Password;
+	StringT Username;
+	StringT Password;
 
 	Success &= GetJsonField( Packet, _T("username"), Username, Errors );
 	Success &= GetJsonField( Packet, _T("password"), Password, Errors );
@@ -223,7 +223,7 @@ void Command_Authenticate::OnLoginMessage( const GlobalContext& Context, http_re
 		FindUser->Bind( "@Username", Username.c_str() );
 
 		int PasswordAlgorithm;
-		string_t PasswordHash;
+		StringT PasswordHash;
 
 		bool Success = false;
 		int Result = FindUser->Execute( 
@@ -292,8 +292,8 @@ void Command_Authenticate::OnLoginMessage( const GlobalContext& Context, http_re
 	}
 
 	{
-		string_t SessionToken = GetRandomToken();
-		string_t CSRFToken = GetRandomToken();
+		StringT SessionToken = GetRandomToken();
+		StringT CSRFToken = GetRandomToken();
 
 		auto Now = std::chrono::system_clock::now().time_since_epoch();
 		auto UTCTimeNow = std::chrono::duration_cast<std::chrono::seconds>(Now).count();
@@ -313,10 +313,10 @@ void Command_Authenticate::OnLoginMessage( const GlobalContext& Context, http_re
 		http_response Response;
 		Response.set_status_code( status_codes::OK );
 
-		string_t PortName = std::to_wstring(Port);
-		string_t SessionTokenValue = _T("SessionToken-") + PortName;
+		StringT PortName = std::to_wstring(Port);
+		StringT SessionTokenValue = _T("SessionToken-") + PortName;
 
-		string_t MaxAge = std::to_wstring(60*60*24*30*2); // +2 Months
+		StringT MaxAge = std::to_wstring(60*60*24*30*2); // +2 Months
 		Response.headers().add( _T("Set-Cookie"), SessionTokenValue + _T("=") + SessionToken + _T("; HttpOnly; Path=/; max-age=") + MaxAge + _T(";") );
 
 		json::value ResponseBody;
@@ -327,7 +327,7 @@ void Command_Authenticate::OnLoginMessage( const GlobalContext& Context, http_re
 	}	
 }
 
-void Command_Authenticate::OnLogoutMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, std::vector<string_t>& ChildPath, bool IsPost )
+void Command_Authenticate::OnLogoutMessage( const GlobalContext& Context, http_request& Message, const StringT& CurrentCommand, std::vector<StringT>& ChildPath, bool IsPost )
 {
 	auto Packet = Message.extract_json().get();
 
@@ -336,7 +336,7 @@ void Command_Authenticate::OnLogoutMessage( const GlobalContext& Context, http_r
 		return;
 	}
 
-	string_t SessionToken = GetSessionToken( Message, Port );
+	StringT SessionToken = GetSessionToken( Message, Port );
 
 	SQLiteDatabaseQueryInstance DeleteSession( Context.Database, _T("DeleteSession") );
 	DeleteSession->Bind( "@SessionToken", SessionToken.c_str() );
@@ -347,8 +347,8 @@ void Command_Authenticate::OnLogoutMessage( const GlobalContext& Context, http_r
 	http_response Response;
 	Response.set_status_code( status_codes::OK );
 
-	string_t PortName = std::to_wstring(Port);
-	string_t SessionTokenValue = _T("SessionToken-") + PortName + _T("=; Max-Age=0");
+	StringT PortName = std::to_wstring(Port);
+	StringT SessionTokenValue = _T("SessionToken-") + PortName + _T("=; Max-Age=0");
 
 	Response.headers().add( _T("Set-Cookie"), SessionTokenValue );
 
@@ -359,17 +359,17 @@ void Command_Authenticate::OnLogoutMessage( const GlobalContext& Context, http_r
 	Message.reply( Response );
 }
 
-void Command_Authenticate::OnGetProfileMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, std::vector<string_t>& ChildPath, bool IsPost )
+void Command_Authenticate::OnGetProfileMessage( const GlobalContext& Context, http_request& Message, const StringT& CurrentCommand, std::vector<StringT>& ChildPath, bool IsPost )
 {
 	//DO NOT CHECK CSRF HERE
 
 	auto Packet = Message.extract_json().get();
 
-	string_t SessionToken = GetSessionToken( Message, Port );
+	StringT SessionToken = GetSessionToken( Message, Port );
 
 	int UserUID;
-	string_t Username;
-	string_t CSRFToken;
+	StringT Username;
+	StringT CSRFToken;
 
 	bool Success = false;
 
@@ -389,7 +389,7 @@ void Command_Authenticate::OnGetProfileMessage( const GlobalContext& Context, ht
 		);
 	}
 
-	string_t DisplayName;
+	StringT DisplayName;
 	int Enabled = 0;
 	int Admin = 0;
 
@@ -426,8 +426,8 @@ void Command_Authenticate::OnGetProfileMessage( const GlobalContext& Context, ht
 	}
 	else
 	{
-		string_t PortName = std::to_wstring(Port);
-		string_t SessionTokenValue = _T("SessionToken-") + PortName + _T("=; Max-Age=0");
+		StringT PortName = std::to_wstring(Port);
+		StringT SessionTokenValue = _T("SessionToken-") + PortName + _T("=; Max-Age=0");
 
 		http_response Response;
 		Response.set_status_code( status_codes::Unauthorized );
@@ -441,12 +441,12 @@ void Command_Authenticate::OnGetProfileMessage( const GlobalContext& Context, ht
 	}
 }
 
-string_t Command_Authenticate::GetSessionToken( const http_request& Message, uint16_t PortIn )
+StringT Command_Authenticate::GetSessionToken( const http_request& Message, uint16_t PortIn )
 {
-	string_t PortName = std::to_wstring(PortIn);
-	string_t SessionTokenName = _T("SessionToken-") + PortName;
+	StringT PortName = std::to_wstring(PortIn);
+	StringT SessionTokenName = _T("SessionToken-") + PortName;
 
-	string_t SessionToken;
+	StringT SessionToken;
 	const http_headers& Headers = Message.headers();
 	
 	for ( auto CookiesIter = Headers.find(_T("Cookie")); CookiesIter != Headers.end(); ++CookiesIter )
@@ -457,8 +457,8 @@ string_t Command_Authenticate::GetSessionToken( const http_request& Message, uin
 			auto TokenSplit = SplitString( Cookie, _T("=") );
 			if( TokenSplit.size() == 2 )
 			{
-				string_t Left = Trim(TokenSplit[0]);
-				string_t Right = Trim(TokenSplit[1]);
+				StringT Left = Trim(TokenSplit[0]);
+				StringT Right = Trim(TokenSplit[1]);
 
 				if( Left.compare(SessionTokenName.c_str()) == 0 )
 				{
@@ -474,14 +474,14 @@ string_t Command_Authenticate::GetSessionToken( const http_request& Message, uin
 
 int Command_Authenticate::IsAuthenticated( const GlobalContext& Context, http_request& Message, const json::value& Packet, Action ActionType, Privilege RequiredPrivilege )
 {
-	string_t Errors;
+	StringT Errors;
 	
 	bool Success = true;
-	string_t CSRF;
+	StringT CSRF;
 
 	Success &= GetJsonField( Packet, _T("csrf"), CSRF, Errors );
 
-	string_t SessionToken = GetSessionToken( Message, Context.Port );
+	StringT SessionToken = GetSessionToken( Message, Context.Port );
 	int UserUID = -1;
 
 	{
@@ -594,7 +594,7 @@ int Command_Authenticate::IsCameraAuthenticated( const GlobalContext& Context, h
 	return Success ? UserUID : 0;
 }
 
-void Command_Authenticate::OnEnumUsersMessage( const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, std::vector<string_t>& ChildPath, bool IsPost )
+void Command_Authenticate::OnEnumUsersMessage( const GlobalContext& Context, http_request& Message, const StringT& CurrentCommand, std::vector<StringT>& ChildPath, bool IsPost )
 {
 	auto Packet = Message.extract_json().get();
 
@@ -671,7 +671,7 @@ void Command_Authenticate::OnEnumUsersMessage( const GlobalContext& Context, htt
 	Message.reply( status_codes::OK, json::value::array(Array) );
 }
 
-void Command_Authenticate::OnNewUserMessage(const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, std::vector<string_t>& ChildPath, bool IsPost)
+void Command_Authenticate::OnNewUserMessage(const GlobalContext& Context, http_request& Message, const StringT& CurrentCommand, std::vector<StringT>& ChildPath, bool IsPost)
 {
 	auto Packet = Message.extract_json().get();
 
@@ -680,10 +680,10 @@ void Command_Authenticate::OnNewUserMessage(const GlobalContext& Context, http_r
 		return;
 	}
 
-	string_t Errors;
+	StringT Errors;
 	
 	bool Success = true;
-	string_t Username;
+	StringT Username;
 	
 	Success &= GetJsonField( Packet, _T("username"), Username, Errors );
 
@@ -707,10 +707,10 @@ void Command_Authenticate::OnNewUserMessage(const GlobalContext& Context, http_r
 	}
 	Password[DefaultPasswordLength] = '\0';
 
-	string_t UsernameLC = Username;
+	StringT UsernameLC = Username;
 	std::transform(UsernameLC.begin(), UsernameLC.end(), UsernameLC.begin(), ::tolower);
 
-	string_t Hash = GetHashedPasswordKey_Algorithm0( UsernameLC, Password );
+	StringT Hash = GetHashedPasswordKey_Algorithm0( UsernameLC, Password );
 
 	int64_t RowResult = 0;
 
@@ -752,7 +752,7 @@ void Command_Authenticate::OnNewUserMessage(const GlobalContext& Context, http_r
 	}
 }
 
-void Command_Authenticate::OnChangePasswordMessage(const GlobalContext& Context, http_request& Message, const string_t& CurrentCommand, std::vector<string_t>& ChildPath, bool IsPost)
+void Command_Authenticate::OnChangePasswordMessage(const GlobalContext& Context, http_request& Message, const StringT& CurrentCommand, std::vector<StringT>& ChildPath, bool IsPost)
 {
 	auto Packet = Message.extract_json().get();
 
@@ -769,8 +769,8 @@ void Command_Authenticate::OnToggleEnabledMessage( const GlobalContext& Context,
 		return;
 	}
 
-	string_t Errors;
-	string_t Username;
+	StringT Errors;
+	StringT Username;
 	bool Value = false;
 
 	bool Success = GetJsonField( Packet, _T("username"), Username, Errors );
@@ -812,8 +812,8 @@ void Command_Authenticate::OnToggleAdminMessage( const GlobalContext& Context, h
 		return;
 	}
 
-	string_t Errors;
-	string_t Username;
+	StringT Errors;
+	StringT Username;
 	bool Value = false;
 
 	bool Success = GetJsonField( Packet, _T("username"), Username, Errors );
@@ -855,9 +855,9 @@ void Command_Authenticate::OnSetDisplayNameMessage( const GlobalContext& Context
 		return;
 	}
 
-	string_t Errors;
-	string_t Username;
-	string_t DisplayName;
+	StringT Errors;
+	StringT Username;
+	StringT DisplayName;
 
 	bool Success = GetJsonField( Packet, _T("username"), Username, Errors );
 	Success &= GetJsonField( Packet, _T("value"), DisplayName, Errors );
@@ -899,7 +899,7 @@ void Command_Authenticate::OnSetUserGroupsMessage( const GlobalContext& Context,
 		return;
 	}
 
-	string_t Errors;
+	StringT Errors;
 	int UserUID;
 	
 	std::vector<int> UserGroupsRequested;
