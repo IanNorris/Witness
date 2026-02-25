@@ -1,10 +1,7 @@
 #include "AzureVisionAnalysisEndpointFilter.h"
 
 #include <opencv2/imgcodecs.hpp>
-#include <opencv2/imgcodecs/imgcodecs_c.h>
-#include <opencv2/core/core_c.h>
 #include <opencv2/imgproc.hpp>
-#include <opencv2/imgproc/imgproc_c.h>
 
 struct TagToClassification
 {
@@ -173,7 +170,7 @@ bool AzureVisionAnalysisEndpointFilter::ProcessFrame( SharedClassificationTask T
 			(int)((float)ROIRect.width * Downscale), 
 			(int)((float)ROIRect.height * Downscale)));
 
-		cv::imencode( ".jpg", ROIImage, Data, std::vector<int>{ CV_IMWRITE_JPEG_QUALITY, Quality } );
+		cv::imencode( ".jpg", ROIImage, Data, std::vector<int>{ cv::IMWRITE_JPEG_QUALITY, Quality } );
 
 		static int FrameIndex = 0;
 

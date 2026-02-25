@@ -1,3 +1,15 @@
 {
-  "dependencies": [ "cpprestsdk" ]
+  "name": "witness",
+  "version-string": "1.0.0",
+  "dependencies": [
+    "cpprestsdk",
+    {
+      "name": "ffmpeg",
+      "default-features": false,
+      "features": ["avcodec", "avformat", "swscale"]
+    },
+    "opencv4",
+    "libsodium",
+    "sqlite3"
+  ]
 }

@@ -308,3 +308,8 @@ Setup/witness_setup.exe
 SetupScript/vc_redist.x64.exe
 SetupScript/NDP472-KB4054530-x86-x64-AllOS-ENU.exe
 vcpkg_installed
+
+# CMake build output
+build/
+out/
+CMakeSettings.json

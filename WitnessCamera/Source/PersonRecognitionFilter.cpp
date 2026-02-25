@@ -4,14 +4,9 @@
 #include "FFMPEG/Frame.h"
 
 #include <opencv2/core/core.hpp>
-#include <opencv2/objdetect/objdetect_c.h>
-
-#include <opencv2/face.hpp>
-#include <opencv2/highgui.hpp>
+#include <opencv2/objdetect.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/imgcodecs.hpp>
-#include <opencv2/video.hpp>
-#include <opencv2/videoio.hpp>
 
 #include <string.h>
 
@@ -21,8 +16,6 @@ using namespace cv;
 
 namespace Witness{
 namespace Camera{
-
-using namespace cv::face;
 
 struct PersonRecognitionFilterData : public FilterDataBase
 {

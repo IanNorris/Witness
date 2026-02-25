@@ -3,10 +3,7 @@
 #include "MessageBus.h"
 
 #include <opencv2/imgcodecs.hpp>
-#include <opencv2/imgcodecs/imgcodecs_c.h>
-#include <opencv2/core/core_c.h>
 #include <opencv2/imgproc.hpp>
-#include <opencv2/imgproc/imgproc_c.h>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -305,5 +302,5 @@ void ObservingMotionFilter::CreateJpegPreview( FilterFrame& Frame, std::vector<u
 		Action( ResizedImage );
 	}
 
-	cv::imencode( ".jpg", ResizedImage, OutputBuffer, std::vector<int>{ CV_IMWRITE_JPEG_QUALITY, OutputQuality } );
+	cv::imencode( ".jpg", ResizedImage, OutputBuffer, std::vector<int>{ cv::IMWRITE_JPEG_QUALITY, OutputQuality } );
 }

@@ -10,10 +10,10 @@ This document outlines the plan to modernize the Witness surveillance system —
 | Web Frontend | Knockout.js 3.4.2 | ❌ Unmaintained since 2019 |
 | CSS Framework | Bootstrap 3.3.5 | ❌ EOL |
 | jQuery | 2.1.4 | ⚠️ Outdated (current: 3.7+) |
-| OpenCV | 4.0.0-pre | ⚠️ Very outdated (current: 4.10+) |
+| OpenCV | 4.10.0 (vcpkg) | ✅ Updated from 4.0.0-pre |
 | Object Recognition | Azure Vision (cloud) + Haar cascades (local, disabled) | ⚠️ Cloud-dependent, no local ML |
-| Build System | Visual Studio .vcxproj only | ❌ Windows-only |
-| Platform | Windows only (Service, TCHAR, Sleep, backslash paths) | ❌ No Linux/Mac |
+| Build System | CMake + vcpkg | ✅ Migrated from .vcxproj |
+| Platform | Windows only (Service, TCHAR, Sleep, backslash paths) | ⚠️ Sleep/paths fixed, strings partially migrated |
 | Video Pipeline | FFmpeg 7.1, custom C++ pipeline | ✅ Solid, cross-platform code |
 | Password Storage | libsodium argon2 | ✅ Modern and secure |
 | Threading | std::thread / std::mutex | ✅ Already portable |
@@ -29,17 +29,17 @@ This document outlines the plan to modernize the Witness surveillance system —
 
 ### What's Blocking Linux/Mac
 
-| Blocker | Severity | Files |
-|---------|----------|-------|
-| Windows Service (SCM) architecture | Major | `Main.cpp` — `wmain()`, `ServiceMain()`, `RegisterServiceCtrlHandler()` |
-| CppREST SDK — archived, limited Linux support | Major | `Listener.*`, all `Commands/` |
-| `string_t` / `_T()` / `tcout` / TCHAR everywhere | Major | `Common.h`, nearly every source file |
-| `Sleep()` instead of `std::this_thread::sleep_for()` | Medium | `Main.cpp`, `CameraWorker.cpp`, `TimerWorker.cpp`, `WatchdogWorker.cpp` |
-| Backslash path separators | Medium | `Clip.cpp`, path construction |
-| `%ProgramData%` / `_tgetenv_s()` paths | Medium | `Init.cpp` (already has partial `#ifdef`) |
-| Windows console APIs | Low | `Common.cpp` (already has partial `#ifdef`) |
-| Pre-built Windows DLLs for FFmpeg, OpenCV, libsodium | Build | `ThirdParty/ffmpeg-7.1-win64/`, `.vcxproj` paths |
-| No CMake — only `.vcxproj` build files | Build | All projects |
+| Blocker | Severity | Status |
+|---------|----------|--------|
+| Windows Service (SCM) architecture | Major | Pending — extract to `platform/` |
+| CppREST SDK — archived, limited Linux support | Major | Pending — Phase 2 (Crow) |
+| `string_t` / `_T()` / `tcout` / TCHAR everywhere | Major | ⚠️ Partially done — `StringT` typedefs in place |
+| ~~`Sleep()` instead of `std::this_thread::sleep_for()`~~ | ~~Medium~~ | ✅ Done |
+| ~~Backslash path separators~~ | ~~Medium~~ | ✅ Done — `std::filesystem::path` |
+| `%ProgramData%` / `_tgetenv_s()` paths | Medium | Pending |
+| Windows console APIs | Low | Already has `#ifdef` |
+| ~~Pre-built Windows DLLs~~ | ~~Build~~ | ✅ Done — all via vcpkg |
+| ~~No CMake — only `.vcxproj` build files~~ | ~~Build~~ | ✅ Done — CMake + vcpkg |
 
 ### What Exists for Object Recognition
 
@@ -89,11 +89,11 @@ Web Frontend:                         Web Frontend:
 └── No mobile support                 └── PWA + Web Push notifications
 
 Build:                                Build:
-├── Witness.sln                       ├── CMakeLists.txt (root)
-├── .vcxproj files                    │   ├── WitnessCamera/CMakeLists.txt
-├── ThirdParty/ (manual)              │   └── WitnessServer/CMakeLists.txt
-└── vcpkg.json (cpprestsdk only)      ├── vcpkg.json (all dependencies)
-                                      └── GitHub Actions CI (Windows + Linux)
+├── CMakeLists.txt (root)             ├── CMakeLists.txt (root)  ✅
+│   ├── WitnessCamera/CMakeLists.txt  │   ├── WitnessCamera/CMakeLists.txt
+│   └── WitnessServer/CMakeLists.txt  │   └── WitnessServer/CMakeLists.txt
+├── vcpkg.json (all deps)  ✅        ├── vcpkg.json (all dependencies)
+└── (old .vcxproj removed)           └── GitHub Actions CI (Windows + Linux)
 ```
 
 ### Target vcpkg Dependencies
@@ -120,26 +120,48 @@ Build:                                Build:
 
 Make the codebase buildable on Linux without changing functionality.
 
-- [ ] **CMake migration** — create `CMakeLists.txt` for WitnessCamera and WitnessServer
-  - vcpkg integrates natively with CMake
-  - Keep `.vcxproj` alongside for existing Visual Studio users initially
+- [x] **Replace `Sleep()` with `std::this_thread::sleep_for()`**
+  - 6 call sites across 4 files (`CameraWorker.cpp`, `WatchdogWorker.cpp`, `TimerWorker.cpp`, `Main.cpp`)
+  - Removed `#include <windows.h>` from files that only needed it for `Sleep()`
+- [x] **Portable path handling**
+  - Replaced `CreateDirectory`/`CreateDirectoryW` → `std::filesystem::create_directories()`
+  - Replaced backslash path joins → `std::filesystem::path /` operator
+  - Replaced `std::tr2::sys::path` (deprecated) → `std::filesystem::path`
+- [x] **Introduce `StringT`/`CharT`/`StringStreamT` intermediary types**
+  - Defined in `Common.h` as aliases for `utility::string_t` (CppREST)
+  - Replaced all direct `string_t` usage across 42 files
+  - When Crow replaces CppREST (Phase 2), change the 3 typedefs to `std::string`/`char`/`std::stringstream`
+- [x] **CMake migration** — replaced `.vcxproj`/`.sln` with CMake + vcpkg
+  - Created `CMakeLists.txt` (root), `WitnessCamera/CMakeLists.txt`, `WitnessServer/CMakeLists.txt`
+  - Created `CMakePresets.json` with vcpkg toolchain integration
+  - All dependencies via vcpkg: cpprestsdk, ffmpeg, opencv4, libsodium, sqlite3
+  - Updated OpenCV from 4.0.0-pre to 4.10+ (fixed deprecated C API usage)
 - [ ] **Replace `string_t` / `_T()` / TCHAR with `std::string` (UTF-8)**
   - Incremental approach: first make `string_t` a typedef for `std::string` in `Common.h`, remove `_T()` macros, fix compile errors
   - Then clean up wide-string remnants during Crow migration (Phase 2)
   - This is the biggest mechanical change — touches nearly every file
-- [ ] **Replace `Sleep()` with `std::this_thread::sleep_for()`**
-  - ~10 call sites across 4 files
-  - Drop `winmm.lib` / `timeBeginPeriod()` — use `std::chrono` steady clock
-- [ ] **Portable path handling**
-  - Replace backslash concatenation with `std::filesystem::path` (already C++20)
-  - Replace `%ProgramData%` with XDG paths on Linux (`$XDG_DATA_HOME` or `/var/lib/witness`)
 - [ ] **Abstract service/daemon lifecycle**
   - Extract Windows SCM code from `Main.cpp` into `platform/windows/Service.cpp`
   - Create `platform/linux/Daemon.cpp` using systemd (`.service` file + signal handling)
   - Common `main()` entry point calls platform-specific init
   - Signal handling: `ConsoleHandlerRoutine` → `sigaction(SIGTERM/SIGINT)`
 - [ ] **Cross-platform CI** — GitHub Actions matrix build (Windows MSVC, Linux GCC/Clang)
-- [ ] **vcpkg for all dependencies** — update `vcpkg.json` to include FFmpeg, OpenCV, libsodium (currently manual pre-built DLLs)
+
+#### Building with CMake
+
+```bash
+# Configure (first time — vcpkg will build dependencies, ~30 min)
+cmake --preset default
+
+# Build
+cmake --build build --config Release
+
+# Output
+#   build/WitnessCamera/Release/WitnessCamera.dll
+#   build/WitnessServer/Release/WitnessServer.exe
+```
+
+Requires vcpkg installed and `VCPKG_ROOT` environment variable set (or edit `CMakePresets.json`).
 
 ### Phase 2: Replace HTTP Server
 
