@@ -1,4 +1,5 @@
 find_package(cpprestsdk CONFIG REQUIRED)
+find_package(Crow CONFIG REQUIRED)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs videoio objdetect)
 find_package(unofficial-sodium CONFIG REQUIRED)
 find_package(unofficial-sqlite3 CONFIG REQUIRED)
@@ -8,6 +9,7 @@ set(SERVER_SOURCES
     Source/AsyncWorker.cpp
     Source/Azure/AzureEndpoint.cpp
     Source/Azure/AzureVisionAnalysisEndpointFilter.cpp
+    Source/CrowListener.cpp
     Source/CameraWorker.cpp
     Source/Commands/Authenticate.cpp
     Source/Commands/Camera.cpp
@@ -51,6 +53,7 @@ set(SERVER_HEADERS
     Source/Commands/Static.h
     Source/Commands/Stream.h
     Source/Common.h
+    Source/CrowListener.h
     Source/Database.h
     Source/GlobalContext.h
     Source/ImageProcessorWorker.h
@@ -92,6 +95,7 @@ endif()
 target_link_libraries(WitnessServer PRIVATE
     WitnessCamera
     cpprestsdk::cpprest
+    Crow::Crow
     ${OpenCV_LIBS}
     unofficial-sodium::sodium
     unofficial::sqlite3::sqlite3

@@ -10,7 +10,7 @@
 #include "CameraState.h"
 #include <ImageProcessingJob.h>
 
-class WitnessListener;
+class CrowListener;
 class GlobalContext;
 struct CameraState;
 class MessageBusQueue;
@@ -68,7 +68,7 @@ private:
 	std::unique_ptr<AsyncWorker> Worker;
 	std::unique_ptr<WatchdogWorker> Watchdog;
 	std::unique_ptr<TimerWorker> Timer;
-	std::unique_ptr<WitnessListener>	Server;
+	std::unique_ptr<CrowListener>	Server;
 	std::shared_ptr<GlobalContext> Context;
 	std::shared_ptr<MessageBusQueue> MessageClient;
 

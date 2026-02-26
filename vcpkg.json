@@ -3,6 +3,7 @@
   "version-string": "1.0.0",
   "dependencies": [
     "cpprestsdk",
+    "crow",
     {
       "name": "ffmpeg",
       "default-features": false,

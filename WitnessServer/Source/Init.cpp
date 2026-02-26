@@ -1,6 +1,6 @@
 #include "Common.h"
 #include "Witness.h"
-#include "Listener.h"
+#include "CrowListener.h"
 #include "Commands/Authenticate.h"
 #include "Commands/Clip.h"
 #include "Database.h"
@@ -223,7 +223,7 @@ bool WitnessServer::CreateListener( const std::unordered_map< StringT, StringT >
 		return false;
 	}
 
-	Server = std::make_unique<WitnessListener>( Hostname, Port, Secure, DebugConsoleInstance );
+	Server = std::make_unique<CrowListener>( StringToAnsi(Hostname), Port, Secure, DebugConsoleInstance );
 
 	return true;
 }
