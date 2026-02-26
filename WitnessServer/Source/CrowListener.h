@@ -40,8 +40,43 @@ private:
 	void HandlePlaylist( const crow::request& req, crow::response& res, int cameraId );
 	void HandleSegment( const crow::request& req, crow::response& res, int cameraId, int segmentId, const std::string& partId );
 
-	// Camera preview
+	// Camera
 	void HandlePreview( const crow::request& req, crow::response& res, int cameraId, bool largePreview );
+	void HandleCameraEnum( const crow::request& req, crow::response& res, bool asAdmin, bool longPoll );
+	void HandleCameraRecord( const crow::request& req, crow::response& res, int cameraId );
+	void HandleCameraCreate( const crow::request& req, crow::response& res );
+	void HandleCameraDelete( const crow::request& req, crow::response& res );
+	void HandleCameraSetGroups( const crow::request& req, crow::response& res );
+	void HandleCameraResetStats( const crow::request& req, crow::response& res );
+
+	// Auth
+	void HandleAuthLogin( const crow::request& req, crow::response& res );
+	void HandleAuthLogout( const crow::request& req, crow::response& res );
+	void HandleAuthGetProfile( const crow::request& req, crow::response& res );
+	void HandleAuthEnumUsers( const crow::request& req, crow::response& res );
+	void HandleAuthNewUser( const crow::request& req, crow::response& res );
+	void HandleAuthChangePassword( const crow::request& req, crow::response& res );
+	void HandleAuthToggleEnabled( const crow::request& req, crow::response& res );
+	void HandleAuthToggleAdmin( const crow::request& req, crow::response& res );
+	void HandleAuthSetDisplayName( const crow::request& req, crow::response& res );
+	void HandleAuthSetUserGroups( const crow::request& req, crow::response& res );
+
+	// Clips
+	void HandleClipThumbnail( const crow::request& req, crow::response& res, int cameraId, const std::string& clipId, bool video );
+	void HandleClipEnum( const crow::request& req, crow::response& res, int cameraId, int maxCount, const std::string& startDate, const std::string& rangePeriod, int pageOffset );
+	void HandleClipToggleSave( const crow::request& req, crow::response& res );
+	void HandleClipDelete( const crow::request& req, crow::response& res );
+
+	// Groups
+	void HandleGroupEnum( const crow::request& req, crow::response& res );
+	void HandleGroupCreate( const crow::request& req, crow::response& res );
+	void HandleGroupUpdate( const crow::request& req, crow::response& res );
+	void HandleGroupDelete( const crow::request& req, crow::response& res );
+
+	// Debug
+	void HandleDebugEnum( const crow::request& req, crow::response& res );
+	void HandleDebugSet( const crow::request& req, crow::response& res );
+	void HandleDebugReset( const crow::request& req, crow::response& res );
 
 	crow::SimpleApp m_App;
 	std::thread m_ServerThread;

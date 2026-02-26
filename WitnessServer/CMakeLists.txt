@@ -9,6 +9,7 @@ set(SERVER_SOURCES
     Source/AsyncWorker.cpp
     Source/Azure/AzureEndpoint.cpp
     Source/Azure/AzureVisionAnalysisEndpointFilter.cpp
+    Source/CrowAuth.cpp
     Source/CrowListener.cpp
     Source/CameraWorker.cpp
     Source/Commands/Authenticate.cpp
@@ -53,6 +54,7 @@ set(SERVER_HEADERS
     Source/Commands/Static.h
     Source/Commands/Stream.h
     Source/Common.h
+    Source/CrowAuth.h
     Source/CrowListener.h
     Source/Database.h
     Source/GlobalContext.h
