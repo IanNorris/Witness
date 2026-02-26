@@ -2308,7 +2308,14 @@ void CrowListener::HandleDebugReset( const crow::request& req, crow::response& r
 
 void CrowListener::Start()
 {
-	m_App.bindaddr( m_Hostname ).port( m_Port );
+	// Crow/ASIO requires a numeric IP, not a hostname
+	std::string bindAddr = m_Hostname;
+	if( bindAddr == "localhost" )
+		bindAddr = "127.0.0.1";
+	else if( bindAddr == "+" || bindAddr == "*" || bindAddr == "0.0.0.0" )
+		bindAddr = "0.0.0.0";
+
+	m_App.bindaddr( bindAddr ).port( m_Port );
 
 	m_ServerThread = std::thread( [this]()
 	{
