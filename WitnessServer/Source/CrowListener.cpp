@@ -1,5 +1,6 @@
 #include "CrowListener.h"
 #include "CameraWorker.h"
+#include "Messages.h"
 
 #include <filesystem>
 #include <fstream>
@@ -97,6 +98,20 @@ void CrowListener::RegisterRoutes()
 		HandleSegment( req, res, cameraId, segmentId, partId );
 	});
 
+	// Camera preview: /camera/preview/<cameraId>
+	CROW_ROUTE( m_App, "/camera/preview/<int>" )
+	([this]( const crow::request& req, crow::response& res, int cameraId )
+	{
+		HandlePreview( req, res, cameraId, false );
+	});
+
+	// Camera large preview: /camera/previewLarge/<cameraId>
+	CROW_ROUTE( m_App, "/camera/previewLarge/<int>" )
+	([this]( const crow::request& req, crow::response& res, int cameraId )
+	{
+		HandlePreview( req, res, cameraId, true );
+	});
+
 	// Catch-all route for static files (lowest priority)
 	CROW_CATCHALL_ROUTE( m_App )
 	([this]( const crow::request& req, crow::response& res )
@@ -156,6 +171,40 @@ void CrowListener::ServeStaticFile( const crow::request& req, crow::response& re
 
 	res.code = 404;
 	res.end();
+}
+
+void CrowListener::HandlePreview( const crow::request& req, crow::response& res, int cameraId, bool largePreview )
+{
+	// TODO: Add auth check in Step 5
+
+	auto Camera = m_GlobalContext->FindCameraById( cameraId );
+	if( Camera )
+	{
+		if( largePreview )
+		{
+			Camera->LastLargePreviewTimestamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+		}
+		else
+		{
+			Camera->LastSmallPreviewTimestamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+		}
+
+		auto PreviewRequest = std::make_shared<CameraPreviewRequestMessage>();
+		PreviewRequest->LastLargePreviewTimestamp = Camera->LastLargePreviewTimestamp;
+		PreviewRequest->LastSmallPreviewTimestamp = Camera->LastSmallPreviewTimestamp;
+		m_GlobalContext->MessageBus->SendToClient( Camera->Worker.get(), PreviewRequest );
+
+		res.set_header( "Content-Type", "image/jpeg" );
+		res.set_header( "Cache-Control", "no-cache, no-store, must-revalidate" );
+		res.body.assign( (const char*)Camera->PreviewThumbnail.data(), Camera->PreviewThumbnail.size() );
+		res.code = 200;
+		res.end();
+	}
+	else
+	{
+		res.code = 404;
+		res.end();
+	}
 }
 
 void CrowListener::HandlePlaylist( const crow::request& req, crow::response& res, int cameraId )

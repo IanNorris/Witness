@@ -40,6 +40,9 @@ private:
 	void HandlePlaylist( const crow::request& req, crow::response& res, int cameraId );
 	void HandleSegment( const crow::request& req, crow::response& res, int cameraId, int segmentId, const std::string& partId );
 
+	// Camera preview
+	void HandlePreview( const crow::request& req, crow::response& res, int cameraId, bool largePreview );
+
 	crow::SimpleApp m_App;
 	std::thread m_ServerThread;
 
