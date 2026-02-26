@@ -36,6 +36,10 @@ private:
 	// Static file serving
 	void ServeStaticFile( const crow::request& req, crow::response& res, const std::string& path );
 
+	// HLS streaming
+	void HandlePlaylist( const crow::request& req, crow::response& res, int cameraId );
+	void HandleSegment( const crow::request& req, crow::response& res, int cameraId, int segmentId, const std::string& partId );
+
 	crow::SimpleApp m_App;
 	std::thread m_ServerThread;
 
