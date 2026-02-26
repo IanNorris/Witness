@@ -1,8 +1,53 @@
 cmake_minimum_required(VERSION 3.20)
+
+# Auto-detect vcpkg and set up the toolchain before project()
+if(DEFINED CMAKE_TOOLCHAIN_FILE AND NOT CMAKE_TOOLCHAIN_FILE STREQUAL "" AND EXISTS "${CMAKE_TOOLCHAIN_FILE}")
+    # Already set and valid — use it
+else()
+    set(_VCPKG_TOOLCHAIN "")
+
+    # 1. Check VCPKG_ROOT environment variable
+    if(NOT _VCPKG_TOOLCHAIN AND DEFINED ENV{VCPKG_ROOT})
+        set(_CANDIDATE "$ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake")
+        if(EXISTS "${_CANDIDATE}")
+            set(_VCPKG_TOOLCHAIN "${_CANDIDATE}")
+        endif()
+    endif()
+
+    # 2. Try vcpkg hint file (written by 'vcpkg integrate install')
+    if(NOT _VCPKG_TOOLCHAIN AND DEFINED ENV{LOCALAPPDATA})
+        set(_VCPKG_HINT_FILE "$ENV{LOCALAPPDATA}/vcpkg/vcpkg.path.txt")
+        if(EXISTS "${_VCPKG_HINT_FILE}")
+            file(READ "${_VCPKG_HINT_FILE}" _VCPKG_ROOT)
+            string(STRIP "${_VCPKG_ROOT}" _VCPKG_ROOT)
+            set(_CANDIDATE "${_VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake")
+            if(EXISTS "${_CANDIDATE}")
+                set(_VCPKG_TOOLCHAIN "${_CANDIDATE}")
+                message(STATUS "Found vcpkg via hint file: ${_VCPKG_ROOT}")
+            endif()
+        endif()
+    endif()
+
+    if(_VCPKG_TOOLCHAIN)
+        set(CMAKE_TOOLCHAIN_FILE "${_VCPKG_TOOLCHAIN}" CACHE STRING "" FORCE)
+    else()
+        message(FATAL_ERROR
+            "Cannot find vcpkg. Set VCPKG_ROOT environment variable, "
+            "run 'vcpkg integrate install', or pass "
+            "-DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake")
+    endif()
+endif()
+
 project(Witness LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Generate PDBs even in Release builds (MSVC)
+if(MSVC)
+    add_compile_options(/Zi)
+    add_link_options(/DEBUG /OPT:REF /OPT:ICF)
+endif()
 
 # Put all binaries in a single output directory so DLLs are found at runtime
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)

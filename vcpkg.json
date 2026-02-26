@@ -6,7 +6,7 @@
     {
       "name": "ffmpeg",
       "default-features": false,
-      "features": ["avcodec", "avformat", "swscale"]
+      "features": ["avcodec", "avformat", "swresample", "swscale", "gpl", "x264"]
     },
     "opencv4",
     "libsodium",
