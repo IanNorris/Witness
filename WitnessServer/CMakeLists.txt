@@ -2,6 +2,7 @@ find_package(Crow CONFIG REQUIRED)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs videoio objdetect)
 find_package(unofficial-sodium CONFIG REQUIRED)
 find_package(unofficial-sqlite3 CONFIG REQUIRED)
+find_package(OpenSSL REQUIRED)
 
 set(SERVER_SOURCES
     Source/AsyncWorker.cpp
@@ -69,6 +70,7 @@ target_include_directories(WitnessServer PRIVATE
 
 target_compile_definitions(WitnessServer PRIVATE
     _SILENCE_STDEXT_ARR_ITERS_DEPRECATION_WARNING
+    CROW_ENABLE_SSL
 )
 
 if(MSVC)
@@ -83,6 +85,8 @@ endif()
 target_link_libraries(WitnessServer PRIVATE
     WitnessCamera
     Crow::Crow
+    OpenSSL::SSL
+    OpenSSL::Crypto
     ${OpenCV_LIBS}
     unofficial-sodium::sodium
     unofficial::sqlite3::sqlite3

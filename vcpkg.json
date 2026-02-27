@@ -10,6 +10,7 @@
     },
     "opencv4",
     "libsodium",
+    "openssl",
     "sqlite3"
   ]
 }

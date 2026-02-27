@@ -14,11 +14,15 @@
 
 namespace fs = std::filesystem;
 
-CrowListener::CrowListener( const std::string& Hostname, int Port, bool Secure, DebugConsole* DebugConsoleInstance )
+CrowListener::CrowListener( const std::string& Hostname, int Port, bool Secure,
+                            const std::string& CertPath, const std::string& KeyPath,
+                            DebugConsole* DebugConsoleInstance )
 : m_DebugConsole( DebugConsoleInstance )
 , m_Hostname( Hostname )
 , m_Port( Port )
 , m_Secure( Secure )
+, m_CertPath( CertPath )
+, m_KeyPath( KeyPath )
 {
 	m_GlobalContext = std::make_unique<GlobalContext>();
 	m_GlobalContext->Port = Port;
@@ -303,6 +307,12 @@ void CrowListener::RegisterRoutes()
 		HandleDebugReset( req, res );
 	});
 
+	CROW_ROUTE( m_App, "/debug/reload_tls" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleDebugReloadTLS( req, res );
+	});
+
 	// Catch-all route for static files (lowest priority)
 	CROW_CATCHALL_ROUTE( m_App )
 	([this]( crow::response& res )
@@ -352,18 +362,8 @@ void CrowListener::ServeStaticFile( const crow::request& req, crow::response& re
 								  std::istreambuf_iterator<char>() );
 
 				res.set_header( "Content-Type", it->second );
-				res.set_header( "Content-Security-Policy",
-					"default-src 'self'; "
-					"script-src 'self' 'unsafe-inline' 'unsafe-eval' https://maxcdn.bootstrapcdn.com https://ajax.googleapis.com/ https://cdnjs.cloudflare.com/ https://cloud.githubusercontent.com/; "
-					"worker-src 'self' blob:; "
-					"style-src 'self' 'unsafe-inline' https://maxcdn.bootstrapcdn.com https://ajax.googleapis.com/ https://cdnjs.cloudflare.com/ https://cloud.githubusercontent.com/; "
-					"script-src-elem 'self' 'unsafe-inline' 'unsafe-eval' https://maxcdn.bootstrapcdn.com https://ajax.googleapis.com/ https://cdnjs.cloudflare.com/ https://cloud.githubusercontent.com/; "
-					"style-src-attr 'self' 'unsafe-inline' https://maxcdn.bootstrapcdn.com https://ajax.googleapis.com/ https://cdnjs.cloudflare.com/ https://cloud.githubusercontent.com/; "
-					"img-src 'self' data: blob: https://maxcdn.bootstrapcdn.com https://ajax.googleapis.com/ https://cdnjs.cloudflare.com/ https://cloud.githubusercontent.com/; "
-					"font-src 'self' data:; "
-					"media-src 'self' blob:;" );
 
-				res.body = std::move( body );
+			res.body = std::move( body );
 				res.code = 200;
 				return;
 			}
