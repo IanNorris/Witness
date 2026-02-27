@@ -4,12 +4,12 @@
 
 void WitnessServer::HandleCameraStartupMessage(const CameraStartupMessage& Data)
 {
-	StatusMessage( Data.Camera, _T("Connecting"), _T("Connecting...") );
+	StatusMessage( Data.Camera, "Connecting", "Connecting..." );
 }
 
 void WitnessServer::HandleCameraReconnectMessage(const CameraReconnectMessage& Data)
 {
-	StatusMessage( Data.Camera, _T("Reconnecting"), Data.Error );
+	StatusMessage( Data.Camera, "Reconnecting", Data.Error );
 
 	auto CameraState = Context->FindCameraById( Data.Camera );
 	if(CameraState)
@@ -21,7 +21,7 @@ void WitnessServer::HandleCameraReconnectMessage(const CameraReconnectMessage& D
 
 void WitnessServer::HandleCameraConnectedMessage(const CameraConnectedMessage& Data)
 {
-	StatusMessage( Data.Camera, _T("Connected"), _T("Connected to camera") );
+	StatusMessage( Data.Camera, "Connected", "Connected to camera" );
 }
 
 void WitnessServer::HandleCameraSnapshotMessage(const CameraSnapshotMessage& Data)

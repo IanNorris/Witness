@@ -23,11 +23,11 @@ void WitnessServer::StartCameraRecording( const std::shared_ptr<CameraWorker>& W
 
 		TagsA += Tag;
 	}
-	StringT Tags( TagsA.begin(), TagsA.end() );
+	std::string Tags( TagsA.begin(), TagsA.end() );
 
 	std::filesystem::create_directories( std::filesystem::path(CachePath) );
-	StringStreamT TargetFilename;
-	TargetFilename << CameraID << (IsManual ? _T("_Manual_") : _T("_Auto_")) << Timestamp << ".mp4";
+	std::stringstream TargetFilename;
+	TargetFilename << CameraID << (IsManual ? "_Manual_" : "_Auto_") << Timestamp << ".mp4";
 	auto TargetPath = (std::filesystem::path(CachePath) / TargetFilename.str()).string();
 
 	auto StartRecord = std::make_shared<CameraStartRecordMessage>( CameraID, Timestamp, TargetPath );
@@ -37,14 +37,14 @@ void WitnessServer::StartCameraRecording( const std::shared_ptr<CameraWorker>& W
 		Context->MessageBus->SendToClient( Worker.get(), StartRecord );
 	}
 
-	SQLiteDatabaseQueryInstance CreateClip( Context->Database, _T("CreateClip") );
+	SQLiteDatabaseQueryInstance CreateClip( Context->Database, "CreateClip" );
 	CreateClip->Bind( "@Timestamp", (int64_t)Timestamp );
 	CreateClip->Bind( "@Camera", CameraID );
 	CreateClip->Bind( "@ActiveDuration", 0 );
 	CreateClip->Bind( "@Duration", 0 );
 	CreateClip->Bind( "@RecordMode", IsManual ? 0 : 1 );
 	CreateClip->Bind( "@MaxMotion", 0.0f );
-	CreateClip->Bind( "@Description", _T("") );
+	CreateClip->Bind( "@Description", "" );
 	CreateClip->Bind( "@Save", 0 );
 	CreateClip->Bind( "@Tags", Tags.c_str() );
 	CreateClip->Execute( nullptr );
@@ -67,9 +67,9 @@ void WitnessServer::StopCameraRecording( const ClipStatistics& ClipStats, int Ca
 
 		TagsA += Tag;
 	}
-	StringT Tags( TagsA.begin(), TagsA.end() );
+	std::string Tags( TagsA.begin(), TagsA.end() );
 
-	SQLiteDatabaseQueryInstance UpdateClip( Context->Database, _T("UpdateClip") );
+	SQLiteDatabaseQueryInstance UpdateClip( Context->Database, "UpdateClip" );
 	UpdateClip->Bind( "@Timestamp", (int64_t)ClipStats.TimestampClipStarted );
 	UpdateClip->Bind( "@Camera", CameraID );
 	UpdateClip->Bind( "@Tags", Tags.c_str() );
@@ -92,7 +92,7 @@ void WitnessServer::StopCameraRecording( const ClipStatistics& ClipStats, int Ca
 
 	auto WriteThumbnailMessage = std::make_shared<CameraWriteThumbnailMessage>( CameraID );
 	
-	StringT CachePath;
+	std::string CachePath;
 
 	{
 		CachePath = Context->CachePath;
@@ -118,9 +118,9 @@ void WitnessServer::StopCameraRecording( const ClipStatistics& ClipStats, int Ca
 	}
 }
 
-void WitnessServer::StatusMessage( int Camera, StringT NewStatus, StringT Reason )
+void WitnessServer::StatusMessage( int Camera, std::string NewStatus, std::string Reason )
 {
-	StringT CameraName;
+	std::string CameraName;
 
 	{
 		auto CameraState = Context->FindCameraById( Camera );
@@ -135,5 +135,5 @@ void WitnessServer::StatusMessage( int Camera, StringT NewStatus, StringT Reason
 		}
 	}
 
-	std::cout << CameraName << _T(": ") << Reason << std::endl;
+	std::cout << CameraName << ": " << Reason << std::endl;
 };

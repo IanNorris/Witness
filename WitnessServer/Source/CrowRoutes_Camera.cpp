@@ -65,17 +65,17 @@ void CrowListener::HandleCameraEnum( const crow::request& req, crow::response& r
 		State.clear();
 
 		{
-			SQLiteDatabaseQueryInstance GetCamerasForUser( m_GlobalContext->Database, asAdmin ? _T("GetCameras") : _T("GetCamerasForUser") );
+			SQLiteDatabaseQueryInstance GetCamerasForUser( m_GlobalContext->Database, asAdmin ? "GetCameras" : "GetCamerasForUser" );
 			GetCamerasForUser->Bind( "@User", UserUID );
 
 			GetCamerasForUser->Execute(
 				[&]( const SQLiteDatabaseQuery& query )
 				{
 					int ID = query.GetColumnValueInt( 0 );
-					StringT Name = query.GetColumnValueText( 1 );
-					StringT ConnectionString = query.GetColumnValueText( 2 );
-					StringT ConnectionStringSub = query.GetColumnValueText( 3 );
-					StringT Description = query.GetColumnValueText( 4 ) ? query.GetColumnValueText( 4 ) : _T("");
+					std::string Name = query.GetColumnValueText( 1 );
+					std::string ConnectionString = query.GetColumnValueText( 2 );
+					std::string ConnectionStringSub = query.GetColumnValueText( 3 );
+					std::string Description = query.GetColumnValueText( 4 ) ? query.GetColumnValueText( 4 ) : "";
 					int Enabled = query.GetColumnValueInt( 5 );
 
 					if( Enabled || asAdmin )
@@ -88,7 +88,7 @@ void CrowListener::HandleCameraEnum( const crow::request& req, crow::response& r
 
 						std::vector<crow::json::wvalue> Groups;
 
-						SQLiteDatabaseQueryInstance SelectGroupsForCamera( m_GlobalContext->Database, _T("SelectGroupsForCamera") );
+						SQLiteDatabaseQueryInstance SelectGroupsForCamera( m_GlobalContext->Database, "SelectGroupsForCamera" );
 						SelectGroupsForCamera->Bind( "@Camera", ID );
 
 						SelectGroupsForCamera->Execute(
@@ -286,12 +286,12 @@ void CrowListener::HandleCameraCreate( const crow::request& req, crow::response&
 	std::string ConnectionString = body.has("connectionString") ? std::string(body["connectionString"].s()) : "";
 	std::string ConnectionStringSub = body.has("connectionStringSub") ? std::string(body["connectionStringSub"].s()) : "";
 
-	StringT DisplayNameW( DisplayName.begin(), DisplayName.end() );
-	StringT DescriptionW( Description.begin(), Description.end() );
-	StringT ConnectionStringW( ConnectionString.begin(), ConnectionString.end() );
-	StringT ConnectionStringSubW( ConnectionStringSub.begin(), ConnectionStringSub.end() );
+	std::string DisplayNameW( DisplayName.begin(), DisplayName.end() );
+	std::string DescriptionW( Description.begin(), Description.end() );
+	std::string ConnectionStringW( ConnectionString.begin(), ConnectionString.end() );
+	std::string ConnectionStringSubW( ConnectionStringSub.begin(), ConnectionStringSub.end() );
 
-	SQLiteDatabaseQueryInstance CreateCamera( m_GlobalContext->Database, _T("CreateCamera") );
+	SQLiteDatabaseQueryInstance CreateCamera( m_GlobalContext->Database, "CreateCamera" );
 	CreateCamera->Bind( "@CameraName", DisplayNameW.c_str() );
 	CreateCamera->Bind( "@Description", DescriptionW.c_str() );
 	CreateCamera->Bind( "@CameraString", ConnectionStringW.c_str() );
@@ -349,7 +349,7 @@ void CrowListener::HandleCameraDelete( const crow::request& req, crow::response&
 	int CameraUID = (int)body["id"].i();
 
 	{
-		SQLiteDatabaseQueryInstance DeleteCamera( m_GlobalContext->Database, _T("DeleteCamera") );
+		SQLiteDatabaseQueryInstance DeleteCamera( m_GlobalContext->Database, "DeleteCamera" );
 		DeleteCamera->Bind( "@CameraId", CameraUID );
 		DeleteCamera->Execute( nullptr );
 	}
@@ -400,7 +400,7 @@ void CrowListener::HandleCameraSetGroups( const crow::request& req, crow::respon
 
 	std::vector<int> CameraGroupsCurrent;
 
-	SQLiteDatabaseQueryInstance SelectGroupsForCamera( m_GlobalContext->Database, _T("SelectGroupsForCamera") );
+	SQLiteDatabaseQueryInstance SelectGroupsForCamera( m_GlobalContext->Database, "SelectGroupsForCamera" );
 	SelectGroupsForCamera->Bind( "@Camera", CameraID );
 
 	SelectGroupsForCamera->Execute(
@@ -417,7 +417,7 @@ void CrowListener::HandleCameraSetGroups( const crow::request& req, crow::respon
 	{
 		if( find( CameraGroupsCurrent.begin(), CameraGroupsCurrent.end(), Value ) == CameraGroupsCurrent.end() )
 		{
-			SQLiteDatabaseQueryInstance CreateMapping( m_GlobalContext->Database, _T("CreateCameraGroupMapping") );
+			SQLiteDatabaseQueryInstance CreateMapping( m_GlobalContext->Database, "CreateCameraGroupMapping" );
 			CreateMapping->Bind( "@Camera", CameraID );
 			CreateMapping->Bind( "@Group", Value );
 			CreateMapping->Execute( [&]( const SQLiteDatabaseQuery& query ) { return true; } );
@@ -429,7 +429,7 @@ void CrowListener::HandleCameraSetGroups( const crow::request& req, crow::respon
 	{
 		if( find( CameraGroupsRequested.begin(), CameraGroupsRequested.end(), Value ) == CameraGroupsRequested.end() )
 		{
-			SQLiteDatabaseQueryInstance DeleteMapping( m_GlobalContext->Database, _T("DeleteCameraGroupMapping") );
+			SQLiteDatabaseQueryInstance DeleteMapping( m_GlobalContext->Database, "DeleteCameraGroupMapping" );
 			DeleteMapping->Bind( "@Camera", CameraID );
 			DeleteMapping->Bind( "@Group", Value );
 			DeleteMapping->Execute( [&]( const SQLiteDatabaseQuery& query ) { return true; } );

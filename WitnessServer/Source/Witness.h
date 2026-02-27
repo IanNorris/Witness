@@ -29,7 +29,7 @@ public:
 
 private:
 
-	void StatusMessage( int Camera, StringT NewStatus, StringT Reason );
+	void StatusMessage( int Camera, std::string NewStatus, std::string Reason );
 
 	void HandleCameraStartupMessage(const CameraStartupMessage& Data);
 	void HandleCameraReconnectMessage(const CameraReconnectMessage& Data);
@@ -39,12 +39,12 @@ private:
 	void HandleCameraUpdateMotionMessage(const CameraUpdateMotionMessage& Data);
 	void HandleCameraEndMotionMessage(const CameraEndMotionMessage& Data);
 
-	bool CreateListener( const std::unordered_map< StringT, StringT >& Settings );
-	bool CreateProcessors( const std::unordered_map< StringT, StringT >& Settings );
+	bool CreateListener( const std::unordered_map< std::string, std::string >& Settings );
+	bool CreateProcessors( const std::unordered_map< std::string, std::string >& Settings );
 	bool InitializeContext( const std::shared_ptr<SQLiteDatabase>& Database );
 
 	void HandleActions( const std::shared_ptr<GlobalContext>& Context, CameraState& State, int CameraIndex, double MotionThreshold );
-	void TriggerAction( const StringT& Command, const StringT& Param1, const StringT& Param2, const StringT& Param3, CameraState& State, int CameraIndex );
+	void TriggerAction( const std::string& Command, const std::string& Param1, const std::string& Param2, const std::string& Param3, CameraState& State, int CameraIndex );
 
 	void StartCameraWorkers();
 
@@ -68,5 +68,5 @@ private:
 
 	VideoSettings Video;
 
-	StringT CachePath;
+	std::string CachePath;
 };

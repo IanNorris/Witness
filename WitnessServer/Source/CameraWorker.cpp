@@ -17,7 +17,7 @@ void CameraWorker::CreateInputStream()
 	Setup.HistoricalPacketBufferSeconds = Video.ClipHistoryPeriod;
 	Setup.ExportMotionVectors = Video.ExportMotionVectors != 0;
 
-	std::string CamPath = StringToAnsi(Camera.Path);
+	std::string CamPath = Camera.Path;
 
 	std::string CachePath = std::string(Context->CachePath.begin(), Context->CachePath.end());
 
@@ -40,7 +40,7 @@ void CameraWorker::CreateInputStream()
 
 void CameraWorker::WorkerInit()
 {
-	UpdateLastTimedAction(_T("Creating filters..."));
+	UpdateLastTimedAction("Creating filters...");
 
 	MotionChainNode NoContinuation;
 	
@@ -81,7 +81,7 @@ void CameraWorker::WorkerInit()
 
 	MessageBusObject->SendToClient( nullptr, std::make_shared<CameraStartupMessage>( Camera.ID ) );
 
-	UpdateLastTimedAction(_T("Starting camera connection..."));
+	UpdateLastTimedAction("Starting camera connection...");
 
 	CreateInputStream();
 }
@@ -98,7 +98,7 @@ void CameraWorker::WorkerShutdown()
 
 void CameraWorker::WorkerMain()
 {
-	UpdateLastTimedAction(_T("Work..."));
+	UpdateLastTimedAction("Work...");
 
 	std::shared_ptr<Message> Msg;
 	while( MessageBusQueue->TryPop( Msg ) )
@@ -145,11 +145,11 @@ void CameraWorker::WorkerMain()
 
 	if (IsConnected)
 	{
-		UpdateLastTimedAction(_T("Processing..."));
+		UpdateLastTimedAction("Processing...");
 	}
 	else
 	{
-		UpdateLastTimedAction(_T("Connecting..."));
+		UpdateLastTimedAction("Connecting...");
 	}
 
 	double FrameRate = CameraStream->GetFramerateDouble();
@@ -183,7 +183,7 @@ void CameraWorker::WorkerMain()
 			ErrorStrA += ": ";
 			ErrorStrA += CameraStream->GetFFMPEGErrorMessage();
 		}
-		StringT ErrorStr(ErrorStrA.begin(), ErrorStrA.end());
+		std::string ErrorStr(ErrorStrA.begin(), ErrorStrA.end());
 
 		MessageBusObject->SendToClient( nullptr, std::make_shared<CameraReconnectMessage>( Camera.ID, ErrorStr ) );
 

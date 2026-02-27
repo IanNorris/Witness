@@ -16,13 +16,8 @@
 #include <sys/types.h>
 #endif
 
-// Legacy macros - now no-ops after string migration to std::string
-#define _T(x) x
-#define U(x) x
 
-using StringT = std::string;
 using CharT = char;
-using StringStreamT = std::stringstream;
 
 inline uint64_t GetUnixTimestamp()
 {
@@ -50,8 +45,6 @@ std::vector< std::string > SplitString( std::string tInput, std::string tSeparat
 
 std::string StringPrintfA(const char* Message, ...);
 
-// StringToAnsi is now a no-op identity for std::string, kept for migration compatibility
-inline const std::string& StringToAnsi(const std::string& str) { return str; }
 
 template<typename T>
 bool GetSettingsField( const std::unordered_map< std::string, std::string >& Settings, const char* FieldName, T& ValueOut, std::string& Errors );

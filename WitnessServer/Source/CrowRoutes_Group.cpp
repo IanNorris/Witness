@@ -16,7 +16,7 @@ void CrowListener::HandleGroupEnum( const crow::request& req, crow::response& re
 
 	std::vector<crow::json::wvalue> Array;
 
-	SQLiteDatabaseQueryInstance SelectAllGroups( m_GlobalContext->Database, _T("SelectAllGroups") );
+	SQLiteDatabaseQueryInstance SelectAllGroups( m_GlobalContext->Database, "SelectAllGroups" );
 	SelectAllGroups->Execute(
 		[&Array]( const SQLiteDatabaseQuery& query )
 		{
@@ -65,10 +65,10 @@ void CrowListener::HandleGroupCreate( const crow::request& req, crow::response& 
 
 	std::string DisplayName = body.has("displayName") ? std::string(body["displayName"].s()) : "";
 	std::string Description = body.has("description") ? std::string(body["description"].s()) : "";
-	StringT DisplayNameW( DisplayName.begin(), DisplayName.end() );
-	StringT DescriptionW( Description.begin(), Description.end() );
+	std::string DisplayNameW( DisplayName.begin(), DisplayName.end() );
+	std::string DescriptionW( Description.begin(), Description.end() );
 
-	SQLiteDatabaseQueryInstance CreateGroup( m_GlobalContext->Database, _T("CreateGroup") );
+	SQLiteDatabaseQueryInstance CreateGroup( m_GlobalContext->Database, "CreateGroup" );
 	CreateGroup->Bind( "@DisplayName", DisplayNameW.c_str() );
 	CreateGroup->Bind( "@Description", DescriptionW.c_str() );
 
@@ -116,10 +116,10 @@ void CrowListener::HandleGroupUpdate( const crow::request& req, crow::response& 
 	int GroupUID = body.has("id") ? (int)body["id"].i() : 0;
 	std::string DisplayName = body.has("displayName") ? std::string(body["displayName"].s()) : "";
 	std::string Description = body.has("description") ? std::string(body["description"].s()) : "";
-	StringT DisplayNameW( DisplayName.begin(), DisplayName.end() );
-	StringT DescriptionW( Description.begin(), Description.end() );
+	std::string DisplayNameW( DisplayName.begin(), DisplayName.end() );
+	std::string DescriptionW( Description.begin(), Description.end() );
 
-	SQLiteDatabaseQueryInstance UpdateGroup( m_GlobalContext->Database, _T("UpdateGroup") );
+	SQLiteDatabaseQueryInstance UpdateGroup( m_GlobalContext->Database, "UpdateGroup" );
 	UpdateGroup->Bind( "@GroupUID", GroupUID );
 	UpdateGroup->Bind( "@DisplayName", DisplayNameW.c_str() );
 	UpdateGroup->Bind( "@Description", DescriptionW.c_str() );
@@ -152,7 +152,7 @@ void CrowListener::HandleGroupDelete( const crow::request& req, crow::response& 
 
 	int GroupUID = body.has("id") ? (int)body["id"].i() : 0;
 
-	SQLiteDatabaseQueryInstance DeleteGroup( m_GlobalContext->Database, _T("DeleteGroup") );
+	SQLiteDatabaseQueryInstance DeleteGroup( m_GlobalContext->Database, "DeleteGroup" );
 	DeleteGroup->Bind( "@GroupUID", GroupUID );
 	DeleteGroup->Execute( nullptr );
 

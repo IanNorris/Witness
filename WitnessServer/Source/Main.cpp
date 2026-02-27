@@ -21,7 +21,7 @@
 
 bool ContinueRunning = true;
 
-std::filesystem::path GetConfigFilePath(StringT Filename);
+std::filesystem::path GetConfigFilePath(std::string Filename);
 
 bool UpdateService(wchar_t* Path, bool Install)
 {
@@ -29,7 +29,7 @@ bool UpdateService(wchar_t* Path, bool Install)
 
 	if (!SCM)
 	{
-		std::cerr << U("Unable to connect to service manager - admin access required.") << std::endl;
+		std::cerr << "Unable to connect to service manager - admin access required." << std::endl;
 		return false;
 	}
 
@@ -46,13 +46,13 @@ bool UpdateService(wchar_t* Path, bool Install)
 		if (!Service)
 		{
 			CloseServiceHandle(SCM);
-			std::cerr << U("Unable to create new service.") << std::endl;
+			std::cerr << "Unable to create new service." << std::endl;
 			return false;
 		}
 
 		CloseServiceHandle(Service);
 
-		std::cout << U("Created service.") << std::endl;
+		std::cout << "Created service." << std::endl;
 	}
 	else
 	{
@@ -60,11 +60,11 @@ bool UpdateService(wchar_t* Path, bool Install)
 		if (!Service)
 		{
 			CloseServiceHandle(SCM);
-			std::cerr << U("Service not found.") << std::endl;
+			std::cerr << "Service not found." << std::endl;
 			return false;
 		}
 		
-		std::cout << U("Stopping service.");
+		std::cout << "Stopping service.";
 
 		SERVICE_STATUS Status = {};
 		if (ControlService(Service, SERVICE_CONTROL_STOP, &Status))
@@ -73,7 +73,7 @@ bool UpdateService(wchar_t* Path, bool Install)
 
 			do {
 				std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-				std::cout << U(".");
+				std::cout << ".";
 
 				if (Status.dwCurrentState == SERVICE_STOPPED)
 				{
@@ -85,20 +85,20 @@ bool UpdateService(wchar_t* Path, bool Install)
 
 		if (Status.dwCurrentState == SERVICE_STOPPED)
 		{
-			std::cout << U("\nService stopped cleanly.") << std::endl;
+			std::cout << "\nService stopped cleanly." << std::endl;
 		}
 		else
 		{
-			std::cout << U("\nService failed to stop.") << std::endl;
+			std::cout << "\nService failed to stop." << std::endl;
 		}
 
 		if (!DeleteService(Service))
 		{
-			std::cout << U("Could not delete service.") << std::endl;
+			std::cout << "Could not delete service." << std::endl;
 		}
 		else
 		{
-			std::cout << U("Deleted service.") << std::endl;
+			std::cout << "Deleted service." << std::endl;
 		}
 
 		CloseServiceHandle(Service);
@@ -210,7 +210,7 @@ void WINAPI ServiceMain(DWORD dwArgc, PWSTR* pszArgv)
 
 	if (sodium_init() == -1)
 	{
-		std::cerr << U("Unable to initialize libsodium.") << std::endl;
+		std::cerr << "Unable to initialize libsodium." << std::endl;
 		ReturnValue = 1;
 		UpdateStatus(SERVICE_STOPPED, 0, ReturnValue);
 		return;
@@ -251,7 +251,7 @@ int wmain( int argc, wchar_t* argv[] )
 		}
 		else if (_wcsicmp(argv[1], L"/createdb") == 0)
 		{
-			auto DatabaseFile = GetConfigFilePath(U("server.db"));
+			auto DatabaseFile = GetConfigFilePath("server.db");
 
 			Database::InitializeDatabase(DatabaseFile.string());
 

@@ -10,7 +10,7 @@
 
 class SQLiteDatabase;
 
-#define MAKE_QUERY( Name ) SQLiteDatabaseQueryInstance Name( Context->Database, _T(#Name) )
+#define MAKE_QUERY( Name ) SQLiteDatabaseQueryInstance Name( Context->Database, #Name )
 
 class SQLiteDatabaseQuery
 {
@@ -43,13 +43,13 @@ public:
 
 	std::mutex& PrepareQueryMutex() { return m_tMutex; }
 
-	StringT GetLastError() { return m_lastError; }
+	std::string GetLastError() { return m_lastError; }
 
 private:
 
 	std::mutex												m_tMutex;
 
-	StringT												m_lastError;
+	std::string												m_lastError;
 	std::shared_ptr<SQLiteDatabase>							m_database;
 	std::vector<sqlite3_stmt*>								m_statements;
 	int64_t													m_lastInsertId;
@@ -60,16 +60,16 @@ class SQLiteDatabase : public std::enable_shared_from_this<SQLiteDatabase>
 {
 public:
 
-	SQLiteDatabase( const StringT& filename, const std::string& initScript, bool writeAccess, std::function<void(const std::string&)> onErrorCallback );
+	SQLiteDatabase( const std::string& filename, const std::string& initScript, bool writeAccess, std::function<void(const std::string&)> onErrorCallback );
 	~SQLiteDatabase();
 
 	inline sqlite3*	GetDatabase() { return m_database; };
 
 	void Initialise( void );
 
-	std::shared_ptr<SQLiteDatabaseQuery> CreateQuery( const StringT& queryName, const StringT& query );
+	std::shared_ptr<SQLiteDatabaseQuery> CreateQuery( const std::string& queryName, const std::string& query );
 
-	const std::shared_ptr<SQLiteDatabaseQuery>& GetQuery(const StringT& queryName) { return m_queries[queryName]; }
+	const std::shared_ptr<SQLiteDatabaseQuery>& GetQuery(const std::string& queryName) { return m_queries[queryName]; }
 
 	bool IsNewlyCreated() const { return m_databaseNewlyCreated; }
 
@@ -77,11 +77,11 @@ public:
 
 private:
 
-	std::unordered_map<StringT, std::shared_ptr<SQLiteDatabaseQuery>>	m_queries;
+	std::unordered_map<std::string, std::shared_ptr<SQLiteDatabaseQuery>>	m_queries;
 
 	std::function<void(const std::string&)>								m_onErrorCallback;
 
-	StringT		m_filename;
+	std::string		m_filename;
 	sqlite3*	m_database;
 	bool		m_databaseNewlyCreated;
 };

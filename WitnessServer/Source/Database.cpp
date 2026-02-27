@@ -108,50 +108,50 @@ namespace Database
 
 	)RAW";
 
-	StringT GetSetting = R"RAW(
+	std::string GetSetting = R"RAW(
 		SELECT Value FROM Setting
 		WHERE Name = @Name
 	)RAW";
 
-	StringT GetAllSettings = R"RAW(
+	std::string GetAllSettings = R"RAW(
 		SELECT * FROM Setting
 	)RAW";
 
-	StringT SetSetting = R"RAW(
+	std::string SetSetting = R"RAW(
 		INSERT OR REPLACE INTO Setting(Name, Value) VALUES(@Name, @Value)
 	)RAW";
 
-	StringT FindActions = R"RAW(
+	std::string FindActions = R"RAW(
 		SELECT ActionUID FROM CameraAction
 		WHERE CameraUID = @CameraUID 
 		AND MDThreshold <= @MDThreshold
 	)RAW";
 
-	StringT GetAction = R"RAW(
+	std::string GetAction = R"RAW(
 		SELECT * FROM Action
 		WHERE ActionUID = @ActionUID
 	)RAW";
 
-	StringT FindUser = R"RAW(
+	std::string FindUser = R"RAW(
 		SELECT UserUID, Username, PasswordHash, HashMethod FROM User 
 		WHERE Username = @Username
 	)RAW";
 
-	StringT FindUserForAuth = R"RAW(
+	std::string FindUserForAuth = R"RAW(
 		SELECT UserUID, Username, DisplayName, Enabled, Admin FROM User 
 		WHERE UserUID = @UserUID
 	)RAW";
 
-	StringT FindUsers = R"RAW(
+	std::string FindUsers = R"RAW(
 		SELECT UserUID, Username, DisplayName, Enabled, Admin FROM User 
 	)RAW";
 
-	StringT CreateUser = R"RAW(
+	std::string CreateUser = R"RAW(
 		INSERT INTO User (Username,DisplayName,PasswordHash,HashMethod,Enabled,Admin)
 		VALUES(@Username,@DisplayName,@PasswordHash,@HashMethod,@Enabled,@Admin);
 	)RAW";
 
-	StringT DeleteUser = R"RAW(
+	std::string DeleteUser = R"RAW(
 		DELETE FROM UserGroupMapping
 			WHERE UserUID = @UserUID;
 		DELETE FROM Session
@@ -160,7 +160,7 @@ namespace Database
 			WHERE UserUID = @UserUID;
 	)RAW";
 
-	StringT SetUserEnabledState = R"RAW(
+	std::string SetUserEnabledState = R"RAW(
 		UPDATE User 
 		SET
 			Enabled = @Enabled
@@ -169,7 +169,7 @@ namespace Database
 		;
 	)RAW";
 
-	StringT SetUserAdminState = R"RAW(
+	std::string SetUserAdminState = R"RAW(
 		UPDATE User 
 		SET
 			Admin = @Admin
@@ -178,7 +178,7 @@ namespace Database
 		;
 	)RAW";
 
-	StringT SetUserDisplayName = R"RAW(
+	std::string SetUserDisplayName = R"RAW(
 		UPDATE User 
 		SET
 			DisplayName = @DisplayName
@@ -187,68 +187,68 @@ namespace Database
 		;
 	)RAW";
 
-	StringT FindSession = R"RAW(
+	std::string FindSession = R"RAW(
 		SELECT * FROM Session 
 		WHERE SessionToken = @SessionToken
 	)RAW";
 
-	StringT VerifySessionAndCSRF = R"RAW(
+	std::string VerifySessionAndCSRF = R"RAW(
 		SELECT UserUID FROM Session 
 		WHERE 
 			SessionToken = @SessionToken
 		AND	CSRFToken = @CSRFToken
 	)RAW";
 
-	StringT VerifySession = R"RAW(
+	std::string VerifySession = R"RAW(
 		SELECT UserUID FROM Session 
 		WHERE 
 			SessionToken = @SessionToken
 	)RAW";
 
-	StringT CreateSession = R"RAW(
+	std::string CreateSession = R"RAW(
 		INSERT INTO Session (SessionToken,CSRFToken,UserUID,LastUsed)
 		VALUES(@SessionToken,@CSRFToken,@UserUID,@LastUsed);
 	)RAW";
 
-	StringT DeleteSession = R"RAW(
+	std::string DeleteSession = R"RAW(
 		DELETE FROM Session
 		WHERE SessionToken = @SessionToken;
 	)RAW";
 
-	StringT GetUserCount = "SELECT COUNT(*) FROM User";
+	std::string GetUserCount = "SELECT COUNT(*) FROM User";
 
-	StringT CreateCamera = R"RAW(
+	std::string CreateCamera = R"RAW(
 		INSERT INTO Camera (CameraName, CameraString, CameraStringSub, Description, Enabled, SkipFrames, MDFrameHeight, MDThreshold, MotionFilter, BlackoutMaskPath, FocusMaskPath)
 		VALUES(@CameraName,@CameraString,@CameraStringSub,@Description,1,1,400,0.0001,NULL,NULL,NULL);
 	)RAW";
 
 	
-	StringT DeleteCamera = R"RAW(
+	std::string DeleteCamera = R"RAW(
 		DELETE FROM Camera 
 		WHERE 
 				CameraUID == @CameraId 
 		;
 	)RAW";
 
-	StringT GetCameras = R"RAW(
+	std::string GetCameras = R"RAW(
 		SELECT * FROM Camera 
 		ORDER BY CameraUID
 	)RAW";
 
-	StringT GetCamera = R"RAW(
+	std::string GetCamera = R"RAW(
 		SELECT * FROM Camera 
 		WHERE CameraUID = @CameraId
 		ORDER BY CameraUID
 	)RAW";
 
-	StringT GetCamerasForUser = R"RAW(
+	std::string GetCamerasForUser = R"RAW(
 		SELECT * FROM Camera C
 		INNER JOIN CameraGroupMapping CGM ON CGM.Camera = C.CameraUID
 		INNER JOIN UserGroupMapping UGM ON UGM.`Group` = CGM.`Group`
 		WHERE UGM.UserUID = @User
 	)RAW";
 
-	StringT GetCamerasDetailsForUser = R"RAW(
+	std::string GetCamerasDetailsForUser = R"RAW(
 		SELECT * FROM Camera C
 		INNER JOIN CameraGroupMapping CGM ON CGM.Camera = C.CameraUID
 		INNER JOIN UserGroupMapping UGM ON UGM.`Group` = CGM.`Group`
@@ -256,17 +256,17 @@ namespace Database
 		AND C.CameraUID = @Camera
 	)RAW";
 
-	StringT CreateClip = R"RAW(
+	std::string CreateClip = R"RAW(
 		INSERT INTO Clip (Timestamp,Camera,MotionTimestamp,ActiveDuration,Duration,RecordMode,MaxMotion,Description,Save,Tags)
 		VALUES(@Timestamp,@Camera,@MotionTimestamp,@ActiveDuration,@Duration,@RecordMode,@MaxMotion,@Description,@Save,@Tags);
 	)RAW";
 
-	StringT SelectClipID = R"RAW(
+	std::string SelectClipID = R"RAW(
 		SELECT * FROM Clip
 		WHERE Clip.ClipUID = @ClipUID
 	)RAW";
 
-	StringT UpdateClip = R"RAW(
+	std::string UpdateClip = R"RAW(
 		UPDATE Clip 
 		SET
 			MotionTimestamp = @MotionTimestamp,
@@ -280,7 +280,7 @@ namespace Database
 		;
 	)RAW";
 
-	StringT SetClipSaveState = R"RAW(
+	std::string SetClipSaveState = R"RAW(
 		UPDATE Clip 
 		SET
 			Save = @Save
@@ -289,21 +289,21 @@ namespace Database
 		;
 	)RAW";
 
-	StringT FindClipByUID = R"RAW(
+	std::string FindClipByUID = R"RAW(
 		SELECT * FROM Clip 
 		WHERE 
 			ClipUID == @ClipUID 
 		;
 	)RAW";
 	
-	StringT DeleteClip = R"RAW(
+	std::string DeleteClip = R"RAW(
 		DELETE FROM Clip 
 		WHERE 
 				ClipUID == @ClipUID 
 		;
 	)RAW";
 
-	StringT CountClipsWithinRange = R"RAW(
+	std::string CountClipsWithinRange = R"RAW(
 		SELECT COUNT(Timestamp) FROM Clip
 		WHERE
 				Camera == @CameraID
@@ -312,7 +312,7 @@ namespace Database
 		;
 	)RAW";
 
-	StringT CountClipsWithinRangeAll = R"RAW(
+	std::string CountClipsWithinRangeAll = R"RAW(
 		SELECT COUNT(Timestamp) FROM Clip
 			INNER JOIN Camera C ON C.CameraUID = Clip.Camera
 			INNER JOIN CameraGroupMapping CGM ON CGM.Camera = C.CameraUID
@@ -323,7 +323,7 @@ namespace Database
 			AND UGM.UserUID == @UserUID
 	)RAW";
 
-	StringT SelectClipsWithinRange = R"RAW(
+	std::string SelectClipsWithinRange = R"RAW(
 		SELECT * FROM Clip
 		WHERE
 				Camera == @CameraID
@@ -334,7 +334,7 @@ namespace Database
 		;
 	)RAW";
 
-	StringT SelectClipsWithinRangeAll = R"RAW(
+	std::string SelectClipsWithinRangeAll = R"RAW(
 		SELECT DISTINCT Clip.* FROM Clip
 			INNER JOIN Camera C ON C.CameraUID = Clip.Camera
 			INNER JOIN CameraGroupMapping CGM ON CGM.Camera = C.CameraUID
@@ -348,7 +348,7 @@ namespace Database
 		;
 	)RAW";
 
-	StringT SelectClip = R"RAW(
+	std::string SelectClip = R"RAW(
 		SELECT * FROM Clip
 		WHERE
 				Camera == @CameraID
@@ -356,7 +356,7 @@ namespace Database
 		;
 	)RAW";
 
-	StringT SelectClipsToDelete = R"RAW(
+	std::string SelectClipsToDelete = R"RAW(
 		SELECT * FROM Clip
 		WHERE
 			Timestamp < @Timestamp
@@ -364,23 +364,23 @@ namespace Database
 		LIMIT 500;
 	)RAW";
 
-	StringT SelectAllGroups = R"RAW(
+	std::string SelectAllGroups = R"RAW(
 		SELECT * FROM CameraGroup
 		;
 	)RAW";
 
-	StringT SelectGroupsForCamera = R"RAW(
+	std::string SelectGroupsForCamera = R"RAW(
 		SELECT * FROM CameraGroupMapping
 		WHERE Camera == @Camera
 		;
 	)RAW";
 
-	StringT CreateGroup = R"RAW(
+	std::string CreateGroup = R"RAW(
 		INSERT INTO CameraGroup (DisplayName,Description)
 		VALUES(@DisplayName,@Description);
 	)RAW";
 
-	StringT UpdateGroup = R"RAW(
+	std::string UpdateGroup = R"RAW(
 		UPDATE CameraGroup 
 		SET
 			DisplayName = @DisplayName,
@@ -390,7 +390,7 @@ namespace Database
 		;
 	)RAW";
 
-	StringT DeleteGroup = R"RAW(
+	std::string DeleteGroup = R"RAW(
 		DELETE FROM CameraGroupMapping
 			WHERE `Group` = @Group;
 		DELETE FROM UserGroupMapping
@@ -399,37 +399,37 @@ namespace Database
 			WHERE GroupUID = @GroupUID;
 	)RAW";
 
-	StringT SelectGroupsForUser = R"RAW(
+	std::string SelectGroupsForUser = R"RAW(
 		SELECT * FROM UserGroupMapping
 		WHERE UserUID == @User
 		;
 	)RAW";
 
-	StringT CreateUserGroupMapping = R"RAW(
+	std::string CreateUserGroupMapping = R"RAW(
 		INSERT INTO UserGroupMapping (UserUID,`Group`)
 		VALUES(@UserUID,@Group);
 	)RAW";
 
-	StringT DeleteUserGroupMapping = R"RAW(
+	std::string DeleteUserGroupMapping = R"RAW(
 		DELETE FROM UserGroupMapping
 		WHERE UserUID = @UserUID
 		AND `Group` = @Group;
 	)RAW";
 
-	StringT CreateCameraGroupMapping = R"RAW(
+	std::string CreateCameraGroupMapping = R"RAW(
 		INSERT INTO CameraGroupMapping (Camera,`Group`)
 		VALUES(@Camera,@Group);
 	)RAW";
 
-	StringT DeleteCameraGroupMapping = R"RAW(
+	std::string DeleteCameraGroupMapping = R"RAW(
 		DELETE FROM CameraGroupMapping
 		WHERE Camera = @Camera
 		AND `Group` = @Group;
 	)RAW";
 
-#define CREATE_QUERY( X ) DB->CreateQuery( _T(#X), X )
+#define CREATE_QUERY( X ) DB->CreateQuery( #X, X )
 
-	std::shared_ptr<SQLiteDatabase> InitializeDatabase( StringT Filename )
+	std::shared_ptr<SQLiteDatabase> InitializeDatabase( std::string Filename )
 	{
 		auto DB = std::make_shared<SQLiteDatabase>( Filename, Database::InitializationScript, true,
 			[]( const std::string& Message )

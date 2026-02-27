@@ -32,12 +32,12 @@ CrowListener::~CrowListener()
 	Stop();
 }
 
-void CrowListener::Initialise( const std::unordered_map< StringT, StringT >& Settings )
+void CrowListener::Initialise( const std::unordered_map< std::string, std::string >& Settings )
 {
 	// Load static file root
-	StringT Errors;
-	StringT Root;
-	GetSettingsField( Settings, _T("server_root"), Root, Errors );
+	std::string Errors;
+	std::string Root;
+	GetSettingsField( Settings, "server_root", Root, Errors );
 	m_StaticRoot = std::string( Root.begin(), Root.end() );
 
 	// Build static file map

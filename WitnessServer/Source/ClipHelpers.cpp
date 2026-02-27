@@ -11,32 +11,32 @@
 
 namespace fs = std::filesystem;
 
-StringT GetClipName( const GlobalContext& Context, int CameraID, int64_t Timestamp, bool Manual, bool Video )
+std::string GetClipName( const GlobalContext& Context, int CameraID, int64_t Timestamp, bool Manual, bool Video )
 {
-	StringStreamT Stream;
+	std::stringstream Stream;
 	Stream << CameraID;
 
 	if( Video )
 	{
 		if( Manual )
 		{
-			Stream << _T("_Manual");
+			Stream << "_Manual";
 		}
 		else
 		{
-			Stream << _T("_Auto");
+			Stream << "_Auto";
 		}
 	}
 
-	Stream << _T("_") << Timestamp;
+	Stream << "_" << Timestamp;
 
 	if( Video )
 	{
-		Stream << _T(".mp4");
+		Stream << ".mp4";
 	}
 	else
 	{
-		Stream << _T(".jpg");
+		Stream << ".jpg";
 	}
 
 	return (fs::path(Context.CachePath) / Stream.str()).string();
@@ -80,7 +80,7 @@ void DeleteOldClips( const GlobalContext& Context, int DaysToDelete )
 	const static int SecondsInDay = 60 * 60 * 24;
 	int64_t Timestamp = static_cast<int64_t>(GetUnixTimestamp()) - (DaysToDelete * SecondsInDay);
 
-	SQLiteDatabaseQueryInstance SelectClipsToDelete( Context.Database, _T("SelectClipsToDelete") );
+	SQLiteDatabaseQueryInstance SelectClipsToDelete( Context.Database, "SelectClipsToDelete" );
 	SelectClipsToDelete->Bind( "@Timestamp", Timestamp );
 
 	std::vector<ClipToDelete> ClipsToDelete;
@@ -107,12 +107,12 @@ void DeleteOldClips( const GlobalContext& Context, int DaysToDelete )
 
 	if( ClipsToDelete.size() )
 	{
-		std::cout << _T("Deleting ") << ClipsToDelete.size() << _T(" clips as they were more than ") << DaysToDelete << _T(" days old.") << std::endl;
+		std::cout << "Deleting " << ClipsToDelete.size() << " clips as they were more than " << DaysToDelete << " days old." << std::endl;
 	}
 
 	for( auto& Clip : ClipsToDelete )
 	{
-		SQLiteDatabaseQueryInstance DeleteClipQuery( Context.Database, _T("DeleteClip") );
+		SQLiteDatabaseQueryInstance DeleteClipQuery( Context.Database, "DeleteClip" );
 		DeleteClipQuery->Bind( "@ClipUID", Clip.ClipID );
 
 		if( DeleteClipFiles( Context, Clip.CameraID, Clip.Timestamp, Clip.Manual ) )

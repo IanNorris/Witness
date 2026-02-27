@@ -19,7 +19,7 @@ public:
 	CrowListener( const std::string& Hostname, int Port, bool Secure, DebugConsole* DebugConsoleInstance );
 	virtual ~CrowListener();
 
-	void Initialise( const std::unordered_map< StringT, StringT >& Settings );
+	void Initialise( const std::unordered_map< std::string, std::string >& Settings );
 
 	void Start();
 
@@ -27,7 +27,7 @@ public:
 
 	const std::shared_ptr<GlobalContext>& GetGlobalContext() { return m_GlobalContext; }
 
-	const StringT& GetBaseUri() { return m_BaseUri; }
+	const std::string& GetBaseUri() { return m_BaseUri; }
 
 private:
 
@@ -87,7 +87,7 @@ private:
 	std::unordered_map<std::string, std::string> m_StaticFiles; // relative path -> content type
 	std::string m_StaticRoot;
 
-	StringT m_BaseUri;
+	std::string m_BaseUri;
 	std::string m_Hostname;
 	int m_Port;
 	bool m_Secure;

@@ -1,6 +1,6 @@
 #include "Common.h"
 
-bool GetSettingsString(const std::unordered_map< StringT, StringT >& Settings, const char* FieldName, StringT& OutString)
+bool GetSettingsString(const std::unordered_map< std::string, std::string >& Settings, const char* FieldName, std::string& OutString)
 {
 	auto Iter = Settings.find(FieldName);
 	if (Iter != Settings.end())
@@ -12,39 +12,39 @@ bool GetSettingsString(const std::unordered_map< StringT, StringT >& Settings, c
 }
 
 template<typename ValueType>
-ValueType GetValueFromString(const StringT& ValueString);
+ValueType GetValueFromString(const std::string& ValueString);
 
 template<>
-StringT GetValueFromString(const StringT& ValueString)
+std::string GetValueFromString(const std::string& ValueString)
 {
 	return ValueString;
 }
 
 template<>
-double GetValueFromString(const StringT& ValueString)
+double GetValueFromString(const std::string& ValueString)
 {
 	return atof( ValueString.c_str() );
 }
 
 
 template<>
-int GetValueFromString(const StringT& ValueString)
+int GetValueFromString(const std::string& ValueString)
 {
 	return atoi(ValueString.c_str());
 }
 
 
 template<>
-bool GetValueFromString(const StringT& ValueString)
+bool GetValueFromString(const std::string& ValueString)
 {
-	return ValueString.compare(_T("True")) == 0;
+	return ValueString.compare("True") == 0;
 }
 
 #define BUILD_SETTINGS_FIELD_ACCESSOR( Type, TypeName ) \
 	template<> \
-	bool GetSettingsField( const std::unordered_map< StringT, StringT >& Settings, const char* FieldName, Type& ValueOut, StringT& Errors ) \
+	bool GetSettingsField( const std::unordered_map< std::string, std::string >& Settings, const char* FieldName, Type& ValueOut, std::string& Errors ) \
 	{ \
-		StringT Value; \
+		std::string Value; \
 		if( GetSettingsString( Settings, FieldName, Value ) ) \
 		{ \
 			ValueOut = GetValueFromString<Type>(Value); \
@@ -52,16 +52,16 @@ bool GetValueFromString(const StringT& ValueString)
 		} \
 		else \
 		{ \
-			Errors += _T("Field "); \
+			Errors += "Field "; \
 			Errors += FieldName; \
-			Errors += _T(" was not a "); \
+			Errors += " was not a "; \
 			Errors += TypeName; \
-			Errors += _T(".\n"); \
+			Errors += ".\n"; \
 			return false; \
 		} \
 	}
 
-BUILD_SETTINGS_FIELD_ACCESSOR(StringT, _T("string"))
-BUILD_SETTINGS_FIELD_ACCESSOR(double, _T("double"))
-BUILD_SETTINGS_FIELD_ACCESSOR(int, _T("int"))
-BUILD_SETTINGS_FIELD_ACCESSOR(bool, _T("bool"))
+BUILD_SETTINGS_FIELD_ACCESSOR(std::string, "string")
+BUILD_SETTINGS_FIELD_ACCESSOR(double, "double")
+BUILD_SETTINGS_FIELD_ACCESSOR(int, "int")
+BUILD_SETTINGS_FIELD_ACCESSOR(bool, "bool")

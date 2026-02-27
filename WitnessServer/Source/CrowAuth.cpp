@@ -34,18 +34,18 @@ int CrowAuth::IsAuthenticated( const GlobalContext& Context, const crow::request
 	Action actionType, Privilege requiredPrivilege )
 {
 	// Extract CSRF from body for R/W actions
-	StringT CSRF;
+	std::string CSRF;
 	if( actionType == Action::ReadWrite )
 	{
 		if( !body || !body->has( "csrf" ) )
 			return -1;
 
 		std::string csrfStr = (*body)["csrf"].s();
-		CSRF = StringT( csrfStr.begin(), csrfStr.end() );
+		CSRF = std::string( csrfStr.begin(), csrfStr.end() );
 	}
 
 	std::string SessionTokenStr = GetSessionToken( req, Context.Port );
-	StringT SessionToken = StringT( SessionTokenStr.begin(), SessionTokenStr.end() );
+	std::string SessionToken = std::string( SessionTokenStr.begin(), SessionTokenStr.end() );
 	int UserUID = -1;
 
 	{
@@ -53,7 +53,7 @@ int CrowAuth::IsAuthenticated( const GlobalContext& Context, const crow::request
 
 		if( actionType == Action::ReadWrite )
 		{
-			SQLiteDatabaseQueryInstance VerifySessionAndCSRF( Context.Database, _T("VerifySessionAndCSRF") );
+			SQLiteDatabaseQueryInstance VerifySessionAndCSRF( Context.Database, "VerifySessionAndCSRF" );
 			VerifySessionAndCSRF->Bind( "@SessionToken", SessionToken.c_str() );
 			VerifySessionAndCSRF->Bind( "@CSRFToken", CSRF.c_str() );
 
@@ -70,7 +70,7 @@ int CrowAuth::IsAuthenticated( const GlobalContext& Context, const crow::request
 		}
 		else
 		{
-			SQLiteDatabaseQueryInstance VerifySession( Context.Database, _T("VerifySession") );
+			SQLiteDatabaseQueryInstance VerifySession( Context.Database, "VerifySession" );
 			VerifySession->Bind( "@SessionToken", SessionToken.c_str() );
 
 			int Count = VerifySession->Execute(
@@ -90,7 +90,7 @@ int CrowAuth::IsAuthenticated( const GlobalContext& Context, const crow::request
 	int Admin = 0;
 
 	{
-		SQLiteDatabaseQueryInstance FindUserForAuth( Context.Database, _T("FindUserForAuth") );
+		SQLiteDatabaseQueryInstance FindUserForAuth( Context.Database, "FindUserForAuth" );
 		FindUserForAuth->Bind( "@UserUID", UserUID );
 
 		bool Success = false;
@@ -121,7 +121,7 @@ int CrowAuth::IsCameraAuthenticated( const GlobalContext& Context, const crow::r
 	if( UserUID < 0 )
 		return 0;
 
-	SQLiteDatabaseQueryInstance GetCamerasDetailsForUser( Context.Database, _T("GetCamerasDetailsForUser") );
+	SQLiteDatabaseQueryInstance GetCamerasDetailsForUser( Context.Database, "GetCamerasDetailsForUser" );
 	GetCamerasDetailsForUser->Bind( "@User", UserUID );
 	GetCamerasDetailsForUser->Bind( "@Camera", cameraUID );
 

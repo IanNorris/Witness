@@ -35,7 +35,7 @@ public:
 
 	void Start( Priority ThreadPriority )
 	{
-		UpdateLastTimedAction(_T("Thread starting..."));
+		UpdateLastTimedAction("Thread starting...");
 		Thread = std::make_unique<std::thread>( &WorkerBase::WorkerThread, this );
 
 		SetPriority(ThreadPriority);

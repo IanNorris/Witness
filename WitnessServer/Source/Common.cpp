@@ -15,7 +15,7 @@
 #include <cwchar>
 #include <stdexcept>
 
-std::string ReadFileToString(StringT Filename)
+std::string ReadFileToString(std::string Filename)
 {
 	std::ifstream File( Filename );
 	std::stringstream Buffer;
@@ -61,10 +61,10 @@ std::string Trim( std::string tInput )
 
 std::vector< std::string > SplitString( std::string tInput, std::string tSeparator, StringTrim eTrim, StringStrip eStrip )
 {
-	std::vector< StringT > tResult;
+	std::vector< std::string > tResult;
 
-	StringT::const_iterator tStart = tInput.begin();
-	StringT::const_iterator tEnd;
+	std::string::const_iterator tStart = tInput.begin();
+	std::string::const_iterator tEnd;
 
 	if( tInput.size() == 0 )
 	{
@@ -73,9 +73,9 @@ std::vector< std::string > SplitString( std::string tInput, std::string tSeparat
 
 	while( true )
 	{
-		tEnd = std::search< StringT::const_iterator, StringT::const_iterator >( tStart, tInput.end(), tSeparator.begin(), tSeparator.end() );
+		tEnd = std::search< std::string::const_iterator, std::string::const_iterator >( tStart, tInput.end(), tSeparator.begin(), tSeparator.end() );
 
-		StringT tSubString( tStart, tEnd );
+		std::string tSubString( tStart, tEnd );
 
 		if( eTrim == StringTrim::Trim )
 		{

@@ -66,7 +66,7 @@ public:
 
 	mutable std::mutex Mutex;
 
-	StringT CachePath;
+	std::string CachePath;
 
 	std::shared_ptr<SQLiteDatabase> Database;
 
