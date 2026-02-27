@@ -11,7 +11,7 @@ void WorkerBase::WorkerThread()
 
 	while( !Shutdown )
 	{
-		UpdateLastTimedAction(_T("Working..."));
+		UpdateLastTimedAction("Working...");
 
 		WorkerMain();
 	}
@@ -19,7 +19,7 @@ void WorkerBase::WorkerThread()
 	MessageBusObject->RemoveClient( this );
 	MessageBusQueue = nullptr;
 
-	UpdateLastTimedAction(_T("Shutting down..."));
+	UpdateLastTimedAction("Shutting down...");
 
 	WorkerShutdown();
 
@@ -28,7 +28,7 @@ void WorkerBase::WorkerThread()
 
 	Complete = true; 
 
-	UpdateLastTimedAction(_T("Finished..."));
+	UpdateLastTimedAction("Finished...");
 }
 
 void WorkerBase::SetPriority( Priority ThreadPriority )

@@ -4,7 +4,7 @@
 
 class GlobalContext;
 
-StringT GetRandomToken();
-StringT GetHashedPasswordKey_Algorithm0( const StringT& Username, const StringT Password );
-bool CheckHashedPasswordKey_Algorithm0( const StringT& Key, const StringT& Username, const StringT Password );
+std::string GetRandomToken();
+std::string GetHashedPasswordKey_Algorithm0( const std::string& Username, const std::string Password );
+bool CheckHashedPasswordKey_Algorithm0( const std::string& Key, const std::string& Username, const std::string Password );
 void OfflineCreationForFirstUser( const GlobalContext& Context );

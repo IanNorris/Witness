@@ -42,7 +42,7 @@ void WitnessServer::MessageLoop( bool& ContinueRunning )
 
 		Msg->Handle<CameraStateToggleRecordMessage>([&](const CameraStateToggleRecordMessage& Data)
 		{
-			StatusMessage( Data.Camera, _T(""), Data.Record ? _T("Manual Record: On") : _T("Manual Record: Off") );
+			StatusMessage( Data.Camera, "", Data.Record ? "Manual Record: On" : "Manual Record: Off" );
 
 			std::shared_ptr<CameraWorker> Worker;
 

@@ -27,7 +27,7 @@ void WatchdogWorker::WorkerMain()
 
 			if( TimeNow - WatchdogTime > (int64_t)Data.Timestamp )
 			{
-				std::tcerr << Iter->Name << ": Timeout of " << WatchdogTime << "s hit, last action was: " << Data.Action << std::endl;
+				std::cerr << Iter->Name << ": Timeout of " << WatchdogTime << "s hit, last action was: " << Data.Action << std::endl;
 			}
 		}
 	}

@@ -11,7 +11,7 @@
 void WitnessServer::HandleCameraBeginMotionMessage(const CameraBeginMotionMessage& Data)
 {
 	std::shared_ptr<CameraWorker> Worker;
-	StringT CameraName;
+	std::string CameraName;
 
 	{
 		auto CameraState = Context->FindCameraById( Data.Camera );
@@ -23,7 +23,7 @@ void WitnessServer::HandleCameraBeginMotionMessage(const CameraBeginMotionMessag
 			}
 			else
 			{
-				std::tcerr << _T("Clip thumbnail is empty") << std::endl;
+				std::cerr << "Clip thumbnail is empty" << std::endl;
 			}
 			CameraName = CameraState->Name;
 			Worker = CameraState->Worker;
@@ -86,11 +86,11 @@ void WitnessServer::HandleCameraEndMotionMessage(const CameraEndMotionMessage& D
 
 void WitnessServer::HandleActions( const std::shared_ptr<GlobalContext>& Context, CameraState& State, int CameraIndex, double MotionThreshold )
 {
-	SQLiteDatabaseQueryInstance FindActions( Context->Database, _T("FindActions") );
+	SQLiteDatabaseQueryInstance FindActions( Context->Database, "FindActions" );
 	FindActions->Bind( "@CameraUID", CameraIndex );
 	FindActions->Bind( "@MDThreshold", (double)MotionThreshold );
 
-	StringT ClipFilename;
+	std::string ClipFilename;
 
 	bool Success = false;
 
@@ -98,11 +98,11 @@ void WitnessServer::HandleActions( const std::shared_ptr<GlobalContext>& Context
 
 	struct ActionCommand
 	{
-		StringT Name;
-		StringT Command;
-		StringT Param1;
-		StringT Param2;
-		StringT Param3;
+		std::string Name;
+		std::string Command;
+		std::string Param1;
+		std::string Param2;
+		std::string Param3;
 	};
 	std::vector<ActionCommand> Commands;
 
@@ -133,7 +133,7 @@ void WitnessServer::HandleActions( const std::shared_ptr<GlobalContext>& Context
 	{
 		State.TriggeredActions.push_back(Action);
 
-		SQLiteDatabaseQueryInstance GetAction( Context->Database, _T("GetAction") );
+		SQLiteDatabaseQueryInstance GetAction( Context->Database, "GetAction" );
 		GetAction->Bind( "@ActionUID", Action );
 
 		GetAction->Execute( 
@@ -142,7 +142,7 @@ void WitnessServer::HandleActions( const std::shared_ptr<GlobalContext>& Context
 				ActionCommand Command;
 
 				//int ActionUID = query.GetColumnValueInt(0);
-				//StringT Name = query.GetColumnValueText(1);
+				//std::string Name = query.GetColumnValueText(1);
 				Command.Command = query.GetColumnValueText(2);
 				Command.Param1 = query.GetColumnValueText(3);
 				Command.Param2 = query.GetColumnValueText(4);
@@ -161,16 +161,16 @@ void WitnessServer::HandleActions( const std::shared_ptr<GlobalContext>& Context
 	}
 }
 
-void WitnessServer::TriggerAction( const StringT& Command, const StringT& Param1, const StringT& Param2, const StringT& Param3, CameraState& State, int CameraIndex )
+void WitnessServer::TriggerAction( const std::string& Command, const std::string& Param1, const std::string& Param2, const std::string& Param3, CameraState& State, int CameraIndex )
 {
-	if (Command.compare(_T("PlaySound")) == 0)
+	if (Command.compare("PlaySound") == 0)
 	{
 		std::async([=]() {
-			PlaySound( Param1.c_str(), nullptr, SND_FILENAME | SND_ASYNC );
+			PlaySoundA( Param1.c_str(), nullptr, SND_FILENAME | SND_ASYNC );
 		});
 	}
 	else
 	{
-		std::tcerr << _T("Unknown command: ") << Command << std::endl;
+		std::cerr << "Unknown command: " << Command << std::endl;
 	}
 }

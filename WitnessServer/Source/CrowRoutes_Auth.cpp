@@ -27,19 +27,19 @@ void CrowListener::HandleAuthLogin( const crow::request& req, crow::response& re
 	std::string UsernameStr = body["username"].s();
 	std::string PasswordStr = body["password"].s();
 
-	StringT Username( UsernameStr.begin(), UsernameStr.end() );
-	StringT Password( PasswordStr.begin(), PasswordStr.end() );
+	std::string Username( UsernameStr.begin(), UsernameStr.end() );
+	std::string Password( PasswordStr.begin(), PasswordStr.end() );
 
 	std::transform( Username.begin(), Username.end(), Username.begin(), ::tolower );
 
 	int UserUID = -1;
 
 	{
-		SQLiteDatabaseQueryInstance FindUser( m_GlobalContext->Database, _T("FindUser") );
+		SQLiteDatabaseQueryInstance FindUser( m_GlobalContext->Database, "FindUser" );
 		FindUser->Bind( "@Username", Username.c_str() );
 
 		int PasswordAlgorithm = 0;
-		StringT PasswordHash;
+		std::string PasswordHash;
 
 		bool Success = false;
 		FindUser->Execute(
@@ -88,7 +88,7 @@ void CrowListener::HandleAuthLogin( const crow::request& req, crow::response& re
 
 	{
 		bool Success = false;
-		SQLiteDatabaseQueryInstance FindUserForAuth( m_GlobalContext->Database, _T("FindUserForAuth") );
+		SQLiteDatabaseQueryInstance FindUserForAuth( m_GlobalContext->Database, "FindUserForAuth" );
 		FindUserForAuth->Bind( "@UserUID", UserUID );
 
 		FindUserForAuth->Execute(
@@ -110,13 +110,13 @@ void CrowListener::HandleAuthLogin( const crow::request& req, crow::response& re
 	}
 
 	{
-		StringT SessionToken = GetRandomToken();
-		StringT CSRFToken = GetRandomToken();
+		std::string SessionToken = GetRandomToken();
+		std::string CSRFToken = GetRandomToken();
 
 		auto Now = std::chrono::system_clock::now().time_since_epoch();
 		auto UTCTimeNow = std::chrono::duration_cast<std::chrono::seconds>( Now ).count();
 
-		SQLiteDatabaseQueryInstance CreateSession( m_GlobalContext->Database, _T("CreateSession") );
+		SQLiteDatabaseQueryInstance CreateSession( m_GlobalContext->Database, "CreateSession" );
 		CreateSession->Bind( "@SessionToken", SessionToken.c_str() );
 		CreateSession->Bind( "@CSRFToken", CSRFToken.c_str() );
 		CreateSession->Bind( "@UserUID", UserUID );
@@ -128,7 +128,7 @@ void CrowListener::HandleAuthLogin( const crow::request& req, crow::response& re
 		std::string SessionTokenValue = "SessionToken-" + PortName;
 
 		std::string MaxAge = std::to_string( 60 * 60 * 24 * 30 * 2 ); // +2 Months
-		res.add_header( "Set-Cookie", SessionTokenValue + "=" + StringToAnsi( SessionToken ) + "; HttpOnly; Path=/; max-age=" + MaxAge + ";" );
+		res.add_header( "Set-Cookie", SessionTokenValue + "=" + SessionToken + "; HttpOnly; Path=/; max-age=" + MaxAge + ";" );
 
 		res.set_header( "Content-Type", "application/json" );
 		res.body = "{}";
@@ -157,9 +157,9 @@ void CrowListener::HandleAuthLogout( const crow::request& req, crow::response& r
 	}
 
 	std::string SessionTokenStr = CrowAuth::GetSessionToken( req, m_Port );
-	StringT SessionToken( SessionTokenStr.begin(), SessionTokenStr.end() );
+	std::string SessionToken( SessionTokenStr.begin(), SessionTokenStr.end() );
 
-	SQLiteDatabaseQueryInstance DeleteSession( m_GlobalContext->Database, _T("DeleteSession") );
+	SQLiteDatabaseQueryInstance DeleteSession( m_GlobalContext->Database, "DeleteSession" );
 	DeleteSession->Bind( "@SessionToken", SessionToken.c_str() );
 	DeleteSession->Execute( nullptr );
 
@@ -176,16 +176,16 @@ void CrowListener::HandleAuthGetProfile( const crow::request& req, crow::respons
 {
 	// DO NOT CHECK CSRF HERE
 	std::string SessionTokenStr = CrowAuth::GetSessionToken( req, m_Port );
-	StringT SessionToken( SessionTokenStr.begin(), SessionTokenStr.end() );
+	std::string SessionToken( SessionTokenStr.begin(), SessionTokenStr.end() );
 
 	int UserUID = -1;
-	StringT Username;
-	StringT CSRFToken;
+	std::string Username;
+	std::string CSRFToken;
 
 	bool SessionFound = false;
 
 	{
-		SQLiteDatabaseQueryInstance FindSession( m_GlobalContext->Database, _T("FindSession") );
+		SQLiteDatabaseQueryInstance FindSession( m_GlobalContext->Database, "FindSession" );
 		FindSession->Bind( "@SessionToken", SessionToken.c_str() );
 
 		FindSession->Execute(
@@ -199,14 +199,14 @@ void CrowListener::HandleAuthGetProfile( const crow::request& req, crow::respons
 		);
 	}
 
-	StringT DisplayName;
+	std::string DisplayName;
 	int Enabled = 0;
 	int Admin = 0;
 
 	bool UserFound = false;
 
 	{
-		SQLiteDatabaseQueryInstance FindUserForAuth( m_GlobalContext->Database, _T("FindUserForAuth") );
+		SQLiteDatabaseQueryInstance FindUserForAuth( m_GlobalContext->Database, "FindUserForAuth" );
 		FindUserForAuth->Bind( "@UserUID", UserUID );
 
 		FindUserForAuth->Execute(
@@ -225,11 +225,11 @@ void CrowListener::HandleAuthGetProfile( const crow::request& req, crow::respons
 	if( SessionFound && UserFound && Enabled )
 	{
 		crow::json::wvalue ResponseBody;
-		ResponseBody["csrf"] = StringToAnsi( CSRFToken );
-		ResponseBody["username"] = StringToAnsi( Username );
+		ResponseBody["csrf"] = CSRFToken;
+		ResponseBody["username"] = Username;
 		ResponseBody["userUid"] = UserUID;
 		ResponseBody["admin"] = Admin;
-		ResponseBody["displayName"] = StringToAnsi( DisplayName );
+		ResponseBody["displayName"] = DisplayName;
 
 		res.set_header( "Content-Type", "application/json" );
 		res.body = ResponseBody.dump();
@@ -264,7 +264,7 @@ void CrowListener::HandleAuthEnumUsers( const crow::request& req, crow::response
 	std::vector<crow::json::wvalue> Array;
 	std::vector<UserLookup> LookupArray;
 
-	SQLiteDatabaseQueryInstance FindUsers( m_GlobalContext->Database, _T("FindUsers") );
+	SQLiteDatabaseQueryInstance FindUsers( m_GlobalContext->Database, "FindUsers" );
 
 	FindUsers->Execute(
 		[&]( const SQLiteDatabaseQuery& query )
@@ -272,8 +272,8 @@ void CrowListener::HandleAuthEnumUsers( const crow::request& req, crow::response
 			crow::json::wvalue User;
 			int uid = query.GetColumnValueInt( 0 );
 			User["userid"] = uid;
-			User["username"] = StringToAnsi( query.GetColumnValueText( 1 ) );
-			User["displayName"] = StringToAnsi( query.GetColumnValueText( 2 ) );
+			User["username"] = query.GetColumnValueText( 1 );
+			User["displayName"] = query.GetColumnValueText( 2 );
 			User["enabled"] = query.GetColumnValueInt( 3 );
 			User["admin"] = query.GetColumnValueInt( 4 );
 
@@ -286,7 +286,7 @@ void CrowListener::HandleAuthEnumUsers( const crow::request& req, crow::response
 
 	for( auto& Lookup : LookupArray )
 	{
-		SQLiteDatabaseQueryInstance SelectGroupsForUser( m_GlobalContext->Database, _T("SelectGroupsForUser") );
+		SQLiteDatabaseQueryInstance SelectGroupsForUser( m_GlobalContext->Database, "SelectGroupsForUser" );
 		SelectGroupsForUser->Bind( "@User", Lookup.UserUID );
 
 		std::vector<crow::json::wvalue> Groups;
@@ -338,7 +338,7 @@ void CrowListener::HandleAuthNewUser( const crow::request& req, crow::response& 
 	}
 
 	std::string UsernameStr = body["username"].s();
-	StringT Username( UsernameStr.begin(), UsernameStr.end() );
+	std::string Username( UsernameStr.begin(), UsernameStr.end() );
 
 	// Generate random password
 	constexpr char PasswordCharacters[] = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!$%@?+-&";
@@ -355,17 +355,17 @@ void CrowListener::HandleAuthNewUser( const crow::request& req, crow::response& 
 	PasswordChars[DefaultPasswordLength] = '\0';
 
 	std::string PasswordStr = PasswordChars;
-	StringT Password( PasswordStr.begin(), PasswordStr.end() );
+	std::string Password( PasswordStr.begin(), PasswordStr.end() );
 
-	StringT UsernameLC = Username;
+	std::string UsernameLC = Username;
 	std::transform( UsernameLC.begin(), UsernameLC.end(), UsernameLC.begin(), ::tolower );
 
-	StringT Hash = GetHashedPasswordKey_Algorithm0( UsernameLC, Password );
+	std::string Hash = GetHashedPasswordKey_Algorithm0( UsernameLC, Password );
 
 	int64_t RowResult = 0;
 
 	{
-		SQLiteDatabaseQueryInstance CreateUser( m_GlobalContext->Database, _T("CreateUser") );
+		SQLiteDatabaseQueryInstance CreateUser( m_GlobalContext->Database, "CreateUser" );
 		CreateUser->Bind( "@Username", UsernameLC.c_str() );
 		CreateUser->Bind( "@DisplayName", Username.c_str() );
 		CreateUser->Bind( "@PasswordHash", Hash.c_str() );
@@ -376,7 +376,7 @@ void CrowListener::HandleAuthNewUser( const crow::request& req, crow::response& 
 		if( CreateUser->Execute( nullptr ) < 0 )
 		{
 			crow::json::wvalue Data;
-			Data["errorMessage"] = StringToAnsi( CreateUser->GetLastError() );
+			Data["errorMessage"] = CreateUser->GetLastError();
 			res.set_header( "Content-Type", "application/json" );
 			res.body = Data.dump();
 			res.code = 400;
@@ -389,7 +389,7 @@ void CrowListener::HandleAuthNewUser( const crow::request& req, crow::response& 
 
 	crow::json::wvalue Data;
 	Data["id"] = RowResult;
-	Data["username"] = StringToAnsi( UsernameLC );
+	Data["username"] = UsernameLC;
 	Data["displayName"] = UsernameStr;
 	Data["password"] = PasswordStr;
 
@@ -454,9 +454,9 @@ void CrowListener::HandleAuthToggleEnabled( const crow::request& req, crow::resp
 
 	std::string UsernameStr = body["username"].s();
 	bool Value = body["value"].b();
-	StringT Username( UsernameStr.begin(), UsernameStr.end() );
+	std::string Username( UsernameStr.begin(), UsernameStr.end() );
 
-	SQLiteDatabaseQueryInstance SetUserEnabledState( m_GlobalContext->Database, _T("SetUserEnabledState") );
+	SQLiteDatabaseQueryInstance SetUserEnabledState( m_GlobalContext->Database, "SetUserEnabledState" );
 	SetUserEnabledState->Bind( "@Username", Username.c_str() );
 	SetUserEnabledState->Bind( "@Enabled", Value ? 1 : 0 );
 
@@ -499,9 +499,9 @@ void CrowListener::HandleAuthToggleAdmin( const crow::request& req, crow::respon
 
 	std::string UsernameStr = body["username"].s();
 	bool Value = body["value"].b();
-	StringT Username( UsernameStr.begin(), UsernameStr.end() );
+	std::string Username( UsernameStr.begin(), UsernameStr.end() );
 
-	SQLiteDatabaseQueryInstance SetUserAdminState( m_GlobalContext->Database, _T("SetUserAdminState") );
+	SQLiteDatabaseQueryInstance SetUserAdminState( m_GlobalContext->Database, "SetUserAdminState" );
 	SetUserAdminState->Bind( "@Username", Username.c_str() );
 	SetUserAdminState->Bind( "@Admin", Value ? 1 : 0 );
 
@@ -544,10 +544,10 @@ void CrowListener::HandleAuthSetDisplayName( const crow::request& req, crow::res
 
 	std::string UsernameStr = body["username"].s();
 	std::string DisplayNameStr = body["value"].s();
-	StringT Username( UsernameStr.begin(), UsernameStr.end() );
-	StringT DisplayName( DisplayNameStr.begin(), DisplayNameStr.end() );
+	std::string Username( UsernameStr.begin(), UsernameStr.end() );
+	std::string DisplayName( DisplayNameStr.begin(), DisplayNameStr.end() );
 
-	SQLiteDatabaseQueryInstance SetUserDisplayName( m_GlobalContext->Database, _T("SetUserDisplayName") );
+	SQLiteDatabaseQueryInstance SetUserDisplayName( m_GlobalContext->Database, "SetUserDisplayName" );
 	SetUserDisplayName->Bind( "@Username", Username.c_str() );
 	SetUserDisplayName->Bind( "@DisplayName", DisplayName.c_str() );
 
@@ -598,7 +598,7 @@ void CrowListener::HandleAuthSetUserGroups( const crow::request& req, crow::resp
 
 	std::vector<int> UserGroupsCurrent;
 
-	SQLiteDatabaseQueryInstance SelectGroupsForUser( m_GlobalContext->Database, _T("SelectGroupsForUser") );
+	SQLiteDatabaseQueryInstance SelectGroupsForUser( m_GlobalContext->Database, "SelectGroupsForUser" );
 	SelectGroupsForUser->Bind( "@User", UserUID );
 
 	SelectGroupsForUser->Execute(
@@ -614,7 +614,7 @@ void CrowListener::HandleAuthSetUserGroups( const crow::request& req, crow::resp
 	{
 		if( find( UserGroupsCurrent.begin(), UserGroupsCurrent.end(), Value ) == UserGroupsCurrent.end() )
 		{
-			SQLiteDatabaseQueryInstance CreateMapping( m_GlobalContext->Database, _T("CreateUserGroupMapping") );
+			SQLiteDatabaseQueryInstance CreateMapping( m_GlobalContext->Database, "CreateUserGroupMapping" );
 			CreateMapping->Bind( "@UserUID", UserUID );
 			CreateMapping->Bind( "@Group", Value );
 			CreateMapping->Execute( [&]( const SQLiteDatabaseQuery& query ) { return true; } );
@@ -625,7 +625,7 @@ void CrowListener::HandleAuthSetUserGroups( const crow::request& req, crow::resp
 	{
 		if( find( UserGroupsRequested.begin(), UserGroupsRequested.end(), Value ) == UserGroupsRequested.end() )
 		{
-			SQLiteDatabaseQueryInstance DeleteMapping( m_GlobalContext->Database, _T("DeleteUserGroupMapping") );
+			SQLiteDatabaseQueryInstance DeleteMapping( m_GlobalContext->Database, "DeleteUserGroupMapping" );
 			DeleteMapping->Bind( "@UserUID", UserUID );
 			DeleteMapping->Bind( "@Group", Value );
 			DeleteMapping->Execute( [&]( const SQLiteDatabaseQuery& query ) { return true; } );

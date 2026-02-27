@@ -2,6 +2,6 @@
 
 struct SettingsMap
 {
-	StringT Name;
-	std::unordered_map<StringT, StringT> Settings;
+	std::string Name;
+	std::unordered_map<std::string, std::string> Settings;
 };

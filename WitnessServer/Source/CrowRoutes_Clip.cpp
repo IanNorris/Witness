@@ -9,27 +9,27 @@ namespace fs = std::filesystem;
 
 // ===== Clip Handlers =====
 
-static StringT GetClipName( const GlobalContext& Context, int CameraID, int64_t Timestamp, bool Manual, bool Video )
+static std::string GetClipName( const GlobalContext& Context, int CameraID, int64_t Timestamp, bool Manual, bool Video )
 {
-	StringStreamT Stream;
+	std::stringstream Stream;
 	Stream << CameraID;
 
 	if( Video )
 	{
 		if( Manual )
-			Stream << _T("_Manual");
+			Stream << "_Manual";
 		else
-			Stream << _T("_Auto");
+			Stream << "_Auto";
 	}
 
-	Stream << _T("_") << Timestamp;
+	Stream << "_" << Timestamp;
 
 	if( Video )
-		Stream << _T(".mp4");
+		Stream << ".mp4";
 	else
-		Stream << _T(".jpg");
+		Stream << ".jpg";
 
-	return (fs::path( Context.CachePath ) / Stream.str()).native();
+	return (fs::path( Context.CachePath ) / Stream.str()).string();
 }
 
 void CrowListener::HandleClipThumbnail( const crow::request& req, crow::response& res, int cameraId, const std::string& clipId, bool video )
@@ -66,11 +66,11 @@ void CrowListener::HandleClipThumbnail( const crow::request& req, crow::response
 	}
 
 	// Look up from database
-	SQLiteDatabaseQueryInstance SelectClip( m_GlobalContext->Database, _T("SelectClip") );
+	SQLiteDatabaseQueryInstance SelectClip( m_GlobalContext->Database, "SelectClip" );
 	SelectClip->Bind( "@CameraID", cameraId );
 	SelectClip->Bind( "@Timestamp", (int64_t)TargetCameraTimestamp );
 
-	StringT ClipFilename;
+	std::string ClipFilename;
 	bool Success = false;
 
 	SelectClip->Execute(
@@ -141,7 +141,7 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 	std::vector<crow::json::wvalue> Array;
 
 	{
-		SQLiteDatabaseQueryInstance CountClips( m_GlobalContext->Database, cameraId == -1 ? _T("CountClipsWithinRangeAll") : _T("CountClipsWithinRange") );
+		SQLiteDatabaseQueryInstance CountClips( m_GlobalContext->Database, cameraId == -1 ? "CountClipsWithinRangeAll" : "CountClipsWithinRange" );
 		if( cameraId == -1 )
 			CountClips->Bind( "@UserUID", UserUID );
 		else
@@ -162,7 +162,7 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 
 	if( Count > 0 )
 	{
-		SQLiteDatabaseQueryInstance SelectClips( m_GlobalContext->Database, cameraId == -1 ? _T("SelectClipsWithinRangeAll") : _T("SelectClipsWithinRange") );
+		SQLiteDatabaseQueryInstance SelectClips( m_GlobalContext->Database, cameraId == -1 ? "SelectClipsWithinRangeAll" : "SelectClipsWithinRange" );
 		if( cameraId == -1 )
 			SelectClips->Bind( "@UserUID", UserUID );
 		else
@@ -184,13 +184,13 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 				int RecordMode = query.GetColumnValueInt( 6 );
 				double MaxMotion = query.GetColumnValueDouble( 7 );
 
-				const wchar_t* DescriptionStr = query.GetColumnValueText( 8 );
-				std::string Description = DescriptionStr ? StringToAnsi( DescriptionStr ) : "";
+				const char* DescriptionStr = query.GetColumnValueText( 8 );
+				std::string Description = DescriptionStr ? DescriptionStr : "";
 
 				int Saved = query.GetColumnValueInt( 9 );
 
-				const wchar_t* TagsStr = query.GetColumnValueText( 10 );
-				std::string Tags = TagsStr ? StringToAnsi( TagsStr ) : "";
+				const char* TagsStr = query.GetColumnValueText( 10 );
+				std::string Tags = TagsStr ? TagsStr : "";
 
 				crow::json::wvalue Clip;
 				Clip["clipUID"] = ClipID;
@@ -237,7 +237,7 @@ void CrowListener::HandleClipToggleSave( const crow::request& req, crow::respons
 	// Get camera ID for auth check
 	int TargetCameraInt = 0;
 	{
-		SQLiteDatabaseQueryInstance SelectClipID( m_GlobalContext->Database, _T("SelectClipID") );
+		SQLiteDatabaseQueryInstance SelectClipID( m_GlobalContext->Database, "SelectClipID" );
 		SelectClipID->Bind( "@ClipUID", ClipUID );
 		SelectClipID->Execute(
 			[&]( const SQLiteDatabaseQuery& query )
@@ -257,7 +257,7 @@ void CrowListener::HandleClipToggleSave( const crow::request& req, crow::respons
 		return;
 	}
 
-	SQLiteDatabaseQueryInstance SetClipSaveState( m_GlobalContext->Database, _T("SetClipSaveState") );
+	SQLiteDatabaseQueryInstance SetClipSaveState( m_GlobalContext->Database, "SetClipSaveState" );
 	SetClipSaveState->Bind( "@ClipUID", ClipUID );
 	SetClipSaveState->Bind( "@Save", Value ? 1 : 0 );
 	SetClipSaveState->Execute( [&]( const SQLiteDatabaseQuery& query ) { return true; } );
@@ -283,7 +283,7 @@ void CrowListener::HandleClipDelete( const crow::request& req, crow::response& r
 	// Get camera ID for auth check
 	int TargetCameraInt = 0;
 	{
-		SQLiteDatabaseQueryInstance SelectClipID( m_GlobalContext->Database, _T("SelectClipID") );
+		SQLiteDatabaseQueryInstance SelectClipID( m_GlobalContext->Database, "SelectClipID" );
 		SelectClipID->Bind( "@ClipUID", ClipUID );
 		SelectClipID->Execute(
 			[&]( const SQLiteDatabaseQuery& query )
@@ -307,7 +307,7 @@ void CrowListener::HandleClipDelete( const crow::request& req, crow::response& r
 	int64_t Timestamp = 0;
 	bool Manual = false;
 
-	SQLiteDatabaseQueryInstance FindClipByUID( m_GlobalContext->Database, _T("FindClipByUID") );
+	SQLiteDatabaseQueryInstance FindClipByUID( m_GlobalContext->Database, "FindClipByUID" );
 	FindClipByUID->Bind( "@ClipUID", ClipUID );
 	FindClipByUID->Execute(
 		[&]( const SQLiteDatabaseQuery& query )
@@ -327,7 +327,7 @@ void CrowListener::HandleClipDelete( const crow::request& req, crow::response& r
 	std::filesystem::remove( ThumbnailPath, error );
 	std::filesystem::remove( VideoPath, error );
 
-	SQLiteDatabaseQueryInstance DeleteClipQuery( m_GlobalContext->Database, _T("DeleteClip") );
+	SQLiteDatabaseQueryInstance DeleteClipQuery( m_GlobalContext->Database, "DeleteClip" );
 	DeleteClipQuery->Bind( "@ClipUID", ClipUID );
 	DeleteClipQuery->Execute( [&]( const SQLiteDatabaseQuery& query ) { return true; } );
 

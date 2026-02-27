@@ -415,11 +415,6 @@ float KFNoiseScale = 0.1f;*/
 
 PIMPL_CONSTRUCT(MotionVectorFilterData)
 
-std::string StringToAnsi(const std::wstring& wstr)
-{
-	return std::string(wstr.begin(), wstr.end());
-}
-
 struct EquivalentPoint {
 	bool operator()(const Point2i& a, const Point2i& b)
 	{
@@ -432,25 +427,25 @@ struct EquivalentPoint {
 	}
 };
 
-MotionVectorFilter::MotionVectorFilter( const MotionChainNode& Chain, const wchar_t* BlackoutMaskPath, const wchar_t* FocusMaskPath )
+MotionVectorFilter::MotionVectorFilter( const MotionChainNode& Chain, const char* BlackoutMaskPath, const char* FocusMaskPath )
 	: RecordFilterBase( Chain )
 {
 	auto& ID = GetData();
 
-	std::string BlackoutMaskPathANSI(StringToAnsi(BlackoutMaskPath));
-	std::string FocusMaskPathANSI(StringToAnsi(FocusMaskPath));
+	std::string BlackoutMaskPathStr(BlackoutMaskPath ? BlackoutMaskPath : "");
+	std::string FocusMaskPathStr(FocusMaskPath ? FocusMaskPath : "");
 
-	ID.hasBlackoutMask = BlackoutMaskPathANSI.length() > 0;
-	ID.hasFocusMask = FocusMaskPathANSI.length() > 0;
+	ID.hasBlackoutMask = BlackoutMaskPathStr.length() > 0;
+	ID.hasFocusMask = FocusMaskPathStr.length() > 0;
 
 	if( ID.hasBlackoutMask )
 	{
-		ID.blackoutMaskOriginal = cv::imread(BlackoutMaskPathANSI, IMREAD_GRAYSCALE );
+		ID.blackoutMaskOriginal = cv::imread(BlackoutMaskPathStr, IMREAD_GRAYSCALE );
 	}
 
 	if( ID.hasFocusMask )
 	{
-		ID.focusMaskOriginal = cv::imread(FocusMaskPathANSI, IMREAD_GRAYSCALE );
+		ID.focusMaskOriginal = cv::imread(FocusMaskPathStr, IMREAD_GRAYSCALE );
 	}
 
 	ID.MVSinceKF = 0;

@@ -21,7 +21,7 @@ public:
 	struct AtomicTimedActionData
 	{
 		uint64_t Timestamp;
-		const TCHAR* Action;
+		const char* Action;
 	};
 
 	WorkerBase(const std::shared_ptr<MessageBus>& MessageBus)
@@ -35,7 +35,7 @@ public:
 
 	void Start( Priority ThreadPriority )
 	{
-		UpdateLastTimedAction(_T("Thread starting..."));
+		UpdateLastTimedAction("Thread starting...");
 		Thread = std::make_unique<std::thread>( &WorkerBase::WorkerThread, this );
 
 		SetPriority(ThreadPriority);
@@ -70,7 +70,7 @@ protected:
 	std::shared_ptr<MessageBus> MessageBusObject;
 	std::shared_ptr<MessageBusQueue> MessageBusQueue;
 
-	void UpdateLastTimedAction( const TCHAR* NewAction )
+	void UpdateLastTimedAction( const char* NewAction )
 	{
 		LastTimedAction.store( AtomicTimedActionData{ static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(
 			std::chrono::system_clock::now().time_since_epoch() ).count()), NewAction } );

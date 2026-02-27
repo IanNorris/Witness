@@ -5,7 +5,7 @@ class CameraWorker;
 struct CameraState
 {
 	CameraState()
-	: Status(_T("Starting"))
+	: Status("Starting")
 	, LastLargePreviewTimestamp(0)
 	, LastSmallPreviewTimestamp(0)
 	, IsRecording(false)
@@ -15,14 +15,14 @@ struct CameraState
 	}
 
 	std::shared_ptr<CameraWorker> Worker;
-	StringT Name;
+	std::string Name;
 
 	std::vector<unsigned char> PreviewThumbnail;
 	std::vector< int > TriggeredActions;
 
 	std::unordered_map< uint64_t, std::vector<unsigned char> > ClipThumbnails;
 
-	StringT Status;
+	std::string Status;
 
 	uint64_t LastLargePreviewTimestamp;
 	uint64_t LastSmallPreviewTimestamp;

@@ -71,13 +71,13 @@ struct CameraEndMotionMessage : public Message
 
 struct CameraStartRecordMessage : public Message
 {
-	CameraStartRecordMessage( int CamIndex, int64_t TimestampIn, StringT PathIn ) 
+	CameraStartRecordMessage( int CamIndex, int64_t TimestampIn, std::string PathIn ) 
 	: Path( PathIn )
 	, Timestamp( TimestampIn )
 	, Camera( CamIndex ) 
 	{}
 
-	StringT Path;
+	std::string Path;
 	int64_t Timestamp;
 	int Camera;
 };
@@ -112,10 +112,10 @@ struct CameraStartupMessage : public Message
 
 struct CameraReconnectMessage : public Message
 {
-	CameraReconnectMessage( int CamIndex, StringT Error ) : Camera( CamIndex ), Error( Error ) {}
+	CameraReconnectMessage( int CamIndex, std::string Error ) : Camera( CamIndex ), Error( Error ) {}
 
 	int Camera;
-	StringT Error;
+	std::string Error;
 };
 
 struct CameraConnectedMessage : public Message
@@ -131,7 +131,7 @@ struct CameraWriteThumbnailMessage : public Message
 
 	std::vector<unsigned char> Jpeg;
 
-	StringT Filename;
+	std::string Filename;
 
 	int Camera;
 };

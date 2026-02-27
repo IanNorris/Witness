@@ -16,7 +16,7 @@ void AsyncWorker::WorkerMain()
 
 	Msg->Handle<CameraWriteThumbnailMessage>([&](const CameraWriteThumbnailMessage& Data)
 	{
-		std::ofstream Output(StringToAnsi(Data.Filename), std::ofstream::binary );
+		std::ofstream Output(Data.Filename, std::ofstream::binary );
 
 		Output.write( (const char*)&Data.Jpeg[0], Data.Jpeg.size() );
 
