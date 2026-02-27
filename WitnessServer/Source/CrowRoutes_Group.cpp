@@ -21,8 +21,8 @@ void CrowListener::HandleGroupEnum( const crow::request& req, crow::response& re
 		[&Array]( const SQLiteDatabaseQuery& query )
 		{
 			uint64_t GroupUID = query.GetColumnValueInt64( 0 );
-			std::string DisplayName = StringToAnsi( query.GetColumnValueText( 1 ) );
-			std::string Description = StringToAnsi( query.GetColumnValueText( 2 ) );
+			std::string DisplayName = query.GetColumnValueText( 1 );
+			std::string Description = query.GetColumnValueText( 2 );
 
 			crow::json::wvalue Group;
 			Group["id"] = GroupUID;
@@ -75,7 +75,7 @@ void CrowListener::HandleGroupCreate( const crow::request& req, crow::response& 
 	if( CreateGroup->Execute( nullptr ) < 0 )
 	{
 		crow::json::wvalue Data;
-		Data["errorMessage"] = StringToAnsi( CreateGroup->GetLastError() );
+		Data["errorMessage"] = CreateGroup->GetLastError();
 		res.set_header( "Content-Type", "application/json" );
 		res.body = Data.dump();
 		res.code = 400;

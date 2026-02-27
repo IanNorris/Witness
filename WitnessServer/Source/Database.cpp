@@ -108,50 +108,50 @@ namespace Database
 
 	)RAW";
 
-	StringT GetSetting = LR"RAW(
+	StringT GetSetting = R"RAW(
 		SELECT Value FROM Setting
 		WHERE Name = @Name
 	)RAW";
 
-	StringT GetAllSettings = LR"RAW(
+	StringT GetAllSettings = R"RAW(
 		SELECT * FROM Setting
 	)RAW";
 
-	StringT SetSetting = LR"RAW(
+	StringT SetSetting = R"RAW(
 		INSERT OR REPLACE INTO Setting(Name, Value) VALUES(@Name, @Value)
 	)RAW";
 
-	StringT FindActions = LR"RAW(
+	StringT FindActions = R"RAW(
 		SELECT ActionUID FROM CameraAction
 		WHERE CameraUID = @CameraUID 
 		AND MDThreshold <= @MDThreshold
 	)RAW";
 
-	StringT GetAction = LR"RAW(
+	StringT GetAction = R"RAW(
 		SELECT * FROM Action
 		WHERE ActionUID = @ActionUID
 	)RAW";
 
-	StringT FindUser = LR"RAW(
+	StringT FindUser = R"RAW(
 		SELECT UserUID, Username, PasswordHash, HashMethod FROM User 
 		WHERE Username = @Username
 	)RAW";
 
-	StringT FindUserForAuth = LR"RAW(
+	StringT FindUserForAuth = R"RAW(
 		SELECT UserUID, Username, DisplayName, Enabled, Admin FROM User 
 		WHERE UserUID = @UserUID
 	)RAW";
 
-	StringT FindUsers = LR"RAW(
+	StringT FindUsers = R"RAW(
 		SELECT UserUID, Username, DisplayName, Enabled, Admin FROM User 
 	)RAW";
 
-	StringT CreateUser = LR"RAW(
+	StringT CreateUser = R"RAW(
 		INSERT INTO User (Username,DisplayName,PasswordHash,HashMethod,Enabled,Admin)
 		VALUES(@Username,@DisplayName,@PasswordHash,@HashMethod,@Enabled,@Admin);
 	)RAW";
 
-	StringT DeleteUser = LR"RAW(
+	StringT DeleteUser = R"RAW(
 		DELETE FROM UserGroupMapping
 			WHERE UserUID = @UserUID;
 		DELETE FROM Session
@@ -160,7 +160,7 @@ namespace Database
 			WHERE UserUID = @UserUID;
 	)RAW";
 
-	StringT SetUserEnabledState = LR"RAW(
+	StringT SetUserEnabledState = R"RAW(
 		UPDATE User 
 		SET
 			Enabled = @Enabled
@@ -169,7 +169,7 @@ namespace Database
 		;
 	)RAW";
 
-	StringT SetUserAdminState = LR"RAW(
+	StringT SetUserAdminState = R"RAW(
 		UPDATE User 
 		SET
 			Admin = @Admin
@@ -178,7 +178,7 @@ namespace Database
 		;
 	)RAW";
 
-	StringT SetUserDisplayName = LR"RAW(
+	StringT SetUserDisplayName = R"RAW(
 		UPDATE User 
 		SET
 			DisplayName = @DisplayName
@@ -187,68 +187,68 @@ namespace Database
 		;
 	)RAW";
 
-	StringT FindSession = LR"RAW(
+	StringT FindSession = R"RAW(
 		SELECT * FROM Session 
 		WHERE SessionToken = @SessionToken
 	)RAW";
 
-	StringT VerifySessionAndCSRF = LR"RAW(
+	StringT VerifySessionAndCSRF = R"RAW(
 		SELECT UserUID FROM Session 
 		WHERE 
 			SessionToken = @SessionToken
 		AND	CSRFToken = @CSRFToken
 	)RAW";
 
-	StringT VerifySession = LR"RAW(
+	StringT VerifySession = R"RAW(
 		SELECT UserUID FROM Session 
 		WHERE 
 			SessionToken = @SessionToken
 	)RAW";
 
-	StringT CreateSession = LR"RAW(
+	StringT CreateSession = R"RAW(
 		INSERT INTO Session (SessionToken,CSRFToken,UserUID,LastUsed)
 		VALUES(@SessionToken,@CSRFToken,@UserUID,@LastUsed);
 	)RAW";
 
-	StringT DeleteSession = LR"RAW(
+	StringT DeleteSession = R"RAW(
 		DELETE FROM Session
 		WHERE SessionToken = @SessionToken;
 	)RAW";
 
-	StringT GetUserCount = L"SELECT COUNT(*) FROM User";
+	StringT GetUserCount = "SELECT COUNT(*) FROM User";
 
-	StringT CreateCamera = LR"RAW(
+	StringT CreateCamera = R"RAW(
 		INSERT INTO Camera (CameraName, CameraString, CameraStringSub, Description, Enabled, SkipFrames, MDFrameHeight, MDThreshold, MotionFilter, BlackoutMaskPath, FocusMaskPath)
 		VALUES(@CameraName,@CameraString,@CameraStringSub,@Description,1,1,400,0.0001,NULL,NULL,NULL);
 	)RAW";
 
 	
-	StringT DeleteCamera = LR"RAW(
+	StringT DeleteCamera = R"RAW(
 		DELETE FROM Camera 
 		WHERE 
 				CameraUID == @CameraId 
 		;
 	)RAW";
 
-	StringT GetCameras = LR"RAW(
+	StringT GetCameras = R"RAW(
 		SELECT * FROM Camera 
 		ORDER BY CameraUID
 	)RAW";
 
-	StringT GetCamera = LR"RAW(
+	StringT GetCamera = R"RAW(
 		SELECT * FROM Camera 
 		WHERE CameraUID = @CameraId
 		ORDER BY CameraUID
 	)RAW";
 
-	StringT GetCamerasForUser = LR"RAW(
+	StringT GetCamerasForUser = R"RAW(
 		SELECT * FROM Camera C
 		INNER JOIN CameraGroupMapping CGM ON CGM.Camera = C.CameraUID
 		INNER JOIN UserGroupMapping UGM ON UGM.`Group` = CGM.`Group`
 		WHERE UGM.UserUID = @User
 	)RAW";
 
-	StringT GetCamerasDetailsForUser = LR"RAW(
+	StringT GetCamerasDetailsForUser = R"RAW(
 		SELECT * FROM Camera C
 		INNER JOIN CameraGroupMapping CGM ON CGM.Camera = C.CameraUID
 		INNER JOIN UserGroupMapping UGM ON UGM.`Group` = CGM.`Group`
@@ -256,17 +256,17 @@ namespace Database
 		AND C.CameraUID = @Camera
 	)RAW";
 
-	StringT CreateClip = LR"RAW(
+	StringT CreateClip = R"RAW(
 		INSERT INTO Clip (Timestamp,Camera,MotionTimestamp,ActiveDuration,Duration,RecordMode,MaxMotion,Description,Save,Tags)
 		VALUES(@Timestamp,@Camera,@MotionTimestamp,@ActiveDuration,@Duration,@RecordMode,@MaxMotion,@Description,@Save,@Tags);
 	)RAW";
 
-	StringT SelectClipID = LR"RAW(
+	StringT SelectClipID = R"RAW(
 		SELECT * FROM Clip
 		WHERE Clip.ClipUID = @ClipUID
 	)RAW";
 
-	StringT UpdateClip = LR"RAW(
+	StringT UpdateClip = R"RAW(
 		UPDATE Clip 
 		SET
 			MotionTimestamp = @MotionTimestamp,
@@ -280,7 +280,7 @@ namespace Database
 		;
 	)RAW";
 
-	StringT SetClipSaveState = LR"RAW(
+	StringT SetClipSaveState = R"RAW(
 		UPDATE Clip 
 		SET
 			Save = @Save
@@ -289,21 +289,21 @@ namespace Database
 		;
 	)RAW";
 
-	StringT FindClipByUID = LR"RAW(
+	StringT FindClipByUID = R"RAW(
 		SELECT * FROM Clip 
 		WHERE 
 			ClipUID == @ClipUID 
 		;
 	)RAW";
 	
-	StringT DeleteClip = LR"RAW(
+	StringT DeleteClip = R"RAW(
 		DELETE FROM Clip 
 		WHERE 
 				ClipUID == @ClipUID 
 		;
 	)RAW";
 
-	StringT CountClipsWithinRange = LR"RAW(
+	StringT CountClipsWithinRange = R"RAW(
 		SELECT COUNT(Timestamp) FROM Clip
 		WHERE
 				Camera == @CameraID
@@ -312,7 +312,7 @@ namespace Database
 		;
 	)RAW";
 
-	StringT CountClipsWithinRangeAll = LR"RAW(
+	StringT CountClipsWithinRangeAll = R"RAW(
 		SELECT COUNT(Timestamp) FROM Clip
 			INNER JOIN Camera C ON C.CameraUID = Clip.Camera
 			INNER JOIN CameraGroupMapping CGM ON CGM.Camera = C.CameraUID
@@ -323,7 +323,7 @@ namespace Database
 			AND UGM.UserUID == @UserUID
 	)RAW";
 
-	StringT SelectClipsWithinRange = LR"RAW(
+	StringT SelectClipsWithinRange = R"RAW(
 		SELECT * FROM Clip
 		WHERE
 				Camera == @CameraID
@@ -334,7 +334,7 @@ namespace Database
 		;
 	)RAW";
 
-	StringT SelectClipsWithinRangeAll = LR"RAW(
+	StringT SelectClipsWithinRangeAll = R"RAW(
 		SELECT DISTINCT Clip.* FROM Clip
 			INNER JOIN Camera C ON C.CameraUID = Clip.Camera
 			INNER JOIN CameraGroupMapping CGM ON CGM.Camera = C.CameraUID
@@ -348,7 +348,7 @@ namespace Database
 		;
 	)RAW";
 
-	StringT SelectClip = LR"RAW(
+	StringT SelectClip = R"RAW(
 		SELECT * FROM Clip
 		WHERE
 				Camera == @CameraID
@@ -356,7 +356,7 @@ namespace Database
 		;
 	)RAW";
 
-	StringT SelectClipsToDelete = LR"RAW(
+	StringT SelectClipsToDelete = R"RAW(
 		SELECT * FROM Clip
 		WHERE
 			Timestamp < @Timestamp
@@ -364,23 +364,23 @@ namespace Database
 		LIMIT 500;
 	)RAW";
 
-	StringT SelectAllGroups = LR"RAW(
+	StringT SelectAllGroups = R"RAW(
 		SELECT * FROM CameraGroup
 		;
 	)RAW";
 
-	StringT SelectGroupsForCamera = LR"RAW(
+	StringT SelectGroupsForCamera = R"RAW(
 		SELECT * FROM CameraGroupMapping
 		WHERE Camera == @Camera
 		;
 	)RAW";
 
-	StringT CreateGroup = LR"RAW(
+	StringT CreateGroup = R"RAW(
 		INSERT INTO CameraGroup (DisplayName,Description)
 		VALUES(@DisplayName,@Description);
 	)RAW";
 
-	StringT UpdateGroup = LR"RAW(
+	StringT UpdateGroup = R"RAW(
 		UPDATE CameraGroup 
 		SET
 			DisplayName = @DisplayName,
@@ -390,7 +390,7 @@ namespace Database
 		;
 	)RAW";
 
-	StringT DeleteGroup = LR"RAW(
+	StringT DeleteGroup = R"RAW(
 		DELETE FROM CameraGroupMapping
 			WHERE `Group` = @Group;
 		DELETE FROM UserGroupMapping
@@ -399,29 +399,29 @@ namespace Database
 			WHERE GroupUID = @GroupUID;
 	)RAW";
 
-	StringT SelectGroupsForUser = LR"RAW(
+	StringT SelectGroupsForUser = R"RAW(
 		SELECT * FROM UserGroupMapping
 		WHERE UserUID == @User
 		;
 	)RAW";
 
-	StringT CreateUserGroupMapping = LR"RAW(
+	StringT CreateUserGroupMapping = R"RAW(
 		INSERT INTO UserGroupMapping (UserUID,`Group`)
 		VALUES(@UserUID,@Group);
 	)RAW";
 
-	StringT DeleteUserGroupMapping = LR"RAW(
+	StringT DeleteUserGroupMapping = R"RAW(
 		DELETE FROM UserGroupMapping
 		WHERE UserUID = @UserUID
 		AND `Group` = @Group;
 	)RAW";
 
-	StringT CreateCameraGroupMapping = LR"RAW(
+	StringT CreateCameraGroupMapping = R"RAW(
 		INSERT INTO CameraGroupMapping (Camera,`Group`)
 		VALUES(@Camera,@Group);
 	)RAW";
 
-	StringT DeleteCameraGroupMapping = LR"RAW(
+	StringT DeleteCameraGroupMapping = R"RAW(
 		DELETE FROM CameraGroupMapping
 		WHERE Camera = @Camera
 		AND `Group` = @Group;

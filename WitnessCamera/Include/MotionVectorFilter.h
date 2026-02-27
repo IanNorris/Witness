@@ -11,7 +11,7 @@ class CAMERA_API MotionVectorFilter : public RecordFilterBase<MotionVectorFilter
 {
 public:
 
-	MotionVectorFilter( const MotionChainNode& Chain, const wchar_t* BlackoutMaskPath, const wchar_t* FocusMaskPath );
+	MotionVectorFilter( const MotionChainNode& Chain, const char* BlackoutMaskPath, const char* FocusMaskPath );
 	virtual ~MotionVectorFilter();
 
 	void UpdateMasks( unsigned int Width, unsigned int Height );

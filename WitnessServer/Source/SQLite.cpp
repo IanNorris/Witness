@@ -19,7 +19,7 @@ SQLiteDatabaseQuery::~SQLiteDatabaseQuery()
 	}
 }
 
-void SQLiteDatabaseQuery::Bind( const char* paramName, const TCHAR* value )
+void SQLiteDatabaseQuery::Bind( const char* paramName, const char* value )
 {
 	Reset();
 
@@ -28,7 +28,7 @@ void SQLiteDatabaseQuery::Bind( const char* paramName, const TCHAR* value )
 		int index = sqlite3_bind_parameter_index( statement, paramName );
 		if( index )
 		{
-			int result = sqlite3_bind_text16( statement, index, value, -1, SQLITE_TRANSIENT );
+			int result = sqlite3_bind_text( statement, index, value, -1, SQLITE_TRANSIENT );
 			AssertQuery( result == 0, "Failed to bind parameter: %s", sqlite3_errmsg( m_database->GetDatabase() ) );
 		}
 	}
@@ -128,9 +128,9 @@ int SQLiteDatabaseQuery::Execute( const std::function< bool(const SQLiteDatabase
 	return count;
 }
 
-const wchar_t* SQLiteDatabaseQuery::GetColumnValueText( int column ) const
+const char* SQLiteDatabaseQuery::GetColumnValueText( int column ) const
 {
-	return (const wchar_t*)sqlite3_column_text16( m_statements.back(), column );
+	return (const char*)sqlite3_column_text( m_statements.back(), column );
 }
 
 sqlite3_value* SQLiteDatabaseQuery::GetColumnValue( int column ) const
@@ -218,14 +218,14 @@ std::shared_ptr<SQLiteDatabaseQuery> SQLiteDatabase::CreateQuery( const StringT&
 	auto generatedQuery = std::make_shared<SQLiteDatabaseQuery>( shared_from_this() );
 
 	StringT newQuery = query;
-	const TCHAR* nextStatement = newQuery.c_str();
+	const char* nextStatement = newQuery.c_str();
 	do{
 		sqlite3_stmt* newStatement = nullptr;
 		newQuery = Trim(nextStatement);
 		if( newQuery.length() )
 		{
-			int result = sqlite3_prepare16_v2( m_database, newQuery.c_str(), -1, &newStatement, (const void**)&nextStatement );
-			AssertDB( result == 0 && newStatement, "Failed to prepare statement: %s\n:%s", StringToAnsi(newQuery).c_str(), sqlite3_errmsg( m_database ) );
+			int result = sqlite3_prepare_v2( m_database, newQuery.c_str(), -1, &newStatement, &nextStatement );
+			AssertDB( result == 0 && newStatement, "Failed to prepare statement: %s\n:%s", newQuery.c_str(), sqlite3_errmsg( m_database ) );
 
 			generatedQuery->AddStatement( newStatement );
 		}

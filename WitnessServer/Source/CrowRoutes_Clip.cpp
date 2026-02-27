@@ -29,7 +29,7 @@ static StringT GetClipName( const GlobalContext& Context, int CameraID, int64_t 
 	else
 		Stream << _T(".jpg");
 
-	return (fs::path( Context.CachePath ) / Stream.str()).native();
+	return (fs::path( Context.CachePath ) / Stream.str()).string();
 }
 
 void CrowListener::HandleClipThumbnail( const crow::request& req, crow::response& res, int cameraId, const std::string& clipId, bool video )
@@ -184,13 +184,13 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 				int RecordMode = query.GetColumnValueInt( 6 );
 				double MaxMotion = query.GetColumnValueDouble( 7 );
 
-				const wchar_t* DescriptionStr = query.GetColumnValueText( 8 );
-				std::string Description = DescriptionStr ? StringToAnsi( DescriptionStr ) : "";
+				const char* DescriptionStr = query.GetColumnValueText( 8 );
+				std::string Description = DescriptionStr ? DescriptionStr : "";
 
 				int Saved = query.GetColumnValueInt( 9 );
 
-				const wchar_t* TagsStr = query.GetColumnValueText( 10 );
-				std::string Tags = TagsStr ? StringToAnsi( TagsStr ) : "";
+				const char* TagsStr = query.GetColumnValueText( 10 );
+				std::string Tags = TagsStr ? TagsStr : "";
 
 				crow::json::wvalue Clip;
 				Clip["clipUID"] = ClipID;

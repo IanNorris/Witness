@@ -28,7 +28,7 @@ void WitnessServer::StartCameraRecording( const std::shared_ptr<CameraWorker>& W
 	std::filesystem::create_directories( std::filesystem::path(CachePath) );
 	StringStreamT TargetFilename;
 	TargetFilename << CameraID << (IsManual ? _T("_Manual_") : _T("_Auto_")) << Timestamp << ".mp4";
-	auto TargetPath = (std::filesystem::path(CachePath) / TargetFilename.str()).native();
+	auto TargetPath = (std::filesystem::path(CachePath) / TargetFilename.str()).string();
 
 	auto StartRecord = std::make_shared<CameraStartRecordMessage>( CameraID, Timestamp, TargetPath );
 			
@@ -135,5 +135,5 @@ void WitnessServer::StatusMessage( int Camera, StringT NewStatus, StringT Reason
 		}
 	}
 
-	std::tcout << CameraName << _T(": ") << Reason << std::endl;
+	std::cout << CameraName << _T(": ") << Reason << std::endl;
 };

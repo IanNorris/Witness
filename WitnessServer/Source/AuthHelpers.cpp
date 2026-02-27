@@ -21,9 +21,9 @@ StringT GetRandomToken()
 
 StringT GetHashedPasswordKey_Algorithm0( const StringT& Username, const StringT Password )
 {
-	std::string CombinedUsernamePassword = StringToAnsi(Username);
+	std::string CombinedUsernamePassword = Username;
 	CombinedUsernamePassword += ":";
-	CombinedUsernamePassword += StringToAnsi(Password);
+	CombinedUsernamePassword += Password;
 
 	char HashedPassword[ crypto_pwhash_STRBYTES ];
 
@@ -39,11 +39,11 @@ StringT GetHashedPasswordKey_Algorithm0( const StringT& Username, const StringT 
 
 bool CheckHashedPasswordKey_Algorithm0( const StringT& Key, const StringT& Username, const StringT Password )
 {
-	std::string CombinedUsernamePassword = StringToAnsi(Username);
+	std::string CombinedUsernamePassword = Username;
 	CombinedUsernamePassword += ":";
-	CombinedUsernamePassword += StringToAnsi(Password);
+	CombinedUsernamePassword += Password;
 
-	std::string KeyASCII = StringToAnsi(Key);
+	std::string KeyASCII = Key;
 	
 	if( crypto_pwhash_str_verify( KeyASCII.c_str(), (const char*)CombinedUsernamePassword.c_str(), CombinedUsernamePassword.size() ) != 0 )
 	{
@@ -79,24 +79,24 @@ void OfflineCreationForFirstUser( const GlobalContext& Context )
 
 	if( Success )
 	{
-		std::tcout << _T("No user exists, you need to create one.") << std::endl;
-		std::tcout << _T("Username: ");
-		getline(std::tcin, Username );
+		std::cout << _T("No user exists, you need to create one.") << std::endl;
+		std::cout << _T("Username: ");
+		getline(std::cin, Username );
 
-		std::tcout << _T("Password: ");
+		std::cout << _T("Password: ");
 		SetStdinEcho( false );
-		getline(std::tcin, Password );
+		getline(std::cin, Password );
 		SetStdinEcho( true );
 
 		StringT UsernameLC = Username;
 		std::transform(UsernameLC.begin(), UsernameLC.end(), UsernameLC.begin(), ::tolower);
 
 
-		std::tcout << std::endl << _T("Hashing password...") << std::endl;
+		std::cout << std::endl << _T("Hashing password...") << std::endl;
 
 		StringT Hash = GetHashedPasswordKey_Algorithm0( UsernameLC, Password );
 
-		std::tcout << _T("Storing password...") << std::endl;
+		std::cout << _T("Storing password...") << std::endl;
 
 		{
 			SQLiteDatabaseQueryInstance CreateUser( Context.Database, _T("CreateUser") );
@@ -111,6 +111,6 @@ void OfflineCreationForFirstUser( const GlobalContext& Context )
 			CreateUser->Execute( nullptr );
 		}
 
-		std::tcout << _T("User ready to use.") << std::endl;
+		std::cout << _T("User ready to use.") << std::endl;
 	}
 }

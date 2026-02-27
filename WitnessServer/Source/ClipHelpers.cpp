@@ -39,7 +39,7 @@ StringT GetClipName( const GlobalContext& Context, int CameraID, int64_t Timesta
 		Stream << _T(".jpg");
 	}
 
-	return (fs::path(Context.CachePath) / Stream.str()).native();
+	return (fs::path(Context.CachePath) / Stream.str()).string();
 }
 
 static bool DeleteClipFiles( const GlobalContext& Context, int CameraID, int64_t Timestamp, bool Manual )
@@ -107,7 +107,7 @@ void DeleteOldClips( const GlobalContext& Context, int DaysToDelete )
 
 	if( ClipsToDelete.size() )
 	{
-		std::tcout << _T("Deleting ") << ClipsToDelete.size() << _T(" clips as they were more than ") << DaysToDelete << _T(" days old.") << std::endl;
+		std::cout << _T("Deleting ") << ClipsToDelete.size() << _T(" clips as they were more than ") << DaysToDelete << _T(" days old.") << std::endl;
 	}
 
 	for( auto& Clip : ClipsToDelete )

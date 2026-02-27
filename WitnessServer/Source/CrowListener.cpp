@@ -23,8 +23,8 @@ CrowListener::CrowListener( const std::string& Hostname, int Port, bool Secure, 
 	m_GlobalContext = std::make_unique<GlobalContext>();
 	m_GlobalContext->Port = Port;
 
-	StringT Scheme = Secure ? _T("https") : _T("http");
-	m_BaseUri = Scheme + _T("://") + StringT( Hostname.begin(), Hostname.end() ) + _T(":") + std::to_wstring( Port );
+	std::string Scheme = Secure ? "https" : "http";
+	m_BaseUri = Scheme + "://" + Hostname + ":" + std::to_string( Port );
 }
 
 CrowListener::~CrowListener()

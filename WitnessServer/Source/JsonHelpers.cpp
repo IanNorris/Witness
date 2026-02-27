@@ -1,6 +1,6 @@
 #include "Common.h"
 
-bool GetSettingsString(const std::unordered_map< StringT, StringT >& Settings, const TCHAR* FieldName, StringT& OutString)
+bool GetSettingsString(const std::unordered_map< StringT, StringT >& Settings, const char* FieldName, StringT& OutString)
 {
 	auto Iter = Settings.find(FieldName);
 	if (Iter != Settings.end())
@@ -23,18 +23,14 @@ StringT GetValueFromString(const StringT& ValueString)
 template<>
 double GetValueFromString(const StringT& ValueString)
 {
-	std::string Conv = StringToAnsi(ValueString);
-
-	return atof( Conv.c_str() );
+	return atof( ValueString.c_str() );
 }
 
 
 template<>
 int GetValueFromString(const StringT& ValueString)
 {
-	std::string Conv = StringToAnsi(ValueString);
-
-	return atoi(Conv.c_str());
+	return atoi(ValueString.c_str());
 }
 
 
@@ -46,7 +42,7 @@ bool GetValueFromString(const StringT& ValueString)
 
 #define BUILD_SETTINGS_FIELD_ACCESSOR( Type, TypeName ) \
 	template<> \
-	bool GetSettingsField( const std::unordered_map< StringT, StringT >& Settings, const TCHAR* FieldName, Type& ValueOut, StringT& Errors ) \
+	bool GetSettingsField( const std::unordered_map< StringT, StringT >& Settings, const char* FieldName, Type& ValueOut, StringT& Errors ) \
 	{ \
 		StringT Value; \
 		if( GetSettingsString( Settings, FieldName, Value ) ) \

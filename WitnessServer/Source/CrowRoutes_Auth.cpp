@@ -128,7 +128,7 @@ void CrowListener::HandleAuthLogin( const crow::request& req, crow::response& re
 		std::string SessionTokenValue = "SessionToken-" + PortName;
 
 		std::string MaxAge = std::to_string( 60 * 60 * 24 * 30 * 2 ); // +2 Months
-		res.add_header( "Set-Cookie", SessionTokenValue + "=" + StringToAnsi( SessionToken ) + "; HttpOnly; Path=/; max-age=" + MaxAge + ";" );
+		res.add_header( "Set-Cookie", SessionTokenValue + "=" + SessionToken + "; HttpOnly; Path=/; max-age=" + MaxAge + ";" );
 
 		res.set_header( "Content-Type", "application/json" );
 		res.body = "{}";
@@ -225,11 +225,11 @@ void CrowListener::HandleAuthGetProfile( const crow::request& req, crow::respons
 	if( SessionFound && UserFound && Enabled )
 	{
 		crow::json::wvalue ResponseBody;
-		ResponseBody["csrf"] = StringToAnsi( CSRFToken );
-		ResponseBody["username"] = StringToAnsi( Username );
+		ResponseBody["csrf"] = CSRFToken;
+		ResponseBody["username"] = Username;
 		ResponseBody["userUid"] = UserUID;
 		ResponseBody["admin"] = Admin;
-		ResponseBody["displayName"] = StringToAnsi( DisplayName );
+		ResponseBody["displayName"] = DisplayName;
 
 		res.set_header( "Content-Type", "application/json" );
 		res.body = ResponseBody.dump();
@@ -272,8 +272,8 @@ void CrowListener::HandleAuthEnumUsers( const crow::request& req, crow::response
 			crow::json::wvalue User;
 			int uid = query.GetColumnValueInt( 0 );
 			User["userid"] = uid;
-			User["username"] = StringToAnsi( query.GetColumnValueText( 1 ) );
-			User["displayName"] = StringToAnsi( query.GetColumnValueText( 2 ) );
+			User["username"] = query.GetColumnValueText( 1 );
+			User["displayName"] = query.GetColumnValueText( 2 );
 			User["enabled"] = query.GetColumnValueInt( 3 );
 			User["admin"] = query.GetColumnValueInt( 4 );
 
@@ -376,7 +376,7 @@ void CrowListener::HandleAuthNewUser( const crow::request& req, crow::response& 
 		if( CreateUser->Execute( nullptr ) < 0 )
 		{
 			crow::json::wvalue Data;
-			Data["errorMessage"] = StringToAnsi( CreateUser->GetLastError() );
+			Data["errorMessage"] = CreateUser->GetLastError();
 			res.set_header( "Content-Type", "application/json" );
 			res.body = Data.dump();
 			res.code = 400;
@@ -389,7 +389,7 @@ void CrowListener::HandleAuthNewUser( const crow::request& req, crow::response& 
 
 	crow::json::wvalue Data;
 	Data["id"] = RowResult;
-	Data["username"] = StringToAnsi( UsernameLC );
+	Data["username"] = UsernameLC;
 	Data["displayName"] = UsernameStr;
 	Data["password"] = PasswordStr;
 

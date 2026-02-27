@@ -82,8 +82,8 @@ void CrowListener::HandleCameraEnum( const crow::request& req, crow::response& r
 					{
 						crow::json::wvalue Camera;
 						Camera["id"] = ID;
-						Camera["name"] = StringToAnsi( Name );
-						Camera["description"] = StringToAnsi( Description );
+						Camera["name"] = Name;
+						Camera["description"] = Description;
 						Camera["enabled"] = Enabled;
 
 						std::vector<crow::json::wvalue> Groups;
@@ -102,8 +102,8 @@ void CrowListener::HandleCameraEnum( const crow::request& req, crow::response& r
 
 						if( asAdmin )
 						{
-							Camera["connectionString"] = StringToAnsi( ConnectionString );
-							Camera["connectionStringSub"] = StringToAnsi( ConnectionStringSub );
+							Camera["connectionString"] = ConnectionString;
+							Camera["connectionStringSub"] = ConnectionStringSub;
 						}
 
 						Camera["groups"] = std::move( Groups );
@@ -118,7 +118,7 @@ void CrowListener::HandleCameraEnum( const crow::request& req, crow::response& r
 									State.push_back( CameraState->IsRecording );
 								}
 
-								Camera["status"] = StringToAnsi( CameraState->Status );
+								Camera["status"] = CameraState->Status;
 								Camera["recording"] = CameraState->IsRecording;
 
 								auto StreamStats = CameraState->Worker->GetStreamStats();
@@ -300,7 +300,7 @@ void CrowListener::HandleCameraCreate( const crow::request& req, crow::response&
 	if( CreateCamera->Execute( [&]( const SQLiteDatabaseQuery& query ) { return true; } ) < 0 )
 	{
 		crow::json::wvalue Data;
-		Data["errorMessage"] = StringToAnsi( CreateCamera->GetLastError() );
+		Data["errorMessage"] = CreateCamera->GetLastError();
 		res.set_header( "Content-Type", "application/json" );
 		res.body = Data.dump();
 		res.code = 400;

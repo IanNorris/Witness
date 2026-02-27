@@ -16,8 +16,8 @@ std::filesystem::path GetConfigFilePath( StringT Filename )
 #if defined( _WINDOWS )
 
 	size_t RequiredSize = MAX_PATH;
-	TCHAR ProfileRoot[ MAX_PATH ] = {};
-	errno_t Result = _tgetenv_s( &RequiredSize, ProfileRoot, U("ProgramData") );
+	char ProfileRoot[ MAX_PATH ] = {};
+	errno_t Result = getenv_s( &RequiredSize, ProfileRoot, MAX_PATH, "ProgramData" );
 	
 	assert( Result == S_OK );
 
@@ -43,7 +43,7 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 
 	auto DatabaseFile = GetConfigFilePath(U("server.db"));
 
-	std::shared_ptr<SQLiteDatabase> Database = Database::InitializeDatabase(DatabaseFile);
+	std::shared_ptr<SQLiteDatabase> Database = Database::InitializeDatabase(DatabaseFile.string());
 
 	std::unordered_map< StringT, StringT > Settings;
 
@@ -73,7 +73,7 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 
 	if (!Success)
 	{
-		std::tcout << Errors << std::endl;
+		std::cout << Errors << std::endl;
 		return false;
 	}
 
@@ -111,7 +111,7 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 
 	OfflineCreationForFirstUser( *Context );
 
-	std::tcout << _T("Starting web server...") << std::endl;
+	std::cout << _T("Starting web server...") << std::endl;
 
 	Server->Initialise( Settings );
 
@@ -131,15 +131,15 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 	}
 	catch( std::exception& Exception)
 	{
-		std::tcerr << _T("Unable to start server: ") << Exception.what() << std::endl;
+		std::cerr << _T("Unable to start server: ") << Exception.what() << std::endl;
 		return 1;
 	}
 
-	std::tcout << _T("Starting camera workers...") << std::endl;
+	std::cout << _T("Starting camera workers...") << std::endl;
 
 	StartCameraWorkers();
 
-	std::tcout << _T("Server boot complete...") << std::endl;
+	std::cout << _T("Server boot complete...") << std::endl;
 
 	return true;
 }
@@ -159,12 +159,12 @@ bool WitnessServer::CreateListener( const std::unordered_map< StringT, StringT >
 
 	if (SplitHostname.size() != 2)
 	{
-		std::tcerr << _T("Hostname is invalid:") << Hostname << std::endl;
+		std::cerr << _T("Hostname is invalid:") << Hostname << std::endl;
 		return false;
 	}
 
 	Hostname = SplitHostname[0];
-	Port = atoi(StringToAnsi(SplitHostname[1]).c_str());
+	Port = atoi(SplitHostname[1].c_str());
 	
 	Success &= GetSettingsField( Settings, _T("server_tls_mode"), Security, Errors );
 
@@ -177,11 +177,11 @@ bool WitnessServer::CreateListener( const std::unordered_map< StringT, StringT >
 
 	if (!Success)
 	{
-		std::tcout << Errors << std::endl;
+		std::cout << Errors << std::endl;
 		return false;
 	}
 
-	Server = std::make_unique<CrowListener>( StringToAnsi(Hostname), Port, Secure, DebugConsoleInstance );
+	Server = std::make_unique<CrowListener>( Hostname, Port, Secure, DebugConsoleInstance );
 
 	return true;
 }
@@ -238,20 +238,20 @@ void WitnessServer::StartCamera(const SQLiteDatabaseQuery& query)
 	Camera.SkipFrames = query.GetColumnValueInt(6);
 	Camera.MDFrameHeight = query.GetColumnValueInt(7);
 	Camera.MDThreshold = query.GetColumnValueDouble(8);
-	const wchar_t* MotionFilterName = query.GetColumnValueText(9);
-	const wchar_t* BlackoutMaskPath = query.GetColumnValueText(10);
-	const wchar_t* FocusMaskPath = query.GetColumnValueText(11);
+	const char* MotionFilterName = query.GetColumnValueText(9);
+	const char* BlackoutMaskPath = query.GetColumnValueText(10);
+	const char* FocusMaskPath = query.GetColumnValueText(11);
 
-	Camera.BlackoutMaskPath = BlackoutMaskPath ? BlackoutMaskPath : L"";
-	Camera.FocusMaskPath = FocusMaskPath ? FocusMaskPath : L"";
+	Camera.BlackoutMaskPath = BlackoutMaskPath ? BlackoutMaskPath : "";
+	Camera.FocusMaskPath = FocusMaskPath ? FocusMaskPath : "";
 
-	Camera.MotionFilterName = MotionFilterName && wcslen(MotionFilterName) ? MotionFilterName : Video.MotionFilterName.c_str();
+	Camera.MotionFilterName = MotionFilterName && strlen(MotionFilterName) ? MotionFilterName : Video.MotionFilterName.c_str();
 
 	auto FaceCascadeName = Video.FaceCascadeFilter + _T(".xml");
-	auto FaceCascade = (std::filesystem::path(Video.DataPath) / _T("Cascades") / FaceCascadeName).native();
+	auto FaceCascade = (std::filesystem::path(Video.DataPath) / _T("Cascades") / FaceCascadeName).string();
 
 	auto BodyCascadeName = Video.FullBodyCascadeFilter + _T(".xml");
-	auto BodyCascade = (std::filesystem::path(Video.DataPath) / _T("Cascades") / BodyCascadeName).native();
+	auto BodyCascade = (std::filesystem::path(Video.DataPath) / _T("Cascades") / BodyCascadeName).string();
 
 	Camera.FaceCascadeFilter = FaceCascade;
 	Camera.FullBodyCascadeFilter = BodyCascade;
@@ -260,7 +260,7 @@ void WitnessServer::StartCamera(const SQLiteDatabaseQuery& query)
 
 	if (Camera.Enabled)
 	{
-		std::tcout << _T("Starting ") << Camera.Name << _T(" camera...") << std::endl;
+		std::cout << _T("Starting ") << Camera.Name << _T(" camera...") << std::endl;
 
 		auto Worker = std::make_shared<CameraWorker>(Video, Camera, Context->MessageBus, Context);
 		Worker->Start(WorkerBase::Priority::HighPriority);
@@ -272,7 +272,7 @@ void WitnessServer::StartCamera(const SQLiteDatabaseQuery& query)
 	}
 	else
 	{
-		std::tcout << _T("Skipping ") << Camera.Name << _T(" camera, it's disabled...") << std::endl;
+		std::cout << _T("Skipping ") << Camera.Name << _T(" camera, it's disabled...") << std::endl;
 	}
 }
 

@@ -23,7 +23,7 @@ void WitnessServer::HandleCameraBeginMotionMessage(const CameraBeginMotionMessag
 			}
 			else
 			{
-				std::tcerr << _T("Clip thumbnail is empty") << std::endl;
+				std::cerr << _T("Clip thumbnail is empty") << std::endl;
 			}
 			CameraName = CameraState->Name;
 			Worker = CameraState->Worker;
@@ -166,11 +166,11 @@ void WitnessServer::TriggerAction( const StringT& Command, const StringT& Param1
 	if (Command.compare(_T("PlaySound")) == 0)
 	{
 		std::async([=]() {
-			PlaySound( Param1.c_str(), nullptr, SND_FILENAME | SND_ASYNC );
+			PlaySoundA( Param1.c_str(), nullptr, SND_FILENAME | SND_ASYNC );
 		});
 	}
 	else
 	{
-		std::tcerr << _T("Unknown command: ") << Command << std::endl;
+		std::cerr << _T("Unknown command: ") << Command << std::endl;
 	}
 }

@@ -23,7 +23,7 @@ public:
 		m_statements.push_back( statement );
 	}
 
-	void Bind( const char* parameterName, const TCHAR* value );
+	void Bind( const char* parameterName, const char* value );
 	void Bind( const char* parameterName, double value );
 	void Bind( const char* parameterName, int value );
 	void Bind( const char* parameterName, int64_t value );
@@ -32,7 +32,7 @@ public:
 
 	int Execute( const std::function< bool(const SQLiteDatabaseQuery&) >& callback );
 
-	const wchar_t* GetColumnValueText( int column ) const;
+	const char* GetColumnValueText( int column ) const;
 	sqlite3_value* GetColumnValue( int column ) const;
 	const int GetColumnValueInt( int column ) const;
 	const int64_t GetColumnValueInt64( int column ) const;
@@ -89,7 +89,7 @@ private:
 class SQLiteDatabaseQueryInstance
 {
 public:
-	SQLiteDatabaseQueryInstance( const std::shared_ptr<SQLiteDatabase>& DB, const TCHAR* QueryName )
+	SQLiteDatabaseQueryInstance( const std::shared_ptr<SQLiteDatabase>& DB, const char* QueryName )
 	: m_Query( DB->GetQuery( QueryName ) )
 	, m_Lock( m_Query->PrepareQueryMutex() )
 	{
