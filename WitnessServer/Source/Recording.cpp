@@ -1,9 +1,6 @@
-#include "Listener.h"
 #include "Common.h"
 #include "Database.h"
-#include "Android/AndroidNotify.h"
-#include "Commands/Authenticate.h"
-#include "Commands/Clip.h"
+#include "ClipHelpers.h"
 #include "ObservingMotionFilter.h"
 #include "Witness.h"
 

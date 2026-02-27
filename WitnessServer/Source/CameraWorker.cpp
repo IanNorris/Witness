@@ -3,8 +3,6 @@
 #include "MotionVectorFilter.h"
 #include "ObservingMotionFilter.h"
 #include "PersonRecognitionFilter.h"
-#include "Azure/AzureVisionAnalysisEndpointFilter.h"
-#include "Commands/Clip.h"
 
 #include <chrono>
 #include <thread>
@@ -12,7 +10,7 @@
 void CameraWorker::CreateInputStream()
 {
 	InputStreamSetup Setup;
-	Setup.GetTimestamp = datetime::utc_timestamp;
+	Setup.GetTimestamp = GetUnixTimestamp;
 	Setup.MotionFilterFrameSkip = Camera.SkipFrames;
 	Setup.MotionDetectFrameHeight = Camera.MDFrameHeight;
 	Setup.MotionDetectThreshold = Camera.MDThreshold;
@@ -52,37 +50,12 @@ void CameraWorker::WorkerInit()
 	Observing.OnSuccess = Observer;
 	Observing.OnFailure = Observer;
 
-	bool AllowVision = false;
-	SettingsMap VisionSettings;
-	for (auto& Settings : Context->AzureSettings)
-	{
-		if (Settings.Name.compare(_T("vision")) == 0)
-		{
-			AllowVision = true;
-			VisionSettings = Settings;
-			break;
-		}
-	}
-
 	MotionChainNode MVF;
 	MVF.OnSuccess = Observer;
 	MVF.OnFailure = Observer;
 	MVF.MinimumThreshold = (float)Camera.MDThreshold;
 	MVF.InclusiveFilter = ClassificationResult::Motion_Motion;
 	MVF.ExclusiveFilter = 0;
-
-	MotionChainNode Azure;
-
-	if( AllowVision )
-	{
-		Azure.OnSuccess = Observer;
-		Azure.OnFailure = Observer;
-		Azure.InclusiveFilter = ClassificationResult::Motion_Motion;
-		Azure.ExclusiveFilter = 0;
-		Azure.MinimumThreshold = 0.0f;
-
-		MVF.OnSuccess = std::make_shared<AzureVisionAnalysisEndpointFilter>( Azure, VisionSettings );
-	}
 
 	std::shared_ptr<MotionVectorFilter> RootFilter = std::make_shared<MotionVectorFilter>( MVF, Camera.BlackoutMaskPath.c_str(), Camera.FocusMaskPath.c_str() );
 	
@@ -250,7 +223,7 @@ void CameraWorker::OnClipFinished(bool ManualStop)
 {
 	if (RecordStream)
 	{
-		Observer->SetManualClipEnd( datetime::utc_timestamp() );
+		Observer->SetManualClipEnd( GetUnixTimestamp() );
 
 		auto FinishedMessage = std::make_shared<CameraClipFinishedMessage>( Camera.ID, ManualStop );
 		FinishedMessage->Result = Observer->GetCurrentResult();

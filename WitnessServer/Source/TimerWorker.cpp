@@ -16,7 +16,7 @@ void TimerWorker::WorkerMain()
 		});
 	}
 
-	int64_t TimeNow = datetime::utc_timestamp();
+	int64_t TimeNow = GetUnixTimestamp();
 
 	{
 		std::lock_guard<std::mutex> Lock( Mutex );
@@ -28,7 +28,7 @@ void TimerWorker::WorkerMain()
 			{
 				Trigger.Callback();
 
-				TimeNow = datetime::utc_timestamp();
+				TimeNow = GetUnixTimestamp();
 
 				Trigger.LastTrigger = TimeNow;
 			}

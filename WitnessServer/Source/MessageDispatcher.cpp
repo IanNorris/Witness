@@ -1,12 +1,10 @@
-#include "Listener.h"
 #include "Common.h"
 #include "Database.h"
-#include "Android/AndroidNotify.h"
-#include "Commands/Authenticate.h"
 #include "ObservingMotionFilter.h"
 #include "Witness.h"
 
 #include <functional>
+#include <chrono>
 #include <windows.h>
 
 #define MakeLambda( Name ) auto LambdaHandle##Name = std::bind( &WitnessServer::Handle##Name, this, std::placeholders::_1 )
@@ -69,7 +67,7 @@ void WitnessServer::MessageLoop( bool& ContinueRunning )
 			{
 				if( Data.Record )
 				{
-				    uint64_t Timestamp = datetime::utc_timestamp();
+				    uint64_t Timestamp = GetUnixTimestamp();
 
 					StartCameraRecording( Worker, Timestamp, Data.Camera, true, ClassificationResult() );
 				}

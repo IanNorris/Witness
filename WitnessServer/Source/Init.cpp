@@ -1,13 +1,10 @@
 #include "Common.h"
 #include "Witness.h"
 #include "CrowListener.h"
-#include "Commands/Authenticate.h"
-#include "Commands/Clip.h"
+#include "AuthHelpers.h"
+#include "ClipHelpers.h"
 #include "Database.h"
 
-using namespace web::json;
-using namespace web::http::client;
-using namespace utility;
 
 #include <filesystem>
 #ifdef _WIN32
@@ -63,8 +60,6 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 		}
 	);
 
-	LoadAndroidSettings(Settings);
-
 	//Process video settings
 	Video.MotionFilterName = _T("BGS_LBMixtureOfGaussians");
 	
@@ -94,33 +89,6 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 
 	Context = Server->GetGlobalContext();
 	Context->CachePath = CachePath;
-
-	/*if( JsonConfig.has_object_field(L"azure") )
-	{
-		auto AzureRoot = JsonConfig.at(L"azure").as_object();
-		for( auto Iter = AzureRoot.cbegin(); Iter != AzureRoot.cend(); ++Iter )
-		{
-			if( (*Iter).second.is_object() )
-			{
-				Context->AzureSettings.push_back(SettingsMap());
-				auto& Settings = Context->AzureSettings.back();
-
-				Settings.Name = (*Iter).first;
-				auto Child = (*Iter).second.as_object();
-
-				for( auto ChildIter = Child.cbegin(); ChildIter != Child.cend(); ++ChildIter )
-				{
-					if( (*ChildIter).second.is_string() )
-					{
-						auto& ChildValue = (*ChildIter).second.as_string();
-
-						auto& KVP = Settings.Settings[ (*ChildIter).first ] = ChildValue;
-					}
-				}
-			}
-		}
-	}*/
-
 
 	if( !InitializeContext(Database) )
 	{
@@ -152,18 +120,18 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 
 	const int DaysToDelete = 10;
 
-	Command_Clip::DeleteOldClips( *Context, DaysToDelete );
+	DeleteOldClips( *Context, DaysToDelete );
 	Timer->AddTimer( [&](){
-		Command_Clip::DeleteOldClips( *Context, DaysToDelete );
+		DeleteOldClips( *Context, DaysToDelete );
 	}, 5 * 60 );
 
 	try
 	{
 		Server->Start();
 	}
-	catch( http::http_exception Exception)
+	catch( std::exception& Exception)
 	{
-		std::tcerr << U("Unable to start server: ") << Exception.what() << std::endl;
+		std::tcerr << _T("Unable to start server: ") << Exception.what() << std::endl;
 		return 1;
 	}
 
@@ -174,16 +142,6 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 	std::tcout << _T("Server boot complete...") << std::endl;
 
 	return true;
-}
-
-void WitnessServer::LoadAndroidSettings( const std::unordered_map< StringT, StringT >& Settings )
-{
-	bool Success = true;
-	StringT Errors;
-
-	Success &= GetSettingsField( Settings, _T("fcm_server_key"), Android.ServerKey, Errors );
-	Success &= GetSettingsField( Settings, _T("fcm_user"), Android.TempUserId, Errors );
-	Android.UseAndroid = Success;
 }
 
 bool WitnessServer::CreateListener( const std::unordered_map< StringT, StringT >& Settings )

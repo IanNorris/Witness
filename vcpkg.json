@@ -2,7 +2,6 @@
   "name": "witness",
   "version-string": "1.0.0",
   "dependencies": [
-    "cpprestsdk",
     "crow",
     {
       "name": "ffmpeg",

@@ -2,7 +2,7 @@
 #include "CrowAuth.h"
 #include "CameraWorker.h"
 #include "Messages.h"
-#include "Commands/Authenticate.h"
+#include "AuthHelpers.h"
 
 #include <filesystem>
 #include <fstream>

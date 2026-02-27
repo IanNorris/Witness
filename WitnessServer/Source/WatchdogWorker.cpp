@@ -15,7 +15,7 @@ void WatchdogWorker::WorkerMain()
 		});
 	}
 
-	int64_t TimeNow = datetime::utc_timestamp();
+	int64_t TimeNow = GetUnixTimestamp();
 	const int64_t WatchdogTime = 5;
 
 	{

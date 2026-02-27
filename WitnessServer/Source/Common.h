@@ -7,8 +7,11 @@
 #include <locale>
 #include <codecvt>
 #include <string>
-
-#include "cpprest/json.h"
+#include <vector>
+#include <unordered_map>
+#include <algorithm>
+#include <chrono>
+#include <sstream>
 
 #if !defined(_WINDOWS)
 #include <sys/stat.h>
@@ -29,14 +32,25 @@
 #define tstricmp stricmp
 #endif
 
-using namespace web;
-using namespace utility;
+// String types - currently wide strings (legacy from CppREST SDK).
+// TODO: Migrate to std::string in Phase 2 Step 9.
+#if defined(UNICODE) || defined(_UNICODE)
+using StringT = std::wstring;
+using CharT = wchar_t;
+using StringStreamT = std::wstringstream;
+#define U(x) _T(x)
+#else
+using StringT = std::string;
+using CharT = char;
+using StringStreamT = std::stringstream;
+#define U(x) x
+#endif
 
-// Our own string types - currently wide strings to match CppREST SDK.
-// When CppREST is replaced, change these to std::string/char/std::stringstream.
-using StringT = utility::string_t;
-using CharT = utility::char_t;
-using StringStreamT = utility::stringstream_t;
+inline uint64_t GetUnixTimestamp()
+{
+	return static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(
+		std::chrono::system_clock::now().time_since_epoch() ).count());
+}
 
 void SetStdinEcho( bool Enable );
 std::string ReadFileToString( StringT Filename );
@@ -71,9 +85,6 @@ std::wstring StringPrintfW(const wchar_t* Message, ...);
 #endif
 
 template<typename T>
-bool GetSettingsField( const std::unordered_map< StringT, StringT >& Settings, const TCHAR* FieldName, T& ValueOut, utility::string_t& Errors );
-
-template<typename T>
-bool GetJsonField(const web::json::value& Object, const TCHAR* FieldName, T& ValueOut, utility::string_t& Errors);
+bool GetSettingsField( const std::unordered_map< StringT, StringT >& Settings, const TCHAR* FieldName, T& ValueOut, StringT& Errors );
 
 std::string StringToAnsi(const std::wstring& wstr);
