@@ -8,11 +8,11 @@ namespace Installer
 {
 	public enum CertificateMode
 	{
-		[Description("Let's Encrypt with port 80 forwarded to this device (Recommended)")]
-		LetsEncryptAuto,
-		[Description("Let's Encrypt with manual setup")]
-		LetsEncryptManual,
-		[Description("Manual certificate management")]
+		[Description("Self-signed certificate (development/testing)")]
+		SelfSigned,
+		[Description("Let's Encrypt via certbot (Recommended)")]
+		LetsEncrypt,
+		[Description("Manual certificate (provide PEM cert and key files)")]
 		Manual,
 		[Description("No security")]
 		NoSecurity
@@ -46,10 +46,16 @@ namespace Installer
 		public string Hostname { get; set; } = null;
 
 		[SettingName("server_tls_mode")]
-		public CertificateMode TlsMode { get; set; } = CertificateMode.LetsEncryptAuto;
+		public CertificateMode TlsMode { get; set; } = CertificateMode.LetsEncrypt;
 
 		[SettingName("server_tls_contact")]
 		public string TlsContact { get; set; } = null;
+
+		[SettingName("server_tls_cert")]
+		public string TlsCertPath { get; set; } = null;
+
+		[SettingName("server_tls_key")]
+		public string TlsKeyPath { get; set; } = null;
 
 		[SettingName("server_root")]
 		public string WebRoot { get; set; } = null;

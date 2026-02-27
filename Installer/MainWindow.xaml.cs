@@ -107,10 +107,17 @@ namespace Installer
 			string CurrentUser = Permissions.GetCurrentUser();
 			string Username = Setup.StartupMode == Installer.StartupMode.Service ? "NT AUTHORITY\\NetworkService" : CurrentUser;
 
-			bool IsOk = Tls.Configure( SettingsPublisher.GetRootSettingsPath( true ), Setup.Hostname, Setup.TlsContact, Setup.TlsMode, Username);
+			string certPath = Setup.TlsCertPath;
+			string keyPath = Setup.TlsKeyPath;
+
+			bool IsOk = Tls.Configure( SettingsPublisher.GetRootSettingsPath( true ), Setup.Hostname, Setup.TlsContact, Setup.TlsMode, Username,
+				out certPath, out keyPath);
 			
 			if(IsOk)
 			{
+				if (certPath != null) Setup.TlsCertPath = certPath;
+				if (keyPath != null) Setup.TlsKeyPath = keyPath;
+
 				MessageBox.Show($"Successfully configured!");
 				RemoteAccess.CanSelectNextPage = true;
 			}
@@ -119,6 +126,22 @@ namespace Installer
 		private void TlsModeCombo_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
 		{
 			RemoteAccess.CanSelectNextPage = false;
+
+			// Show/hide fields based on selected TLS mode
+			if (TlsContactLabel == null) return; // Not yet initialized
+
+			var selectedItem = TlsModeCombo.SelectedItem as System.Windows.Controls.ComboBoxItem;
+			var tag = selectedItem?.Tag?.ToString();
+
+			bool showEmail = (tag == "LetsEncrypt");
+			bool showCertFields = (tag == "Manual");
+
+			TlsContactLabel.Visibility = showEmail ? Visibility.Visible : Visibility.Collapsed;
+			TlsContactBox.Visibility = showEmail ? Visibility.Visible : Visibility.Collapsed;
+			TlsCertLabel.Visibility = showCertFields ? Visibility.Visible : Visibility.Collapsed;
+			TlsCertBox.Visibility = showCertFields ? Visibility.Visible : Visibility.Collapsed;
+			TlsKeyLabel.Visibility = showCertFields ? Visibility.Visible : Visibility.Collapsed;
+			TlsKeyBox.Visibility = showCertFields ? Visibility.Visible : Visibility.Collapsed;
 		}
 
 		private void LoginField_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)

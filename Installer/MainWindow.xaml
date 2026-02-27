@@ -82,9 +82,10 @@
                 </Grid>
             </xctk:WizardPage>
 
-            <xctk:WizardPage x:Name="RemoteAccess" NextPage="{Binding ElementName=Cameras}" Title="Configure web portal" Description="Set up the web portal for Witness. You will need to open the port you select on your router. If you select Let's Encrypt TLS, you will also need to forward port 80." CanHelp="False">
+            <xctk:WizardPage x:Name="RemoteAccess" NextPage="{Binding ElementName=Cameras}" Title="Configure web portal" Description="Set up the web portal for Witness. For Let's Encrypt, you will need port 80 forwarded to this device." CanHelp="False">
                 <Grid>
                     <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
@@ -102,16 +103,22 @@
 
                     <Label Margin="10 20 10 20" HorizontalAlignment="Right" Grid.Row="1" Grid.Column="0">TLS Certificate</Label>
                     <ComboBox Name="TlsModeCombo" Margin="10 20 10 20" Grid.Row="1" Grid.Column="1" SelectedValue="{Binding TlsMode}" SelectedValuePath="Tag" SelectionChanged="TlsModeCombo_SelectionChanged">
-                        <ComboBoxItem Tag="LetsEncryptAuto">Let's Encrypt with port 80 forwarded to this device (Recommended)</ComboBoxItem>
-                        <ComboBoxItem Tag="LetsEncryptManual">Let's Encrypt with manual setup</ComboBoxItem>
-                        <ComboBoxItem Tag="Manual">Manual certificate management</ComboBoxItem>
+                        <ComboBoxItem Tag="SelfSigned">Self-signed certificate (development/testing)</ComboBoxItem>
+                        <ComboBoxItem Tag="LetsEncrypt">Let's Encrypt via certbot (Recommended)</ComboBoxItem>
+                        <ComboBoxItem Tag="Manual">Manual certificate (provide PEM files)</ComboBoxItem>
                         <ComboBoxItem Tag="NoSecurity">No security</ComboBoxItem>
                     </ComboBox>
 
-                    <Label Margin="10 20 10 20" HorizontalAlignment="Right" Grid.Row="2" Grid.Column="0">Certificate E-mail</Label>
-                    <xctk:WatermarkTextBox Margin="10 20 10 20" Grid.Row="2" Grid.Column="1" Watermark="john@myhome.com" Text="{Binding TlsContact}"></xctk:WatermarkTextBox>
+                    <Label Name="TlsContactLabel" Margin="10 20 10 20" HorizontalAlignment="Right" Grid.Row="2" Grid.Column="0">Certificate E-mail</Label>
+                    <xctk:WatermarkTextBox Name="TlsContactBox" Margin="10 20 10 20" Grid.Row="2" Grid.Column="1" Watermark="john@myhome.com" Text="{Binding TlsContact}"></xctk:WatermarkTextBox>
 
-                    <Button Name="OnConfigureRemoteAccess" Margin="10 20 10 20" HorizontalAlignment="Left" Grid.Row="3" Grid.Column="0" Padding="8 2 8 2" Click="OnConfigureRemoteAccess_Click">Configure</Button>
+                    <Label Name="TlsCertLabel" Margin="10 10 10 10" HorizontalAlignment="Right" Grid.Row="3" Grid.Column="0" Visibility="Collapsed">Certificate PEM</Label>
+                    <xctk:WatermarkTextBox Name="TlsCertBox" Margin="10 10 10 10" Grid.Row="3" Grid.Column="1" Watermark="C:\path\to\cert.pem" Text="{Binding TlsCertPath}" Visibility="Collapsed"></xctk:WatermarkTextBox>
+
+                    <Label Name="TlsKeyLabel" Margin="10 10 10 10" HorizontalAlignment="Right" Grid.Row="4" Grid.Column="0" Visibility="Collapsed">Private Key PEM</Label>
+                    <xctk:WatermarkTextBox Name="TlsKeyBox" Margin="10 10 10 10" Grid.Row="4" Grid.Column="1" Watermark="C:\path\to\key.pem" Text="{Binding TlsKeyPath}" Visibility="Collapsed"></xctk:WatermarkTextBox>
+
+                    <Button Name="OnConfigureRemoteAccess" Margin="10 20 10 20" HorizontalAlignment="Left" Grid.Row="5" Grid.Column="0" Padding="8 2 8 2" Click="OnConfigureRemoteAccess_Click">Configure</Button>
                 </Grid>
             </xctk:WizardPage>
 
