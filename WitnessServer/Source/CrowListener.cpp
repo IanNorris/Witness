@@ -83,6 +83,8 @@ void CrowListener::Initialise( const std::unordered_map< StringT, StringT >& Set
 		std::cerr << "Static file scan error: " << ec.message() << std::endl;
 	}
 
+	std::cout << "Static root: " << m_StaticRoot << " (" << m_StaticFiles.size() << " files)" << std::endl;
+
 	RegisterRoutes();
 }
 
@@ -178,49 +180,49 @@ void CrowListener::RegisterRoutes()
 		HandleAuthLogout( req, res );
 	});
 
-	CROW_ROUTE( m_App, "/auth/getProfile" ).methods( crow::HTTPMethod::POST )
+	CROW_ROUTE( m_App, "/auth/profile" ).methods( crow::HTTPMethod::POST )
 	([this]( const crow::request& req, crow::response& res )
 	{
 		HandleAuthGetProfile( req, res );
 	});
 
-	CROW_ROUTE( m_App, "/auth/enumUsers" ).methods( crow::HTTPMethod::POST )
+	CROW_ROUTE( m_App, "/auth/admin_enum" )
 	([this]( const crow::request& req, crow::response& res )
 	{
 		HandleAuthEnumUsers( req, res );
 	});
 
-	CROW_ROUTE( m_App, "/auth/newUser" ).methods( crow::HTTPMethod::POST )
+	CROW_ROUTE( m_App, "/auth/new_user" ).methods( crow::HTTPMethod::POST )
 	([this]( const crow::request& req, crow::response& res )
 	{
 		HandleAuthNewUser( req, res );
 	});
 
-	CROW_ROUTE( m_App, "/auth/changePassword" ).methods( crow::HTTPMethod::POST )
+	CROW_ROUTE( m_App, "/auth/change_password" ).methods( crow::HTTPMethod::POST )
 	([this]( const crow::request& req, crow::response& res )
 	{
 		HandleAuthChangePassword( req, res );
 	});
 
-	CROW_ROUTE( m_App, "/auth/toggleEnabled" ).methods( crow::HTTPMethod::POST )
+	CROW_ROUTE( m_App, "/auth/toggle_enabled" ).methods( crow::HTTPMethod::POST )
 	([this]( const crow::request& req, crow::response& res )
 	{
 		HandleAuthToggleEnabled( req, res );
 	});
 
-	CROW_ROUTE( m_App, "/auth/toggleAdmin" ).methods( crow::HTTPMethod::POST )
+	CROW_ROUTE( m_App, "/auth/toggle_admin" ).methods( crow::HTTPMethod::POST )
 	([this]( const crow::request& req, crow::response& res )
 	{
 		HandleAuthToggleAdmin( req, res );
 	});
 
-	CROW_ROUTE( m_App, "/auth/setDisplayName" ).methods( crow::HTTPMethod::POST )
+	CROW_ROUTE( m_App, "/auth/set_display_name" ).methods( crow::HTTPMethod::POST )
 	([this]( const crow::request& req, crow::response& res )
 	{
 		HandleAuthSetDisplayName( req, res );
 	});
 
-	CROW_ROUTE( m_App, "/auth/setUserGroups" ).methods( crow::HTTPMethod::POST )
+	CROW_ROUTE( m_App, "/auth/set_user_groups" ).methods( crow::HTTPMethod::POST )
 	([this]( const crow::request& req, crow::response& res )
 	{
 		HandleAuthSetUserGroups( req, res );
@@ -303,21 +305,37 @@ void CrowListener::RegisterRoutes()
 
 	// Catch-all route for static files (lowest priority)
 	CROW_CATCHALL_ROUTE( m_App )
+	([this]( crow::response& res )
+	{
+		res.code = 404;
+	});
+
+	// Static file routes
+	CROW_ROUTE( m_App, "/" )
 	([this]( const crow::request& req, crow::response& res )
 	{
-		std::string path = req.url;
+		ServeStaticFile( req, res, "" );
+		res.end();
+	});
 
-		// Strip leading slash
-		if( !path.empty() && path[0] == '/' )
-			path = path.substr(1);
-
+	CROW_ROUTE( m_App, "/<path>" )
+	([this]( const crow::request& req, crow::response& res, const std::string& path )
+	{
 		ServeStaticFile( req, res, path );
+		res.end();
 	});
 }
 
 void CrowListener::ServeStaticFile( const crow::request& req, crow::response& res, const std::string& path )
 {
-	std::string lookup = path.empty() ? "index.html" : path;
+	std::string lookup = path;
+
+	// Strip trailing slash
+	while( !lookup.empty() && lookup.back() == '/' )
+		lookup.pop_back();
+
+	if( lookup.empty() )
+		lookup = "index.html";
 
 	for( int pass = 0; pass < 2; pass++ )
 	{
@@ -347,7 +365,6 @@ void CrowListener::ServeStaticFile( const crow::request& req, crow::response& re
 
 				res.body = std::move( body );
 				res.code = 200;
-				res.end();
 				return;
 			}
 		}
@@ -359,7 +376,6 @@ void CrowListener::ServeStaticFile( const crow::request& req, crow::response& re
 	}
 
 	res.code = 404;
-	res.end();
 }
 
 void CrowListener::HandlePreview( const crow::request& req, crow::response& res, int cameraId, bool largePreview )
@@ -1292,15 +1308,7 @@ void CrowListener::HandleAuthGetProfile( const crow::request& req, crow::respons
 
 void CrowListener::HandleAuthEnumUsers( const crow::request& req, crow::response& res )
 {
-	auto body = crow::json::load( req.body );
-	if( !body )
-	{
-		res.code = 400;
-		res.end();
-		return;
-	}
-
-	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, &body,
+	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, nullptr,
 		CrowAuth::Action::Read, CrowAuth::Privilege::Administrator );
 	if( UserUID < 0 )
 	{
