@@ -2,12 +2,10 @@
 
 #include "Message.h"
 #include "SQLite.h"
-#include "cpprest/json.h"
 #include "CameraState.h"
 #include "CameraWorker.h"
 #include "SettingsMap.h"
 #include "LongPoll.h"
-#include "Azure/AzureVisionAnalysisEndpointFilter.h"
 
 struct CameraStateToggleRecordMessage : public Message
 {
@@ -74,11 +72,7 @@ public:
 
 	Witness::Camera::ImageProcessingJobQueue* CommonImageProcessingJobQueue;
 
-	std::vector<SettingsMap> AzureSettings;
-
 	std::shared_ptr<MessageBus> MessageBus;
-
-	std::shared_ptr<AzureVisionAnalysisEndpointFilter> AzureVisionEndpoint;
 
 	uint16_t Port;
 

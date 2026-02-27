@@ -21,6 +21,7 @@ var makeToast = function(message, messageType ) {
 }
 
 var makeQuery = function( postData, queryString, redirectOnFail, messageOnFail, onSuccess, onAlways ) {
+	queryString = queryString.replace( /\/+$/, '' );
 	var queryType = postData ? 'POST' : 'GET';
 	
 	var queryData = postData != null ? {

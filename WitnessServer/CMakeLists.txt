@@ -1,27 +1,26 @@
-find_package(cpprestsdk CONFIG REQUIRED)
+find_package(Crow CONFIG REQUIRED)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs videoio objdetect)
 find_package(unofficial-sodium CONFIG REQUIRED)
 find_package(unofficial-sqlite3 CONFIG REQUIRED)
 
 set(SERVER_SOURCES
-    Source/Android/AndroidNotify.cpp
     Source/AsyncWorker.cpp
-    Source/Azure/AzureEndpoint.cpp
-    Source/Azure/AzureVisionAnalysisEndpointFilter.cpp
+    Source/AuthHelpers.cpp
+    Source/ClipHelpers.cpp
+    Source/CrowAuth.cpp
+    Source/CrowListener.cpp
+    Source/CrowRoutes_Auth.cpp
+    Source/CrowRoutes_Camera.cpp
+    Source/CrowRoutes_Clip.cpp
+    Source/CrowRoutes_Debug.cpp
+    Source/CrowRoutes_Group.cpp
+    Source/CrowRoutes_Stream.cpp
     Source/CameraWorker.cpp
-    Source/Commands/Authenticate.cpp
-    Source/Commands/Camera.cpp
-    Source/Commands/Clip.cpp
-    Source/Commands/Debug.cpp
-    Source/Commands/Group.cpp
-    Source/Commands/Static.cpp
-    Source/Commands/Stream.cpp
     Source/Common.cpp
     Source/Database.cpp
     Source/ImageProcessorWorker.cpp
     Source/Init.cpp
     Source/JsonHelpers.cpp
-    Source/Listener.cpp
     Source/Main.cpp
     Source/MessageBus.cpp
     Source/MessageDispatcher.cpp
@@ -37,25 +36,17 @@ set(SERVER_SOURCES
 )
 
 set(SERVER_HEADERS
-    Source/Android/AndroidNotify.h
     Source/AsyncWorker.h
-    Source/Azure/AzureEndpoint.h
-    Source/Azure/AzureVisionAnalysisEndpointFilter.h
+    Source/AuthHelpers.h
     Source/CameraState.h
     Source/CameraWorker.h
-    Source/Commands/Authenticate.h
-    Source/Commands/Camera.h
-    Source/Commands/Clip.h
-    Source/Commands/Debug.h
-    Source/Commands/Group.h
-    Source/Commands/Static.h
-    Source/Commands/Stream.h
+    Source/ClipHelpers.h
     Source/Common.h
+    Source/CrowAuth.h
+    Source/CrowListener.h
     Source/Database.h
     Source/GlobalContext.h
     Source/ImageProcessorWorker.h
-    Source/Listener.h
-    Source/ListenerCommand.h
     Source/LongPoll.h
     Source/Message.h
     Source/MessageBus.h
@@ -91,7 +82,7 @@ endif()
 
 target_link_libraries(WitnessServer PRIVATE
     WitnessCamera
-    cpprestsdk::cpprest
+    Crow::Crow
     ${OpenCV_LIBS}
     unofficial-sodium::sodium
     unofficial::sqlite3::sqlite3

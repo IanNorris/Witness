@@ -1,11 +1,11 @@
 #include "Witness.h"
 #include "CameraWorker.h"
 #include "GlobalContext.h"
-#include "Listener.h"
-#include "Android/AndroidNotify.h"
-#include <windows.h>
+#include "CrowListener.h"
 
 #include <future>
+#include <windows.h>
+#include <mmsystem.h>
 #pragma comment(lib, "Winmm.lib")
 
 void WitnessServer::HandleCameraBeginMotionMessage(const CameraBeginMotionMessage& Data)
@@ -41,11 +41,6 @@ void WitnessServer::HandleCameraBeginMotionMessage(const CameraBeginMotionMessag
 		}
 	}
 
-    StringStreamT ThumbPath;
-    ThumbPath << Server->GetBaseUri() << _T("clip/thumb/") << Data.Camera << _T("/") << Data.ClipStats.TimestampClipStarted;
-						
-	SendAndroidNotification( Android.ServerKey, Android.TempUserId, _T("Camera info"), CameraName, ThumbPath.str(), nullptr );
-						
 	StartCameraRecording( Worker, Data.ClipStats.TimestampClipStarted, Data.Camera, false, Data.Result );
 };
 

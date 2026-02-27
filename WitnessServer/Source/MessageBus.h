@@ -3,10 +3,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <vector>
-#include "cpprest/json.h"
 #include "Message.h"
-
-using namespace web;
 
 class MessageBusQueue
 {

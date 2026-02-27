@@ -1,12 +1,9 @@
 #pragma once
 
-#include "cpprest/details/basic_types.h"
 #include "GlobalContext.h"
 #include "Message.h"
 #include <vector>
 #include <stdint.h>
-
-using namespace utility;
 
 struct ClipStatistics
 {

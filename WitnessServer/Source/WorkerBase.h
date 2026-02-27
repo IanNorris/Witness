@@ -1,6 +1,7 @@
 #pragma once
 
 #include <thread>
+#include <chrono>
 
 #include "Common.h"
 
@@ -71,7 +72,8 @@ protected:
 
 	void UpdateLastTimedAction( const TCHAR* NewAction )
 	{
-		LastTimedAction.store( AtomicTimedActionData{ datetime::utc_timestamp(), NewAction } );
+		LastTimedAction.store( AtomicTimedActionData{ static_cast<uint64_t>(std::chrono::duration_cast<std::chrono::seconds>(
+			std::chrono::system_clock::now().time_since_epoch() ).count()), NewAction } );
 	}
 
 private:

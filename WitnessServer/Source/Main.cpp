@@ -1,14 +1,13 @@
-#include "Listener.h"
+#include "CrowListener.h"
 #include "Common.h"
 #include "Database.h"
-#include "Android/AndroidNotify.h"
-#include "Commands/Authenticate.h"
 #include "sodium.h"
 #include "ObservingMotionFilter.h"
 #include "Witness.h"
 #include <Stream.h>
 
 #include <windows.h>
+#include <mmsystem.h>
 #include <minmax.h>
 #include <chrono>
 #include <thread>
@@ -21,10 +20,6 @@
 #define SERVICE_PASSWORD L""
 
 bool ContinueRunning = true;
-
-using namespace web::json;
-using namespace web::http::client;
-using namespace utility;
 
 std::filesystem::path GetConfigFilePath(StringT Filename);
 

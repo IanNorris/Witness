@@ -10,22 +10,11 @@
 #include "CameraState.h"
 #include <ImageProcessingJob.h>
 
-class WitnessListener;
+class CrowListener;
 class GlobalContext;
 struct CameraState;
 class MessageBusQueue;
 struct ClipStatistics;
-
-struct AndroidSettings
-{
-	AndroidSettings()
-	: UseAndroid(false)
-	{}
-
-	StringT	ServerKey;
-	StringT	TempUserId;
-	bool		UseAndroid;
-};
 
 class WitnessServer
 {
@@ -50,7 +39,6 @@ private:
 	void HandleCameraUpdateMotionMessage(const CameraUpdateMotionMessage& Data);
 	void HandleCameraEndMotionMessage(const CameraEndMotionMessage& Data);
 
-	void LoadAndroidSettings( const std::unordered_map< StringT, StringT >& Settings );
 	bool CreateListener( const std::unordered_map< StringT, StringT >& Settings );
 	bool CreateProcessors( const std::unordered_map< StringT, StringT >& Settings );
 	bool InitializeContext( const std::shared_ptr<SQLiteDatabase>& Database );
@@ -68,7 +56,7 @@ private:
 	std::unique_ptr<AsyncWorker> Worker;
 	std::unique_ptr<WatchdogWorker> Watchdog;
 	std::unique_ptr<TimerWorker> Timer;
-	std::unique_ptr<WitnessListener>	Server;
+	std::unique_ptr<CrowListener>	Server;
 	std::shared_ptr<GlobalContext> Context;
 	std::shared_ptr<MessageBusQueue> MessageClient;
 
@@ -78,7 +66,6 @@ private:
 
 	Witness::Camera::ImageProcessingJobQueue CommonImageProcessingJobQueue;
 
-	AndroidSettings	Android;
 	VideoSettings Video;
 
 	StringT CachePath;

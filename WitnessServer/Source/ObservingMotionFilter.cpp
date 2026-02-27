@@ -67,7 +67,7 @@ bool ObservingMotionFilter::ProcessFrame( SharedClassificationTask TaskData )
 
 	FilterFrameStatScope Scope( TaskData->Frame.Stats, FilterStat_ObserverFilter );
 	
-	uint64_t TimestampNow = datetime::utc_timestamp();
+	uint64_t TimestampNow = GetUnixTimestamp();
 
 	if (TaskData->Result.ClassificationSuperset )
 	{
