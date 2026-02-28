@@ -313,3 +313,6 @@ vcpkg_installed
 build/
 out/
 CMakeSettings.json
+
+# ONNX model weights (download via scripts/download-models.py)
+models/*.onnx

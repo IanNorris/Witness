@@ -1,12 +1,17 @@
 find_package(FFMPEG REQUIRED)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs videoio objdetect video)
 
+# ONNX Runtime (onnxruntime-gpu vcpkg port installs raw headers/libs, no CMake config)
+find_path(ONNXRUNTIME_INCLUDE_DIR onnxruntime_cxx_api.h)
+find_library(ONNXRUNTIME_LIB onnxruntime)
+
 set(CAMERA_SOURCES
     Source/DebugBind.cpp
     Source/FilterFrame.cpp
     Source/InMemoryIOContext.cpp
     Source/LiveOutputStream.cpp
     Source/MotionVectorFilter.cpp
+    Source/ONNXDetectionFilter.cpp
     Source/PersonRecognitionFilter.cpp
     Source/FFMPEG/Frame.cpp
     Source/ImageProcessingJobQueue.cpp
@@ -26,6 +31,7 @@ set(CAMERA_HEADERS
     Include/LiveOutputStream.h
     Include/MotionFilter.h
     Include/MotionVectorFilter.h
+    Include/ONNXDetectionFilter.h
     Include/OutputStream.h
     Include/PersonRecognitionFilter.h
     Include/Pimpl.h
@@ -46,6 +52,7 @@ target_include_directories(WitnessCamera
     PUBLIC  Include
     PRIVATE Source
             ${FFMPEG_INCLUDE_DIRS}
+            ${ONNXRUNTIME_INCLUDE_DIR}
 )
 
 target_compile_definitions(WitnessCamera PRIVATE WITNESSCAMERA_EXPORTS)
@@ -61,4 +68,5 @@ target_link_libraries(WitnessCamera
     PRIVATE
         ${FFMPEG_LIBRARIES}
         ${OpenCV_LIBS}
+        ${ONNXRUNTIME_LIB}
 )
