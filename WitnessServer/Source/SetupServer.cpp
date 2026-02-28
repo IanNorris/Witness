@@ -1,4 +1,5 @@
 #include "SetupServer.h"
+#include "SetupConfig.h"
 #include "AuthHelpers.h"
 #include "Common.h"
 
@@ -199,10 +200,6 @@ void SetupServer::HandleApply( const crow::request& req, crow::response& res )
 		return;
 	}
 
-	// Normalize username to lowercase
-	std::string usernameLC = username;
-	std::transform( usernameLC.begin(), usernameLC.end(), usernameLC.begin(), ::tolower );
-
 	// Check no users exist yet (prevent race)
 	bool hasUsers = true;
 	{
@@ -223,27 +220,51 @@ void SetupServer::HandleApply( const crow::request& req, crow::response& res )
 		return;
 	}
 
-	// Hash password and create admin user
-	std::string hash = GetHashedPasswordKey_Algorithm0( usernameLC, password );
+	// Build config from request
+	SetupConfig config;
+	config.Username = username;
+	config.Password = password;
 
+	if( body.has( "hostname" ) )    config.Hostname    = body["hostname"].s();
+	if( body.has( "cache_path" ) )  config.CachePath   = body["cache_path"].s();
+	if( body.has( "tls_mode" ) )    config.TlsMode     = body["tls_mode"].s();
+	if( body.has( "tls_cert" ) )    config.TlsCertPath = body["tls_cert"].s();
+	if( body.has( "tls_key" ) )     config.TlsKeyPath  = body["tls_key"].s();
+	if( body.has( "tls_contact" ) ) config.TlsContact  = body["tls_contact"].s();
+
+	// Set web root to current static root
+	config.WebRoot = m_StaticRoot;
+
+	// Generate self-signed cert if requested
+	if( config.TlsMode == "SelfSigned" )
 	{
-		SQLiteDatabaseQueryInstance createUser( m_Database, "CreateUser" );
-		createUser->Bind( "@Username", usernameLC.c_str() );
-		createUser->Bind( "@DisplayName", username.c_str() );
-		createUser->Bind( "@PasswordHash", hash.c_str() );
-		createUser->Bind( "@HashMethod", 0 );
-		createUser->Bind( "@Enabled", 1 );
-		createUser->Bind( "@Admin", 1 );
-		createUser->Execute( nullptr );
+		if( !GenerateSelfSignedCert( config ) )
+		{
+			res.code = 500;
+			res.body = R"({"error":"Failed to generate self-signed certificate"})";
+			res.set_header( "Content-Type", "application/json" );
+			res.end();
+			return;
+		}
 	}
 
-	std::cout << "Setup: Admin user '" << username << "' created successfully." << std::endl;
+	// Apply to database
+	if( !config.ApplyToDatabase( m_Database ) )
+	{
+		res.code = 500;
+		res.body = R"({"error":"Failed to apply settings"})";
+		res.set_header( "Content-Type", "application/json" );
+		res.end();
+		return;
+	}
+
+	std::cout << "Setup: Configuration applied successfully." << std::endl;
 
 	m_SetupComplete = true;
 
 	crow::json::wvalue result;
 	result["success"] = true;
-	result["message"] = "Admin account created. The server will now restart in production mode.";
+	result["message"] = "Setup complete. The server will now restart in production mode.";
 
 	res.set_header( "Content-Type", "application/json" );
 	res.body = result.dump();
@@ -284,4 +305,82 @@ bool SetupServer::Run()
 	m_App.multithreaded().run();
 
 	return m_SetupComplete;
+}
+
+bool SetupServer::GenerateSelfSignedCert( SetupConfig& config )
+{
+	// Find openssl.exe next to the server executable
+	fs::path exePath;
+#ifdef _WIN32
+	wchar_t exeBuf[MAX_PATH] = {};
+	GetModuleFileNameW( nullptr, exeBuf, MAX_PATH );
+	exePath = fs::path( exeBuf ).parent_path();
+#else
+	exePath = fs::canonical( "/proc/self/exe" ).parent_path();
+#endif
+
+	fs::path opensslExe = exePath / "openssl.exe";
+	if( !fs::exists( opensslExe ) )
+	{
+		// Try system PATH
+		opensslExe = "openssl";
+	}
+
+	// Extract hostname (strip port)
+	std::string hostname = config.Hostname;
+	auto colonPos = hostname.find( ':' );
+	if( colonPos != std::string::npos )
+		hostname = hostname.substr( 0, colonPos );
+	if( hostname.empty() )
+		hostname = "localhost";
+
+	// Output paths in ProgramData/Witness
+	fs::path certDir = exePath;
+#ifdef _WIN32
+	char programData[MAX_PATH] = {};
+	size_t reqSize = MAX_PATH;
+	if( getenv_s( &reqSize, programData, MAX_PATH, "ProgramData" ) == 0 && reqSize > 0 )
+	{
+		certDir = fs::path( programData ) / "Witness";
+		fs::create_directories( certDir );
+	}
+#endif
+
+	fs::path certPath = certDir / "selfsigned.pem";
+	fs::path keyPath = certDir / "selfsigned-key.pem";
+
+	// Build openssl command
+	std::string cmd = "\"" + opensslExe.string() + "\" req -x509 -newkey rsa:2048 -nodes"
+		" -days 3650"
+		" -keyout \"" + keyPath.string() + "\""
+		" -out \"" + certPath.string() + "\""
+		" -subj \"/CN=" + hostname + "\"";
+
+	// Set OPENSSL_CONF if config file exists next to openssl
+	fs::path opensslCnf = opensslExe.parent_path() / "openssl.cnf";
+	std::string envPrefix;
+	if( fs::exists( opensslCnf ) )
+	{
+#ifdef _WIN32
+		_putenv_s( "OPENSSL_CONF", opensslCnf.string().c_str() );
+#else
+		envPrefix = "OPENSSL_CONF=\"" + opensslCnf.string() + "\" ";
+#endif
+	}
+
+	std::cout << "Generating self-signed certificate for " << hostname << "..." << std::endl;
+
+	int result = std::system( (envPrefix + cmd).c_str() );
+
+	if( result != 0 )
+	{
+		std::cerr << "OpenSSL certificate generation failed (exit code " << result << ")" << std::endl;
+		return false;
+	}
+
+	config.TlsCertPath = certPath.string();
+	config.TlsKeyPath = keyPath.string();
+
+	std::cout << "Certificate generated: " << certPath.string() << std::endl;
+	return true;
 }

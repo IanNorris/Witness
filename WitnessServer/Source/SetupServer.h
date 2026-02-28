@@ -31,6 +31,9 @@ private:
 	void HandleStatus( const crow::request& req, crow::response& res );
 	void HandleApply( const crow::request& req, crow::response& res );
 
+	// TLS helpers
+	bool GenerateSelfSignedCert( struct SetupConfig& config );
+
 	crow::SimpleApp m_App;
 	std::shared_ptr<SQLiteDatabase> m_Database;
 	std::string m_StaticRoot;
