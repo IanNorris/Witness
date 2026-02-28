@@ -131,6 +131,9 @@ namespace Installer
 
 			var InstallProgress = new InstallProgress(CompleteInstallation);
 			InstallProgress.ShowDialog();
+
+			MessageBox.Show("Installation complete!", "Witness Setup", MessageBoxButton.OK, MessageBoxImage.Information);
+			Application.Current.Shutdown();
 		}
 
 		private void CompleteInstallation( InstallProgress.StatusUpdateDelegate Update )
