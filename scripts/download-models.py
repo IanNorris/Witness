@@ -1,109 +1,74 @@
 #!/usr/bin/env python3
-"""Download YOLO26 ONNX models from HuggingFace for Witness object detection."""
+"""Download YOLO26 ONNX models for Witness object detection.
+
+Downloads pretrained weights from HuggingFace and exports to ONNX format.
+Requires: pip install ultralytics
+"""
 
 import argparse
 import os
 import sys
-import urllib.request
-import urllib.error
 
 MODELS = {
-    "n": {"filename": "yolo26n.onnx", "description": "Nano (~6MB, 39ms CPU)"},
-    "s": {"filename": "yolo26s.onnx", "description": "Small (~20MB, 87ms CPU)"},
-    "m": {"filename": "yolo26m.onnx", "description": "Medium (~40MB, 220ms CPU)"},
-    "l": {"filename": "yolo26l.onnx", "description": "Large (~80MB, 286ms CPU)"},
-    "x": {"filename": "yolo26x.onnx", "description": "XLarge (~130MB, 526ms CPU)"},
+    "n": {"filename": "yolo26n.onnx", "pt": "yolo26n.pt", "description": "Nano (~10MB, 39ms CPU)"},
+    "s": {"filename": "yolo26s.onnx", "pt": "yolo26s.pt", "description": "Small (~20MB, 87ms CPU)"},
+    "m": {"filename": "yolo26m.onnx", "pt": "yolo26m.pt", "description": "Medium (~40MB, 220ms CPU)"},
+    "l": {"filename": "yolo26l.onnx", "pt": "yolo26l.pt", "description": "Large (~80MB, 286ms CPU)"},
+    "x": {"filename": "yolo26x.onnx", "pt": "yolo26x.pt", "description": "XLarge (~130MB, 526ms CPU)"},
 }
 
-# HuggingFace model repo URL pattern
-HF_BASE_URL = "https://huggingface.co/Ultralytics/YOLO26/resolve/main"
 
-
-def download_model(variant, output_dir, token=None):
-    info = MODELS[variant]
-    filename = info["filename"]
-    output_path = os.path.join(output_dir, filename)
-
-    if os.path.exists(output_path):
-        print(f"  {filename} already exists, skipping.")
-        return True
-
-    # First try the end-to-end export from HuggingFace
-    # If not available, fall back to exporting via ultralytics
-    url = f"{HF_BASE_URL}/{filename}"
-
-    print(f"  Downloading {filename} from {url}...")
-
-    headers = {}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-
-    req = urllib.request.Request(url, headers=headers)
-    try:
-        with urllib.request.urlopen(req) as response:
-            total = int(response.headers.get("Content-Length", 0))
-            downloaded = 0
-            block_size = 8192
-
-            with open(output_path, "wb") as f:
-                while True:
-                    block = response.read(block_size)
-                    if not block:
-                        break
-                    f.write(block)
-                    downloaded += len(block)
-                    if total > 0:
-                        pct = downloaded * 100 // total
-                        print(f"\r  {filename}: {pct}% ({downloaded // 1024}KB / {total // 1024}KB)", end="", flush=True)
-
-            print(f"\r  {filename}: done ({downloaded // 1024}KB)")
-            return True
-
-    except urllib.error.HTTPError as e:
-        print(f"\n  Failed to download {filename}: HTTP {e.code}")
-        if e.code == 404:
-            print(f"  Pre-built ONNX not found on HuggingFace. Trying local export...")
-            return export_model_locally(variant, output_path)
-        return False
-    except urllib.error.URLError as e:
-        print(f"\n  Failed to download {filename}: {e.reason}")
-        return False
-
-
-def export_model_locally(variant, output_path):
-    """Export model using ultralytics Python package if available."""
+def export_model(variant, output_dir):
+    """Download .pt weights via ultralytics and export to ONNX."""
     try:
         from ultralytics import YOLO
     except ImportError:
-        print("  Install ultralytics to export models locally: pip install ultralytics")
+        print("  Error: ultralytics package required. Install with: pip install ultralytics")
         return False
 
-    model_name = f"yolo26{variant}.pt"
-    print(f"  Exporting {model_name} to ONNX (end-to-end, NMS-free)...")
+    info = MODELS[variant]
+    onnx_path = os.path.join(output_dir, info["filename"])
 
+    if os.path.exists(onnx_path):
+        print(f"  {info['filename']} already exists, skipping.")
+        return True
+
+    print(f"  Loading {info['pt']} (downloads automatically if needed)...")
     try:
-        model = YOLO(model_name)
+        model = YOLO(info["pt"])
+        print(f"  Exporting to ONNX (end-to-end, NMS-free, 640x640)...")
         model.export(format="onnx", imgsz=640)
 
-        # ultralytics exports to same dir as .pt file
-        exported = model_name.replace(".pt", ".onnx")
+        # ultralytics exports next to the .pt file
+        exported = info["pt"].replace(".pt", ".onnx")
         if os.path.exists(exported):
-            os.rename(exported, output_path)
-            print(f"  Exported to {output_path}")
+            os.rename(exported, onnx_path)
+            size_mb = os.path.getsize(onnx_path) / (1024 * 1024)
+            print(f"  Saved: {onnx_path} ({size_mb:.1f} MB)")
+
+            # Clean up .pt file
+            if os.path.exists(info["pt"]):
+                os.remove(info["pt"])
             return True
+        else:
+            print(f"  Export produced no output file.")
+            return False
+
     except Exception as e:
         print(f"  Export failed: {e}")
-
-    return False
+        return False
 
 
 def main():
     parser = argparse.ArgumentParser(description="Download YOLO26 ONNX models for Witness")
-    parser.add_argument("--token", help="HuggingFace API token for authenticated downloads")
-    parser.add_argument("--variants", nargs="+", choices=list(MODELS.keys()), default=list(MODELS.keys()),
-                        help="Model variants to download (default: all)")
-    parser.add_argument("--output", default=None, help="Output directory (default: models/ next to this script)")
+    parser.add_argument("--variants", nargs="+", choices=list(MODELS.keys()), default=["n"],
+                        help="Model variants to download (default: n)")
+    parser.add_argument("--all", action="store_true", help="Download all model variants")
+    parser.add_argument("--output", default=None, help="Output directory (default: models/ at repo root)")
     args = parser.parse_args()
+
+    if args.all:
+        args.variants = list(MODELS.keys())
 
     # Default output: models/ directory at repo root
     if args.output:
@@ -114,7 +79,8 @@ def main():
 
     os.makedirs(output_dir, exist_ok=True)
 
-    print(f"Downloading YOLO26 models to: {output_dir}")
+    print(f"Exporting YOLO26 models to: {output_dir}")
+    print(f"Variants: {', '.join(args.variants)}")
     print()
 
     success = 0
@@ -122,13 +88,13 @@ def main():
     for variant in args.variants:
         info = MODELS[variant]
         print(f"[{variant}] {info['description']}")
-        if download_model(variant, output_dir, args.token):
+        if export_model(variant, output_dir):
             success += 1
         else:
             failed += 1
         print()
 
-    print(f"Done: {success} downloaded, {failed} failed.")
+    print(f"Done: {success} exported, {failed} failed.")
     return 0 if failed == 0 else 1
 
 

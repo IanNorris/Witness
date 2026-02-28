@@ -316,3 +316,4 @@ CMakeSettings.json
 
 # ONNX model weights (download via scripts/download-models.py)
 models/*.onnx
+models/*.pt
