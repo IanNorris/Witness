@@ -106,43 +106,55 @@ namespace Installer
 
 		private static (string certPath, string keyPath)? RunCertbot(string Hostname, string Email)
 		{
-			// Check for certbot
-			string certbot = null;
-			var pathDirs = Environment.GetEnvironmentVariable("PATH")?.Split(';') ?? Array.Empty<string>();
-			foreach (var dir in pathDirs)
-			{
-				var candidate = Path.Combine(dir, "certbot.exe");
-				if (File.Exists(candidate))
-				{
-					certbot = candidate;
-					break;
-				}
-			}
+			string certbot = FindCertbot();
 
 			if (certbot == null)
 			{
-				// Check common install locations
-				var candidates = new[]
+				var result = MessageBox.Show(
+					"certbot is not installed. Would you like to install it now via winget?",
+					"certbot not found", MessageBoxButton.YesNo, MessageBoxImage.Question);
+
+				if (result == MessageBoxResult.Yes)
 				{
-					@"C:\Program Files\Certbot\bin\certbot.exe",
-					@"C:\Program Files (x86)\Certbot\bin\certbot.exe",
-				};
-				foreach (var c in candidates)
-				{
-					if (File.Exists(c))
+					try
 					{
-						certbot = c;
-						break;
+						var p = new Process();
+						p.StartInfo.FileName = "winget";
+						p.StartInfo.Arguments = "install EFF.Certbot --accept-source-agreements --accept-package-agreements";
+						p.StartInfo.UseShellExecute = false;
+						p.StartInfo.RedirectStandardOutput = true;
+						p.StartInfo.RedirectStandardError = true;
+						p.StartInfo.CreateNoWindow = true;
+						p.Start();
+						p.WaitForExit();
+
+						if (p.ExitCode == 0)
+						{
+							// Check common install location after winget install
+							if (File.Exists(@"C:\Program Files\Certbot\bin\certbot.exe"))
+								certbot = @"C:\Program Files\Certbot\bin\certbot.exe";
+							else if (File.Exists(@"C:\Program Files (x86)\Certbot\bin\certbot.exe"))
+								certbot = @"C:\Program Files (x86)\Certbot\bin\certbot.exe";
+						}
+
+						if (certbot == null)
+						{
+							MessageBox.Show("winget install completed but certbot was not found.\n\nTry installing manually from https://certbot.eff.org/",
+								"Error", MessageBoxButton.OK, MessageBoxImage.Error);
+							return null;
+						}
+					}
+					catch
+					{
+						MessageBox.Show("winget is not available.\n\nInstall certbot manually:\n  https://certbot.eff.org/",
+							"Error", MessageBoxButton.OK, MessageBoxImage.Error);
+						return null;
 					}
 				}
-			}
-
-			if (certbot == null)
-			{
-				MessageBox.Show(
-					"certbot is not installed.\n\nInstall it with:\n  winget install EFF.Certbot\n\nOr download from https://certbot.eff.org/",
-					"certbot not found", MessageBoxButton.OK, MessageBoxImage.Error);
-				return null;
+				else
+				{
+					return null;
+				}
 			}
 
 			try
@@ -182,21 +194,35 @@ namespace Installer
 			}
 		}
 
+		private static string FindCertbot()
+		{
+			var pathDirs = Environment.GetEnvironmentVariable("PATH")?.Split(';') ?? Array.Empty<string>();
+			foreach (var dir in pathDirs)
+			{
+				var candidate = Path.Combine(dir, "certbot.exe");
+				if (File.Exists(candidate))
+					return candidate;
+			}
+
+			var locations = new[]
+			{
+				@"C:\Program Files\Certbot\bin\certbot.exe",
+				@"C:\Program Files (x86)\Certbot\bin\certbot.exe",
+			};
+			foreach (var c in locations)
+			{
+				if (File.Exists(c))
+					return c;
+			}
+
+			return null;
+		}
+
 		public static bool SetupRenewalTask()
 		{
 			try
 			{
-				string certbot = null;
-				var pathDirs = Environment.GetEnvironmentVariable("PATH")?.Split(';') ?? Array.Empty<string>();
-				foreach (var dir in pathDirs)
-				{
-					var candidate = Path.Combine(dir, "certbot.exe");
-					if (File.Exists(candidate))
-					{
-						certbot = candidate;
-						break;
-					}
-				}
+				string certbot = FindCertbot();
 
 				if (certbot == null)
 					return false;
