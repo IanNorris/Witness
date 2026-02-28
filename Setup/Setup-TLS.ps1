@@ -78,20 +78,12 @@ function New-SelfSignedPemCert {
 
     Write-Host "Generating self-signed certificate for '$Hostname'..."
 
-    # Check for openssl
-    $openssl = Get-Command openssl -ErrorAction SilentlyContinue
-    if (-not $openssl) {
-        # Try common vcpkg/build locations
-        $candidates = @(
-            (Join-Path $PSScriptRoot "..\build\vcpkg_installed\x64-windows\tools\openssl\openssl.exe"),
-            (Join-Path $PSScriptRoot "..\vcpkg_installed\x64-windows\tools\openssl\openssl.exe")
-        )
-        foreach ($c in $candidates) {
-            if (Test-Path $c) {
-                $openssl = Get-Item $c
-                break
-            }
-        }
+    # Check for openssl alongside this script first, then PATH
+    $localOpenssl = Join-Path $PSScriptRoot "openssl.exe"
+    if (Test-Path $localOpenssl) {
+        $openssl = Get-Item $localOpenssl
+    } else {
+        $openssl = Get-Command openssl -ErrorAction SilentlyContinue
     }
 
     if (-not $openssl) {

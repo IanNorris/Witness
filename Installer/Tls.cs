@@ -20,7 +20,12 @@ namespace Installer
 
 		private static string FindOpenSSL()
 		{
-			// Check PATH first
+			// Check alongside the Installer exe first
+			var localCandidate = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "openssl.exe");
+			if (File.Exists(localCandidate))
+				return localCandidate;
+
+			// Check PATH
 			var pathDirs = Environment.GetEnvironmentVariable("PATH")?.Split(';') ?? Array.Empty<string>();
 			foreach (var dir in pathDirs)
 			{
@@ -32,7 +37,6 @@ namespace Installer
 			// Check common locations
 			var candidates = new[]
 			{
-				Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "build", "vcpkg_installed", "x64-windows", "tools", "openssl", "openssl.exe"),
 				@"C:\Program Files\OpenSSL-Win64\bin\openssl.exe",
 				@"C:\Program Files (x86)\OpenSSL-Win32\bin\openssl.exe",
 			};
