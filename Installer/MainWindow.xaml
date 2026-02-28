@@ -57,6 +57,7 @@
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
                     </Grid.RowDefinitions>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
@@ -64,14 +65,17 @@
                     </Grid.ColumnDefinitions>
 
                     <Label Margin="10 20 10 20" HorizontalAlignment="Right" Grid.Row="0" Grid.Column="0">Startup mode</Label>
-                    <ComboBox Name="StartupMode" Margin="10 20 10 20" Grid.Row="0" Grid.Column="1" SelectedValue="{Binding StartupMode}" SelectedValuePath="Tag">
+                    <ComboBox Name="StartupMode" Margin="10 20 10 20" Grid.Row="0" Grid.Column="1" SelectedValue="{Binding StartupMode}" SelectedValuePath="Tag" SelectionChanged="StartupMode_SelectionChanged">
                         <ComboBoxItem Tag="Service">Run as a Windows service (Recommended)</ComboBoxItem>
                         <ComboBoxItem Tag="Task">Run as the current user</ComboBoxItem>
                         <ComboBoxItem Tag="Manual">Don't run at startup</ComboBoxItem>
                     </ComboBox>
 
-                    <Label Margin="10 10 10 10" HorizontalAlignment="Right" Grid.Row="1" Grid.Column="0">Cache</Label>
-                    <Grid Margin="10 10 10 10" Grid.Row="1" Grid.Column="1">
+                    <TextBlock Name="StartupAdminHint" Margin="10 0 10 10" Grid.Row="1" Grid.Column="1" Foreground="OrangeRed" FontStyle="Italic" TextWrapping="Wrap"
+                               Text="⚠ This option requires administrator privileges." Visibility="Visible"/>
+
+                    <Label Margin="10 10 10 10" HorizontalAlignment="Right" Grid.Row="2" Grid.Column="0">Cache</Label>
+                    <Grid Margin="10 10 10 10" Grid.Row="2" Grid.Column="1">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
@@ -80,10 +84,10 @@
                         <Button Name="CacheBrowse" Grid.Column="1" Click="CacheBrowse_Click">Browse</Button>
                     </Grid>
 
-                    <Label Margin="10 10 10 10" HorizontalAlignment="Right" Grid.Row="2" Grid.Column="0">Lead-in Time (sec)</Label>
-                    <TextBox Style="{StaticResource WatermarkTextBox}" Margin="10 10 10 10" Grid.Row="2" Grid.Column="1" Text="{Binding ClipLeadIn}"/>
+                    <Label Margin="10 10 10 10" HorizontalAlignment="Right" Grid.Row="3" Grid.Column="0">Lead-in Time (sec)</Label>
+                    <TextBox Style="{StaticResource WatermarkTextBox}" Margin="10 10 10 10" Grid.Row="3" Grid.Column="1" Text="{Binding ClipLeadIn}"/>
 
-                    <CheckBox Margin="10 20 0 10" Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2" IsChecked="{Binding RestartOnFailure}">Restart server if a crash occurs</CheckBox>
+                    <CheckBox Margin="10 20 0 10" Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="2" IsChecked="{Binding RestartOnFailure}">Restart server if a crash occurs</CheckBox>
                 </Grid>
             </TabItem>
 
@@ -91,6 +95,7 @@
             <TabItem x:Name="RemoteAccessTab" Tag="Configure web portal|Set up the web portal for Witness. For Let's Encrypt, you will need port 80 forwarded to this device.">
                 <Grid Margin="10">
                     <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
@@ -114,16 +119,19 @@
                         <ComboBoxItem Tag="NoSecurity">No security</ComboBoxItem>
                     </ComboBox>
 
-                    <Label Name="TlsContactLabel" Margin="10 20 10 20" HorizontalAlignment="Right" Grid.Row="2" Grid.Column="0">Certificate E-mail</Label>
-                    <TextBox Name="TlsContactBox" Style="{StaticResource WatermarkTextBox}" Tag="john@myhome.com" Margin="10 20 10 20" Grid.Row="2" Grid.Column="1" Text="{Binding TlsContact}"/>
+                    <TextBlock Name="TlsAdminHint" Margin="10 0 10 10" Grid.Row="2" Grid.Column="1" Foreground="OrangeRed" FontStyle="Italic" TextWrapping="Wrap"
+                               Text="⚠ Auto-renewal requires administrator privileges." Visibility="Collapsed"/>
 
-                    <Label Name="TlsCertLabel" Margin="10 10 10 10" HorizontalAlignment="Right" Grid.Row="3" Grid.Column="0" Visibility="Collapsed">Certificate PEM</Label>
-                    <TextBox Name="TlsCertBox" Style="{StaticResource WatermarkTextBox}" Tag="C:\path\to\cert.pem" Margin="10 10 10 10" Grid.Row="3" Grid.Column="1" Text="{Binding TlsCertPath}" Visibility="Collapsed"/>
+                    <Label Name="TlsContactLabel" Margin="10 20 10 20" HorizontalAlignment="Right" Grid.Row="3" Grid.Column="0">Certificate E-mail</Label>
+                    <TextBox Name="TlsContactBox" Style="{StaticResource WatermarkTextBox}" Tag="john@myhome.com" Margin="10 20 10 20" Grid.Row="3" Grid.Column="1" Text="{Binding TlsContact}"/>
 
-                    <Label Name="TlsKeyLabel" Margin="10 10 10 10" HorizontalAlignment="Right" Grid.Row="4" Grid.Column="0" Visibility="Collapsed">Private Key PEM</Label>
-                    <TextBox Name="TlsKeyBox" Style="{StaticResource WatermarkTextBox}" Tag="C:\path\to\key.pem" Margin="10 10 10 10" Grid.Row="4" Grid.Column="1" Text="{Binding TlsKeyPath}" Visibility="Collapsed"/>
+                    <Label Name="TlsCertLabel" Margin="10 10 10 10" HorizontalAlignment="Right" Grid.Row="4" Grid.Column="0" Visibility="Collapsed">Certificate PEM</Label>
+                    <TextBox Name="TlsCertBox" Style="{StaticResource WatermarkTextBox}" Tag="C:\path\to\cert.pem" Margin="10 10 10 10" Grid.Row="4" Grid.Column="1" Text="{Binding TlsCertPath}" Visibility="Collapsed"/>
 
-                    <Button Name="OnConfigureRemoteAccess" Margin="10 20 10 20" HorizontalAlignment="Left" Grid.Row="5" Grid.Column="0" Padding="8 2 8 2" Click="OnConfigureRemoteAccess_Click">Configure</Button>
+                    <Label Name="TlsKeyLabel" Margin="10 10 10 10" HorizontalAlignment="Right" Grid.Row="5" Grid.Column="0" Visibility="Collapsed">Private Key PEM</Label>
+                    <TextBox Name="TlsKeyBox" Style="{StaticResource WatermarkTextBox}" Tag="C:\path\to\key.pem" Margin="10 10 10 10" Grid.Row="5" Grid.Column="1" Text="{Binding TlsKeyPath}" Visibility="Collapsed"/>
+
+                    <Button Name="OnConfigureRemoteAccess" Margin="10 20 10 20" HorizontalAlignment="Left" Grid.Row="6" Grid.Column="0" Padding="8 2 8 2" Click="OnConfigureRemoteAccess_Click">Configure</Button>
                 </Grid>
             </TabItem>
 
@@ -158,6 +166,9 @@
 
             <!-- Page 3: Finish -->
             <TabItem x:Name="FinishTab" Tag="All done!|To confirm and complete setup, click Finish.">
+                <Grid Margin="10">
+                    <TextBlock Name="FinishAdminHint" Margin="10 20 10 10" Foreground="OrangeRed" FontStyle="Italic" TextWrapping="Wrap" Visibility="Collapsed"/>
+                </Grid>
             </TabItem>
         </TabControl>
     </DockPanel>

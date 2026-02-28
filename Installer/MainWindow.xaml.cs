@@ -50,6 +50,20 @@ namespace Installer
 			else
 				NextButton.IsEnabled = true;
 
+			// Show admin elevation warning on Finish page
+			if (index == lastIndex && FinishAdminHint != null)
+			{
+				if (NeedsElevation())
+				{
+					FinishAdminHint.Text = "⚠ Clicking Finish will request administrator privileges to install the Windows service.";
+					FinishAdminHint.Visibility = Visibility.Visible;
+				}
+				else
+				{
+					FinishAdminHint.Visibility = Visibility.Collapsed;
+				}
+			}
+
 			// Update header
 			var tab = WizardTabs.SelectedItem as TabItem;
 			if (tab?.Tag is string tagStr)
@@ -231,8 +245,18 @@ namespace Installer
 			TlsCertBox.Visibility = showCertFields ? Visibility.Visible : Visibility.Collapsed;
 			TlsKeyLabel.Visibility = showCertFields ? Visibility.Visible : Visibility.Collapsed;
 			TlsKeyBox.Visibility = showCertFields ? Visibility.Visible : Visibility.Collapsed;
+			TlsAdminHint.Visibility = showEmail ? Visibility.Visible : Visibility.Collapsed;
 
 			UpdateNavigationButtons();
+		}
+
+		private void StartupMode_SelectionChanged(object sender, SelectionChangedEventArgs e)
+		{
+			if (StartupAdminHint == null) return;
+
+			var selectedItem = StartupMode.SelectedItem as ComboBoxItem;
+			var tag = selectedItem?.Tag?.ToString();
+			StartupAdminHint.Visibility = (tag == "Service") ? Visibility.Visible : Visibility.Collapsed;
 		}
 
 		private void LoginField_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
