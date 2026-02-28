@@ -160,8 +160,8 @@ namespace Installer
 			try
 			{
 				var p = new Process();
-				p.StartInfo.FileName = certbot;
-				p.StartInfo.Arguments = $"certonly --standalone -d {Hostname} --agree-tos --email {Email} --non-interactive";
+				p.StartInfo.FileName = "cmd.exe";
+				p.StartInfo.Arguments = $"/c \"\"{certbot}\" certonly --standalone -d {Hostname} --agree-tos --email {Email} --non-interactive & pause\"";
 				p.StartInfo.UseShellExecute = true;
 				p.StartInfo.Verb = "runas";
 				p.Start();
@@ -169,7 +169,7 @@ namespace Installer
 
 				if (p.ExitCode != 0)
 				{
-					MessageBox.Show("certbot failed.\n\nEnsure port 80 is forwarded and not in use.\nCheck the certbot console window for details.",
+					MessageBox.Show("certbot failed. Check the console window for details.",
 						"Error", MessageBoxButton.OK, MessageBoxImage.Error);
 					return null;
 				}
