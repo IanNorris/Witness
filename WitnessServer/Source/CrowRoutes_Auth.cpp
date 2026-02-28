@@ -128,7 +128,7 @@ void CrowListener::HandleAuthLogin( const crow::request& req, crow::response& re
 		std::string SessionTokenValue = "SessionToken-" + PortName;
 
 		std::string MaxAge = std::to_string( 60 * 60 * 24 * 30 * 2 ); // +2 Months
-		res.add_header( "Set-Cookie", SessionTokenValue + "=" + SessionToken + "; HttpOnly; Path=/; max-age=" + MaxAge + ";" );
+		res.add_header( "Set-Cookie", SessionTokenValue + "=" + SessionToken + "; HttpOnly; Secure; SameSite=Strict; Path=/; max-age=" + MaxAge + ";" );
 
 		res.set_header( "Content-Type", "application/json" );
 		res.body = "{}";
@@ -164,7 +164,7 @@ void CrowListener::HandleAuthLogout( const crow::request& req, crow::response& r
 	DeleteSession->Execute( nullptr );
 
 	std::string PortName = std::to_string( m_Port );
-	res.add_header( "Set-Cookie", "SessionToken-" + PortName + "=; Max-Age=0" );
+	res.add_header( "Set-Cookie", "SessionToken-" + PortName + "=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0" );
 
 	res.set_header( "Content-Type", "application/json" );
 	res.body = "{}";
@@ -239,7 +239,7 @@ void CrowListener::HandleAuthGetProfile( const crow::request& req, crow::respons
 	else
 	{
 		std::string PortName = std::to_string( m_Port );
-		res.add_header( "Set-Cookie", "SessionToken-" + PortName + "=; Max-Age=0" );
+		res.add_header( "Set-Cookie", "SessionToken-" + PortName + "=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0" );
 
 		res.set_header( "Content-Type", "application/json" );
 		res.body = "{}";

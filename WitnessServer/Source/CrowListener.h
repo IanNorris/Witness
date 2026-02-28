@@ -35,6 +35,8 @@ struct SecurityHeadersMiddleware
 		res.set_header( "Content-Security-Policy", CSP );
 		res.set_header( "X-Content-Type-Options", "nosniff" );
 		res.set_header( "X-Frame-Options", "DENY" );
+		res.set_header( "Referrer-Policy", "strict-origin-when-cross-origin" );
+		res.set_header( "Strict-Transport-Security", "max-age=31536000; includeSubDomains" );
 	}
 };
 
