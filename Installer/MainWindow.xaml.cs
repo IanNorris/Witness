@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.IO;
+using System.Security.Principal;
 using System.Windows;
 using System.Windows.Controls;
 using WinForms = System.Windows.Forms;
@@ -76,8 +78,43 @@ namespace Installer
 				WizardTabs.SelectedIndex++;
 		}
 
+		private static bool IsAdministrator()
+		{
+			using var identity = WindowsIdentity.GetCurrent();
+			var principal = new WindowsPrincipal(identity);
+			return principal.IsInRole(WindowsBuiltInRole.Administrator);
+		}
+
+		private bool NeedsElevation()
+		{
+			return Setup.StartupMode == Installer.StartupMode.Service && !IsAdministrator();
+		}
+
 		private void FinishButton_Click(object sender, RoutedEventArgs e)
 		{
+			if (NeedsElevation())
+			{
+				try
+				{
+					var psi = new ProcessStartInfo
+					{
+						FileName = Environment.ProcessPath,
+						UseShellExecute = true,
+						Verb = "runas"
+					};
+					Process.Start(psi);
+					Application.Current.Shutdown();
+					return;
+				}
+				catch (System.ComponentModel.Win32Exception)
+				{
+					MessageBox.Show("Administrator privileges are required for Service mode.\n\n" +
+						"Please either grant admin access or choose a different startup mode.",
+						"Elevation Required", MessageBoxButton.OK, MessageBoxImage.Warning);
+					return;
+				}
+			}
+
 			var InstallProgress = new InstallProgress(CompleteInstallation);
 			InstallProgress.ShowDialog();
 		}
