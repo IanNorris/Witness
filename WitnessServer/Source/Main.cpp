@@ -2,6 +2,7 @@
 #include "Common.h"
 #include "Database.h"
 #include "SetupConfig.h"
+#include "SetupServer.h"
 #include "sodium.h"
 #include "ObservingMotionFilter.h"
 #include "Witness.h"
@@ -262,6 +263,27 @@ int wmain( int argc, wchar_t* argv[] )
 
 			Database::InitializeDatabase(DatabaseFile.string());
 
+			return 0;
+		}
+		else if (_wcsicmp(argv[1], L"/websetup") == 0)
+		{
+			// Force the web setup wizard regardless of whether an admin exists
+			auto DatabaseFile = GetConfigFilePath("server.db");
+			auto DB = Database::InitializeDatabase(DatabaseFile.string());
+
+			if (sodium_init() == -1)
+			{
+				std::cerr << "Unable to initialize libsodium." << std::endl;
+				return 1;
+			}
+
+			// Derive web root from exe path
+			wchar_t exeBuf[MAX_PATH] = {};
+			GetModuleFileNameW(nullptr, exeBuf, MAX_PATH);
+			std::string staticRoot = (std::filesystem::path(exeBuf).parent_path() / "Web").string();
+
+			SetupServer setup(DB, staticRoot);
+			setup.Run();
 			return 0;
 		}
 		else if (_wcsicmp(argv[1], L"/setup") == 0)
