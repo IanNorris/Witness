@@ -57,4 +57,8 @@ void WitnessServer::RequestShutdown()
 		CommonImageProcessingJobQueue.RequestShutdown();
 		CommonImageProcessingJobQueue.Push(nullptr, true);
 	};
+	for (auto& Worker : ImageWorkers)
+	{
+		Worker->Join();
+	}
 }
