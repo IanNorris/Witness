@@ -120,6 +120,11 @@ namespace Installer
 			try
 			{
 				database = new SQLiteConnection(ConnectionString);
+
+				// Ensure User table has all expected columns (handles DBs created before MustChangePassword was added)
+				try { database.Execute("ALTER TABLE User ADD COLUMN MustChangePassword INTEGER NOT NULL DEFAULT 0"); }
+				catch (SQLiteException) { /* Column already exists */ }
+
 				database.BeginTransaction();
 				foreach (var Setting in Settings)
 				{
