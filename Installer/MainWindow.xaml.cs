@@ -41,10 +41,10 @@ namespace Installer
 			FinishButton.Visibility = index == lastIndex ? Visibility.Visible : Visibility.Collapsed;
 
 			// Disable Next on pages that require validation
-			if (index == 1) // Login page
-				NextButton.IsEnabled = _canAdvanceFromLogin;
-			else if (index == 2) // RemoteAccess page
+			if (index == 1) // RemoteAccess page
 				NextButton.IsEnabled = _canAdvanceFromRemoteAccess;
+			else if (index == 2) // Login page
+				NextButton.IsEnabled = _canAdvanceFromLogin;
 			else
 				NextButton.IsEnabled = true;
 
