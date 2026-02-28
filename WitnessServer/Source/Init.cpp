@@ -66,6 +66,8 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 			std::cerr << "Setup was not completed. Exiting." << std::endl;
 			return false;
 		}
+
+		std::cout << "Setup complete. Starting production server..." << std::endl;
 	}
 
 	std::unordered_map< std::string, std::string > Settings;

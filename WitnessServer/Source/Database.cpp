@@ -17,7 +17,7 @@ namespace Database
 			HashMethod		INTEGER								NOT NULL,
 			Enabled			INTEGER								NOT NULL,		
 			Admin			INTEGER								NOT NULL,
-			MustChangePassword INTEGER							NOT NULL
+			MustChangePassword INTEGER							NOT NULL DEFAULT 0
 		);
 
 		CREATE UNIQUE INDEX IF NOT EXISTS UserIndex ON User (Username);
