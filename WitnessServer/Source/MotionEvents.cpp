@@ -3,6 +3,7 @@
 #include "GlobalContext.h"
 #include "CrowListener.h"
 
+#include <Log.h>
 #include <future>
 #include <windows.h>
 #include <mmsystem.h>
@@ -23,7 +24,7 @@ void WitnessServer::HandleCameraBeginMotionMessage(const CameraBeginMotionMessag
 			}
 			else
 			{
-				std::cerr << "Clip thumbnail is empty" << std::endl;
+				LOG_WARNING( "Clip thumbnail is empty" );
 			}
 			CameraName = CameraState->Name;
 			Worker = CameraState->Worker;
@@ -171,6 +172,6 @@ void WitnessServer::TriggerAction( const std::string& Command, const std::string
 	}
 	else
 	{
-		std::cerr << "Unknown command: " << Command << std::endl;
+		LOG_WARNING( "Unknown command: %s", Command.c_str() );
 	}
 }

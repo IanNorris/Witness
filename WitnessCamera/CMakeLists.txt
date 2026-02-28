@@ -69,4 +69,6 @@ target_link_libraries(WitnessCamera
         ${FFMPEG_LIBRARIES}
         ${OpenCV_LIBS}
         ${ONNXRUNTIME_LIB}
+    PUBLIC
+        WitnessCommon
 )

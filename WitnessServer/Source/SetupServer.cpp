@@ -3,6 +3,7 @@
 #include "AuthHelpers.h"
 #include "Common.h"
 
+#include <Log.h>
 #include <iostream>
 #include <fstream>
 #include <filesystem>
@@ -316,7 +317,7 @@ void SetupServer::HandleApply( const crow::request& req, crow::response& res )
 		return;
 	}
 
-	std::cout << "Setup: Configuration applied successfully." << std::endl;
+	LOG_INFO( "Setup: Configuration applied successfully." );
 
 	m_SetupComplete = true;
 
@@ -489,20 +490,20 @@ bool SetupServer::Run()
 
 	RegisterRoutes();
 
-	std::cout << std::endl;
-	std::cout << "========================================" << std::endl;
-	std::cout << "  Witness Setup Wizard" << std::endl;
-	std::cout << "========================================" << std::endl;
-	std::cout << std::endl;
+	LOG_INFO( "" );
+	LOG_INFO( "========================================" );
+	LOG_INFO( "  Witness Setup Wizard" );
+	LOG_INFO( "========================================" );
+	LOG_INFO( "" );
 	if( m_HasAdmin )
-		std::cout << "Reconfigure your server settings:" << std::endl;
+		LOG_INFO( "Reconfigure your server settings:" );
 	else
-		std::cout << "No admin account found. Complete setup:" << std::endl;
-	std::cout << std::endl;
-	std::cout << "  http://localhost:" << port << std::endl;
-	std::cout << std::endl;
-	std::cout << "========================================" << std::endl;
-	std::cout << std::endl;
+		LOG_INFO( "No admin account found. Complete setup:" );
+	LOG_INFO( "" );
+	LOG_INFO( "  http://localhost:%d", port );
+	LOG_INFO( "" );
+	LOG_INFO( "========================================" );
+	LOG_INFO( "" );
 
 	OpenBrowser( port );
 
@@ -545,7 +546,7 @@ bool SetupServer::GenerateSelfSignedCert( SetupConfig& config )
 	{
 		if( !std::isalnum( static_cast<unsigned char>( c ) ) && c != '.' && c != '-' )
 		{
-			std::cerr << "Invalid hostname character: " << c << std::endl;
+		LOG_ERROR( "Invalid hostname character: %c", c );
 			return false;
 		}
 	}
@@ -584,19 +585,19 @@ bool SetupServer::GenerateSelfSignedCert( SetupConfig& config )
 #endif
 	}
 
-	std::cout << "Generating self-signed certificate for " << hostname << "..." << std::endl;
+	LOG_INFO( "Generating self-signed certificate for %s...", hostname.c_str() );
 
 	int result = std::system( (envPrefix + cmd).c_str() );
 
 	if( result != 0 )
 	{
-		std::cerr << "OpenSSL certificate generation failed (exit code " << result << ")" << std::endl;
+		LOG_ERROR( "OpenSSL certificate generation failed (exit code %d)", result );
 		return false;
 	}
 
 	config.TlsCertPath = certPath.string();
 	config.TlsKeyPath = keyPath.string();
 
-	std::cout << "Certificate generated: " << certPath.string() << std::endl;
+	LOG_INFO( "Certificate generated: %s", certPath.string().c_str() );
 	return true;
 }

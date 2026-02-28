@@ -2,6 +2,7 @@
 #include "AuthHelpers.h"
 #include "SQLite.h"
 
+#include <Log.h>
 #include <algorithm>
 
 bool SetupConfig::ApplyToDatabase( const std::shared_ptr<SQLiteDatabase>& DB ) const
@@ -55,7 +56,7 @@ bool SetupConfig::ApplyToDatabase( const std::shared_ptr<SQLiteDatabase>& DB ) c
 			update->Bind( "@HashMethod", 0 );
 			update->Execute( nullptr );
 
-			std::cout << "Admin user '" << Username << "' password updated." << std::endl;
+			LOG_INFO( "Admin user '%s' password updated.", Username.c_str() );
 		}
 		else
 		{
@@ -69,7 +70,7 @@ bool SetupConfig::ApplyToDatabase( const std::shared_ptr<SQLiteDatabase>& DB ) c
 			createUser->Bind( "@Admin", 1 );
 			createUser->Execute( nullptr );
 
-			std::cout << "Admin user '" << Username << "' created." << std::endl;
+			LOG_INFO( "Admin user '%s' created.", Username.c_str() );
 		}
 	}
 

@@ -2,6 +2,7 @@
 #include "GlobalContext.h"
 #include "sodium.h"
 
+#include <Log.h>
 #include <iostream>
 
 #define CURRENT_HASH_METHOD 0
@@ -79,7 +80,7 @@ void OfflineCreationForFirstUser( const GlobalContext& Context )
 
 	if( Success )
 	{
-		std::cout << "No user exists, you need to create one." << std::endl;
+		LOG_INFO( "No user exists, you need to create one." );
 		std::cout << "Username: ";
 		getline(std::cin, Username );
 
@@ -92,11 +93,11 @@ void OfflineCreationForFirstUser( const GlobalContext& Context )
 		std::transform(UsernameLC.begin(), UsernameLC.end(), UsernameLC.begin(), ::tolower);
 
 
-		std::cout << std::endl << "Hashing password..." << std::endl;
+		LOG_INFO( "Hashing password..." );
 
 		std::string Hash = GetHashedPasswordKey_Algorithm0( UsernameLC, Password );
 
-		std::cout << "Storing password..." << std::endl;
+		LOG_INFO( "Storing password..." );
 
 		{
 			SQLiteDatabaseQueryInstance CreateUser( Context.Database, "CreateUser" );
@@ -111,6 +112,6 @@ void OfflineCreationForFirstUser( const GlobalContext& Context )
 			CreateUser->Execute( nullptr );
 		}
 
-		std::cout << "User ready to use." << std::endl;
+		LOG_INFO( "User ready to use." );
 	}
 }

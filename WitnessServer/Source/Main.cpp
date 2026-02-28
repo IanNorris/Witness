@@ -14,6 +14,7 @@
 #include <chrono>
 #include <thread>
 #include <iostream>
+#include <Log.h>
 
 #ifdef CROW_ENABLE_SSL
 #include <openssl/applink.c>
@@ -37,7 +38,7 @@ bool UpdateService(wchar_t* Path, bool Install)
 
 	if (!SCM)
 	{
-		std::cerr << "Unable to connect to service manager - admin access required." << std::endl;
+		LOG_ERROR( "Unable to connect to service manager - admin access required." );
 		return false;
 	}
 
@@ -54,13 +55,13 @@ bool UpdateService(wchar_t* Path, bool Install)
 		if (!Service)
 		{
 			CloseServiceHandle(SCM);
-			std::cerr << "Unable to create new service." << std::endl;
+			LOG_ERROR( "Unable to create new service." );
 			return false;
 		}
 
 		CloseServiceHandle(Service);
 
-		std::cout << "Created service." << std::endl;
+		LOG_INFO( "Created service." );
 	}
 	else
 	{
@@ -68,11 +69,11 @@ bool UpdateService(wchar_t* Path, bool Install)
 		if (!Service)
 		{
 			CloseServiceHandle(SCM);
-			std::cerr << "Service not found." << std::endl;
+			LOG_ERROR( "Service not found." );
 			return false;
 		}
 		
-		std::cout << "Stopping service.";
+		LOG_INFO( "Stopping service." );
 
 		SERVICE_STATUS Status = {};
 		if (ControlService(Service, SERVICE_CONTROL_STOP, &Status))
@@ -81,7 +82,6 @@ bool UpdateService(wchar_t* Path, bool Install)
 
 			do {
 				std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-				std::cout << ".";
 
 				if (Status.dwCurrentState == SERVICE_STOPPED)
 				{
@@ -93,20 +93,20 @@ bool UpdateService(wchar_t* Path, bool Install)
 
 		if (Status.dwCurrentState == SERVICE_STOPPED)
 		{
-			std::cout << "\nService stopped cleanly." << std::endl;
+			LOG_INFO( "Service stopped cleanly." );
 		}
 		else
 		{
-			std::cout << "\nService failed to stop." << std::endl;
+			LOG_WARNING( "Service failed to stop." );
 		}
 
 		if (!DeleteService(Service))
 		{
-			std::cout << "Could not delete service." << std::endl;
+			LOG_WARNING( "Could not delete service." );
 		}
 		else
 		{
-			std::cout << "Deleted service." << std::endl;
+			LOG_INFO( "Deleted service." );
 		}
 
 		CloseServiceHandle(Service);
@@ -218,8 +218,7 @@ void WINAPI ServiceMain(DWORD dwArgc, PWSTR* pszArgv)
 
 	if (sodium_init() == -1)
 	{
-		std::cerr << "Unable to initialize libsodium." << std::endl;
-		ReturnValue = 1;
+		LOG_ERROR( "Unable to initialize libsodium." );
 		UpdateStatus(SERVICE_STOPPED, 0, ReturnValue);
 		return;
 	}
@@ -247,6 +246,13 @@ void WINAPI ServiceMain(DWORD dwArgc, PWSTR* pszArgv)
 
 int wmain( int argc, wchar_t* argv[] )
 {
+	// Initialize logging early (before any LOG_* calls)
+	{
+		auto logDir = GetConfigFilePath( "logs" );
+		std::filesystem::create_directories( logDir );
+		Witness::LogInit( logDir.string() );
+	}
+
 	if (argc >= 2)
 	{
 		if (_wcsicmp(argv[1], L"/installservice") == 0)
@@ -273,7 +279,7 @@ int wmain( int argc, wchar_t* argv[] )
 
 			if (sodium_init() == -1)
 			{
-				std::cerr << "Unable to initialize libsodium." << std::endl;
+				LOG_ERROR( "Unable to initialize libsodium." );
 				return 1;
 			}
 
@@ -305,11 +311,11 @@ int wmain( int argc, wchar_t* argv[] )
 				}
 				if (!config.ApplyToDatabase(DB))
 				{
-					std::cerr << "Failed to apply configuration." << std::endl;
+					LOG_ERROR( "Failed to apply configuration." );
 					return 1;
 				}
 
-				std::cout << "Configuration applied successfully." << std::endl;
+				LOG_INFO( "Configuration applied successfully." );
 				return 0;
 			}
 			else
@@ -317,18 +323,18 @@ int wmain( int argc, wchar_t* argv[] )
 				// Interactive CLI setup
 				if (sodium_init() == -1)
 				{
-					std::cerr << "Unable to initialize libsodium." << std::endl;
+					LOG_ERROR( "Unable to initialize libsodium." );
 					return 1;
 				}
 
 				SetupConfig config;
 				std::string input;
 
-				std::cout << std::endl;
-				std::cout << "========================================" << std::endl;
-				std::cout << "  Witness Interactive Setup" << std::endl;
-				std::cout << "========================================" << std::endl;
-				std::cout << std::endl;
+				LOG_INFO( "" );
+				LOG_INFO( "========================================" );
+				LOG_INFO( "  Witness Interactive Setup" );
+				LOG_INFO( "========================================" );
+				LOG_INFO( "" );
 
 				std::cout << "Admin username: ";
 				std::getline(std::cin, config.Username);
@@ -357,11 +363,11 @@ int wmain( int argc, wchar_t* argv[] )
 
 				if (!config.ApplyToDatabase(DB))
 				{
-					std::cerr << "Failed to apply configuration." << std::endl;
+					LOG_ERROR( "Failed to apply configuration." );
 					return 1;
 				}
 
-				std::cout << std::endl << "Setup complete. Start WitnessServer normally to run." << std::endl;
+				LOG_INFO( "Setup complete. Start WitnessServer normally to run." );
 				return 0;
 			}
 		}
@@ -382,7 +388,7 @@ int wmain( int argc, wchar_t* argv[] )
 
 			if (!config.ApplyToDatabase(DB))
 			{
-				std::cerr << "Failed to apply configuration." << std::endl;
+				LOG_ERROR( "Failed to apply configuration." );
 				return 1;
 			}
 

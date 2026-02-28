@@ -15,7 +15,8 @@
 #include <string>
 #include <array>
 #include <algorithm>
-#include <cstdio>
+#include <Log.h>
+
 #include <chrono>
 #include <ctime>
 
@@ -152,11 +153,11 @@ ONNXDetectionFilter::ONNXDetectionFilter( const MotionChainNode& Chain, const ch
 				OrtCUDAProviderOptions cudaOptions;
 				cudaOptions.device_id = 0;
 				ID.SessionOptions.AppendExecutionProvider_CUDA( cudaOptions );
-				printf( "ONNX Detection: CUDA GPU acceleration enabled.\n" );
+				LOG_INFO( "ONNX Detection: CUDA GPU acceleration enabled." );
 			}
 			catch( const Ort::Exception& e )
 			{
-				printf( "ONNX Detection: CUDA unavailable (%s), using CPU.\n", e.what() );
+				LOG_WARNING( "ONNX Detection: CUDA unavailable (%s), using CPU.", e.what() );
 			}
 		}
 
@@ -213,18 +214,22 @@ ONNXDetectionFilter::ONNXDetectionFilter( const MotionChainNode& Chain, const ch
 		auto outInfo = ID.Session->GetOutputTypeInfo( 0 );
 		auto outTensorInfo = outInfo.GetTensorTypeAndShapeInfo();
 		auto outShape = outTensorInfo.GetShape();
-		printf( "ONNX Detection: Model loaded (%s), input %dx%d, output [", ModelPath, ID.InputWidth, ID.InputHeight );
-		for( size_t i = 0; i < outShape.size(); i++ )
-			printf( "%s%lld", i > 0 ? ", " : "", (long long)outShape[i] );
-		printf( "], confidence >= %.0f%%.\n", ID.ConfidenceThreshold * 100.0f );
+		{
+			char shapeBuf[256];
+			int pos = 0;
+			for( size_t i = 0; i < outShape.size(); i++ )
+				pos += snprintf( shapeBuf + pos, sizeof(shapeBuf) - pos, "%s%lld", i > 0 ? ", " : "", (long long)outShape[i] );
+			LOG_INFO( "ONNX Detection: Model loaded (%s), input %dx%d, output [%s], confidence >= %.0f%%.",
+				ModelPath, ID.InputWidth, ID.InputHeight, shapeBuf, ID.ConfidenceThreshold * 100.0f );
+		}
 	}
 	catch( const Ort::Exception& e )
 	{
-		printf( "ONNX Detection: Failed to load model '%s': %s\n", ModelPath, e.what() );
+		LOG_ERROR( "ONNX Detection: Failed to load model '%s': %s", ModelPath, e.what() );
 	}
 	catch( const std::exception& e )
 	{
-		printf( "ONNX Detection: Failed to load model '%s': %s\n", ModelPath, e.what() );
+		LOG_ERROR( "ONNX Detection: Failed to load model '%s': %s", ModelPath, e.what() );
 	}
 }
 
@@ -294,20 +299,8 @@ bool ONNXDetectionFilter::ProcessFrame( SharedClassificationTask TaskData )
 		double statsSec = std::chrono::duration<double>( now - ID.LastStatsTime ).count();
 		if( statsSec >= 60.0 && ID.FramesProcessed > 0 )
 		{
-			auto wallNow = std::chrono::system_clock::now();
-			auto time_t = std::chrono::system_clock::to_time_t( wallNow );
-			struct tm tm_buf;
-#ifdef _WIN32
-			localtime_s( &tm_buf, &time_t );
-#else
-			localtime_r( &time_t, &tm_buf );
-#endif
-			char timeBuf[20];
-			strftime( timeBuf, sizeof( timeBuf ), "%H:%M:%S", &tm_buf );
-
 			double avgMs = ID.TotalInferenceMs / ID.FramesProcessed;
-			printf( "[%s] ONNX Camera %d stats: %llu/%llu detected (%.0f%%), %llu skipped, %llu baseline-filtered, avg %.0fms\n",
-				timeBuf,
+			LOG_INFO( "ONNX Camera %d stats: %llu/%llu detected (%.0f%%), %llu skipped, %llu baseline-filtered, avg %.0fms",
 				TaskData->Frame.SourceID,
 				(unsigned long long)ID.FramesDetected,
 				(unsigned long long)ID.FramesProcessed,
@@ -396,7 +389,7 @@ bool ONNXDetectionFilter::ProcessFrame( SharedClassificationTask TaskData )
 	}
 	catch( const Ort::Exception& e )
 	{
-		printf( "ONNX Detection: Inference failed: %s\n", e.what() );
+		LOG_ERROR( "ONNX Detection: Inference failed: %s", e.what() );
 		return false;
 	}
 
@@ -421,10 +414,11 @@ bool ONNXDetectionFilter::ProcessFrame( SharedClassificationTask TaskData )
 
 	if( outputShape.size() != 3 || outputShape[0] != 1 )
 	{
-		printf( "ONNX Detection: Unexpected output shape [" );
+		char shapeBuf[256];
+		int pos = 0;
 		for( size_t i = 0; i < outputShape.size(); i++ )
-			printf( "%s%lld", i > 0 ? ", " : "", (long long)outputShape[i] );
-		printf( "]\n" );
+			pos += snprintf( shapeBuf + pos, sizeof(shapeBuf) - pos, "%s%lld", i > 0 ? ", " : "", (long long)outputShape[i] );
+		LOG_WARNING( "ONNX Detection: Unexpected output shape [%s]", shapeBuf );
 		return false;
 	}
 
@@ -504,7 +498,7 @@ bool ONNXDetectionFilter::ProcessFrame( SharedClassificationTask TaskData )
 		int numClasses = numChannels - 4;
 		if( numClasses <= 0 )
 		{
-			printf( "ONNX Detection: Invalid channel count %d (need at least 5)\n", numChannels );
+				LOG_WARNING( "ONNX Detection: Invalid channel count %d (need at least 5)", numChannels );
 			return false;
 		}
 
@@ -625,7 +619,7 @@ bool ONNXDetectionFilter::ProcessFrame( SharedClassificationTask TaskData )
 		if( !ID.BaselineInitialized )
 		{
 			ID.BaselineInitialized = true;
-			printf( "ONNX Camera %d: baseline captured (%zu objects)\n",
+			LOG_INFO( "ONNX Camera %d: baseline captured (%zu objects)",
 				TaskData->Frame.SourceID, ID.Baseline.size() );
 		}
 
@@ -692,29 +686,19 @@ bool ONNXDetectionFilter::ProcessFrame( SharedClassificationTask TaskData )
 		ID.FramesDetected++;
 
 		// Log only the detections added by this filter (skip upstream ROIs)
-		auto wallNow = std::chrono::system_clock::now();
-		auto wallTime = std::chrono::system_clock::to_time_t( wallNow );
-		struct tm tm_buf;
-#ifdef _WIN32
-		localtime_s( &tm_buf, &wallTime );
-#else
-		localtime_r( &wallTime, &tm_buf );
-#endif
-		char timeBuf[20];
-		strftime( timeBuf, sizeof( timeBuf ), "%H:%M:%S", &tm_buf );
-
-		printf( "[%s] ONNX Camera %d: ", timeBuf, TaskData->Frame.SourceID );
+		char detBuf[512];
+		int pos = 0;
 		bool first = true;
 		for( size_t i = roiStartIndex; i < TaskData->Result.ROI.size(); i++ )
 		{
 			auto& r = TaskData->Result.ROI[i];
-			if( !first ) printf( ", " );
-			printf( "%s(%.0f%%)",
+			if( !first ) pos += snprintf( detBuf + pos, sizeof(detBuf) - pos, ", " );
+			pos += snprintf( detBuf + pos, sizeof(detBuf) - pos, "%s(%.0f%%)",
 				r.Tags.empty() ? "unknown" : r.Tags[0].c_str(),
 				r.ClassificationConfidence * 100.0f );
 			first = false;
 		}
-		printf( "\n" );
+		LOG_DEBUG( "ONNX Camera %d: %s", TaskData->Frame.SourceID, detBuf );
 	}
 
 	return detected;

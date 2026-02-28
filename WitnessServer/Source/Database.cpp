@@ -1,6 +1,8 @@
 #include "Common.h"
 #include "SQLite.h"
 
+#include <Log.h>
+
 namespace Database
 {
 	std::string InitializationScript = R"RAW(
@@ -444,7 +446,7 @@ namespace Database
 		auto DB = std::make_shared<SQLiteDatabase>( Filename, Database::InitializationScript, true,
 			[]( const std::string& Message )
 			{
-				std::cout << Message << std::endl;
+				LOG_INFO( "%s", Message.c_str() );
 			}
 		);
 

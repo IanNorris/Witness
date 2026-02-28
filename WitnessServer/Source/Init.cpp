@@ -6,6 +6,7 @@
 #include "ClipHelpers.h"
 #include "Database.h"
 
+#include <Log.h>
 
 #include <filesystem>
 #ifdef _WIN32
@@ -63,11 +64,11 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 		SetupServer setup( Database, staticRoot );
 		if( !setup.Run() )
 		{
-			std::cerr << "Setup was not completed. Exiting." << std::endl;
+			LOG_ERROR( "Setup was not completed. Exiting." );
 			return false;
 		}
 
-		std::cout << "Setup complete. Starting production server..." << std::endl;
+		LOG_INFO( "Setup complete. Starting production server..." );
 	}
 
 	std::unordered_map< std::string, std::string > Settings;
@@ -98,7 +99,7 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 
 	if (!Success)
 	{
-		std::cout << Errors << std::endl;
+		LOG_ERROR( "%s", Errors.c_str() );
 		return false;
 	}
 
@@ -140,7 +141,7 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 			}
 			else
 			{
-				std::cout << "Detection enabled but no model found at: " << defaultModel.string() << std::endl;
+				LOG_WARNING( "Detection enabled but no model found at: %s", defaultModel.string().c_str() );
 				Video.DetectionEnabled = false;
 			}
 		}
@@ -173,7 +174,7 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 	void* ServerMessageClient = nullptr;
 	MessageClient = Context->MessageBus->AddClient( ServerMessageClient );
 
-	std::cout << "Starting web server..." << std::endl;
+	LOG_INFO( "Starting web server..." );
 
 	Server->Initialise( Settings );
 
@@ -193,15 +194,15 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 	}
 	catch( std::exception& Exception)
 	{
-		std::cerr << "Unable to start server: " << Exception.what() << std::endl;
+		LOG_ERROR( "Unable to start server: %s", Exception.what() );
 		return 1;
 	}
 
-	std::cout << "Starting camera workers..." << std::endl;
+	LOG_INFO( "Starting camera workers..." );
 
 	StartCameraWorkers();
 
-	std::cout << "Server boot complete..." << std::endl;
+	LOG_INFO( "Server boot complete..." );
 
 	return true;
 }
@@ -223,7 +224,7 @@ bool WitnessServer::CreateListener( const std::unordered_map< std::string, std::
 
 	if (SplitHostname.size() != 2)
 	{
-		std::cerr << "Hostname is invalid:" << Hostname << std::endl;
+		LOG_ERROR( "Hostname is invalid:%s", Hostname.c_str() );
 		return false;
 	}
 
@@ -248,7 +249,7 @@ bool WitnessServer::CreateListener( const std::unordered_map< std::string, std::
 
 	if (!Success)
 	{
-		std::cout << Errors << std::endl;
+		LOG_ERROR( "%s", Errors.c_str() );
 		return false;
 	}
 
@@ -331,7 +332,7 @@ void WitnessServer::StartCamera(const SQLiteDatabaseQuery& query)
 
 	if (Camera.Enabled)
 	{
-		std::cout << "Starting " << Camera.Name << " camera..." << std::endl;
+		LOG_INFO( "Starting %s camera...", Camera.Name.c_str() );
 
 		auto Worker = std::make_shared<CameraWorker>(Video, Camera, Context->MessageBus, Context);
 		Worker->Start(WorkerBase::Priority::HighPriority);
@@ -343,7 +344,7 @@ void WitnessServer::StartCamera(const SQLiteDatabaseQuery& query)
 	}
 	else
 	{
-		std::cout << "Skipping " << Camera.Name << " camera, it's disabled..." << std::endl;
+		LOG_INFO( "Skipping %s camera, it's disabled...", Camera.Name.c_str() );
 	}
 }
 

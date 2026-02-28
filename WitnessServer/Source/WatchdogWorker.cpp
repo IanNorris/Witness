@@ -1,6 +1,7 @@
 #include "WatchdogWorker.h"
 #include "Messages.h"
 
+#include <Log.h>
 #include <chrono>
 #include <thread>
 
@@ -27,7 +28,7 @@ void WatchdogWorker::WorkerMain()
 
 			if( TimeNow - WatchdogTime > (int64_t)Data.Timestamp )
 			{
-				std::cerr << Iter->Name << ": Timeout of " << WatchdogTime << "s hit, last action was: " << Data.Action << std::endl;
+				LOG_WARNING( "%s: Timeout of %llds hit, last action was: %s", Iter->Name.c_str(), (long long)WatchdogTime, Data.Action );
 			}
 		}
 	}

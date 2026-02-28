@@ -1,7 +1,7 @@
 #include "ClipHelpers.h"
 #include "GlobalContext.h"
 
-#include <iostream>
+#include <Log.h>
 #include <filesystem>
 #include <chrono>
 
@@ -107,7 +107,7 @@ void DeleteOldClips( const GlobalContext& Context, int DaysToDelete )
 
 	if( ClipsToDelete.size() )
 	{
-		std::cout << "Deleting " << ClipsToDelete.size() << " clips as they were more than " << DaysToDelete << " days old." << std::endl;
+		LOG_INFO( "Deleting %zu clips as they were more than %d days old.", ClipsToDelete.size(), DaysToDelete );
 	}
 
 	for( auto& Clip : ClipsToDelete )

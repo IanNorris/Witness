@@ -4,6 +4,7 @@
 #include "ObservingMotionFilter.h"
 #include "Witness.h"
 
+#include <Log.h>
 #include <filesystem>
 
 void WitnessServer::StartCameraRecording( const std::shared_ptr<CameraWorker>& Worker, uint64_t Timestamp, int CameraID, bool IsManual, const ClassificationResult& Result )
@@ -135,5 +136,5 @@ void WitnessServer::StatusMessage( int Camera, std::string NewStatus, std::strin
 		}
 	}
 
-	std::cout << CameraName << ": " << Reason << std::endl;
+	LOG_INFO( "%s: %s", CameraName.c_str(), Reason.c_str() );
 };

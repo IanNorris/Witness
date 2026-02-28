@@ -3,6 +3,7 @@
 #include "SetupConfig.h"
 #include "GlobalContext.h"
 
+#include <Log.h>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -119,7 +120,7 @@ void CrowListener::HandleSetupApply( const crow::request& req, crow::response& r
 		return;
 	}
 
-	std::cout << "Settings updated via /setup by admin (UserUID=" << UserUID << ")" << std::endl;
+	LOG_INFO( "Settings updated via /setup by admin (UserUID=%d)", UserUID );
 
 	// Reload TLS if cert paths changed
 	if( !config.TlsCertPath.empty() || !config.TlsKeyPath.empty() )

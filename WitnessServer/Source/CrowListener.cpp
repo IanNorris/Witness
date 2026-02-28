@@ -4,6 +4,7 @@
 #include "Messages.h"
 #include "AuthHelpers.h"
 
+#include <Log.h>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -84,10 +85,10 @@ void CrowListener::Initialise( const std::unordered_map< std::string, std::strin
 
 	if( ec )
 	{
-		std::cerr << "Static file scan error: " << ec.message() << std::endl;
+		LOG_ERROR( "Static file scan error: %s", ec.message().c_str() );
 	}
 
-	std::cout << "Static root: " << m_StaticRoot << " (" << m_StaticFiles.size() << " files)" << std::endl;
+	LOG_INFO( "Static root: %s (%zu files)", m_StaticRoot.c_str(), m_StaticFiles.size() );
 
 	RegisterRoutes();
 }

@@ -5,6 +5,7 @@
 #include "PersonRecognitionFilter.h"
 #include "ONNXDetectionFilter.h"
 
+#include <Log.h>
 #include <chrono>
 #include <thread>
 
@@ -74,12 +75,12 @@ void CameraWorker::WorkerInit()
 		{
 			PostMotionTarget = DetectionFilter;
 			NoMotionTarget = DetectionFilter;  // Also receives non-motion frames for baseline
-			printf( "Camera %d: ONNX detection enabled (model: %s, confidence: %.2f, max %.1f fps)\n",
+			LOG_INFO( "Camera %d: ONNX detection enabled (model: %s, confidence: %.2f, max %.1f fps)",
 				Camera.ID, Video.DetectionModelPath.c_str(), Video.DetectionConfidence, Video.DetectionMaxFPS );
 		}
 		else
 		{
-			printf( "Camera %d: ONNX detection failed to load, falling back to motion-only.\n", Camera.ID );
+			LOG_WARNING( "Camera %d: ONNX detection failed to load, falling back to motion-only.", Camera.ID );
 		}
 	}
 
@@ -137,8 +138,7 @@ void CameraWorker::WorkerMain()
 			CameraStreamError InitResult = RecordStream->Initialize();
 			if (InitResult != CameraStreamError::Success)
 			{
-				printf("Recording init failed for camera %d: %s\n", Camera.ID, RecordStream->GetFFMPEGErrorMessage());
-				fflush(stdout);
+				LOG_ERROR("Recording init failed for camera %d: %s", Camera.ID, RecordStream->GetFFMPEGErrorMessage());
 				RecordStream.reset();
 			}
 
