@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Witness Setup</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #e0e0e0;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .wizard {
+            background: #16213e;
+            border-radius: 12px;
+            padding: 40px;
+            width: 100%;
+            max-width: 460px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+        }
+        .wizard h1 {
+            font-size: 24px;
+            margin-bottom: 8px;
+            color: #fff;
+        }
+        .wizard .subtitle {
+            color: #8892b0;
+            margin-bottom: 32px;
+            font-size: 14px;
+        }
+        .step { display: none; }
+        .step.active { display: block; }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 14px;
+            color: #a0a8c0;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 10px 14px;
+            background: #0f3460;
+            border: 1px solid #1a4080;
+            border-radius: 6px;
+            color: #fff;
+            font-size: 15px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .form-group input:focus {
+            border-color: #e94560;
+        }
+        .form-group .error {
+            color: #e94560;
+            font-size: 12px;
+            margin-top: 4px;
+            min-height: 16px;
+        }
+        .btn {
+            display: inline-block;
+            padding: 12px 32px;
+            background: #e94560;
+            color: #fff;
+            border: none;
+            border-radius: 6px;
+            font-size: 15px;
+            cursor: pointer;
+            transition: background 0.2s;
+            width: 100%;
+        }
+        .btn:hover { background: #c73650; }
+        .btn:disabled {
+            background: #555;
+            cursor: not-allowed;
+        }
+        .progress-dots {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-bottom: 24px;
+        }
+        .dot {
+            width: 10px; height: 10px;
+            border-radius: 50%;
+            background: #2a2a4a;
+        }
+        .dot.active { background: #e94560; }
+        .dot.done { background: #4caf50; }
+        .alert {
+            background: #0f3460;
+            border-left: 3px solid #e94560;
+            padding: 12px 16px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+        .success-icon {
+            font-size: 48px;
+            text-align: center;
+            margin-bottom: 16px;
+        }
+        .spinner {
+            display: inline-block;
+            width: 20px; height: 20px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            vertical-align: middle;
+            margin-right: 8px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+    <div class="wizard">
+        <div class="progress-dots">
+            <div class="dot active" id="dot-0"></div>
+            <div class="dot" id="dot-1"></div>
+        </div>
+
+        <!-- Step 1: Welcome -->
+        <div class="step active" id="step-0">
+            <h1>Welcome to Witness</h1>
+            <p class="subtitle">Let's set up your surveillance server.</p>
+            <div class="alert">
+                This wizard will create an administrator account. You'll use it to log in and configure cameras, users, and settings.
+            </div>
+            <button class="btn" onclick="nextStep()">Get Started</button>
+        </div>
+
+        <!-- Step 2: Admin Account -->
+        <div class="step" id="step-1">
+            <h1>Create Admin Account</h1>
+            <p class="subtitle">This will be the first administrator user.</p>
+            <div class="form-group">
+                <label for="username">Username</label>
+                <input type="text" id="username" autocomplete="username" placeholder="admin">
+                <div class="error" id="username-error"></div>
+            </div>
+            <div class="form-group">
+                <label for="password">Password</label>
+                <input type="password" id="password" autocomplete="new-password" placeholder="Minimum 8 characters">
+                <div class="error" id="password-error"></div>
+            </div>
+            <div class="form-group">
+                <label for="confirm">Confirm Password</label>
+                <input type="password" id="confirm" autocomplete="new-password" placeholder="Re-enter password">
+                <div class="error" id="confirm-error"></div>
+            </div>
+            <div class="error" id="form-error" style="margin-bottom:12px"></div>
+            <button class="btn" id="apply-btn" onclick="applySetup()">Create Account</button>
+        </div>
+
+        <!-- Step 3: Done -->
+        <div class="step" id="step-2">
+            <div class="success-icon">✅</div>
+            <h1 style="text-align:center">Setup Complete</h1>
+            <p class="subtitle" style="text-align:center">
+                Your admin account has been created. The server is restarting in production mode.
+                You will be redirected to the login page shortly.
+            </p>
+            <div class="alert" style="text-align:center">
+                If you are not redirected, restart WitnessServer and navigate to your configured address.
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentStep = 0;
+
+        function nextStep() {
+            document.getElementById('dot-' + currentStep).classList.remove('active');
+            document.getElementById('dot-' + currentStep).classList.add('done');
+            currentStep++;
+            document.querySelectorAll('.step').forEach(s => s.classList.remove('active'));
+            document.getElementById('step-' + currentStep).classList.add('active');
+            if (currentStep < 2)
+                document.getElementById('dot-' + currentStep).classList.add('active');
+        }
+
+        async function applySetup() {
+            const username = document.getElementById('username').value.trim();
+            const password = document.getElementById('password').value;
+            const confirm = document.getElementById('confirm').value;
+
+            // Clear errors
+            document.getElementById('username-error').textContent = '';
+            document.getElementById('password-error').textContent = '';
+            document.getElementById('confirm-error').textContent = '';
+            document.getElementById('form-error').textContent = '';
+
+            let valid = true;
+            if (!username) {
+                document.getElementById('username-error').textContent = 'Username is required';
+                valid = false;
+            }
+            if (password.length < 8) {
+                document.getElementById('password-error').textContent = 'Password must be at least 8 characters';
+                valid = false;
+            }
+            if (password !== confirm) {
+                document.getElementById('confirm-error').textContent = 'Passwords do not match';
+                valid = false;
+            }
+            if (!valid) return;
+
+            const btn = document.getElementById('apply-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span>Creating account...';
+
+            try {
+                const res = await fetch('/api/setup/apply', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    nextStep();
+                } else {
+                    document.getElementById('form-error').textContent = data.error || 'Setup failed';
+                    btn.disabled = false;
+                    btn.textContent = 'Create Account';
+                }
+            } catch (e) {
+                document.getElementById('form-error').textContent = 'Connection error: ' + e.message;
+                btn.disabled = false;
+                btn.textContent = 'Create Account';
+            }
+        }
+
+        // Allow Enter key to submit
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && currentStep === 1) {
+                applySetup();
+            }
+        });
+    </script>
+</body>
+</html>

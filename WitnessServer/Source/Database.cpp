@@ -496,4 +496,18 @@ namespace Database
 
 		return DB;
 	}
+
+	bool HasAdminUser( const std::shared_ptr<SQLiteDatabase>& DB )
+	{
+		bool hasAdmin = false;
+
+		SQLiteDatabaseQueryInstance query( DB, "GetUserCount" );
+		query->Execute( [&hasAdmin]( const SQLiteDatabaseQuery& q )
+		{
+			hasAdmin = q.GetColumnValueInt( 0 ) > 0;
+			return true;
+		});
+
+		return hasAdmin;
+	}
 }

@@ -28,6 +28,7 @@ set(SERVER_SOURCES
     Source/MotionEvents.cpp
     Source/ObservingMotionFilter.cpp
     Source/Recording.cpp
+    Source/SetupServer.cpp
     Source/Shutdown.cpp
     Source/SQLite.cpp
     Source/StatusEvents.cpp
@@ -53,6 +54,7 @@ set(SERVER_HEADERS
     Source/MessageBus.h
     Source/Messages.h
     Source/ObservingMotionFilter.h
+    Source/SetupServer.h
     Source/SettingsMap.h
     Source/SQLite.h
     Source/TimerWorker.h
