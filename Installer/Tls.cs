@@ -162,18 +162,14 @@ namespace Installer
 				var p = new Process();
 				p.StartInfo.FileName = certbot;
 				p.StartInfo.Arguments = $"certonly --standalone -d {Hostname} --agree-tos --email {Email} --non-interactive";
-				p.StartInfo.UseShellExecute = false;
-				p.StartInfo.RedirectStandardError = true;
-				p.StartInfo.RedirectStandardOutput = true;
+				p.StartInfo.UseShellExecute = true;
+				p.StartInfo.Verb = "runas";
 				p.Start();
-				string stdout = p.StandardOutput.ReadToEnd();
-				string stderr = p.StandardError.ReadToEnd();
 				p.WaitForExit();
 
 				if (p.ExitCode != 0)
 				{
-					string output = (!string.IsNullOrWhiteSpace(stdout) ? stdout + "\n" : "") + stderr;
-					MessageBox.Show($"certbot failed.\n\nEnsure port 80 is forwarded and not in use.\n\n{output.Trim()}",
+					MessageBox.Show("certbot failed.\n\nEnsure port 80 is forwarded and not in use.\nCheck the certbot console window for details.",
 						"Error", MessageBoxButton.OK, MessageBoxImage.Error);
 					return null;
 				}
