@@ -170,7 +170,15 @@ ONNXDetectionFilter::ONNXDetectionFilter( const MotionChainNode& Chain, const ch
 		ID.InputTensorData.resize( 3 * ID.InputWidth * ID.InputHeight );
 
 		m_ModelLoaded = true;
-		printf( "ONNX Detection: Model loaded (%s), input %dx%d.\n", ModelPath, ID.InputWidth, ID.InputHeight );
+
+		// Log output tensor shape for diagnostics
+		auto outInfo = ID.Session->GetOutputTypeInfo( 0 );
+		auto outTensorInfo = outInfo.GetTensorTypeAndShapeInfo();
+		auto outShape = outTensorInfo.GetShape();
+		printf( "ONNX Detection: Model loaded (%s), input %dx%d, output [", ModelPath, ID.InputWidth, ID.InputHeight );
+		for( size_t i = 0; i < outShape.size(); i++ )
+			printf( "%s%lld", i > 0 ? ", " : "", (long long)outShape[i] );
+		printf( "], confidence >= %.0f%%.\n", ID.ConfidenceThreshold * 100.0f );
 	}
 	catch( const Ort::Exception& e )
 	{
@@ -274,7 +282,7 @@ bool ONNXDetectionFilter::ProcessFrame( SharedClassificationTask TaskData )
 	if( outputTensors.empty() )
 		return false;
 
-	// Parse output: YOLO26 end-to-end outputs (1, N, 6) = [x1, y1, x2, y2, score, class_id]
+	// Parse output tensor
 	auto& outputTensor = outputTensors[0];
 	auto outputInfo = outputTensor.GetTensorTypeAndShapeInfo();
 	auto outputShape = outputInfo.GetShape();
@@ -282,43 +290,54 @@ bool ONNXDetectionFilter::ProcessFrame( SharedClassificationTask TaskData )
 
 	bool detected = false;
 
-	if( outputShape.size() == 3 && outputShape[2] == 6 )
+	if( outputShape.size() != 3 || outputShape[0] != 1 )
 	{
-		// NMS-free end-to-end format: (1, N, 6)
-		int numDetections = (int)outputShape[1];
+		printf( "ONNX Detection: Unexpected output shape [" );
+		for( size_t i = 0; i < outputShape.size(); i++ )
+			printf( "%s%lld", i > 0 ? ", " : "", (long long)outputShape[i] );
+		printf( "]\n" );
+		return false;
+	}
+
+	// Ultralytics YOLO26 ONNX has three possible output formats:
+	// 1. End-to-end NMS-free: (1, N, 6) = [x1, y1, x2, y2, score, class_id] — default export
+	// 2. Raw transposed: (1, 4+C, N) e.g. (1, 84, 8400) — older/custom export
+	// 3. Raw standard: (1, N, 4+C) e.g. (1, 8400, 84)
+	int64_t dim1 = outputShape[1];
+	int64_t dim2 = outputShape[2];
+
+	if( dim2 == 6 )
+	{
+		// End-to-end NMS-free format: (1, N, 6) = [x1, y1, x2, y2, score, class_id]
+		int numDetections = (int)dim1;
 
 		for( int i = 0; i < numDetections; i++ )
 		{
-			float x1 = outputData[i * 6 + 0];
-			float y1 = outputData[i * 6 + 1];
-			float x2 = outputData[i * 6 + 2];
-			float y2 = outputData[i * 6 + 3];
-			float score = outputData[i * 6 + 4];
-			int classId = (int)outputData[i * 6 + 5];
-
+			const float* row = outputData + i * 6;
+			float score = row[4];
 			if( score < ID.ConfidenceThreshold )
 				continue;
 
+			int classId = (int)row[5];
 			if( classId < 0 || classId >= NumCOCOClasses )
 				continue;
 
-			// Convert from letterboxed coordinates back to original frame coordinates
-			float roiX1 = ( x1 - padX ) / scale;
-			float roiY1 = ( y1 - padY ) / scale;
-			float roiX2 = ( x2 - padX ) / scale;
-			float roiY2 = ( y2 - padY ) / scale;
+			// Coordinates are already corner format [x1,y1,x2,y2] in letterbox space
+			float x1 = ( row[0] - padX ) / scale;
+			float y1 = ( row[1] - padY ) / scale;
+			float x2 = ( row[2] - padX ) / scale;
+			float y2 = ( row[3] - padY ) / scale;
 
-			// Clamp to frame bounds
-			roiX1 = std::max( 0.0f, std::min( roiX1, (float)origWidth ) );
-			roiY1 = std::max( 0.0f, std::min( roiY1, (float)origHeight ) );
-			roiX2 = std::max( 0.0f, std::min( roiX2, (float)origWidth ) );
-			roiY2 = std::max( 0.0f, std::min( roiY2, (float)origHeight ) );
+			x1 = std::max( 0.0f, std::min( x1, (float)origWidth ) );
+			y1 = std::max( 0.0f, std::min( y1, (float)origHeight ) );
+			x2 = std::max( 0.0f, std::min( x2, (float)origWidth ) );
+			y2 = std::max( 0.0f, std::min( y2, (float)origHeight ) );
 
 			ClassificationResult::RegionOfInterest ROI;
-			ROI.Left = (unsigned int)roiX1;
-			ROI.Top = (unsigned int)roiY1;
-			ROI.Width = (unsigned int)( roiX2 - roiX1 );
-			ROI.Height = (unsigned int)( roiY2 - roiY1 );
+			ROI.Left = (unsigned int)x1;
+			ROI.Top = (unsigned int)y1;
+			ROI.Width = (unsigned int)( x2 - x1 );
+			ROI.Height = (unsigned int)( y2 - y1 );
 			ROI.Classification = COCOClassToFlag( classId );
 			ROI.ClassificationConfidence = score;
 			ROI.Tags.push_back( COCOClassNames[classId] );
@@ -331,30 +350,77 @@ bool ONNXDetectionFilter::ProcessFrame( SharedClassificationTask TaskData )
 			detected = true;
 		}
 	}
-	else if( outputShape.size() == 3 && outputShape[2] > 6 )
+	else
 	{
-		// Classic YOLO format: (1, N, 4+C) where C = number of classes
-		// Rows are [x_center, y_center, width, height, class0_score, class1_score, ...]
-		int numDetections = (int)outputShape[1];
-		int numClasses = (int)outputShape[2] - 4;
+		// Raw format with per-class scores. Detect transposed vs standard layout.
+		int numDetections;
+		int numChannels;
+		bool transposed;
+
+		if( dim1 < dim2 )
+		{
+			// Transposed: (1, channels, boxes) e.g. (1, 84, 8400)
+			numChannels = (int)dim1;
+			numDetections = (int)dim2;
+			transposed = true;
+		}
+		else
+		{
+			// Standard: (1, boxes, channels) e.g. (1, 8400, 84)
+			numDetections = (int)dim1;
+			numChannels = (int)dim2;
+			transposed = false;
+		}
+
+		int numClasses = numChannels - 4;
+		if( numClasses <= 0 )
+		{
+			printf( "ONNX Detection: Invalid channel count %d (need at least 5)\n", numChannels );
+			return false;
+		}
 
 		for( int i = 0; i < numDetections; i++ )
 		{
-			const float* row = outputData + i * outputShape[2];
-			float cx = row[0];
-			float cy = row[1];
-			float w = row[2];
-			float h = row[3];
-
-			// Find best class
+			float cx, cy, bw, bh;
 			int bestClass = 0;
-			float bestScore = row[4];
-			for( int c = 1; c < numClasses && c < NumCOCOClasses; c++ )
+			float bestScore;
+
+			if( transposed )
 			{
-				if( row[4 + c] > bestScore )
+				// (1, C, N): channel c, box i = data[c * N + i]
+				cx = outputData[0 * numDetections + i];
+				cy = outputData[1 * numDetections + i];
+				bw = outputData[2 * numDetections + i];
+				bh = outputData[3 * numDetections + i];
+
+				bestScore = outputData[4 * numDetections + i];
+				for( int c = 1; c < numClasses && c < NumCOCOClasses; c++ )
 				{
-					bestScore = row[4 + c];
-					bestClass = c;
+					float s = outputData[( 4 + c ) * numDetections + i];
+					if( s > bestScore )
+					{
+						bestScore = s;
+						bestClass = c;
+					}
+				}
+			}
+			else
+			{
+				// (1, N, C): box i, channel c = data[i * C + c]
+				const float* row = outputData + i * numChannels;
+				cx = row[0];
+				cy = row[1];
+				bw = row[2];
+				bh = row[3];
+
+				bestScore = row[4];
+				for( int c = 1; c < numClasses && c < NumCOCOClasses; c++ )
+				{
+					if( row[4 + c] > bestScore )
+					{
+						bestScore = row[4 + c];
+						bestClass = c;
+					}
 				}
 			}
 
@@ -362,10 +428,10 @@ bool ONNXDetectionFilter::ProcessFrame( SharedClassificationTask TaskData )
 				continue;
 
 			// Convert from center format to corner format, then to original coordinates
-			float x1 = ( cx - w / 2.0f - padX ) / scale;
-			float y1 = ( cy - h / 2.0f - padY ) / scale;
-			float x2 = ( cx + w / 2.0f - padX ) / scale;
-			float y2 = ( cy + h / 2.0f - padY ) / scale;
+			float x1 = ( cx - bw / 2.0f - padX ) / scale;
+			float y1 = ( cy - bh / 2.0f - padY ) / scale;
+			float x2 = ( cx + bw / 2.0f - padX ) / scale;
+			float y2 = ( cy + bh / 2.0f - padY ) / scale;
 
 			x1 = std::max( 0.0f, std::min( x1, (float)origWidth ) );
 			y1 = std::max( 0.0f, std::min( y1, (float)origHeight ) );
@@ -391,11 +457,17 @@ bool ONNXDetectionFilter::ProcessFrame( SharedClassificationTask TaskData )
 			detected = true;
 		}
 	}
-	else
+
+	if( detected )
 	{
-		printf( "ONNX Detection: Unexpected output shape [" );
-		for( size_t i = 0; i < outputShape.size(); i++ )
-			printf( "%s%lld", i > 0 ? ", " : "", (long long)outputShape[i] );
+		printf( "ONNX Detection: %zu object(s) detected [", TaskData->Result.ROI.size() );
+		for( size_t i = 0; i < TaskData->Result.ROI.size(); i++ )
+		{
+			auto& r = TaskData->Result.ROI[i];
+			printf( "%s%s(%.0f%%)", i > 0 ? ", " : "",
+				r.Tags.empty() ? "?" : r.Tags[0].c_str(),
+				r.ClassificationConfidence * 100.0f );
+		}
 		printf( "]\n" );
 	}
 
