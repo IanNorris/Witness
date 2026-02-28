@@ -95,6 +95,13 @@ void SetupServer::RegisterRoutes()
 		HandleElevateStatus( req, res );
 	});
 
+	// Settings: return current DB settings for pre-population
+	CROW_ROUTE( m_App, "/api/setup/settings" )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleSettings( req, res );
+	});
+
 	// Serve setup static files
 	CROW_ROUTE( m_App, "/" )
 	([this]( const crow::request& req, crow::response& res )
@@ -162,8 +169,45 @@ void SetupServer::RegisterRoutes()
 void SetupServer::HandleStatus( const crow::request& req, crow::response& res )
 {
 	crow::json::wvalue data;
-	data["mode"] = "first_run";
+	data["mode"] = m_HasAdmin ? "reconfigure" : "first_run";
 	data["version"] = WITNESS_SETUP_VERSION;
+
+	res.set_header( "Content-Type", "application/json" );
+	res.body = data.dump();
+	res.code = 200;
+	res.end();
+}
+
+void SetupServer::HandleSettings( const crow::request& req, crow::response& res )
+{
+	crow::json::wvalue data;
+
+	// Check if admin user exists to determine mode
+	bool hasAdmin = false;
+	{
+		SQLiteDatabaseQueryInstance query( m_Database, "GetUserCount" );
+		query->Execute( [&hasAdmin]( const SQLiteDatabaseQuery& q )
+		{
+			hasAdmin = q.GetColumnValueInt( 0 ) > 0;
+			return true;
+		});
+	}
+	data["mode"] = hasAdmin ? "reconfigure" : "first_run";
+
+	// Load existing settings from DB
+	{
+		SQLiteDatabaseQueryInstance query( m_Database, "GetAllSettings" );
+		query->Execute( [&data]( const SQLiteDatabaseQuery& q )
+		{
+			const char* name = q.GetColumnValueText( 0 );
+			const char* value = q.GetColumnValueText( 1 );
+			if( name && value )
+			{
+				data[name] = std::string( value );
+			}
+			return true;
+		});
+	}
 
 	res.set_header( "Content-Type", "application/json" );
 	res.body = data.dump();
@@ -414,6 +458,16 @@ bool SetupServer::Run()
 {
 	int port = FindFreePort();
 
+	// Check if admin user already exists (for /websetup reconfigure mode)
+	{
+		SQLiteDatabaseQueryInstance query( m_Database, "GetUserCount" );
+		query->Execute( [this]( const SQLiteDatabaseQuery& q )
+		{
+			m_HasAdmin = q.GetColumnValueInt( 0 ) > 0;
+			return true;
+		});
+	}
+
 	RegisterRoutes();
 
 	std::cout << std::endl;
@@ -421,8 +475,10 @@ bool SetupServer::Run()
 	std::cout << "  Witness Setup Wizard" << std::endl;
 	std::cout << "========================================" << std::endl;
 	std::cout << std::endl;
-	std::cout << "No admin account found." << std::endl;
-	std::cout << "Open your browser to complete setup:" << std::endl;
+	if( m_HasAdmin )
+		std::cout << "Reconfigure your server settings:" << std::endl;
+	else
+		std::cout << "No admin account found. Complete setup:" << std::endl;
 	std::cout << std::endl;
 	std::cout << "  http://localhost:" << port << std::endl;
 	std::cout << std::endl;

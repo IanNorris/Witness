@@ -29,6 +29,7 @@ private:
 
 	// API handlers
 	void HandleStatus( const crow::request& req, crow::response& res );
+	void HandleSettings( const crow::request& req, crow::response& res );
 	void HandleApply( const crow::request& req, crow::response& res );
 	void HandleElevate( const crow::request& req, crow::response& res );
 	void HandleElevateStatus( const crow::request& req, crow::response& res );
@@ -42,4 +43,5 @@ private:
 	std::shared_ptr<SQLiteDatabase> m_Database;
 	std::string m_StaticRoot;
 	std::atomic<bool> m_SetupComplete{ false };
+	bool m_HasAdmin = false;
 };
