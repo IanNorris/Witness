@@ -64,25 +64,9 @@ namespace Installer
 				string Server = Path.Combine(InstallerPaths.ExeDirectory, "WitnessServer.exe");
 
 				CommandRunner.RunCommand($"Remove-NetFirewallRule -DisplayName \"{WitnessFirewallRule}\" -ErrorAction SilentlyContinue");
-
-				string Messages = "";
-				var Result = CommandRunner.RunCommandAndDetermineSuccess<CommandRunner.Status>($"(New-NetFirewallRule -DisplayName \"{WitnessFirewallRule}\" -Direction Inbound -Program \"{Server}\" -Action Allow).PrimaryStatus", CommandRunner.Status.Failure, (msg, status) =>
-				{
-					Messages += msg;
-					if (msg.Contains("OK"))
-					{
-						return CommandRunner.Status.Success_Done;
-					}
-					return status;
-				});
-
-				if (Result == CommandRunner.Status.Failure)
-				{
-					Application.Current.Dispatcher.Invoke(() => MessageBox.Show("Could not configure firewall rule. You may need to run as administrator or add the rule manually.\n\n" + Messages,
-						"Firewall", MessageBoxButton.OK, MessageBoxImage.Warning));
-				}
+				CommandRunner.RunCommand($"(New-NetFirewallRule -DisplayName \"{WitnessFirewallRule}\" -Direction Inbound -Program \"{Server}\" -Action Allow).PrimaryStatus");
 			}
-			catch { /* Not fatal — user can add firewall rule manually */ }
+			catch { }
 		}
 
 		public void UpdateConfig()
@@ -113,23 +97,7 @@ namespace Installer
 			else if( Startup == StartupMode.Service )
 			{
 				string Server = Path.Combine(InstallerPaths.ExeDirectory, "WitnessServer.exe");
-
-				string Messages = "";
-				var Result = CommandRunner.RunCommandAndDetermineSuccess<CommandRunner.Status>($"& \"{Server}\" /installservice", CommandRunner.Status.Failure, (msg, status) =>
-				{
-					Messages += msg;
-					if (msg.Contains("The requested service has already been started."))
-					{
-						return CommandRunner.Status.Success_AlreadyDone;
-					}
-					return msg.Contains("Created service.") ? CommandRunner.Status.Success_Done : status;
-				} );
-
-				if (Result == CommandRunner.Status.Failure)
-				{
-					Application.Current.Dispatcher.Invoke(() => MessageBox.Show("Could not install Windows service. You may need administrator privileges.\n\n" + Messages,
-						"Service", MessageBoxButton.OK, MessageBoxImage.Warning));
-				}
+				CommandRunner.RunCommand($"& \"{Server}\" /installservice");
 			}
 
 			ConfigureFirewall();
@@ -137,49 +105,38 @@ namespace Installer
 
 		public void Start()
 		{
-			if (Startup == StartupMode.Task)
+			try
 			{
-				var Task = TaskService.Instance.FindTask(WitnessTaskScheduler_Startup);
-				var Result = Task.Run();
-
-				int MaxWait = 30;
-				bool TaskResult = false;
-
-				do
+				if (Startup == StartupMode.Task)
 				{
-					Task = TaskService.Instance.FindTask(WitnessTaskScheduler_Startup);
-					if(Task.State == TaskState.Running)
+					var Task = TaskService.Instance.FindTask(WitnessTaskScheduler_Startup);
+					if (Task != null)
 					{
-						TaskResult = true;
-					}
-					else
-					{
-						Thread.Sleep(1000);
-					}
-				} while (MaxWait > 0 && !TaskResult);
-			}
-			else if (Startup == StartupMode.Service)
-			{
-				string Messages = "";
-				var Result = CommandRunner.RunCommandAndDetermineSuccess<CommandRunner.Status>($"net start WitnessCameraServer", CommandRunner.Status.Failure, (msg, status) =>
-				{
-					Messages += msg;
-					if (msg.Contains("already been started"))
-					{
-						return CommandRunner.Status.Success_AlreadyDone;
-					}
-					else if (msg.Contains("service was started successfully"))
-					{
-						return CommandRunner.Status.Success_AlreadyDone;
-					}
-					return status;
-				});
+						Task.Run();
 
-				if (Result == CommandRunner.Status.Failure)
+						int MaxWait = 30;
+						bool TaskResult = false;
+
+						do
+						{
+							Task = TaskService.Instance.FindTask(WitnessTaskScheduler_Startup);
+							if (Task?.State == TaskState.Running)
+							{
+								TaskResult = true;
+							}
+							else
+							{
+								Thread.Sleep(1000);
+							}
+						} while (MaxWait-- > 0 && !TaskResult);
+					}
+				}
+				else if (Startup == StartupMode.Service)
 				{
-					Application.Current.Dispatcher.Invoke(() => MessageBox.Show("Error starting service:\n\n" + Messages));
+					CommandRunner.RunCommand($"net start WitnessCameraServer");
 				}
 			}
+			catch { }
 		}
 
 		public void Uninstall()
