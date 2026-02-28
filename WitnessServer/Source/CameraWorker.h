@@ -24,6 +24,7 @@ struct VideoSettings
 	, DetectionEnabled( false )
 	, DetectionModelPath()
 	, DetectionConfidence( 0.5 )
+	, DetectionMaxFPS( 2.0 )
 	, DetectionUseGPU( false )
 	{}
 
@@ -37,6 +38,7 @@ struct VideoSettings
 	bool		DetectionEnabled;
 	std::string	DetectionModelPath;
 	double		DetectionConfidence;
+	double		DetectionMaxFPS;
 	bool		DetectionUseGPU;
 };
 

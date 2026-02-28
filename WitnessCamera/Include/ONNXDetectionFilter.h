@@ -13,7 +13,7 @@ class CAMERA_API ONNXDetectionFilter : public RecordFilterBase<ONNXDetectionFilt
 {
 public:
 
-	ONNXDetectionFilter( const MotionChainNode& Chain, const char* ModelPath, float ConfidenceThreshold, bool UseGPU );
+	ONNXDetectionFilter( const MotionChainNode& Chain, const char* ModelPath, float ConfidenceThreshold, bool UseGPU, float MaxFPS = 0.0f );
 	virtual ~ONNXDetectionFilter();
 
 	virtual bool ProcessFrame( SharedClassificationTask TaskData );

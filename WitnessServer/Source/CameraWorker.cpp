@@ -51,8 +51,10 @@ void CameraWorker::WorkerInit()
 	Observing.OnSuccess = Observer;
 	Observing.OnFailure = Observer;
 
-	// If ONNX detection is enabled, insert it between motion detection and observer
+	// If ONNX detection is enabled, insert it between motion detection and observer.
+	// ONNX receives ALL frames: motion frames for detection, non-motion frames for baseline capture.
 	std::shared_ptr<IRecordFilter> PostMotionTarget = Observer;
+	std::shared_ptr<IRecordFilter> NoMotionTarget = Observer;
 
 	if( Video.DetectionEnabled && !Video.DetectionModelPath.empty() )
 	{
@@ -64,14 +66,16 @@ void CameraWorker::WorkerInit()
 			DetectionChain,
 			Video.DetectionModelPath.c_str(),
 			(float)Video.DetectionConfidence,
-			Video.DetectionUseGPU
+			Video.DetectionUseGPU,
+			(float)Video.DetectionMaxFPS
 		);
 
 		if( DetectionFilter->IsModelLoaded() )
 		{
 			PostMotionTarget = DetectionFilter;
-			printf( "Camera %d: ONNX detection enabled (model: %s, confidence: %.2f)\n",
-				Camera.ID, Video.DetectionModelPath.c_str(), Video.DetectionConfidence );
+			NoMotionTarget = DetectionFilter;  // Also receives non-motion frames for baseline
+			printf( "Camera %d: ONNX detection enabled (model: %s, confidence: %.2f, max %.1f fps)\n",
+				Camera.ID, Video.DetectionModelPath.c_str(), Video.DetectionConfidence, Video.DetectionMaxFPS );
 		}
 		else
 		{
@@ -81,7 +85,7 @@ void CameraWorker::WorkerInit()
 
 	MotionChainNode MVF;
 	MVF.OnSuccess = PostMotionTarget;
-	MVF.OnFailure = Observer;
+	MVF.OnFailure = NoMotionTarget;
 	MVF.MinimumThreshold = (float)Camera.MDThreshold;
 	MVF.InclusiveFilter = ClassificationResult::Motion_Motion;
 	MVF.ExclusiveFilter = 0;

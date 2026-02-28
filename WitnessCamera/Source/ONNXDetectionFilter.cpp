@@ -16,6 +16,8 @@
 #include <array>
 #include <algorithm>
 #include <cstdio>
+#include <chrono>
+#include <ctime>
 
 namespace Witness{
 namespace Camera{
@@ -87,16 +89,52 @@ struct ONNXDetectionFilterData : public FilterDataBase
 	std::vector<float> InputTensorData;
 	cv::Mat ResizedFrame;
 	cv::Mat FloatFrame;
+
+	// Throttle: max detections per second (0 = unlimited)
+	float MaxFPS;
+	std::chrono::steady_clock::time_point LastInferenceTime;
+
+	// Stats (periodic logging)
+	uint64_t FramesReceived;
+	uint64_t FramesProcessed;
+	uint64_t FramesDetected;
+	uint64_t FramesSkippedThrottle;
+	uint64_t FramesBaselineFiltered;
+	double TotalInferenceMs;
+	std::chrono::steady_clock::time_point LastStatsTime;
+
+	// Baseline: objects that are always present in the scene
+	struct BaselineObject
+	{
+		int ClassId;
+		float X1, Y1, X2, Y2;  // Normalized to [0,1] relative to frame
+	};
+	std::vector<BaselineObject> Baseline;
+	std::chrono::steady_clock::time_point LastBaselineTime;
+	float BaselineIntervalSec;
+	bool BaselineInitialized;
 };
 
 PIMPL_CONSTRUCT(ONNXDetectionFilterData)
 
-ONNXDetectionFilter::ONNXDetectionFilter( const MotionChainNode& Chain, const char* ModelPath, float ConfidenceThreshold, bool UseGPU )
+ONNXDetectionFilter::ONNXDetectionFilter( const MotionChainNode& Chain, const char* ModelPath, float ConfidenceThreshold, bool UseGPU, float MaxFPS )
 : RecordFilterBase( Chain )
 , m_ModelLoaded( false )
 {
 	auto& ID = GetData();
 	ID.ConfidenceThreshold = ConfidenceThreshold;
+	ID.MaxFPS = MaxFPS;
+	ID.LastInferenceTime = std::chrono::steady_clock::time_point{};
+	ID.FramesReceived = 0;
+	ID.FramesProcessed = 0;
+	ID.FramesDetected = 0;
+	ID.FramesSkippedThrottle = 0;
+	ID.FramesBaselineFiltered = 0;
+	ID.TotalInferenceMs = 0.0;
+	ID.LastStatsTime = std::chrono::steady_clock::now();
+	ID.LastBaselineTime = std::chrono::steady_clock::time_point{};
+	ID.BaselineIntervalSec = 30.0f;
+	ID.BaselineInitialized = false;
 
 	try
 	{
@@ -198,12 +236,94 @@ bool ONNXDetectionFilter::IsModelLoaded() const
 	return m_ModelLoaded;
 }
 
+static float ComputeIoU( float ax1, float ay1, float ax2, float ay2,
+                          float bx1, float by1, float bx2, float by2 )
+{
+	float ix1 = std::max( ax1, bx1 );
+	float iy1 = std::max( ay1, by1 );
+	float ix2 = std::min( ax2, bx2 );
+	float iy2 = std::min( ay2, by2 );
+
+	float iw = std::max( 0.0f, ix2 - ix1 );
+	float ih = std::max( 0.0f, iy2 - iy1 );
+	float intersection = iw * ih;
+
+	float areaA = ( ax2 - ax1 ) * ( ay2 - ay1 );
+	float areaB = ( bx2 - bx1 ) * ( by2 - by1 );
+	float unionArea = areaA + areaB - intersection;
+
+	return unionArea > 0.0f ? intersection / unionArea : 0.0f;
+}
+
 bool ONNXDetectionFilter::ProcessFrame( SharedClassificationTask TaskData )
 {
 	if( !m_ModelLoaded )
 		return false;
 
 	auto& ID = GetData();
+	auto now = std::chrono::steady_clock::now();
+
+	bool hasMotion = ( TaskData->Result.ClassificationSuperset & ClassificationResult::Motion_Motion ) != 0;
+
+	if( !hasMotion )
+	{
+		// No-motion frame: only process if it's time for a baseline update
+		double baselineElapsed = std::chrono::duration<double>( now - ID.LastBaselineTime ).count();
+		if( ID.BaselineInitialized && baselineElapsed < ID.BaselineIntervalSec )
+			return false;
+	}
+	else
+	{
+		ID.FramesReceived++;
+
+		// Throttle: skip if we've inferred too recently (motion frames only)
+		if( ID.MaxFPS > 0.0f )
+		{
+			double elapsedMs = std::chrono::duration<double, std::milli>( now - ID.LastInferenceTime ).count();
+			double minIntervalMs = 1000.0 / ID.MaxFPS;
+			if( elapsedMs < minIntervalMs )
+			{
+				ID.FramesSkippedThrottle++;
+				return false;
+			}
+		}
+	}
+
+	// Periodic stats logging (every 60 seconds)
+	{
+		double statsSec = std::chrono::duration<double>( now - ID.LastStatsTime ).count();
+		if( statsSec >= 60.0 && ID.FramesProcessed > 0 )
+		{
+			auto wallNow = std::chrono::system_clock::now();
+			auto time_t = std::chrono::system_clock::to_time_t( wallNow );
+			struct tm tm_buf;
+#ifdef _WIN32
+			localtime_s( &tm_buf, &time_t );
+#else
+			localtime_r( &time_t, &tm_buf );
+#endif
+			char timeBuf[20];
+			strftime( timeBuf, sizeof( timeBuf ), "%H:%M:%S", &tm_buf );
+
+			double avgMs = ID.TotalInferenceMs / ID.FramesProcessed;
+			printf( "[%s] ONNX Camera %d stats: %llu/%llu detected (%.0f%%), %llu skipped, %llu baseline-filtered, avg %.0fms\n",
+				timeBuf,
+				TaskData->Frame.SourceID,
+				(unsigned long long)ID.FramesDetected,
+				(unsigned long long)ID.FramesProcessed,
+				100.0 * ID.FramesDetected / ID.FramesProcessed,
+				(unsigned long long)ID.FramesSkippedThrottle,
+				(unsigned long long)ID.FramesBaselineFiltered,
+				avgMs );
+			ID.FramesReceived = 0;
+			ID.FramesProcessed = 0;
+			ID.FramesDetected = 0;
+			ID.FramesSkippedThrottle = 0;
+			ID.FramesBaselineFiltered = 0;
+			ID.TotalInferenceMs = 0.0;
+			ID.LastStatsTime = now;
+		}
+	}
 
 	// Get the decoded BGR frame from the pipeline
 	cv::Mat& frame = TaskData->Frame.GetOrDecodeFrame();
@@ -261,6 +381,7 @@ bool ONNXDetectionFilter::ProcessFrame( SharedClassificationTask TaskData )
 	);
 
 	// Run inference
+	auto inferenceStart = std::chrono::steady_clock::now();
 	std::vector<Ort::Value> outputTensors;
 	try
 	{
@@ -279,6 +400,11 @@ bool ONNXDetectionFilter::ProcessFrame( SharedClassificationTask TaskData )
 		return false;
 	}
 
+	auto inferenceEnd = std::chrono::steady_clock::now();
+	ID.LastInferenceTime = inferenceEnd;
+	ID.FramesProcessed++;
+	ID.TotalInferenceMs += std::chrono::duration<double, std::milli>( inferenceEnd - inferenceStart ).count();
+
 	if( outputTensors.empty() )
 		return false;
 
@@ -289,6 +415,7 @@ bool ONNXDetectionFilter::ProcessFrame( SharedClassificationTask TaskData )
 	const float* outputData = outputTensor.GetTensorData<float>();
 
 	bool detected = false;
+	size_t roiStartIndex = TaskData->Result.ROI.size();
 
 	if( outputShape.size() != 3 || outputShape[0] != 1 )
 	{
@@ -458,17 +585,132 @@ bool ONNXDetectionFilter::ProcessFrame( SharedClassificationTask TaskData )
 		}
 	}
 
-	if( detected )
+	// Baseline mode: if no motion, store detections as baseline and return false
+	if( !hasMotion )
 	{
-		printf( "ONNX Detection: %zu object(s) detected [", TaskData->Result.ROI.size() );
-		for( size_t i = 0; i < TaskData->Result.ROI.size(); i++ )
+		ID.Baseline.clear();
+		for( size_t i = roiStartIndex; i < TaskData->Result.ROI.size(); i++ )
 		{
 			auto& r = TaskData->Result.ROI[i];
-			printf( "%s%s(%.0f%%)", i > 0 ? ", " : "",
-				r.Tags.empty() ? "?" : r.Tags[0].c_str(),
-				r.ClassificationConfidence * 100.0f );
+			ONNXDetectionFilterData::BaselineObject obj;
+			obj.ClassId = -1;
+			// Find COCO class ID from tag name
+			if( !r.Tags.empty() )
+			{
+				for( int c = 0; c < NumCOCOClasses; c++ )
+				{
+					if( r.Tags[0] == COCOClassNames[c] )
+					{
+						obj.ClassId = c;
+						break;
+					}
+				}
+			}
+			// Store normalized coordinates
+			obj.X1 = (float)r.Left / origWidth;
+			obj.Y1 = (float)r.Top / origHeight;
+			obj.X2 = (float)( r.Left + r.Width ) / origWidth;
+			obj.Y2 = (float)( r.Top + r.Height ) / origHeight;
+			ID.Baseline.push_back( obj );
 		}
-		printf( "]\n" );
+
+		// Remove the ROIs we added (they're baseline, not real detections)
+		TaskData->Result.ROI.resize( roiStartIndex );
+
+		ID.LastBaselineTime = now;
+		if( !ID.BaselineInitialized )
+		{
+			ID.BaselineInitialized = true;
+			printf( "ONNX Camera %d: baseline captured (%zu objects)\n",
+				TaskData->Frame.SourceID, ID.Baseline.size() );
+		}
+
+		return false;
+	}
+
+	// Motion mode: filter out detections that match baseline objects
+	if( ID.BaselineInitialized && !ID.Baseline.empty() )
+	{
+		// Walk backwards so we can erase without invalidating indices
+		for( int i = (int)TaskData->Result.ROI.size() - 1; i >= (int)roiStartIndex; i-- )
+		{
+			auto& r = TaskData->Result.ROI[i];
+			float rx1 = (float)r.Left / origWidth;
+			float ry1 = (float)r.Top / origHeight;
+			float rx2 = (float)( r.Left + r.Width ) / origWidth;
+			float ry2 = (float)( r.Top + r.Height ) / origHeight;
+
+			// Find matching tag name for class comparison
+			int detClassId = -1;
+			if( !r.Tags.empty() )
+			{
+				for( int c = 0; c < NumCOCOClasses; c++ )
+				{
+					if( r.Tags[0] == COCOClassNames[c] )
+					{
+						detClassId = c;
+						break;
+					}
+				}
+			}
+
+			for( auto& b : ID.Baseline )
+			{
+				if( b.ClassId == detClassId && ComputeIoU( rx1, ry1, rx2, ry2, b.X1, b.Y1, b.X2, b.Y2 ) > 0.5f )
+				{
+					// Remove corresponding tag
+					if( !r.Tags.empty() )
+					{
+						auto& tags = TaskData->Result.Tags;
+						for( auto it = tags.begin(); it != tags.end(); ++it )
+						{
+							if( *it == r.Tags[0] )
+							{
+								tags.erase( it );
+								break;
+							}
+						}
+					}
+					TaskData->Result.ROI.erase( TaskData->Result.ROI.begin() + i );
+					ID.FramesBaselineFiltered++;
+					detected = false;  // Re-check below
+					break;
+				}
+			}
+		}
+
+		// Re-check if any of our detections remain
+		detected = ( TaskData->Result.ROI.size() > roiStartIndex );
+	}
+
+	if( detected )
+	{
+		ID.FramesDetected++;
+
+		// Log only the detections added by this filter (skip upstream ROIs)
+		auto wallNow = std::chrono::system_clock::now();
+		auto wallTime = std::chrono::system_clock::to_time_t( wallNow );
+		struct tm tm_buf;
+#ifdef _WIN32
+		localtime_s( &tm_buf, &wallTime );
+#else
+		localtime_r( &wallTime, &tm_buf );
+#endif
+		char timeBuf[20];
+		strftime( timeBuf, sizeof( timeBuf ), "%H:%M:%S", &tm_buf );
+
+		printf( "[%s] ONNX Camera %d: ", timeBuf, TaskData->Frame.SourceID );
+		bool first = true;
+		for( size_t i = roiStartIndex; i < TaskData->Result.ROI.size(); i++ )
+		{
+			auto& r = TaskData->Result.ROI[i];
+			if( !first ) printf( ", " );
+			printf( "%s(%.0f%%)",
+				r.Tags.empty() ? "unknown" : r.Tags[0].c_str(),
+				r.ClassificationConfidence * 100.0f );
+			first = false;
+		}
+		printf( "\n" );
 	}
 
 	return detected;

@@ -116,6 +116,7 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 		}
 		GetSettingsField( Settings, "detection_model_path", Video.DetectionModelPath, Errors );
 		GetSettingsField( Settings, "detection_confidence", Video.DetectionConfidence, Errors );
+		GetSettingsField( Settings, "detection_max_fps", Video.DetectionMaxFPS, Errors );
 
 		std::string detectionProvider;
 		if( GetSettingsField( Settings, "detection_provider", detectionProvider, Errors ) && detectionProvider == "gpu" )
