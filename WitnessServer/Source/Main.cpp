@@ -1,6 +1,7 @@
 #include "CrowListener.h"
 #include "Common.h"
 #include "Database.h"
+#include "SetupConfig.h"
 #include "sodium.h"
 #include "ObservingMotionFilter.h"
 #include "Witness.h"
@@ -11,6 +12,7 @@
 #include <minmax.h>
 #include <chrono>
 #include <thread>
+#include <iostream>
 
 #ifdef CROW_ENABLE_SSL
 #include <openssl/applink.c>
@@ -244,7 +246,7 @@ void WINAPI ServiceMain(DWORD dwArgc, PWSTR* pszArgv)
 
 int wmain( int argc, wchar_t* argv[] )
 {
-	if (argc == 2)
+	if (argc >= 2)
 	{
 		if (_wcsicmp(argv[1], L"/installservice") == 0)
 		{
@@ -261,6 +263,130 @@ int wmain( int argc, wchar_t* argv[] )
 			Database::InitializeDatabase(DatabaseFile.string());
 
 			return 0;
+		}
+		else if (_wcsicmp(argv[1], L"/setup") == 0)
+		{
+			// Interactive CLI setup or JSON-based setup
+			auto DatabaseFile = GetConfigFilePath("server.db");
+			auto DB = Database::InitializeDatabase(DatabaseFile.string());
+
+			if (argc >= 4 && _wcsicmp(argv[2], L"--json") == 0)
+			{
+				// Scripted setup: /setup --json <path>
+				char jsonPath[MAX_PATH] = {};
+				WideCharToMultiByte(CP_UTF8, 0, argv[3], -1, jsonPath, MAX_PATH, nullptr, nullptr);
+
+				SetupConfig config;
+				if (!config.LoadFromJson(jsonPath))
+				{
+					return 1;
+				}
+				if (!config.ApplyToDatabase(DB))
+				{
+					std::cerr << "Failed to apply configuration." << std::endl;
+					return 1;
+				}
+
+				std::cout << "Configuration applied successfully." << std::endl;
+				return 0;
+			}
+			else
+			{
+				// Interactive CLI setup
+				if (sodium_init() == -1)
+				{
+					std::cerr << "Unable to initialize libsodium." << std::endl;
+					return 1;
+				}
+
+				SetupConfig config;
+				std::string input;
+
+				std::cout << std::endl;
+				std::cout << "========================================" << std::endl;
+				std::cout << "  Witness Interactive Setup" << std::endl;
+				std::cout << "========================================" << std::endl;
+				std::cout << std::endl;
+
+				std::cout << "Admin username: ";
+				std::getline(std::cin, config.Username);
+
+				std::cout << "Admin password: ";
+				SetStdinEcho(false);
+				std::getline(std::cin, config.Password);
+				SetStdinEcho(true);
+				std::cout << std::endl;
+
+				std::cout << "Server hostname:port (e.g. localhost:8080): ";
+				std::getline(std::cin, config.Hostname);
+
+				std::cout << "TLS mode [NoSecurity/SelfSigned/LetsEncrypt/Manual]: ";
+				std::getline(std::cin, config.TlsMode);
+				if (config.TlsMode.empty()) config.TlsMode = "NoSecurity";
+
+				std::cout << "Cache path [C:\\WitnessCache]: ";
+				std::getline(std::cin, config.CachePath);
+				if (config.CachePath.empty()) config.CachePath = "C:\\WitnessCache";
+
+				// Derive web root from exe path
+				wchar_t exeBuf[MAX_PATH] = {};
+				GetModuleFileNameW(nullptr, exeBuf, MAX_PATH);
+				config.WebRoot = (std::filesystem::path(exeBuf).parent_path() / "Web").string();
+
+				if (!config.ApplyToDatabase(DB))
+				{
+					std::cerr << "Failed to apply configuration." << std::endl;
+					return 1;
+				}
+
+				std::cout << std::endl << "Setup complete. Start WitnessServer normally to run." << std::endl;
+				return 0;
+			}
+		}
+		else if (_wcsicmp(argv[1], L"/apply-config") == 0 && argc >= 3)
+		{
+			// Elevated helper: read pending config JSON, apply privileged actions
+			char configPath[MAX_PATH] = {};
+			WideCharToMultiByte(CP_UTF8, 0, argv[2], -1, configPath, MAX_PATH, nullptr, nullptr);
+
+			SetupConfig config;
+			if (!config.LoadFromJson(configPath))
+			{
+				return 1;
+			}
+
+			auto DatabaseFile = GetConfigFilePath("server.db");
+			auto DB = Database::InitializeDatabase(DatabaseFile.string());
+
+			if (!config.ApplyToDatabase(DB))
+			{
+				std::cerr << "Failed to apply configuration." << std::endl;
+				return 1;
+			}
+
+			// Apply privileged actions
+			bool success = true;
+
+			if (config.StartupMode == "Service")
+			{
+				success &= UpdateService(argv[0], true);
+			}
+
+			// Write status file for the web wizard to poll
+			std::string statusPath = std::string(configPath) + ".status";
+			std::ofstream statusFile(statusPath);
+			if (statusFile)
+			{
+				crow::json::wvalue status;
+				status["success"] = success;
+				status["message"] = success ? "Configuration applied" : "Some operations failed";
+				statusFile << status.dump();
+			}
+
+			// Clean up the config file
+			std::filesystem::remove(configPath);
+
+			return success ? 0 : 1;
 		}
 	}
 
