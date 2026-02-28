@@ -187,6 +187,16 @@ namespace Database
 		;
 	)RAW";
 
+	std::string SetUserPassword = R"RAW(
+		UPDATE User 
+		SET
+			PasswordHash = @PasswordHash,
+			HashMethod = @HashMethod
+		WHERE 
+			Username == @Username
+		;
+	)RAW";
+
 	std::string FindSession = R"RAW(
 		SELECT * FROM Session 
 		WHERE SessionToken = @SessionToken
@@ -450,6 +460,7 @@ namespace Database
 		CREATE_QUERY( SetUserEnabledState );
 		CREATE_QUERY( SetUserAdminState );
 		CREATE_QUERY( SetUserDisplayName );
+		CREATE_QUERY( SetUserPassword );
 
 		CREATE_QUERY( FindSession );
 		CREATE_QUERY( VerifySession );

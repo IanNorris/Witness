@@ -138,15 +138,15 @@
 
         <!-- Step 2: Admin Account -->
         <div class="step" id="step-2">
-            <h1>Create Admin Account</h1>
-            <p class="subtitle">This will be the first administrator user.</p>
+            <h1 id="admin-title">Create Admin Account</h1>
+            <p class="subtitle" id="admin-subtitle">This will be the first administrator user.</p>
             <div class="form-group">
                 <label for="username">Username</label>
                 <input type="text" id="username" autocomplete="username" placeholder="admin">
                 <div class="error" id="username-error"></div>
             </div>
             <div class="form-group">
-                <label for="password">Password</label>
+                <label for="password" id="password-label">Password</label>
                 <input type="password" id="password" autocomplete="new-password" placeholder="Minimum 8 characters">
                 <div class="error" id="password-error"></div>
             </div>
@@ -168,7 +168,7 @@
             <table class="review-table" id="review-table"></table>
             <div class="error" id="apply-error" style="margin-bottom:12px"></div>
             <div class="btn-row">
-                <button class="btn btn-secondary" onclick="goToStep(isReconfigure ? 1 : 2)">Back</button>
+                <button class="btn btn-secondary" onclick="goToStep(2)">Back</button>
                 <button class="btn" id="apply-btn" onclick="applySetup()">Apply &amp; Start Server</button>
             </div>
         </div>
@@ -242,8 +242,8 @@
                     document.getElementById('hostname-error').textContent = 'Include the port number (e.g. localhost:8080)';
                     return;
                 }
-                // In reconfigure mode, skip admin account step
-                goToStep(isReconfigure ? 3 : 2);
+                // In reconfigure mode, always show admin step (for password reset)
+                goToStep(2);
             } else if (fromStep === 2) {
                 // Validate admin account
                 const username = document.getElementById('username').value.trim();
@@ -254,18 +254,37 @@
                 document.getElementById('password-error').textContent = '';
                 document.getElementById('confirm-error').textContent = '';
 
-                let valid = true;
-                if (!username) {
-                    document.getElementById('username-error').textContent = 'Username is required';
-                    valid = false;
-                }
-                if (password.length < 8) {
-                    document.getElementById('password-error').textContent = 'Password must be at least 8 characters';
-                    valid = false;
-                }
-                if (password !== confirm) {
-                    document.getElementById('confirm-error').textContent = 'Passwords do not match';
-                    valid = false;
+                if (isReconfigure) {
+                    // In reconfigure mode, fields are optional (skip = no change)
+                    if (password || confirm) {
+                        if (!username) {
+                            document.getElementById('username-error').textContent = 'Username is required when resetting password';
+                            return;
+                        }
+                        if (password.length < 8) {
+                            document.getElementById('password-error').textContent = 'Password must be at least 8 characters';
+                            return;
+                        }
+                        if (password !== confirm) {
+                            document.getElementById('confirm-error').textContent = 'Passwords do not match';
+                            return;
+                        }
+                    }
+                } else {
+                    let valid = true;
+                    if (!username) {
+                        document.getElementById('username-error').textContent = 'Username is required';
+                        valid = false;
+                    }
+                    if (password.length < 8) {
+                        document.getElementById('password-error').textContent = 'Password must be at least 8 characters';
+                        valid = false;
+                    }
+                    if (password !== confirm) {
+                        document.getElementById('confirm-error').textContent = 'Passwords do not match';
+                        valid = false;
+                    }
+                    if (!valid) return;
                 }
                 if (valid) goToStep(fromStep + 1);
             }
@@ -282,6 +301,8 @@
 
             if (!isReconfigure) {
                 rows.push(['Admin User', document.getElementById('username').value]);
+            } else if (document.getElementById('password').value) {
+                rows.push(['Password Reset', document.getElementById('username').value]);
             }
 
             const tlsMode = mode.value;
@@ -368,14 +389,16 @@
                         if (data.server_tls_key) document.getElementById('tls-key').value = data.server_tls_key;
                         if (data.server_tls_contact) document.getElementById('tls-contact').value = data.server_tls_contact;
 
-                        // Skip welcome and admin steps — go straight to settings
+                        // Update welcome page for reconfigure
                         document.getElementById('step-0').querySelector('h1').textContent = 'Reconfigure Server';
                         document.getElementById('step-0').querySelector('.subtitle').textContent = 'Update your server settings.';
                         document.getElementById('step-0').querySelector('.alert').textContent =
-                            'You can change server settings below. Admin account settings are managed from the main interface.';
+                            'Review and update your server settings. You can also reset an admin password if needed.';
 
-                        // In reconfigure mode, skip admin account step
-                        document.getElementById('step-2').classList.add('hidden');
+                        // Update admin step for password reset
+                        document.getElementById('admin-title').textContent = 'Reset Admin Password';
+                        document.getElementById('admin-subtitle').textContent = 'Leave blank to keep the current password.';
+                        document.getElementById('password-label').textContent = 'New Password';
                     }
                 }
             } catch (e) {

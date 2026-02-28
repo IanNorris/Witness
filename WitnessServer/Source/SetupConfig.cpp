@@ -26,7 +26,7 @@ bool SetupConfig::ApplyToDatabase( const std::shared_ptr<SQLiteDatabase>& DB ) c
 	setSetting( "server_cache", CachePath );
 	setSetting( "server_startup_mode", StartupMode );
 
-	// Create admin user if credentials provided
+	// Create or update admin user if credentials provided
 	if( !Username.empty() && !Password.empty() )
 	{
 		std::string usernameLC = Username;
@@ -34,16 +34,43 @@ bool SetupConfig::ApplyToDatabase( const std::shared_ptr<SQLiteDatabase>& DB ) c
 
 		std::string hash = GetHashedPasswordKey_Algorithm0( usernameLC, Password );
 
-		SQLiteDatabaseQueryInstance createUser( DB, "CreateUser" );
-		createUser->Bind( "@Username", usernameLC.c_str() );
-		createUser->Bind( "@DisplayName", Username.c_str() );
-		createUser->Bind( "@PasswordHash", hash.c_str() );
-		createUser->Bind( "@HashMethod", 0 );
-		createUser->Bind( "@Enabled", 1 );
-		createUser->Bind( "@Admin", 1 );
-		createUser->Execute( nullptr );
+		// Check if user already exists
+		bool userExists = false;
+		{
+			SQLiteDatabaseQueryInstance findUser( DB, "FindUser" );
+			findUser->Bind( "@Username", usernameLC.c_str() );
+			findUser->Execute( [&userExists]( const SQLiteDatabaseQuery& q )
+			{
+				userExists = true;
+				return true;
+			});
+		}
 
-		std::cout << "Admin user '" << Username << "' created." << std::endl;
+		if( userExists )
+		{
+			// Update password for existing user
+			SQLiteDatabaseQueryInstance update( DB, "SetUserPassword" );
+			update->Bind( "@Username", usernameLC.c_str() );
+			update->Bind( "@PasswordHash", hash.c_str() );
+			update->Bind( "@HashMethod", 0 );
+			update->Execute( nullptr );
+
+			std::cout << "Admin user '" << Username << "' password updated." << std::endl;
+		}
+		else
+		{
+			// Create new admin user
+			SQLiteDatabaseQueryInstance createUser( DB, "CreateUser" );
+			createUser->Bind( "@Username", usernameLC.c_str() );
+			createUser->Bind( "@DisplayName", Username.c_str() );
+			createUser->Bind( "@PasswordHash", hash.c_str() );
+			createUser->Bind( "@HashMethod", 0 );
+			createUser->Bind( "@Enabled", 1 );
+			createUser->Bind( "@Admin", 1 );
+			createUser->Execute( nullptr );
+
+			std::cout << "Admin user '" << Username << "' created." << std::endl;
+		}
 	}
 
 	return true;

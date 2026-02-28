@@ -227,55 +227,53 @@ void SetupServer::HandleApply( const crow::request& req, crow::response& res )
 		return;
 	}
 
-	// Validate required fields
-	if( !body.has( "username" ) || !body.has( "password" ) )
-	{
-		res.code = 400;
-		res.body = R"({"error":"Username and password are required"})";
-		res.set_header( "Content-Type", "application/json" );
-		res.end();
-		return;
-	}
+	// Validate required fields (only for first-run, not reconfigure)
+	std::string username = body.has( "username" ) ? std::string( body["username"].s() ) : "";
+	std::string password = body.has( "password" ) ? std::string( body["password"].s() ) : "";
 
-	std::string username = body["username"].s();
-	std::string password = body["password"].s();
-
-	if( username.empty() || password.empty() )
+	if( !m_HasAdmin )
 	{
-		res.code = 400;
-		res.body = R"({"error":"Username and password cannot be empty"})";
-		res.set_header( "Content-Type", "application/json" );
-		res.end();
-		return;
-	}
-
-	if( password.size() < 8 )
-	{
-		res.code = 400;
-		res.body = R"({"error":"Password must be at least 8 characters"})";
-		res.set_header( "Content-Type", "application/json" );
-		res.end();
-		return;
-	}
-
-	// Check no users exist yet (prevent race)
-	bool hasUsers = true;
-	{
-		SQLiteDatabaseQueryInstance query( m_Database, "GetUserCount" );
-		query->Execute( [&hasUsers]( const SQLiteDatabaseQuery& q )
+		// First run: username and password are required
+		if( username.empty() || password.empty() )
 		{
-			hasUsers = q.GetColumnValueInt( 0 ) > 0;
-			return true;
-		});
-	}
+			res.code = 400;
+			res.body = R"({"error":"Username and password are required"})";
+			res.set_header( "Content-Type", "application/json" );
+			res.end();
+			return;
+		}
 
-	if( hasUsers )
+		if( password.size() < 8 )
+		{
+			res.code = 400;
+			res.body = R"({"error":"Password must be at least 8 characters"})";
+			res.set_header( "Content-Type", "application/json" );
+			res.end();
+			return;
+		}
+	}
+	else
 	{
-		res.code = 409;
-		res.body = R"({"error":"An admin user already exists"})";
-		res.set_header( "Content-Type", "application/json" );
-		res.end();
-		return;
+		// Reconfigure: password reset is optional, but validate if provided
+		if( !password.empty() )
+		{
+			if( username.empty() )
+			{
+				res.code = 400;
+				res.body = R"({"error":"Username is required when resetting password"})";
+				res.set_header( "Content-Type", "application/json" );
+				res.end();
+				return;
+			}
+			if( password.size() < 8 )
+			{
+				res.code = 400;
+				res.body = R"({"error":"Password must be at least 8 characters"})";
+				res.set_header( "Content-Type", "application/json" );
+				res.end();
+				return;
+			}
+		}
 	}
 
 	// Build config from request
