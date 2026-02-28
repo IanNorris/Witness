@@ -161,7 +161,7 @@ namespace Installer
 			{
 				var p = new Process();
 				p.StartInfo.FileName = "cmd.exe";
-				p.StartInfo.Arguments = $"/c \"\"{certbot}\" certonly --standalone -d {Hostname} --agree-tos --email {Email} --non-interactive & pause\"";
+				p.StartInfo.Arguments = $"/c \"\"{certbot}\" certonly --standalone -d {Hostname} --agree-tos --email {Email} --non-interactive || (pause & exit /b 1)\" & pause";
 				p.StartInfo.UseShellExecute = true;
 				p.StartInfo.Verb = "runas";
 				p.Start();
@@ -301,13 +301,9 @@ namespace Installer
 					CertPath = result.Value.certPath;
 					KeyPath = result.Value.keyPath;
 
-					// Set up automatic renewal
-					if (!SetupRenewalTask())
-					{
-						MessageBox.Show("Certificate obtained but automatic renewal task could not be created.\n" +
-							"Run 'certbot renew' manually or set up a scheduled task.",
-							"Warning", MessageBoxButton.OK, MessageBoxImage.Warning);
-					}
+					// Certbot creates its own renewal task. We add a deploy-hook
+					// task to reload the server's TLS context after renewal.
+					SetupRenewalTask();
 					break;
 				}
 
