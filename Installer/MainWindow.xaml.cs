@@ -1,5 +1,6 @@
 ﻿using System.IO;
 using System.Windows;
+using System.Windows.Controls;
 using WinForms = System.Windows.Forms;
 using System;
 
@@ -12,6 +13,9 @@ namespace Installer
 	{
 		public Setup Setup { get; set; } = new Setup();
 
+		private bool _canAdvanceFromLogin = false;
+		private bool _canAdvanceFromRemoteAccess = false;
+
 		public MainWindow()
 		{
 			var SP = new SettingsPublisher();
@@ -23,8 +27,59 @@ namespace Installer
 			InitializeComponent();
 			DataContext = Setup;
 
-			Login.CanSelectNextPage = false;
-			RemoteAccess.CanSelectNextPage = false;
+			WizardTabs.SelectedIndex = 0;
+			UpdateNavigationButtons();
+		}
+
+		private void UpdateNavigationButtons()
+		{
+			int index = WizardTabs.SelectedIndex;
+			int lastIndex = WizardTabs.Items.Count - 1;
+
+			BackButton.IsEnabled = index > 0;
+			NextButton.Visibility = index < lastIndex ? Visibility.Visible : Visibility.Collapsed;
+			FinishButton.Visibility = index == lastIndex ? Visibility.Visible : Visibility.Collapsed;
+
+			// Disable Next on pages that require validation
+			if (index == 1) // Login page
+				NextButton.IsEnabled = _canAdvanceFromLogin;
+			else if (index == 2) // RemoteAccess page
+				NextButton.IsEnabled = _canAdvanceFromRemoteAccess;
+			else
+				NextButton.IsEnabled = true;
+
+			// Update header
+			var tab = WizardTabs.SelectedItem as TabItem;
+			if (tab?.Tag is string tagStr)
+			{
+				var parts = tagStr.Split('|');
+				PageTitle.Text = parts.Length > 0 ? parts[0] : "";
+				PageDescription.Text = parts.Length > 1 ? parts[1] : "";
+			}
+		}
+
+		private void WizardTabs_SelectionChanged(object sender, SelectionChangedEventArgs e)
+		{
+			if (e.Source == WizardTabs)
+				UpdateNavigationButtons();
+		}
+
+		private void BackButton_Click(object sender, RoutedEventArgs e)
+		{
+			if (WizardTabs.SelectedIndex > 0)
+				WizardTabs.SelectedIndex--;
+		}
+
+		private void NextButton_Click(object sender, RoutedEventArgs e)
+		{
+			if (WizardTabs.SelectedIndex < WizardTabs.Items.Count - 1)
+				WizardTabs.SelectedIndex++;
+		}
+
+		private void FinishButton_Click(object sender, RoutedEventArgs e)
+		{
+			var InstallProgress = new InstallProgress(CompleteInstallation);
+			InstallProgress.ShowDialog();
 		}
 
 		private void CompleteInstallation( InstallProgress.StatusUpdateDelegate Update )
@@ -55,12 +110,6 @@ namespace Installer
 
 			Total += 40; //100
 			Update(Total);
-		}
-
-		private void Wizard_Finish(object sender, Xceed.Wpf.Toolkit.Core.CancelRoutedEventArgs e)
-		{
-			var InstallProgress = new InstallProgress(CompleteInstallation);
-			InstallProgress.ShowDialog();
 		}
 
 		private void CacheBrowse_Click(object sender, RoutedEventArgs e)
@@ -97,12 +146,14 @@ namespace Installer
 				Setup.PasswordsMatch = string.Compare(Setup.Password, Setup.PasswordConfirm) == 0 && Setup.Password.Length > 0;
 			}
 
-			Login.CanSelectNextPage = Setup.PasswordsMatch && Setup.Username != null && Setup.Username.Length > 0;
+			_canAdvanceFromLogin = Setup.PasswordsMatch && Setup.Username != null && Setup.Username.Length > 0;
+			UpdateNavigationButtons();
 		}
 
 		private void OnConfigureRemoteAccess_Click(object sender, RoutedEventArgs e)
 		{
-			RemoteAccess.CanSelectNextPage = false;
+			_canAdvanceFromRemoteAccess = false;
+			UpdateNavigationButtons();
 
 			string CurrentUser = Permissions.GetCurrentUser();
 			string Username = Setup.StartupMode == Installer.StartupMode.Service ? "NT AUTHORITY\\NetworkService" : CurrentUser;
@@ -119,18 +170,19 @@ namespace Installer
 				if (keyPath != null) Setup.TlsKeyPath = keyPath;
 
 				MessageBox.Show($"Successfully configured!");
-				RemoteAccess.CanSelectNextPage = true;
+				_canAdvanceFromRemoteAccess = true;
+				UpdateNavigationButtons();
 			}
 		}
 
-		private void TlsModeCombo_SelectionChanged(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+		private void TlsModeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
 		{
-			RemoteAccess.CanSelectNextPage = false;
+			_canAdvanceFromRemoteAccess = false;
 
 			// Show/hide fields based on selected TLS mode
 			if (TlsContactLabel == null) return; // Not yet initialized
 
-			var selectedItem = TlsModeCombo.SelectedItem as System.Windows.Controls.ComboBoxItem;
+			var selectedItem = TlsModeCombo.SelectedItem as ComboBoxItem;
 			var tag = selectedItem?.Tag?.ToString();
 
 			bool showEmail = (tag == "LetsEncrypt");
@@ -142,6 +194,8 @@ namespace Installer
 			TlsCertBox.Visibility = showCertFields ? Visibility.Visible : Visibility.Collapsed;
 			TlsKeyLabel.Visibility = showCertFields ? Visibility.Visible : Visibility.Collapsed;
 			TlsKeyBox.Visibility = showCertFields ? Visibility.Visible : Visibility.Collapsed;
+
+			UpdateNavigationButtons();
 		}
 
 		private void LoginField_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)

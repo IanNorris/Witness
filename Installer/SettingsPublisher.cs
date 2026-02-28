@@ -142,7 +142,7 @@ namespace Installer
 				
 
 				var PasswordSalt = new byte[16];
-				var RNG = new RNGCryptoServiceProvider();
+				using var RNG = RandomNumberGenerator.Create();
 				RNG.GetBytes(PasswordSalt);
 
 				string HashedPasswordInput = Setup.Username + ":" + Setup.Password;
