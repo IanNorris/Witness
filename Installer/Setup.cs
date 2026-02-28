@@ -1,11 +1,23 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.IO;
 using System.Linq;
 using System.Security;
 
 namespace Installer
 {
+	/// <summary>
+	/// Returns the directory containing the Installer exe.
+	/// For single-file published apps, AppDomain.CurrentDomain.BaseDirectory points to
+	/// a temp extraction directory, not the actual exe location.
+	/// </summary>
+	internal static class InstallerPaths
+	{
+		public static string ExeDirectory { get; } =
+			Path.GetDirectoryName(Environment.ProcessPath) ?? AppDomain.CurrentDomain.BaseDirectory;
+	}
+
 	public enum CertificateMode
 	{
 		[Description("Self-signed certificate (development/testing)")]

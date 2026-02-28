@@ -21,7 +21,10 @@ namespace Installer
 		private static string FindOpenSSL()
 		{
 			// Check alongside the Installer exe first
-			var localCandidate = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "openssl.exe");
+			// Note: AppDomain.BaseDirectory points to temp extraction dir for single-file apps,
+			// so use the actual exe path instead
+			var exeDir = InstallerPaths.ExeDirectory;
+			var localCandidate = Path.Combine(exeDir, "openssl.exe");
 			if (File.Exists(localCandidate))
 				return localCandidate;
 

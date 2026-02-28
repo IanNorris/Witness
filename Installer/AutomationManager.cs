@@ -1,4 +1,4 @@
-﻿using Microsoft.Win32.TaskScheduler;
+using Microsoft.Win32.TaskScheduler;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -56,7 +56,7 @@ namespace Installer
 
 		private static void ConfigureFirewall()
 		{
-			string Server = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WitnessServer.exe");
+			string Server = Path.Combine(InstallerPaths.ExeDirectory, "WitnessServer.exe");
 
 			CommandRunner.RunCommand($"Remove-NetFirewallRule -DisplayName \"{WitnessFirewallRule}\"");
 
@@ -96,7 +96,7 @@ namespace Installer
 			}
 			else if( Startup == StartupMode.Service )
 			{
-				string Server = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WitnessServer.exe");
+				string Server = Path.Combine(InstallerPaths.ExeDirectory, "WitnessServer.exe");
 
 				string Messages = "";
 				var Result = CommandRunner.RunCommandAndDetermineSuccess<CommandRunner.Status>($"& \"{Server}\" /installservice", CommandRunner.Status.Failure, (msg, status) =>
@@ -167,7 +167,7 @@ namespace Installer
 
 		public void Uninstall()
 		{
-			string Server = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WitnessServer.exe");
+			string Server = Path.Combine(InstallerPaths.ExeDirectory, "WitnessServer.exe");
 
 			StopService();
 

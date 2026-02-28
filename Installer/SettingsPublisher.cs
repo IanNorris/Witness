@@ -1,4 +1,4 @@
-﻿using SQLite;
+using SQLite;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -58,12 +58,12 @@ namespace Installer
 
 		public string GetWebRoot()
 		{
-			return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Web");
+			return Path.Combine(InstallerPaths.ExeDirectory, "Web");
 		}
 
 		private void EnsureDBCreated()
 		{
-			string Server = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WitnessServer.exe");
+			string Server = Path.Combine(InstallerPaths.ExeDirectory, "WitnessServer.exe");
 
 			Process ExternalProcess = new Process();
 			ExternalProcess.StartInfo.FileName = Server;

@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using WinForms = System.Windows.Forms;
@@ -94,13 +94,13 @@ namespace Installer
 			Total += 10;
 			Update(Total);
 
-			Permissions.GrantPermissions(AppDomain.CurrentDomain.BaseDirectory, Setup.StartupMode == Installer.StartupMode.Service ? "NT AUTHORITY\\NetworkService" : Permissions.GetCurrentUser(), System.Security.AccessControl.FileSystemRights.ReadAndExecute);
+			Permissions.GrantPermissions(InstallerPaths.ExeDirectory, Setup.StartupMode == Installer.StartupMode.Service ? "NT AUTHORITY\\NetworkService" : Permissions.GetCurrentUser(), System.Security.AccessControl.FileSystemRights.ReadAndExecute);
 			Permissions.GrantPermissions(SettingsPublisher.GetRootSettingsPath(false), Setup.StartupMode == Installer.StartupMode.Service ? "NT AUTHORITY\\NetworkService" : Permissions.GetCurrentUser(), System.Security.AccessControl.FileSystemRights.FullControl);
 
 			Total += 20; //30
 			Update(Total);
 
-			var AM = new AutomationManager(Setup.StartupMode, Setup.RestartOnFailure.Value, AppDomain.CurrentDomain.BaseDirectory);
+			var AM = new AutomationManager(Setup.StartupMode, Setup.RestartOnFailure.Value, InstallerPaths.ExeDirectory);
 			AM.UpdateConfig();
 
 			Total += 30; //60
