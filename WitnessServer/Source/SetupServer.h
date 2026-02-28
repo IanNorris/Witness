@@ -30,9 +30,13 @@ private:
 	// API handlers
 	void HandleStatus( const crow::request& req, crow::response& res );
 	void HandleApply( const crow::request& req, crow::response& res );
+	void HandleElevate( const crow::request& req, crow::response& res );
+	void HandleElevateStatus( const crow::request& req, crow::response& res );
 
 	// TLS helpers
 	bool GenerateSelfSignedCert( struct SetupConfig& config );
+
+	std::string m_PendingConfigPath;  // Path to pending config JSON for elevation
 
 	crow::SimpleApp m_App;
 	std::shared_ptr<SQLiteDatabase> m_Database;

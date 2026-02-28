@@ -74,11 +74,25 @@ void SetupServer::RegisterRoutes()
 		HandleStatus( req, res );
 	});
 
-	// Apply setup (create admin user)
+	// Apply setup (create admin user + settings)
 	CROW_ROUTE( m_App, "/api/setup/apply" ).methods( crow::HTTPMethod::POST )
 	([this]( const crow::request& req, crow::response& res )
 	{
 		HandleApply( req, res );
+	});
+
+	// Elevation: launch elevated /apply-config process
+	CROW_ROUTE( m_App, "/api/setup/elevate" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleElevate( req, res );
+	});
+
+	// Elevation status: poll for completion
+	CROW_ROUTE( m_App, "/api/setup/elevate/status" )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleElevateStatus( req, res );
 	});
 
 	// Serve setup static files
@@ -277,6 +291,123 @@ void SetupServer::HandleApply( const crow::request& req, crow::response& res )
 		std::this_thread::sleep_for( std::chrono::milliseconds( 500 ) );
 		m_App.stop();
 	}).detach();
+}
+
+void SetupServer::HandleElevate( const crow::request& req, crow::response& res )
+{
+	auto body = crow::json::load( req.body );
+	if( !body )
+	{
+		res.code = 400;
+		res.body = R"({"error":"Invalid JSON"})";
+		res.set_header( "Content-Type", "application/json" );
+		res.end();
+		return;
+	}
+
+	// Build a config from the request for privileged actions
+	SetupConfig config;
+	if( body.has( "startup_mode" ) ) config.StartupMode = body["startup_mode"].s();
+
+	// Write pending config to a temp file
+	fs::path tempDir = fs::temp_directory_path();
+	m_PendingConfigPath = (tempDir / "witness_setup_config.json").string();
+	std::string statusPath = m_PendingConfigPath + ".status";
+
+	// Remove any stale status file
+	fs::remove( statusPath );
+
+	if( !config.SaveToJson( m_PendingConfigPath ) )
+	{
+		res.code = 500;
+		res.body = R"({"error":"Failed to write pending config"})";
+		res.set_header( "Content-Type", "application/json" );
+		res.end();
+		return;
+	}
+
+	// Launch elevated /apply-config process
+#ifdef _WIN32
+	wchar_t exeBuf[MAX_PATH] = {};
+	GetModuleFileNameW( nullptr, exeBuf, MAX_PATH );
+	std::wstring exePath = exeBuf;
+
+	std::string params = "/apply-config \"" + m_PendingConfigPath + "\"";
+	std::wstring wParams( params.begin(), params.end() );
+
+	SHELLEXECUTEINFOW sei = {};
+	sei.cbSize = sizeof( sei );
+	sei.lpVerb = L"runas";
+	sei.lpFile = exePath.c_str();
+	sei.lpParameters = wParams.c_str();
+	sei.nShow = SW_HIDE;
+	sei.fMask = SEE_MASK_NOASYNC;
+
+	if( !ShellExecuteExW( &sei ) )
+	{
+		DWORD err = GetLastError();
+		std::string errMsg = (err == ERROR_CANCELLED)
+			? "User cancelled the elevation prompt"
+			: "Failed to launch elevated process (error " + std::to_string( err ) + ")";
+
+		res.code = 403;
+		crow::json::wvalue errJson;
+		errJson["error"] = errMsg;
+		res.body = errJson.dump();
+		res.set_header( "Content-Type", "application/json" );
+		res.end();
+		return;
+	}
+#endif
+
+	crow::json::wvalue result;
+	result["success"] = true;
+	result["message"] = "Elevated process launched. Poll /api/setup/elevate/status for result.";
+
+	res.set_header( "Content-Type", "application/json" );
+	res.body = result.dump();
+	res.code = 200;
+	res.end();
+}
+
+void SetupServer::HandleElevateStatus( const crow::request& req, crow::response& res )
+{
+	if( m_PendingConfigPath.empty() )
+	{
+		res.code = 404;
+		res.body = R"({"status":"no_pending"})";
+		res.set_header( "Content-Type", "application/json" );
+		res.end();
+		return;
+	}
+
+	std::string statusPath = m_PendingConfigPath + ".status";
+
+	std::ifstream statusFile( statusPath );
+	if( !statusFile )
+	{
+		// Status file doesn't exist yet — still running
+		res.code = 200;
+		res.body = R"({"status":"running"})";
+		res.set_header( "Content-Type", "application/json" );
+		res.end();
+		return;
+	}
+
+	// Read status
+	std::string content( (std::istreambuf_iterator<char>(statusFile)),
+	                     std::istreambuf_iterator<char>() );
+	statusFile.close();
+
+	// Clean up
+	fs::remove( statusPath );
+	fs::remove( m_PendingConfigPath );
+	m_PendingConfigPath.clear();
+
+	res.code = 200;
+	res.body = R"({"status":"complete","result":)" + content + "}";
+	res.set_header( "Content-Type", "application/json" );
+	res.end();
 }
 
 bool SetupServer::Run()
