@@ -17,7 +17,7 @@ namespace Database
 			HashMethod		INTEGER								NOT NULL,
 			Enabled			INTEGER								NOT NULL,		
 			Admin			INTEGER								NOT NULL,
-			MustChangePassword INTEGER							NOT NULL DEFAULT 0
+			MustChangePassword INTEGER							NOT NULL
 		);
 
 		CREATE UNIQUE INDEX IF NOT EXISTS UserIndex ON User (Username);
@@ -182,16 +182,6 @@ namespace Database
 		UPDATE User 
 		SET
 			DisplayName = @DisplayName
-		WHERE 
-			Username == @Username
-		;
-	)RAW";
-
-	std::string SetUserPassword = R"RAW(
-		UPDATE User 
-		SET
-			PasswordHash = @PasswordHash,
-			HashMethod = @HashMethod
 		WHERE 
 			Username == @Username
 		;
@@ -460,7 +450,6 @@ namespace Database
 		CREATE_QUERY( SetUserEnabledState );
 		CREATE_QUERY( SetUserAdminState );
 		CREATE_QUERY( SetUserDisplayName );
-		CREATE_QUERY( SetUserPassword );
 
 		CREATE_QUERY( FindSession );
 		CREATE_QUERY( VerifySession );
@@ -506,19 +495,5 @@ namespace Database
 		CREATE_QUERY( GetAction );
 
 		return DB;
-	}
-
-	bool HasAdminUser( const std::shared_ptr<SQLiteDatabase>& DB )
-	{
-		bool hasAdmin = false;
-
-		SQLiteDatabaseQueryInstance query( DB, "GetUserCount" );
-		query->Execute( [&hasAdmin]( const SQLiteDatabaseQuery& q )
-		{
-			hasAdmin = q.GetColumnValueInt( 0 ) > 0;
-			return true;
-		});
-
-		return hasAdmin;
 	}
 }

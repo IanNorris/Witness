@@ -1,7 +1,6 @@
 #include "Common.h"
 #include "Witness.h"
 #include "CrowListener.h"
-#include "SetupServer.h"
 #include "AuthHelpers.h"
 #include "ClipHelpers.h"
 #include "Database.h"
@@ -45,30 +44,6 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 	auto DatabaseFile = GetConfigFilePath("server.db");
 
 	std::shared_ptr<SQLiteDatabase> Database = Database::InitializeDatabase(DatabaseFile.string());
-
-	// If no admin user exists, run the web setup wizard first
-	if( !Database::HasAdminUser( Database ) )
-	{
-		// Derive the Web root from the executable directory
-		std::filesystem::path exePath;
-#ifdef _WIN32
-		wchar_t exeBuf[MAX_PATH] = {};
-		GetModuleFileNameW( nullptr, exeBuf, MAX_PATH );
-		exePath = std::filesystem::path( exeBuf ).parent_path();
-#else
-		exePath = std::filesystem::canonical( "/proc/self/exe" ).parent_path();
-#endif
-		std::string staticRoot = ( exePath / "Web" ).string();
-
-		SetupServer setup( Database, staticRoot );
-		if( !setup.Run() )
-		{
-			std::cerr << "Setup was not completed. Exiting." << std::endl;
-			return false;
-		}
-
-		std::cout << "Setup complete. Starting production server..." << std::endl;
-	}
 
 	std::unordered_map< std::string, std::string > Settings;
 
@@ -133,6 +108,8 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 
 	void* ServerMessageClient = nullptr;
 	MessageClient = Context->MessageBus->AddClient( ServerMessageClient );
+
+	OfflineCreationForFirstUser( *Context );
 
 	std::cout << "Starting web server..." << std::endl;
 

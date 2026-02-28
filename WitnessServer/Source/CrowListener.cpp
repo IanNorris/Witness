@@ -313,31 +313,6 @@ void CrowListener::RegisterRoutes()
 		HandleDebugReloadTLS( req, res );
 	});
 
-	// Setup / Reconfiguration (admin-only)
-	CROW_ROUTE( m_App, "/setup" )
-	([this]( const crow::request& req, crow::response& res )
-	{
-		HandleSetupPage( req, res );
-	});
-
-	CROW_ROUTE( m_App, "/setup/<path>" )
-	([this]( const crow::request& req, crow::response& res, const std::string& path )
-	{
-		HandleSetupPage( req, res );
-	});
-
-	CROW_ROUTE( m_App, "/api/setup/settings" )
-	([this]( const crow::request& req, crow::response& res )
-	{
-		HandleSetupSettings( req, res );
-	});
-
-	CROW_ROUTE( m_App, "/api/setup/apply" ).methods( crow::HTTPMethod::POST )
-	([this]( const crow::request& req, crow::response& res )
-	{
-		HandleSetupApply( req, res );
-	});
-
 	// Catch-all route for static files (lowest priority)
 	CROW_CATCHALL_ROUTE( m_App )
 	([this]( crow::response& res )

@@ -56,17 +56,16 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 add_subdirectory(WitnessCamera)
 add_subdirectory(WitnessServer)
 
-# Build the .NET 8 Installer as a self-contained exe (DEPRECATED — use built-in /setup wizard)
-# Build with: cmake --build build --target Installer
+# Build the .NET 8 Installer as a self-contained exe into build/bin
 find_program(DOTNET_EXECUTABLE dotnet)
 if(DOTNET_EXECUTABLE AND WIN32)
-    add_custom_target(Installer
+    add_custom_target(Installer ALL
         COMMAND ${DOTNET_EXECUTABLE} publish
             "${CMAKE_SOURCE_DIR}/Installer/Installer.csproj"
             -c Release
             -o "${CMAKE_BINARY_DIR}/bin"
             --no-restore
-        COMMENT "Publishing Installer (self-contained) [DEPRECATED]"
+        COMMENT "Publishing Installer (self-contained)"
     )
 
     # Restore NuGet packages at configure time so --no-restore works at build time
