@@ -277,7 +277,6 @@ static std::string ResolveBindAddress( const std::string& hostname )
 		return hostname;
 
 	// It's a domain name — bind to all interfaces
-	std::cout << "Hostname '" << hostname << "' is not an IP address, binding to 0.0.0.0" << std::endl;
 	return "0.0.0.0";
 }
 
