@@ -113,6 +113,11 @@ private:
 	void HandleDebugReset( const crow::request& req, crow::response& res );
 	void HandleDebugReloadTLS( const crow::request& req, crow::response& res );
 
+	// Setup (reconfiguration)
+	void HandleSetupPage( const crow::request& req, crow::response& res );
+	void HandleSetupSettings( const crow::request& req, crow::response& res );
+	void HandleSetupApply( const crow::request& req, crow::response& res );
+
 	bool ConfigureSSL();
 
 	WitnessApp m_App;

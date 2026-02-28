@@ -15,6 +15,7 @@ set(SERVER_SOURCES
     Source/CrowRoutes_Clip.cpp
     Source/CrowRoutes_Debug.cpp
     Source/CrowRoutes_Group.cpp
+    Source/CrowRoutes_Setup.cpp
     Source/CrowRoutes_Stream.cpp
     Source/CameraWorker.cpp
     Source/Common.cpp
@@ -28,6 +29,8 @@ set(SERVER_SOURCES
     Source/MotionEvents.cpp
     Source/ObservingMotionFilter.cpp
     Source/Recording.cpp
+    Source/SetupConfig.cpp
+    Source/SetupServer.cpp
     Source/Shutdown.cpp
     Source/SQLite.cpp
     Source/StatusEvents.cpp
@@ -53,6 +56,8 @@ set(SERVER_HEADERS
     Source/MessageBus.h
     Source/Messages.h
     Source/ObservingMotionFilter.h
+    Source/SetupConfig.h
+    Source/SetupServer.h
     Source/SettingsMap.h
     Source/SQLite.h
     Source/TimerWorker.h
