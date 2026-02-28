@@ -109,6 +109,21 @@ namespace Installer
 			// Strip port if present — certbot only wants the domain
 			string Hostname = HostnameAndPort.Contains(':') ? HostnameAndPort.Split(':')[0] : HostnameAndPort;
 
+			// Check if certbot already has a valid cert for this domain
+			string certbotLive = Path.Combine(@"C:\Certbot\live", Hostname);
+			string existingCert = Path.Combine(certbotLive, "fullchain.pem");
+			string existingKey = Path.Combine(certbotLive, "privkey.pem");
+
+			if (File.Exists(existingCert) && File.Exists(existingKey))
+			{
+				var result = MessageBox.Show(
+					$"A Let's Encrypt certificate already exists for {Hostname}.\n\nUse the existing certificate?",
+					"Certificate Found", MessageBoxButton.YesNo, MessageBoxImage.Question);
+
+				if (result == MessageBoxResult.Yes)
+					return (existingCert, existingKey);
+			}
+
 			string certbot = FindCertbot();
 
 			if (certbot == null)
@@ -174,7 +189,6 @@ namespace Installer
 					return null;
 				}
 
-				string certbotLive = Path.Combine(@"C:\Certbot\live", Hostname);
 				string certPath = Path.Combine(certbotLive, "fullchain.pem");
 				string keyPath = Path.Combine(certbotLive, "privkey.pem");
 
