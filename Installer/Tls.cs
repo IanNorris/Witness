@@ -69,6 +69,10 @@ namespace Installer
 
 			try
 			{
+				// Point OpenSSL at its config file (lives alongside the exe)
+				string opensslDir = Path.GetDirectoryName(openssl);
+				string cnfPath = Path.Combine(opensslDir, "openssl.cnf");
+
 				var p = new Process();
 				p.StartInfo.FileName = openssl;
 				p.StartInfo.Arguments = $"req -x509 -newkey rsa:2048 -keyout \"{keyPath}\" -out \"{certPath}\" " +
@@ -77,6 +81,8 @@ namespace Installer
 				p.StartInfo.UseShellExecute = false;
 				p.StartInfo.RedirectStandardError = true;
 				p.StartInfo.CreateNoWindow = true;
+				if (File.Exists(cnfPath))
+					p.StartInfo.EnvironmentVariables["OPENSSL_CONF"] = cnfPath;
 				p.Start();
 				string stderr = p.StandardError.ReadToEnd();
 				p.WaitForExit();

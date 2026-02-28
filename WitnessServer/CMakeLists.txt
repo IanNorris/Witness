@@ -106,10 +106,14 @@ find_program(OPENSSL_EXECUTABLE openssl
     NO_DEFAULT_PATH
 )
 if(OPENSSL_EXECUTABLE)
+    cmake_path(GET OPENSSL_EXECUTABLE PARENT_PATH OPENSSL_TOOL_DIR)
     add_custom_command(TARGET WitnessServer POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${OPENSSL_EXECUTABLE}"
             "$<TARGET_FILE_DIR:WitnessServer>/"
-        COMMENT "Copying OpenSSL CLI tool"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${OPENSSL_TOOL_DIR}/openssl.cnf"
+            "$<TARGET_FILE_DIR:WitnessServer>/"
+        COMMENT "Copying OpenSSL CLI tool and config"
     )
 endif()
