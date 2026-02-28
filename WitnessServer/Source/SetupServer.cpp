@@ -8,6 +8,8 @@
 #include <filesystem>
 #include <random>
 
+#include "sodium.h"
+
 #ifdef _WIN32
 #include <windows.h>
 #include <shellapi.h>
@@ -351,9 +353,13 @@ void SetupServer::HandleElevate( const crow::request& req, crow::response& res )
 	SetupConfig config;
 	if( body.has( "startup_mode" ) ) config.StartupMode = body["startup_mode"].s();
 
-	// Write pending config to a temp file
+	// Write pending config to a temp file with random name
 	fs::path tempDir = fs::temp_directory_path();
-	m_PendingConfigPath = (tempDir / "witness_setup_config.json").string();
+	unsigned char randBytes[8];
+	randombytes_buf( randBytes, sizeof( randBytes ) );
+	char randHex[17];
+	sodium_bin2hex( randHex, sizeof( randHex ), randBytes, sizeof( randBytes ) );
+	m_PendingConfigPath = (tempDir / ("witness_setup_" + std::string( randHex ) + ".json")).string();
 	std::string statusPath = m_PendingConfigPath + ".status";
 
 	// Remove any stale status file
@@ -436,7 +442,7 @@ void SetupServer::HandleElevateStatus( const crow::request& req, crow::response&
 		return;
 	}
 
-	// Read status
+	// Read and validate status as JSON
 	std::string content( (std::istreambuf_iterator<char>(statusFile)),
 	                     std::istreambuf_iterator<char>() );
 	statusFile.close();
@@ -446,8 +452,23 @@ void SetupServer::HandleElevateStatus( const crow::request& req, crow::response&
 	fs::remove( m_PendingConfigPath );
 	m_PendingConfigPath.clear();
 
+	// Parse the status file to prevent JSON injection
+	auto parsed = crow::json::load( content );
+	crow::json::wvalue response;
+	response["status"] = "complete";
+	if( parsed )
+	{
+		response["success"] = parsed.has( "success" ) ? parsed["success"].b() : false;
+		response["message"] = parsed.has( "message" ) ? std::string( parsed["message"].s() ) : "";
+	}
+	else
+	{
+		response["success"] = false;
+		response["message"] = "Invalid status from elevated process";
+	}
+
 	res.code = 200;
-	res.body = R"({"status":"complete","result":)" + content + "}";
+	res.body = response.dump();
 	res.set_header( "Content-Type", "application/json" );
 	res.end();
 }
@@ -511,13 +532,23 @@ bool SetupServer::GenerateSelfSignedCert( SetupConfig& config )
 		opensslExe = "openssl";
 	}
 
-	// Extract hostname (strip port)
+	// Extract hostname (strip port) and sanitize for shell safety
 	std::string hostname = config.Hostname;
 	auto colonPos = hostname.find( ':' );
 	if( colonPos != std::string::npos )
 		hostname = hostname.substr( 0, colonPos );
 	if( hostname.empty() )
 		hostname = "localhost";
+
+	// Validate hostname: only allow alphanumeric, dots, hyphens
+	for( char c : hostname )
+	{
+		if( !std::isalnum( static_cast<unsigned char>( c ) ) && c != '.' && c != '-' )
+		{
+			std::cerr << "Invalid hostname character: " << c << std::endl;
+			return false;
+		}
+	}
 
 	// Output paths in ProgramData/Witness
 	fs::path certDir = exePath;
