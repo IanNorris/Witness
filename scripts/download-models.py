@@ -37,7 +37,7 @@ def export_model(variant, output_dir):
     try:
         model = YOLO(info["pt"])
         print(f"  Exporting to ONNX (end-to-end, NMS-free, 640x640)...")
-        model.export(format="onnx", imgsz=640)
+        model.export(format="onnx", imgsz=640, opset=21)
 
         # ultralytics exports next to the .pt file
         exported = info["pt"].replace(".pt", ".onnx")
