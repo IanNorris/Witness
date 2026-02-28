@@ -704,4 +704,186 @@ bool ONNXDetectionFilter::ProcessFrame( SharedClassificationTask TaskData )
 	return detected;
 }
 
+std::vector<DetectionResult> ONNXDetectionFilter::DetectFrame( const cv::Mat& bgrFrame )
+{
+	std::vector<DetectionResult> results;
+
+	if( !m_ModelLoaded || bgrFrame.empty() )
+		return results;
+
+	auto& ID = GetData();
+
+	int origWidth = bgrFrame.cols;
+	int origHeight = bgrFrame.rows;
+
+	// Letterbox resize: maintain aspect ratio with padding
+	float scaleX = (float)ID.InputWidth / origWidth;
+	float scaleY = (float)ID.InputHeight / origHeight;
+	float scale = std::min( scaleX, scaleY );
+
+	int newWidth = (int)( origWidth * scale );
+	int newHeight = (int)( origHeight * scale );
+	int padX = ( ID.InputWidth - newWidth ) / 2;
+	int padY = ( ID.InputHeight - newHeight ) / 2;
+
+	cv::Mat resized;
+	cv::resize( bgrFrame, resized, cv::Size( newWidth, newHeight ), 0, 0, cv::INTER_LINEAR );
+
+	cv::Mat padded( ID.InputHeight, ID.InputWidth, CV_8UC3, cv::Scalar( 114, 114, 114 ) );
+	resized.copyTo( padded( cv::Rect( padX, padY, newWidth, newHeight ) ) );
+
+	cv::cvtColor( padded, padded, cv::COLOR_BGR2RGB );
+	cv::Mat floatFrame;
+	padded.convertTo( floatFrame, CV_32F, 1.0 / 255.0 );
+
+	// HWC to CHW conversion
+	int channelSize = ID.InputWidth * ID.InputHeight;
+	std::vector<float> tensorData( 3 * channelSize );
+	const float* frameData = (const float*)floatFrame.data;
+
+	for( int y = 0; y < ID.InputHeight; y++ )
+	{
+		for( int x = 0; x < ID.InputWidth; x++ )
+		{
+			int srcIdx = ( y * ID.InputWidth + x ) * 3;
+			tensorData[0 * channelSize + y * ID.InputWidth + x] = frameData[srcIdx + 0];
+			tensorData[1 * channelSize + y * ID.InputWidth + x] = frameData[srcIdx + 1];
+			tensorData[2 * channelSize + y * ID.InputWidth + x] = frameData[srcIdx + 2];
+		}
+	}
+
+	std::array<int64_t, 4> inputShape = { 1, 3, ID.InputHeight, ID.InputWidth };
+	auto memoryInfo = Ort::MemoryInfo::CreateCpu( OrtArenaAllocator, OrtMemTypeDefault );
+	auto inputTensor = Ort::Value::CreateTensor<float>(
+		memoryInfo,
+		tensorData.data(),
+		tensorData.size(),
+		inputShape.data(),
+		inputShape.size()
+	);
+
+	std::vector<Ort::Value> outputTensors;
+	try
+	{
+		outputTensors = ID.Session->Run(
+			Ort::RunOptions{ nullptr },
+			ID.InputNamePtrs.data(),
+			&inputTensor,
+			1,
+			ID.OutputNamePtrs.data(),
+			ID.OutputNamePtrs.size()
+		);
+	}
+	catch( const Ort::Exception& e )
+	{
+		LOG_ERROR( "ONNX DetectFrame: Inference failed: %s", e.what() );
+		return results;
+	}
+
+	if( outputTensors.empty() )
+		return results;
+
+	auto& outputTensor = outputTensors[0];
+	auto outputInfo = outputTensor.GetTensorTypeAndShapeInfo();
+	auto outputShape = outputInfo.GetShape();
+	const float* outputData = outputTensor.GetTensorData<float>();
+
+	if( outputShape.size() != 3 || outputShape[0] != 1 )
+		return results;
+
+	int64_t dim1 = outputShape[1];
+	int64_t dim2 = outputShape[2];
+
+	if( dim2 == 6 )
+	{
+		int numDetections = (int)dim1;
+		for( int i = 0; i < numDetections; i++ )
+		{
+			const float* row = outputData + i * 6;
+			float score = row[4];
+			if( score < ID.ConfidenceThreshold )
+				continue;
+
+			int classId = (int)row[5];
+			if( classId < 0 || classId >= NumCOCOClasses )
+				continue;
+
+			DetectionResult r;
+			r.ClassId = classId;
+			r.Confidence = score;
+			r.ClassName = COCOClassNames[classId];
+			results.push_back( r );
+		}
+	}
+	else
+	{
+		int numDetections, numChannels;
+		bool transposed;
+
+		if( dim1 < dim2 )
+		{
+			numChannels = (int)dim1;
+			numDetections = (int)dim2;
+			transposed = true;
+		}
+		else
+		{
+			numDetections = (int)dim1;
+			numChannels = (int)dim2;
+			transposed = false;
+		}
+
+		int numClasses = numChannels - 4;
+		if( numClasses <= 0 )
+			return results;
+
+		for( int i = 0; i < numDetections; i++ )
+		{
+			int bestClass = 0;
+			float bestScore;
+
+			if( transposed )
+			{
+				bestScore = outputData[4 * numDetections + i];
+				for( int c = 1; c < numClasses && c < NumCOCOClasses; c++ )
+				{
+					float s = outputData[( 4 + c ) * numDetections + i];
+					if( s > bestScore )
+					{
+						bestScore = s;
+						bestClass = c;
+					}
+				}
+			}
+			else
+			{
+				const float* row = outputData + i * numChannels;
+				bestScore = row[4];
+				for( int c = 1; c < numClasses && c < NumCOCOClasses; c++ )
+				{
+					if( row[4 + c] > bestScore )
+					{
+						bestScore = row[4 + c];
+						bestClass = c;
+					}
+				}
+			}
+
+			if( bestScore < ID.ConfidenceThreshold )
+				continue;
+
+			if( bestClass < NumCOCOClasses )
+			{
+				DetectionResult r;
+				r.ClassId = bestClass;
+				r.Confidence = bestScore;
+				r.ClassName = COCOClassNames[bestClass];
+				results.push_back( r );
+			}
+		}
+	}
+
+	return results;
+}
+
 }}

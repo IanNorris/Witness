@@ -7,6 +7,7 @@
 #include "Database.h"
 
 #include <Log.h>
+#include <ONNXDetectionFilter.h>
 
 #include <filesystem>
 #ifdef _WIN32
@@ -201,6 +202,41 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 	LOG_INFO( "Starting camera workers..." );
 
 	StartCameraWorkers();
+
+	// Start clip reprocessor if detection is enabled
+	if( Video.DetectionEnabled )
+	{
+		auto reprocessFilter = std::make_shared<Witness::Camera::ONNXDetectionFilter>(
+			Witness::Camera::MotionChainNode{},
+			Video.DetectionModelPath.c_str(),
+			(float)Video.DetectionConfidence,
+			Video.DetectionUseGPU,
+			0.0f
+		);
+
+		if( reprocessFilter->IsModelLoaded() )
+		{
+			auto ctx = Context;
+			ReprocessWorker = std::make_unique<ClipReprocessWorker>(
+				Context->MessageBus,
+				Context->Database,
+				reprocessFilter,
+				CachePath,
+				[ctx]() -> bool
+				{
+					std::lock_guard<std::mutex> lock( ctx->Mutex );
+					for( auto& [id, state] : ctx->GetCameraMap() )
+					{
+						if( state.IsRecording )
+							return false;
+					}
+					return true;
+				}
+			);
+			ReprocessWorker->Start( WorkerBase::Priority::LowPriority );
+			LOG_INFO( "Clip reprocessor started (detection version %d)", CURRENT_DETECTION_VERSION );
+		}
+	}
 
 	LOG_INFO( "Server boot complete..." );
 

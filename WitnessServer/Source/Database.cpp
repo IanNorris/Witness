@@ -79,7 +79,8 @@ namespace Database
 			MaxMotion		FLOAT,
 			Description		TEXT,
 			Save			INT,
-			Tags			TEXT
+			Tags			TEXT,
+			DetectionVersion INT DEFAULT 0
 		);
 
 		CREATE UNIQUE INDEX IF NOT EXISTS ClipIndex ON Clip (Timestamp,Camera);
@@ -376,6 +377,24 @@ namespace Database
 		LIMIT 500;
 	)RAW";
 
+	std::string SelectClipForReprocess = R"RAW(
+		SELECT * FROM Clip
+		WHERE DetectionVersion < @DetectionVersion OR DetectionVersion IS NULL
+		ORDER BY Timestamp DESC
+		LIMIT 1;
+	)RAW";
+
+	std::string UpdateClipDetection = R"RAW(
+		UPDATE Clip
+		SET Tags = @Tags, DetectionVersion = @DetectionVersion
+		WHERE ClipUID = @ClipUID;
+	)RAW";
+
+	std::string CountClipsToReprocess = R"RAW(
+		SELECT COUNT(*) FROM Clip
+		WHERE DetectionVersion < @DetectionVersion OR DetectionVersion IS NULL;
+	)RAW";
+
 	std::string SelectAllGroups = R"RAW(
 		SELECT * FROM CameraGroup
 		;
@@ -450,6 +469,9 @@ namespace Database
 			}
 		);
 
+		// Schema migrations for existing databases (errors ignored if column already exists)
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Clip ADD COLUMN DetectionVersion INT DEFAULT 0;", nullptr, nullptr, nullptr );
+
 		CREATE_QUERY( GetSetting );
 		CREATE_QUERY( GetAllSettings );
 		CREATE_QUERY( SetSetting );
@@ -485,6 +507,9 @@ namespace Database
 		CREATE_QUERY( DeleteClip );
 		CREATE_QUERY( SelectClip );
 		CREATE_QUERY( SelectClipsToDelete );
+		CREATE_QUERY( SelectClipForReprocess );
+		CREATE_QUERY( UpdateClipDetection );
+		CREATE_QUERY( CountClipsToReprocess );
 		CREATE_QUERY( SetClipSaveState );
 		CREATE_QUERY( FindClipByUID );
 		CREATE_QUERY( CountClipsWithinRange );

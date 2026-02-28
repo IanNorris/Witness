@@ -3,11 +3,21 @@
 #include "RecordFilterBase.h"
 
 #include <string>
+#include <vector>
+
+namespace cv { class Mat; }
 
 namespace Witness{
 namespace Camera{
 
 struct ONNXDetectionFilterData;
+
+struct CAMERA_API DetectionResult
+{
+	int ClassId;
+	float Confidence;
+	std::string ClassName;
+};
 
 class CAMERA_API ONNXDetectionFilter : public RecordFilterBase<ONNXDetectionFilterData>
 {
@@ -19,6 +29,8 @@ public:
 	virtual bool ProcessFrame( SharedClassificationTask TaskData );
 
 	bool IsModelLoaded() const;
+
+	std::vector<DetectionResult> DetectFrame( const cv::Mat& bgrFrame );
 
 private:
 
