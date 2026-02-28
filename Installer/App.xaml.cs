@@ -14,7 +14,7 @@ namespace Installer
 			{
 				if( string.Compare( e.Args[0], "/uninstall" ) == 0 )
 				{
-					var AM = new AutomationManager( StartupMode.Task, false, AppDomain.CurrentDomain.BaseDirectory);
+					var AM = new AutomationManager( StartupMode.Task, false, InstallerPaths.ExeDirectory);
 					AM.Uninstall();
 				}
 			}

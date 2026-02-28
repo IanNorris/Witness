@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Management.Automation;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
@@ -12,403 +11,341 @@ namespace Installer
 {
 	internal static class Tls
 	{
-		const string AppId = "{790C242A-DAA6-46FF-8E04-B1EB280F3BA2}";
-		const string WitnessWACSFirewallRule = "Allow WACS For Witness Camera Installer";
-
-
-
-		public static bool UndoBindings(bool Listen, bool CertBinding, bool ACLBinding, string Hostname, ushort Port, string DomainUsername, string Thumbprint)
+		private static string GetTlsOutputDir()
 		{
-			string Errors = "";
-
-			if (Listen)
-			{
-				var IPListenSuccess = CommandRunner.RunCommandAndDetermineSuccess<CommandRunner.Status>("netsh http delete iplisten ipaddress=0.0.0.0", CommandRunner.Status.Failure, (line, current) =>
-				{
-					if (line.Contains("IP address successfully deleted"))
-					{
-						return CommandRunner.Status.Success_Done;
-					}
-					else if (line.Contains("Element not found") || line.Contains("The system cannot find the file specified.") || line.Contains("Unable to unbind"))
-					{
-						return CommandRunner.Status.Success_AlreadyDone;
-					}
-
-					return current;
-				});
-
-				if (IPListenSuccess == CommandRunner.Status.Failure)
-				{
-					Errors += "Unable to unbind IP listen from address 0.0.0.0.\n";
-				}
-			}
-
-			if(CertBinding)
-			{
-				var CertSuccess = CommandRunner.RunCommandAndDetermineSuccess<CommandRunner.Status>($"netsh http delete sslcert ipport=0.0.0.0:{Port}", CommandRunner.Status.Failure, (line, current) =>
-				{
-					if (line.Contains("SSL Certificate successfully deleted"))
-					{
-						return CommandRunner.Status.Success_Done;
-					}
-					else if (line.Contains("cannot find the file specified"))
-					{
-						return CommandRunner.Status.Success_AlreadyDone;
-					}
-
-					return current;
-				});
-
-				if (CertSuccess == CommandRunner.Status.Failure)
-				{
-					Errors += $"Unable to unbind certificate from address 0.0.0.0:{Port}.\n";
-				}
-			}
-
-			if (ACLBinding)
-			{
-				var ACLSuccess = CommandRunner.RunCommandAndDetermineSuccess<CommandRunner.Status>($"netsh http delete urlacl url=https://{Hostname}:{Port}/", CommandRunner.Status.Failure, (line, current) =>
-				{
-					if (line.Contains("URL reservation successfully deleted"))
-					{
-						return CommandRunner.Status.Success_Done;
-					}
-					else if (line.Contains("cannot find the file specified"))
-					{
-						return CommandRunner.Status.Success_AlreadyDone;
-					}
-
-					return current;
-				});
-
-				if (ACLSuccess == CommandRunner.Status.Failure)
-				{
-					Errors += $"Unable to unbind ACL for hostname {Hostname}:{Port}.\n";
-				}
-
-				ACLSuccess = CommandRunner.RunCommandAndDetermineSuccess<CommandRunner.Status>($"netsh http delete urlacl url=http://{Hostname}:{Port}/", CommandRunner.Status.Failure, (line, current) =>
-				{
-					if (line.Contains("URL reservation successfully deleted"))
-					{
-						return CommandRunner.Status.Success_Done;
-					}
-					else if (line.Contains("cannot find the file specified"))
-					{
-						return CommandRunner.Status.Success_AlreadyDone;
-					}
-
-					return current;
-				});
-
-				if (ACLSuccess == CommandRunner.Status.Failure)
-				{
-					Errors += $"Unable to unbind ACL for hostname {Hostname}:{Port}.\n";
-				}
-			}
-
-			if (Errors.Length > 0)
-			{
-				MessageBox.Show($"Error during .\n\n{Errors}", "Error during uninstallation", MessageBoxButton.OK, MessageBoxImage.Warning);
-			}
-			return Errors.Length == 0;
+			string dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Witness", "tls");
+			Directory.CreateDirectory(dir);
+			return dir;
 		}
 
-		public static bool ConfigureBindings( string Hostname, ushort Port, string DomainUsername, string Thumbprint, CertificateMode Mode )
+		private static string FindOpenSSL()
 		{
-			string Errors = "";
+			// Check alongside the Installer exe first
+			// Note: AppDomain.BaseDirectory points to temp extraction dir for single-file apps,
+			// so use the actual exe path instead
+			var exeDir = InstallerPaths.ExeDirectory;
+			var localCandidate = Path.Combine(exeDir, "openssl.exe");
+			if (File.Exists(localCandidate))
+				return localCandidate;
 
-			UndoBindings(true, true, true, Hostname, Port, DomainUsername, Thumbprint);
-
-			var IPListenSuccess = CommandRunner.RunCommandAndDetermineSuccess<CommandRunner.Status>("netsh http add iplisten ipaddress=0.0.0.0", CommandRunner.Status.Failure, (line, current) =>
+			// Check PATH
+			var pathDirs = Environment.GetEnvironmentVariable("PATH")?.Split(';') ?? Array.Empty<string>();
+			foreach (var dir in pathDirs)
 			{
-				if (line.Contains("IP address successfully added"))
-				{
-					return CommandRunner.Status.Success_Done;
-				}
-				else if (line.Contains("already exists"))
-				{
-					return CommandRunner.Status.Success_AlreadyDone;
-				}
-
-				return current;
-			});
-
-			if (IPListenSuccess == CommandRunner.Status.Failure)
-			{
-				Errors += "Unable to bind IP listen from address 0.0.0.0.";
+				var candidate = Path.Combine(dir, "openssl.exe");
+				if (File.Exists(candidate))
+					return candidate;
 			}
 
-			if (Mode != CertificateMode.NoSecurity)
+			// Check common locations
+			var candidates = new[]
 			{
-				var CertSuccess = CommandRunner.RunCommandAndDetermineSuccess<CommandRunner.Status>($"netsh http add sslcert ipport=0.0.0.0:{Port} certhash={Thumbprint} \"appid={AppId}\"", CommandRunner.Status.Failure, (line, current) =>
-				{
-					if (line.Contains("SSL Certificate successfully added"))
-					{
-						return CommandRunner.Status.Success_Done;
-					}
-					else if (line.Contains("already exists"))
-					{
-						return CommandRunner.Status.Success_AlreadyDone;
-					}
+				@"C:\Program Files\OpenSSL-Win64\bin\openssl.exe",
+				@"C:\Program Files (x86)\OpenSSL-Win32\bin\openssl.exe",
+			};
 
-					return current;
-				});
-
-				if (CertSuccess == CommandRunner.Status.Failure)
-				{
-					Errors += "Unable to bind certificate to address 0.0.0.0.\n";
-				}
-			}
-
-			string Schema = Mode == CertificateMode.NoSecurity ? "http" : "https";
-			var ACLSuccess = CommandRunner.RunCommandAndDetermineSuccess<CommandRunner.Status>($"netsh http add urlacl url={Schema}://{Hostname}:{Port}/ user=\"{DomainUsername}\"", CommandRunner.Status.Failure, (line, current) =>
+			foreach (var c in candidates)
 			{
-				if (line.Contains("URL reservation successfully added"))
-				{
-					return CommandRunner.Status.Success_Done;
-				}
-				else if (line.Contains("already exists"))
-				{
-					return CommandRunner.Status.Success_AlreadyDone;
-				}
-
-				return current;
-			});
-
-			if (ACLSuccess == CommandRunner.Status.Failure)
-			{
-				Errors += $"Unable to bind ACL for user {DomainUsername} and hostname {Hostname}:{Port}.\n";
-			}
-
-			if (Errors.Length > 0)
-			{
-				MessageBox.Show($"Error during uninstallation. The application may not be fully uninstalled.\n\n{Errors}", "Error during uninstallation", MessageBoxButton.OK, MessageBoxImage.Warning);
-			}
-			return Errors.Length == 0;
-		}
-		
-		private static string GetMostRecentCertificate( string Hostname )
-		{
-			using (PowerShell PS = PowerShell.Create())
-			{
-				PS.AddScript($"Get-ChildItem -path cert:\\LocalMachine\\My -recurse | where {{ $_.Subject -match \"CN\\={Hostname}\" -and $_.NotAfter -ge (Get-Date) }}| Sort-Object -Descending {{ $_.NotAfter }} | Select-Object -Index 0 | ForEach-Object {{ $_.Thumbprint }}");
-				var Result = PS.Invoke();
-				if (Result.Count == 1)
-				{
-					string Thumbprint = Result[0].ToString();
-					if (Thumbprint.Length > 10)
-					{
-						return Thumbprint;
-					}
-				}
+				if (File.Exists(c))
+					return c;
 			}
 
 			return null;
 		}
 
-		private static bool CheckCertificateExists( string Hostname )
+		private static (string certPath, string keyPath)? GenerateSelfSigned(string Hostname)
 		{
-			return GetMostRecentCertificate(Hostname) != null;
-		}
-
-		private static void RegisterTempFirewallRule()
-		{
-			string Messages = "";
-			var Result = CommandRunner.RunCommandAndDetermineSuccess<CommandRunner.Status>($"(New-NetFirewallRule -DisplayName \"{WitnessWACSFirewallRule}\" -LocalPort 80 -Action Allow -Direction Inbound -Protocol TCP).PrimaryStatus", CommandRunner.Status.Failure, (msg, status) =>
+			string openssl = FindOpenSSL();
+			if (openssl == null)
 			{
-				Messages += msg;
-				if (msg.Contains("OK"))
-				{
-					return CommandRunner.Status.Success_Done;
-				}
-				return status;
-			});
-
-			if (Result == CommandRunner.Status.Failure)
-			{
-				MessageBox.Show("Error installing temporary firewall rules for WACS:\n\n" + Messages);
+				MessageBox.Show("OpenSSL not found. Please install OpenSSL or ensure it's on your PATH.",
+					"Error", MessageBoxButton.OK, MessageBoxImage.Error);
+				return null;
 			}
-		}
 
-		private static void ClearTempFirewallRule()
-		{
-			CommandRunner.RunCommand($"Remove-NetFirewallRule -DisplayName \"{WitnessWACSFirewallRule}\"");
-		}
+			string outputDir = GetTlsOutputDir();
+			string certPath = Path.Combine(outputDir, "cert.pem");
+			string keyPath = Path.Combine(outputDir, "key.pem");
 
-		private static bool RunAutomaticWACS( string Hostname, string CertContact )
-		{
-			RegisterTempFirewallRule();
-
-			var WACS = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WACS", "wacs.exe");
 			try
 			{
-				string TempScript = System.IO.Path.GetTempPath() + Guid.NewGuid().ToString() + ".bat";
+				// Point OpenSSL at its config file (lives alongside the exe)
+				string opensslDir = Path.GetDirectoryName(openssl);
+				string cnfPath = Path.Combine(opensslDir, "openssl.cnf");
 
-				File.WriteAllText(TempScript, $"@echo off\n\"{WACS}\" --target manual --host \"{Hostname}\" --emailaddress \"{CertContact}\" --accepttos --centralsslstore\nIF %ERRORLEVEL% NEQ 0 ( pause & exit / b %ERRORLEVEL% )");
+				var p = new Process();
+				p.StartInfo.FileName = openssl;
+				p.StartInfo.Arguments = $"req -x509 -newkey rsa:2048 -keyout \"{keyPath}\" -out \"{certPath}\" " +
+					$"-days 365 -nodes -subj \"/CN={Hostname}\" " +
+					$"-addext \"subjectAltName=DNS:{Hostname},DNS:localhost,IP:127.0.0.1\"";
+				p.StartInfo.UseShellExecute = false;
+				p.StartInfo.RedirectStandardError = true;
+				p.StartInfo.CreateNoWindow = true;
+				if (File.Exists(cnfPath))
+					p.StartInfo.EnvironmentVariables["OPENSSL_CONF"] = cnfPath;
+				p.Start();
+				string stderr = p.StandardError.ReadToEnd();
+				p.WaitForExit();
 
-				var P = new Process();
-				P.StartInfo.FileName = "cmd.exe";
-				P.StartInfo.Arguments = $"/C \"{TempScript}\"";
-				P.StartInfo.UseShellExecute = false;
-				P.Start();
-
-				if (P == null)
+				if (p.ExitCode != 0)
 				{
-					return false;
+					MessageBox.Show($"Failed to generate self-signed certificate.\n\n{stderr}",
+						"Error", MessageBoxButton.OK, MessageBoxImage.Error);
+					return null;
 				}
 
-				P.WaitForExit();
-
-				File.Delete(TempScript);
-
-				if (P.ExitCode == 0)
-				{
-					return true;
-				}
-				else
-				{
-					MessageBox.Show($"WACS failed. Check the output from the window.");
-					return false;
-				}
+				return (certPath, keyPath);
 			}
 			catch (Exception e)
 			{
-				MessageBox.Show($"Unable to run WACS!\n\n{e.Message}");
+				MessageBox.Show($"Failed to run OpenSSL.\n\n{e.Message}",
+					"Error", MessageBoxButton.OK, MessageBoxImage.Error);
+				return null;
 			}
-			finally
-			{
-				ClearTempFirewallRule();
-			}
-
-			return true;
 		}
 
-		private static bool RunManualWACS( string Hostname )
+		private static (string certPath, string keyPath)? RunCertbot(string HostnameAndPort, string Email)
 		{
-			RegisterTempFirewallRule();
+			// Strip port if present — certbot only wants the domain
+			string Hostname = HostnameAndPort.Contains(':') ? HostnameAndPort.Split(':')[0] : HostnameAndPort;
 
-			var WACS = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WACS", "wacs.exe");
-			try
+			// Check if certbot already has a valid cert for this domain
+			string certbotLive = Path.Combine(@"C:\Certbot\live", Hostname);
+			string existingCert = Path.Combine(certbotLive, "fullchain.pem");
+			string existingKey = Path.Combine(certbotLive, "privkey.pem");
+
+			if (File.Exists(existingCert) && File.Exists(existingKey))
 			{
-				var P = new Process();
-				P.StartInfo.FileName = WACS;
+				var result = MessageBox.Show(
+					$"A Let's Encrypt certificate already exists for {Hostname}.\n\nUse the existing certificate?",
+					"Certificate Found", MessageBoxButton.YesNo, MessageBoxImage.Question);
 
-				P.StartInfo.UseShellExecute = false;
-				P.Start();
+				if (result == MessageBoxResult.Yes)
+					return (existingCert, existingKey);
+			}
 
-				if (P == null)
+			string certbot = FindCertbot();
+
+			if (certbot == null)
+			{
+				var result = MessageBox.Show(
+					"certbot is not installed. Would you like to install it now via winget?",
+					"certbot not found", MessageBoxButton.YesNo, MessageBoxImage.Question);
+
+				if (result == MessageBoxResult.Yes)
 				{
-					return false;
-				}
+					try
+					{
+						var p = new Process();
+						p.StartInfo.FileName = "winget";
+						p.StartInfo.Arguments = "install EFF.Certbot --accept-source-agreements --accept-package-agreements";
+						p.StartInfo.UseShellExecute = true;
+						p.Start();
+						p.WaitForExit();
 
-				P.WaitForExit();
+						if (p.ExitCode == 0)
+						{
+							// Check common install location after winget install
+							if (File.Exists(@"C:\Program Files\Certbot\bin\certbot.exe"))
+								certbot = @"C:\Program Files\Certbot\bin\certbot.exe";
+							else if (File.Exists(@"C:\Program Files (x86)\Certbot\bin\certbot.exe"))
+								certbot = @"C:\Program Files (x86)\Certbot\bin\certbot.exe";
+						}
 
-				if (P.ExitCode == 0)
-				{
-					return true;
+						if (certbot == null)
+						{
+							MessageBox.Show("winget install completed but certbot was not found.\n\nTry installing manually from https://certbot.eff.org/",
+								"Error", MessageBoxButton.OK, MessageBoxImage.Error);
+							return null;
+						}
+					}
+					catch
+					{
+						MessageBox.Show("winget is not available.\n\nInstall certbot manually:\n  https://certbot.eff.org/",
+							"Error", MessageBoxButton.OK, MessageBoxImage.Error);
+						return null;
+					}
 				}
 				else
 				{
-					MessageBox.Show($"WACS failed. Check the output from the window.");
-					return false;
+					return null;
 				}
+			}
+
+			try
+			{
+				var p = new Process();
+				p.StartInfo.FileName = "cmd.exe";
+				p.StartInfo.Arguments = $"/c \"\"{certbot}\" certonly --standalone -d {Hostname} --agree-tos --email {Email} --non-interactive || (pause & exit /b 1)\" & pause";
+				p.StartInfo.UseShellExecute = true;
+				p.StartInfo.Verb = "runas";
+				p.Start();
+				p.WaitForExit();
+
+				if (p.ExitCode != 0)
+				{
+					MessageBox.Show("certbot failed. Check the console window for details.",
+						"Error", MessageBoxButton.OK, MessageBoxImage.Error);
+					return null;
+				}
+
+				string certPath = Path.Combine(certbotLive, "fullchain.pem");
+				string keyPath = Path.Combine(certbotLive, "privkey.pem");
+
+				if (!File.Exists(certPath) || !File.Exists(keyPath))
+				{
+					MessageBox.Show($"Certificate files not found at:\n{certbotLive}",
+						"Error", MessageBoxButton.OK, MessageBoxImage.Error);
+					return null;
+				}
+
+				return (certPath, keyPath);
 			}
 			catch (Exception e)
 			{
-				MessageBox.Show($"Unable to run WACS!\n\n{e.Message}");
+				MessageBox.Show($"Failed to run certbot.\n\n{e.Message}",
+					"Error", MessageBoxButton.OK, MessageBoxImage.Error);
+				return null;
 			}
-			finally
-			{
-				ClearTempFirewallRule();
-			}
-
-			return true;
 		}
 
-		public static bool Configure( string SettingsRoot, string HostnameAndPort, string CertContact, CertificateMode Mode, string DomainUsername )
+		private static string FindCertbot()
 		{
-			var IsOk = false;
+			var pathDirs = Environment.GetEnvironmentVariable("PATH")?.Split(';') ?? Array.Empty<string>();
+			foreach (var dir in pathDirs)
+			{
+				var candidate = Path.Combine(dir, "certbot.exe");
+				if (File.Exists(candidate))
+					return candidate;
+			}
+
+			var locations = new[]
+			{
+				@"C:\Program Files\Certbot\bin\certbot.exe",
+				@"C:\Program Files (x86)\Certbot\bin\certbot.exe",
+			};
+			foreach (var c in locations)
+			{
+				if (File.Exists(c))
+					return c;
+			}
+
+			return null;
+		}
+
+		public static bool SetupRenewalTask()
+		{
+			try
+			{
+				string certbot = FindCertbot();
+
+				if (certbot == null)
+					return false;
+
+				// Create scheduled task via PowerShell
+				string taskName = "Witness TLS Certificate Renewal";
+				string deployHook = "curl -s -k -X POST https://localhost/debug/reload_tls -d \"{}\"";
+				string psScript = $@"
+					$action = New-ScheduledTaskAction -Execute '{certbot}' -Argument 'renew --deploy-hook ""{deployHook}""'
+					$trigger = New-ScheduledTaskTrigger -Daily -At '03:00'
+					$principal = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest
+					$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+					Unregister-ScheduledTask -TaskName '{taskName}' -Confirm:$false -ErrorAction SilentlyContinue
+					Register-ScheduledTask -TaskName '{taskName}' -Action $action -Trigger $trigger -Principal $principal -Settings $settings -Description 'Renew TLS cert for Witness'
+				";
+
+				var p = new Process();
+				p.StartInfo.FileName = "powershell.exe";
+				p.StartInfo.Arguments = $"-NoProfile -Command {psScript}";
+				p.StartInfo.UseShellExecute = false;
+				p.StartInfo.CreateNoWindow = true;
+				p.Start();
+				p.WaitForExit();
+
+				return p.ExitCode == 0;
+			}
+			catch
+			{
+				return false;
+			}
+		}
+
+		public static bool Configure(string SettingsRoot, string HostnameAndPort, string CertContact, CertificateMode Mode, string DomainUsername,
+			out string CertPath, out string KeyPath)
+		{
+			CertPath = null;
+			KeyPath = null;
 
 			var HostnameSplit = HostnameAndPort.Trim().Split(new char[] { ':' });
 			var Hostname = HostnameSplit[0];
-			ushort Port;
 
-			string Thumbprint = GetMostRecentCertificate(Hostname);
-
-			if (Mode == CertificateMode.LetsEncryptAuto || Mode == CertificateMode.LetsEncryptManual)
+			if (HostnameSplit.Length != 2 || Hostname.Length < 1)
 			{
-				if (CertContact == null || !(CertContact.Length >= 4 && CertContact.Contains("@") && CertContact.Contains(".") && !CertContact.Contains(" ") && !CertContact.Contains("\t") && !CertContact.Contains("\"")))
-				{
-					MessageBox.Show("Email address is not valid.");
-					return false;
-				}
+				MessageBox.Show("Hostname and port must both be specified and be valid.");
+				return false;
 			}
 
-			if (HostnameSplit.Length == 2 && Hostname.Length >= 1 && !Hostname.Contains(" ") && !Hostname.Contains("\t") && !Hostname.Contains("\""))
+			if (!ushort.TryParse(HostnameSplit[1], out ushort Port))
 			{
-				if (!ushort.TryParse(HostnameSplit[1], out Port))
-				{
-					MessageBox.Show($"Port number specified is not valid.");
-					return false;
-				}
-			}
-			else
-			{
-				MessageBox.Show($"Hostname and port must both be specified and be valid.");
+				MessageBox.Show("Port number is not valid.");
 				return false;
 			}
 
 			switch (Mode)
 			{
-				case CertificateMode.LetsEncryptAuto:
-					IsOk = RunAutomaticWACS(Hostname, CertContact );
+				case CertificateMode.SelfSigned:
+				{
+					var result = GenerateSelfSigned(Hostname);
+					if (result == null) return false;
+					CertPath = result.Value.certPath;
+					KeyPath = result.Value.keyPath;
 					break;
+				}
 
-				case CertificateMode.LetsEncryptManual:
-					IsOk = RunManualWACS(Hostname);
+				case CertificateMode.LetsEncrypt:
+				{
+					if (string.IsNullOrWhiteSpace(CertContact) || !CertContact.Contains("@") || !CertContact.Contains("."))
+					{
+						MessageBox.Show("A valid email address is required for Let's Encrypt.");
+						return false;
+					}
+
+					var result = RunCertbot(Hostname, CertContact);
+					if (result == null) return false;
+					CertPath = result.Value.certPath;
+					KeyPath = result.Value.keyPath;
+
+					// Certbot creates its own renewal task. We add a deploy-hook
+					// task to reload the server's TLS context after renewal.
+					SetupRenewalTask();
 					break;
+				}
 
 				case CertificateMode.Manual:
-					if (Thumbprint != null)
-					{
-						MessageBox.Show($"Certificate for {Hostname} was not found.\nEnsure it is installed in the local machine Personal certificate store.");
-					}
+				{
+					// Cert/key paths should already be set by the caller
 					break;
+				}
 
 				case CertificateMode.NoSecurity:
-					IsOk = MessageBox.Show(
-@"With no security your usernames, passwords and access to 
-the site will be available to any people or organizations 
-that may be surveilling you. This might include your 
+				{
+					var confirm = MessageBox.Show(
+@"With no security your usernames, passwords and access to
+the site will be available to any people or organizations
+that may be surveilling you. This might include your
 employer, internet service provider, hackers or government.
-This is true for all websites that do not use https.
 
-If you are happy to accept this risk (https is free 
-now you know!), click Yes to continue.",
-"Are you sure?",
-					MessageBoxButton.YesNoCancel, MessageBoxImage.Warning) == MessageBoxResult.Yes;
+If you are happy to accept this risk, click Yes to continue.",
+						"Are you sure?",
+						MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
+
+					if (confirm != MessageBoxResult.Yes)
+						return false;
 					break;
+				}
 			}
 
-			if ( !IsOk )
-			{
-				return false;
-			}
-
-			if (Mode != CertificateMode.NoSecurity)
-			{
-				IsOk = CheckCertificateExists(Hostname);
-			}
-
-			if (!IsOk)
-			{
-				MessageBox.Show($"A suitable certificate for {Hostname} was not found.");
-				return false;
-			}
-
-			ConfigureBindings( Hostname, Port, DomainUsername, Thumbprint, Mode );
-
-			return IsOk;
+			return true;
 		}
 	}
 }

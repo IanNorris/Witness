@@ -11,6 +11,11 @@
 #include <minmax.h>
 #include <chrono>
 #include <thread>
+
+#ifdef CROW_ENABLE_SSL
+#include <openssl/applink.c>
+#endif
+
 #pragma comment(lib, "winmm.lib")
 
 #define SERVICE_NAME L"WitnessCameraServer"

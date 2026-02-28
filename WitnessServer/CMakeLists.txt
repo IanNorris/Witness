@@ -2,6 +2,7 @@ find_package(Crow CONFIG REQUIRED)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs videoio objdetect)
 find_package(unofficial-sodium CONFIG REQUIRED)
 find_package(unofficial-sqlite3 CONFIG REQUIRED)
+find_package(OpenSSL REQUIRED)
 
 set(SERVER_SOURCES
     Source/AsyncWorker.cpp
@@ -69,6 +70,7 @@ target_include_directories(WitnessServer PRIVATE
 
 target_compile_definitions(WitnessServer PRIVATE
     _SILENCE_STDEXT_ARR_ITERS_DEPRECATION_WARNING
+    CROW_ENABLE_SSL
 )
 
 if(MSVC)
@@ -83,6 +85,8 @@ endif()
 target_link_libraries(WitnessServer PRIVATE
     WitnessCamera
     Crow::Crow
+    OpenSSL::SSL
+    OpenSSL::Crypto
     ${OpenCV_LIBS}
     unofficial-sodium::sodium
     unofficial::sqlite3::sqlite3
@@ -95,3 +99,21 @@ add_custom_command(TARGET WitnessServer POST_BUILD
         "$<TARGET_FILE_DIR:WitnessServer>/Web"
     COMMENT "Symlinking Web directory"
 )
+
+# Copy OpenSSL CLI tool to output (used by Installer/Setup-TLS.ps1 for self-signed certs)
+find_program(OPENSSL_EXECUTABLE openssl
+    PATHS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/tools/openssl"
+    NO_DEFAULT_PATH
+)
+if(OPENSSL_EXECUTABLE)
+    cmake_path(GET OPENSSL_EXECUTABLE PARENT_PATH OPENSSL_TOOL_DIR)
+    add_custom_command(TARGET WitnessServer POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${OPENSSL_EXECUTABLE}"
+            "$<TARGET_FILE_DIR:WitnessServer>/"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${OPENSSL_TOOL_DIR}/openssl.cnf"
+            "$<TARGET_FILE_DIR:WitnessServer>/"
+        COMMENT "Copying OpenSSL CLI tool and config"
+    )
+endif()

@@ -3,17 +3,56 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:s="clr-namespace:System;assembly=System"
         xmlns:local="clr-namespace:Installer"
-        xmlns:xctk="clr-namespace:Xceed.Wpf.Toolkit;assembly=Xceed.Wpf.Toolkit"
         mc:Ignorable="d"
         Title="Witness Setup" Height="450" Width="800" ResizeMode="CanMinimize">
-    <Grid>
-        <xctk:Wizard CurrentPage="{Binding ElementName=Login}" Finish="Wizard_Finish">
-            <xctk:WizardPage x:Name="Welcome" NextPage="{Binding ElementName=Login}" Title="Configure Witness" Description="This Wizard will guide you through the process of setting up Witness for first use. You can rerun this tool again to update your setup." CanHelp="False">
-                <Grid>
+    <Window.Resources>
+        <Style x:Key="WatermarkTextBox" TargetType="TextBox">
+            <Style.Resources>
+                <VisualBrush x:Key="WatermarkBrush" AlignmentX="Left" AlignmentY="Center" Stretch="None">
+                    <VisualBrush.Visual>
+                        <TextBlock Foreground="Gray" FontStyle="Italic" Text="{Binding Tag, RelativeSource={RelativeSource AncestorType=TextBox}}" Margin="5,0,0,0"/>
+                    </VisualBrush.Visual>
+                </VisualBrush>
+            </Style.Resources>
+            <Style.Triggers>
+                <Trigger Property="Text" Value="">
+                    <Setter Property="Background" Value="{StaticResource WatermarkBrush}"/>
+                </Trigger>
+                <Trigger Property="Text" Value="{x:Null}">
+                    <Setter Property="Background" Value="{StaticResource WatermarkBrush}"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+    <DockPanel>
+        <!-- Button bar at the bottom -->
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="10">
+            <Button Name="BackButton" Content="Back" Width="75" Margin="5" Click="BackButton_Click"/>
+            <Button Name="NextButton" Content="Next" Width="75" Margin="5" Click="NextButton_Click"/>
+            <Button Name="FinishButton" Content="Finish" Width="75" Margin="5" Click="FinishButton_Click" Visibility="Collapsed"/>
+        </StackPanel>
+
+        <!-- Page header -->
+        <DockPanel DockPanel.Dock="Top" Margin="10 10 10 0">
+            <TextBlock Name="PageTitle" DockPanel.Dock="Top" FontSize="16" FontWeight="Bold" Margin="0 0 0 5"/>
+            <TextBlock Name="PageDescription" TextWrapping="Wrap" Foreground="Gray"/>
+        </DockPanel>
+
+        <Separator DockPanel.Dock="Top" Margin="10 5"/>
+
+        <!-- Wizard pages as a TabControl with hidden tabs -->
+        <TabControl Name="WizardTabs" SelectionChanged="WizardTabs_SelectionChanged">
+            <TabControl.ItemContainerStyle>
+                <Style TargetType="TabItem">
+                    <Setter Property="Visibility" Value="Collapsed"/>
+                </Style>
+            </TabControl.ItemContainerStyle>
+
+            <!-- Page 0: Welcome -->
+            <TabItem x:Name="WelcomeTab" Tag="Configure Witness|This Wizard will guide you through the process of setting up Witness for first use. You can rerun this tool again to update your setup.">
+                <Grid Margin="10">
                     <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
@@ -26,65 +65,37 @@
                     </Grid.ColumnDefinitions>
 
                     <Label Margin="10 20 10 20" HorizontalAlignment="Right" Grid.Row="0" Grid.Column="0">Startup mode</Label>
-                    <ComboBox Name="StartupMode" Margin="10 20 10 20" Grid.Row="0" Grid.Column="1" SelectedValue="{Binding StartupMode}" SelectedValuePath="Tag">
+                    <ComboBox Name="StartupMode" Margin="10 20 10 20" Grid.Row="0" Grid.Column="1" SelectedValue="{Binding StartupMode}" SelectedValuePath="Tag" SelectionChanged="StartupMode_SelectionChanged">
                         <ComboBoxItem Tag="Service">Run as a Windows service (Recommended)</ComboBoxItem>
                         <ComboBoxItem Tag="Task">Run as the current user</ComboBoxItem>
                         <ComboBoxItem Tag="Manual">Don't run at startup</ComboBoxItem>
                     </ComboBox>
 
-                    <Label Margin="10 10 10 10" HorizontalAlignment="Right" Grid.Row="1" Grid.Column="0">Cache</Label>
-                    <Grid Margin="10 10 10 10" Grid.Row="1" Grid.Column="1">
-                        <Grid.RowDefinitions>
-                            <RowDefinition Height="Auto"/>
-                        </Grid.RowDefinitions>
+                    <TextBlock Name="StartupAdminHint" Margin="10 0 10 10" Grid.Row="1" Grid.Column="1" Foreground="OrangeRed" FontStyle="Italic" TextWrapping="Wrap"
+                               Text="⚠ This option requires administrator privileges." Visibility="Visible"/>
+
+                    <Label Margin="10 10 10 10" HorizontalAlignment="Right" Grid.Row="2" Grid.Column="0">Cache</Label>
+                    <Grid Margin="10 10 10 10" Grid.Row="2" Grid.Column="1">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*"/>
                             <ColumnDefinition Width="Auto"/>
                         </Grid.ColumnDefinitions>
-
-                        <TextBox Name="Cache" Grid.Row="0" Grid.Column="0" Text="{Binding Cache}"/>
-                        <Button Name="CacheBrowse"  Grid.Row="0" Grid.Column="1" Click="CacheBrowse_Click">Browse</Button>
+                        <TextBox Name="Cache" Grid.Column="0" Text="{Binding Cache}"/>
+                        <Button Name="CacheBrowse" Grid.Column="1" Click="CacheBrowse_Click">Browse</Button>
                     </Grid>
 
-                    <Label Margin="10 10 10 10" HorizontalAlignment="Right" Grid.Row="2" Grid.Column="0">Lead-in Time (sec)</Label>
-                    <xctk:WatermarkTextBox Margin="10 10 10 10" Grid.Row="2" Grid.Column="1" Text="{Binding ClipLeadIn}"/>
+                    <Label Margin="10 10 10 10" HorizontalAlignment="Right" Grid.Row="3" Grid.Column="0">Lead-in Time (sec)</Label>
+                    <TextBox Style="{StaticResource WatermarkTextBox}" Margin="10 10 10 10" Grid.Row="3" Grid.Column="1" Text="{Binding ClipLeadIn}"/>
 
-                    <CheckBox Margin="10 20 0 10" Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2" IsChecked="{Binding RestartOnFailure}">Restart server if a crash occurs</CheckBox>
+                    <CheckBox Margin="10 20 0 10" Grid.Row="4" Grid.Column="0" Grid.ColumnSpan="2" IsChecked="{Binding RestartOnFailure}">Restart server if a crash occurs</CheckBox>
                 </Grid>
-            </xctk:WizardPage>
+            </TabItem>
 
-            <xctk:WizardPage x:Name="Login" NextPage="{Binding ElementName=RemoteAccess}" Title="Set your admin credentials" Description="Configure your first admin credentials. You will be able to add additional users later. You should avoid using common usernames such as admin, root or user, and instead use your own name." CanHelp="False">
-                <Grid>
+            <!-- Page 1: RemoteAccess -->
+            <TabItem x:Name="RemoteAccessTab" Tag="Configure web portal|Set up the web portal for Witness. For Let's Encrypt, you will need port 80 forwarded to this device.">
+                <Grid Margin="10">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                        <RowDefinition Height="Auto"/>
-                    </Grid.RowDefinitions>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="*"/>
-                    </Grid.ColumnDefinitions>
-
-                    <Label Margin="10 20 10 20" HorizontalAlignment="Right" Grid.Row="0" Grid.Column="0">Username</Label>
-                    <xctk:WatermarkTextBox Name="Username" Margin="10 20 10 20" Grid.Row="0" Grid.Column="1" Watermark="Fred" Text="{Binding Username}" TextChanged="OnPasswordOrUsernameChanged" AcceptsReturn="False" KeyDown="LoginField_KeyDown"/>
-
-                    <Label Margin="10 20 10 20" HorizontalAlignment="Right" Grid.Row="1" Grid.Column="0">Password</Label>
-                    <xctk:WatermarkPasswordBox Name="Password1" Margin="10 20 10 20" Grid.Row="1" Grid.Column="1" PasswordChanged="OnPasswordOrUsernameChanged"  AcceptsReturn="False" KeyDown="LoginField_KeyDown"/>
-
-                    <Label Margin="10 20 10 20" HorizontalAlignment="Right" Grid.Row="2" Grid.Column="0">Confirm Password</Label>
-                    <xctk:WatermarkPasswordBox Name="Password2" Margin="10 20 10 20" Grid.Row="2" Grid.Column="1" PasswordChanged="OnPasswordOrUsernameChanged"  AcceptsReturn="False" KeyDown="LoginField_KeyDown"/>
-
-                    <TextBlock Margin="10 20 10 20" HorizontalAlignment="Left" Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2" TextWrapping="Wrap">
-                        If an account already exists, a new one will be added. Adding an account that matches an existing account will update the password for that account.
-                    </TextBlock>
-                </Grid>
-            </xctk:WizardPage>
-
-            <xctk:WizardPage x:Name="RemoteAccess" NextPage="{Binding ElementName=Cameras}" Title="Configure web portal" Description="Set up the web portal for Witness. You will need to open the port you select on your router. If you select Let's Encrypt TLS, you will also need to forward port 80." CanHelp="False">
-                <Grid>
-                    <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="Auto"/>
@@ -98,26 +109,67 @@
                     </Grid.ColumnDefinitions>
 
                     <Label Margin="10 20 10 20" HorizontalAlignment="Right" Grid.Row="0" Grid.Column="0">Hostname &amp; Port</Label>
-                    <xctk:WatermarkTextBox Margin="10 20 10 20" Grid.Row="0" Grid.Column="1" Watermark="cameras.myhome.com:5152" Text="{Binding Hostname}"></xctk:WatermarkTextBox>
+                    <TextBox Style="{StaticResource WatermarkTextBox}" Tag="cameras.myhome.com:5152" Margin="10 20 10 20" Grid.Row="0" Grid.Column="1" Text="{Binding Hostname}"/>
 
                     <Label Margin="10 20 10 20" HorizontalAlignment="Right" Grid.Row="1" Grid.Column="0">TLS Certificate</Label>
                     <ComboBox Name="TlsModeCombo" Margin="10 20 10 20" Grid.Row="1" Grid.Column="1" SelectedValue="{Binding TlsMode}" SelectedValuePath="Tag" SelectionChanged="TlsModeCombo_SelectionChanged">
-                        <ComboBoxItem Tag="LetsEncryptAuto">Let's Encrypt with port 80 forwarded to this device (Recommended)</ComboBoxItem>
-                        <ComboBoxItem Tag="LetsEncryptManual">Let's Encrypt with manual setup</ComboBoxItem>
-                        <ComboBoxItem Tag="Manual">Manual certificate management</ComboBoxItem>
+                        <ComboBoxItem Tag="SelfSigned">Self-signed certificate (development/testing)</ComboBoxItem>
+                        <ComboBoxItem Tag="LetsEncrypt">Let's Encrypt via certbot (Recommended)</ComboBoxItem>
+                        <ComboBoxItem Tag="Manual">Manual certificate (provide PEM files)</ComboBoxItem>
                         <ComboBoxItem Tag="NoSecurity">No security</ComboBoxItem>
                     </ComboBox>
 
-                    <Label Margin="10 20 10 20" HorizontalAlignment="Right" Grid.Row="2" Grid.Column="0">Certificate E-mail</Label>
-                    <xctk:WatermarkTextBox Margin="10 20 10 20" Grid.Row="2" Grid.Column="1" Watermark="john@myhome.com" Text="{Binding TlsContact}"></xctk:WatermarkTextBox>
+                    <TextBlock Name="TlsAdminHint" Margin="10 0 10 10" Grid.Row="2" Grid.Column="1" Foreground="OrangeRed" FontStyle="Italic" TextWrapping="Wrap"
+                               Text="⚠ Auto-renewal requires administrator privileges." Visibility="Collapsed"/>
 
-                    <Button Name="OnConfigureRemoteAccess" Margin="10 20 10 20" HorizontalAlignment="Left" Grid.Row="3" Grid.Column="0" Padding="8 2 8 2" Click="OnConfigureRemoteAccess_Click">Configure</Button>
+                    <Label Name="TlsContactLabel" Margin="10 20 10 20" HorizontalAlignment="Right" Grid.Row="3" Grid.Column="0">Certificate E-mail</Label>
+                    <TextBox Name="TlsContactBox" Style="{StaticResource WatermarkTextBox}" Tag="john@myhome.com" Margin="10 20 10 20" Grid.Row="3" Grid.Column="1" Text="{Binding TlsContact}"/>
+
+                    <Label Name="TlsCertLabel" Margin="10 10 10 10" HorizontalAlignment="Right" Grid.Row="4" Grid.Column="0" Visibility="Collapsed">Certificate PEM</Label>
+                    <TextBox Name="TlsCertBox" Style="{StaticResource WatermarkTextBox}" Tag="C:\path\to\cert.pem" Margin="10 10 10 10" Grid.Row="4" Grid.Column="1" Text="{Binding TlsCertPath}" Visibility="Collapsed"/>
+
+                    <Label Name="TlsKeyLabel" Margin="10 10 10 10" HorizontalAlignment="Right" Grid.Row="5" Grid.Column="0" Visibility="Collapsed">Private Key PEM</Label>
+                    <TextBox Name="TlsKeyBox" Style="{StaticResource WatermarkTextBox}" Tag="C:\path\to\key.pem" Margin="10 10 10 10" Grid.Row="5" Grid.Column="1" Text="{Binding TlsKeyPath}" Visibility="Collapsed"/>
+
+                    <Button Name="OnConfigureRemoteAccess" Margin="10 20 10 20" HorizontalAlignment="Left" Grid.Row="6" Grid.Column="0" Padding="8 2 8 2" Click="OnConfigureRemoteAccess_Click">Configure</Button>
                 </Grid>
-            </xctk:WizardPage>
+            </TabItem>
 
-            <xctk:WizardPage x:Name="Finish"  CanFinish="true" Title="All done!" Description="To confirm and complete setup, click Finish.">
-                
-            </xctk:WizardPage>
-        </xctk:Wizard>
-    </Grid>
+            <!-- Page 2: Login -->
+            <TabItem x:Name="LoginTab" Tag="Set your admin credentials|Configure your first admin credentials. You will be able to add additional users later. You should avoid using common usernames such as admin, root or user, and instead use your own name.">
+                <Grid Margin="10">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Label Margin="10 20 10 20" HorizontalAlignment="Right" Grid.Row="0" Grid.Column="0">Username</Label>
+                    <TextBox Name="Username" Style="{StaticResource WatermarkTextBox}" Tag="Fred" Margin="10 20 10 20" Grid.Row="0" Grid.Column="1" Text="{Binding Username, UpdateSourceTrigger=PropertyChanged}" TextChanged="OnPasswordOrUsernameChanged" AcceptsReturn="False" KeyDown="LoginField_KeyDown"/>
+
+                    <Label Margin="10 20 10 20" HorizontalAlignment="Right" Grid.Row="1" Grid.Column="0">Password</Label>
+                    <PasswordBox Name="Password1" Margin="10 20 10 20" Grid.Row="1" Grid.Column="1" PasswordChanged="OnPasswordOrUsernameChanged" KeyDown="LoginField_KeyDown"/>
+
+                    <Label Margin="10 20 10 20" HorizontalAlignment="Right" Grid.Row="2" Grid.Column="0">Confirm Password</Label>
+                    <PasswordBox Name="Password2" Margin="10 20 10 20" Grid.Row="2" Grid.Column="1" PasswordChanged="OnPasswordOrUsernameChanged" KeyDown="LoginField_KeyDown"/>
+
+                    <TextBlock Margin="10 20 10 20" HorizontalAlignment="Left" Grid.Row="3" Grid.Column="0" Grid.ColumnSpan="2" TextWrapping="Wrap">
+                        If an account already exists, a new one will be added. Adding an account that matches an existing account will update the password for that account.
+                    </TextBlock>
+                </Grid>
+            </TabItem>
+
+            <!-- Page 3: Finish -->
+            <TabItem x:Name="FinishTab" Tag="All done!|To confirm and complete setup, click Finish.">
+                <Grid Margin="10">
+                    <TextBlock Name="FinishAdminHint" Margin="10 20 10 10" Foreground="OrangeRed" FontStyle="Italic" TextWrapping="Wrap" Visibility="Collapsed"/>
+                </Grid>
+            </TabItem>
+        </TabControl>
+    </DockPanel>
 </Window>

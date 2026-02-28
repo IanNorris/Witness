@@ -1,4 +1,4 @@
-﻿using Microsoft.Win32.TaskScheduler;
+using Microsoft.Win32.TaskScheduler;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -29,51 +29,82 @@ namespace Installer
 
 		public static void StopService()
 		{
-			string Messages = "";
-			var Result = CommandRunner.RunCommandAndDetermineSuccess<CommandRunner.Status>($"net stop WitnessCameraServer", CommandRunner.Status.Failure, (msg, status) =>
+			try
 			{
-				Messages += msg;
-				if (msg.Contains("is not started"))
+				string Messages = "";
+				var Result = CommandRunner.RunCommandAndDetermineSuccess<CommandRunner.Status>($"net stop WitnessCameraServer", CommandRunner.Status.Failure, (msg, status) =>
 				{
-					return CommandRunner.Status.Success_AlreadyDone;
-				}
-				else if (msg.Contains("service name is invalid"))
-				{
-					return CommandRunner.Status.Success_AlreadyDone;
-				}
-				else if (msg.Contains("was stopped successfully."))
-				{
-					return CommandRunner.Status.Success_Done;
-				}
-				return status;
-			});
-
-			if (Result == CommandRunner.Status.Failure)
-			{
-				MessageBox.Show("Error stopping service:\n\n" + Messages);
+					Messages += msg;
+					if (msg.Contains("is not started"))
+					{
+						return CommandRunner.Status.Success_AlreadyDone;
+					}
+					else if (msg.Contains("service name is invalid"))
+					{
+						return CommandRunner.Status.Success_AlreadyDone;
+					}
+					else if (msg.Contains("was stopped successfully."))
+					{
+						return CommandRunner.Status.Success_Done;
+					}
+					else if (msg.Contains("Access is denied"))
+					{
+						return CommandRunner.Status.Success_AlreadyDone;
+					}
+					return status;
+				});
 			}
+			catch { /* Service may not exist or we lack permissions — not fatal */ }
 		}
 
 		private static void ConfigureFirewall()
 		{
-			string Server = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WitnessServer.exe");
-
-			CommandRunner.RunCommand($"Remove-NetFirewallRule -DisplayName \"{WitnessFirewallRule}\"");
-
-			string Messages = "";
-			var Result = CommandRunner.RunCommandAndDetermineSuccess<CommandRunner.Status>($"(New-NetFirewallRule -DisplayName \"{WitnessFirewallRule}\" -Direction Inbound -Program \"{Server}\" -Action Allow).PrimaryStatus", CommandRunner.Status.Failure, (msg, status) =>
+			try
 			{
-				Messages += msg;
-				if (msg.Contains("OK"))
+				string Server = Path.Combine(InstallerPaths.ExeDirectory, "WitnessServer.exe");
+
+				CommandRunner.RunCommand($"Remove-NetFirewallRule -DisplayName \"{WitnessFirewallRule}\" -ErrorAction SilentlyContinue");
+
+				var result = CommandRunner.RunCommand($"(New-NetFirewallRule -DisplayName \"{WitnessFirewallRule}\" -Direction Inbound -Program \"{Server}\" -Action Allow).PrimaryStatus");
+
+				bool success = result.Any(r => r.Contains("OK"));
+				if (!success)
+					PromptFirewallElevation(Server);
+			}
+			catch
+			{
+				try
 				{
-					return CommandRunner.Status.Success_Done;
+					string Server = Path.Combine(InstallerPaths.ExeDirectory, "WitnessServer.exe");
+					PromptFirewallElevation(Server);
 				}
-				return status;
-			});
+				catch { }
+			}
+		}
 
-			if (Result == CommandRunner.Status.Failure)
+		private static void PromptFirewallElevation(string serverPath)
+		{
+			var choice = Application.Current.Dispatcher.Invoke(() => MessageBox.Show(
+				"Could not open the firewall for Witness. This requires administrator privileges.\n\n" +
+				"Would you like to elevate and add the firewall rule now?",
+				"Firewall", MessageBoxButton.YesNo, MessageBoxImage.Warning));
+
+			if (choice == MessageBoxResult.Yes)
 			{
-				MessageBox.Show("Error creating firewall rules:\n\n" + Messages);
+				try
+				{
+					var psi = new ProcessStartInfo
+					{
+						FileName = "powershell.exe",
+						Arguments = $"-NoProfile -Command \"New-NetFirewallRule -DisplayName '{WitnessFirewallRule}' -Direction Inbound -Program '{serverPath}' -Action Allow\"",
+						Verb = "runas",
+						UseShellExecute = true,
+						CreateNoWindow = true
+					};
+					var p = Process.Start(psi);
+					p?.WaitForExit();
+				}
+				catch { /* User declined UAC */ }
 			}
 		}
 
@@ -83,36 +114,29 @@ namespace Installer
 
 			if ( Startup == StartupMode.Task )
 			{
-				var task = TaskService.Instance.NewTask();
-				task.Settings.AllowDemandStart = true;
-				task.Settings.AllowHardTerminate = true;
-				task.Settings.ExecutionTimeLimit = TimeSpan.FromDays(30 * 365);
-				task.Settings.MultipleInstances = TaskInstancesPolicy.StopExisting;
-				task.RegistrationInfo.Description = "WitnessCamera server task to start the server running at startup.";
-				task.Triggers.Add(new BootTrigger());
-				task.Actions.Add(new ExecAction(Path.Combine(RootPath, "WitnessServer.exe")));
+				try
+				{
+					var task = TaskService.Instance.NewTask();
+					task.Settings.AllowDemandStart = true;
+					task.Settings.AllowHardTerminate = true;
+					task.Settings.ExecutionTimeLimit = TimeSpan.FromDays(30 * 365);
+					task.Settings.MultipleInstances = TaskInstancesPolicy.StopExisting;
+					task.RegistrationInfo.Description = "WitnessCamera server task to start the server running at startup.";
+					task.Triggers.Add(new BootTrigger());
+					task.Actions.Add(new ExecAction(Path.Combine(RootPath, "WitnessServer.exe")));
 
-				TaskService.Instance.RootFolder.RegisterTaskDefinition(WitnessTaskScheduler_Startup, task);
+					TaskService.Instance.RootFolder.RegisterTaskDefinition(WitnessTaskScheduler_Startup, task);
+				}
+				catch (Exception e)
+				{
+					Application.Current.Dispatcher.Invoke(() => MessageBox.Show("Could not create scheduled task. You may need administrator privileges.\n\n" + e.Message,
+						"Task Scheduler", MessageBoxButton.OK, MessageBoxImage.Warning));
+				}
 			}
 			else if( Startup == StartupMode.Service )
 			{
-				string Server = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WitnessServer.exe");
-
-				string Messages = "";
-				var Result = CommandRunner.RunCommandAndDetermineSuccess<CommandRunner.Status>($"& \"{Server}\" /installservice", CommandRunner.Status.Failure, (msg, status) =>
-				{
-					Messages += msg;
-					if (msg.Contains("The requested service has already been started."))
-					{
-						return CommandRunner.Status.Success_AlreadyDone;
-					}
-					return msg.Contains("Created service.") ? CommandRunner.Status.Success_Done : status;
-				} );
-
-				if (Result == CommandRunner.Status.Failure)
-				{
-					MessageBox.Show("Error creating service:\n\n" + Messages);
-				}
+				string Server = Path.Combine(InstallerPaths.ExeDirectory, "WitnessServer.exe");
+				CommandRunner.RunCommand($"& \"{Server}\" /installservice");
 			}
 
 			ConfigureFirewall();
@@ -120,80 +144,60 @@ namespace Installer
 
 		public void Start()
 		{
-			if (Startup == StartupMode.Task)
+			try
 			{
-				var Task = TaskService.Instance.FindTask(WitnessTaskScheduler_Startup);
-				var Result = Task.Run();
-
-				int MaxWait = 30;
-				bool TaskResult = false;
-
-				do
+				if (Startup == StartupMode.Task)
 				{
-					Task = TaskService.Instance.FindTask(WitnessTaskScheduler_Startup);
-					if(Task.State == TaskState.Running)
+					var Task = TaskService.Instance.FindTask(WitnessTaskScheduler_Startup);
+					if (Task != null)
 					{
-						TaskResult = true;
-					}
-					else
-					{
-						Thread.Sleep(1000);
-					}
-				} while (MaxWait > 0 && !TaskResult);
-			}
-			else if (Startup == StartupMode.Service)
-			{
-				string Messages = "";
-				var Result = CommandRunner.RunCommandAndDetermineSuccess<CommandRunner.Status>($"net start WitnessCameraServer", CommandRunner.Status.Failure, (msg, status) =>
-				{
-					Messages += msg;
-					if (msg.Contains("already been started"))
-					{
-						return CommandRunner.Status.Success_AlreadyDone;
-					}
-					else if (msg.Contains("service was started successfully"))
-					{
-						return CommandRunner.Status.Success_AlreadyDone;
-					}
-					return status;
-				});
+						Task.Run();
 
-				if (Result == CommandRunner.Status.Failure)
+						int MaxWait = 30;
+						bool TaskResult = false;
+
+						do
+						{
+							Task = TaskService.Instance.FindTask(WitnessTaskScheduler_Startup);
+							if (Task?.State == TaskState.Running)
+							{
+								TaskResult = true;
+							}
+							else
+							{
+								Thread.Sleep(1000);
+							}
+						} while (MaxWait-- > 0 && !TaskResult);
+					}
+				}
+				else if (Startup == StartupMode.Service)
 				{
-					MessageBox.Show("Error starting service:\n\n" + Messages);
+					CommandRunner.RunCommand($"net start WitnessCameraServer");
 				}
 			}
+			catch { }
 		}
 
 		public void Uninstall()
 		{
-			string Server = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WitnessServer.exe");
-
 			StopService();
 
-			TaskService.Instance.RootFolder.DeleteTask(WitnessTaskScheduler_Startup, false);
-			TaskService.Instance.RootFolder.DeleteTask(WitnessTaskScheduler_KeepAlive, false);
+			try { TaskService.Instance.RootFolder.DeleteTask(WitnessTaskScheduler_Startup, false); } catch { }
+			try { TaskService.Instance.RootFolder.DeleteTask(WitnessTaskScheduler_KeepAlive, false); } catch { }
 
-			var Messages = "";
-
-			var Result = CommandRunner.RunCommandAndDetermineSuccess<CommandRunner.Status>($"& \"{Server}\" /uninstallservice", CommandRunner.Status.Failure, (msg, status) =>
+			try
 			{
-				Messages += msg;
-				if (msg.Contains("Service not found"))
+				string Server = Path.Combine(InstallerPaths.ExeDirectory, "WitnessServer.exe");
+				CommandRunner.RunCommandAndDetermineSuccess<CommandRunner.Status>($"& \"{Server}\" /uninstallservice", CommandRunner.Status.Failure, (msg, status) =>
 				{
-					return CommandRunner.Status.Success_AlreadyDone;
-				}
-				else if (msg.Contains("Deleted service"))
-				{
-					return CommandRunner.Status.Success_Done;
-				}
-				return status;
-			});
-
-			if (Result == CommandRunner.Status.Failure)
-			{
-				MessageBox.Show("Error uninstalling service:\n\n" + Messages);
+					if (msg.Contains("Service not found"))
+						return CommandRunner.Status.Success_AlreadyDone;
+					else if (msg.Contains("Deleted service"))
+						return CommandRunner.Status.Success_Done;
+					return status;
+				});
 			}
+			catch { /* Service may not exist or we lack permissions — not fatal */ }
 		}
 	}
 }

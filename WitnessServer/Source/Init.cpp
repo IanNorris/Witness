@@ -153,6 +153,8 @@ bool WitnessServer::CreateListener( const std::unordered_map< std::string, std::
 	int Port;
 	std::string Security;
 	bool Secure = true;
+	std::string CertPath;
+	std::string KeyPath;
 
 	Success &= GetSettingsField( Settings, "server_hostname", Hostname, Errors );
 	std::vector<std::string> SplitHostname = SplitString(Hostname, ":");
@@ -173,6 +175,13 @@ bool WitnessServer::CreateListener( const std::unordered_map< std::string, std::
 		Secure = false;
 	}
 
+	if( Secure )
+	{
+		// Cert/key paths are optional in DB — will be validated in CrowListener::Start()
+		GetSettingsField( Settings, "server_tls_cert", CertPath, Errors );
+		GetSettingsField( Settings, "server_tls_key", KeyPath, Errors );
+	}
+
 	Success &= GetSettingsField( Settings, "server_cache", CachePath, Errors );
 
 	if (!Success)
@@ -181,7 +190,7 @@ bool WitnessServer::CreateListener( const std::unordered_map< std::string, std::
 		return false;
 	}
 
-	Server = std::make_unique<CrowListener>( Hostname, Port, Secure, DebugConsoleInstance );
+	Server = std::make_unique<CrowListener>( Hostname, Port, Secure, CertPath, KeyPath, DebugConsoleInstance );
 
 	return true;
 }

@@ -13,10 +13,41 @@
 #include "GlobalContext.h"
 #include "DebugBind.h"
 
+struct SecurityHeadersMiddleware
+{
+	struct context {};
+
+	void before_handle( crow::request& /*req*/, crow::response& /*res*/, context& /*ctx*/ ) {}
+
+	void after_handle( crow::request& /*req*/, crow::response& res, context& /*ctx*/ )
+	{
+		static const char* CSP =
+			"default-src 'self'; "
+			"script-src 'self' 'unsafe-inline' 'unsafe-eval' https://maxcdn.bootstrapcdn.com https://ajax.googleapis.com/ https://cdnjs.cloudflare.com/ https://cloud.githubusercontent.com/; "
+			"worker-src 'self' blob:; "
+			"style-src 'self' 'unsafe-inline' https://maxcdn.bootstrapcdn.com https://ajax.googleapis.com/ https://cdnjs.cloudflare.com/ https://cloud.githubusercontent.com/; "
+			"script-src-elem 'self' 'unsafe-inline' 'unsafe-eval' https://maxcdn.bootstrapcdn.com https://ajax.googleapis.com/ https://cdnjs.cloudflare.com/ https://cloud.githubusercontent.com/; "
+			"style-src-attr 'self' 'unsafe-inline' https://maxcdn.bootstrapcdn.com https://ajax.googleapis.com/ https://cdnjs.cloudflare.com/ https://cloud.githubusercontent.com/; "
+			"img-src 'self' data: blob: https://maxcdn.bootstrapcdn.com https://ajax.googleapis.com/ https://cdnjs.cloudflare.com/ https://cloud.githubusercontent.com/; "
+			"font-src 'self' data:; "
+			"media-src 'self' blob:;";
+
+		res.set_header( "Content-Security-Policy", CSP );
+		res.set_header( "X-Content-Type-Options", "nosniff" );
+		res.set_header( "X-Frame-Options", "DENY" );
+		res.set_header( "Referrer-Policy", "strict-origin-when-cross-origin" );
+		res.set_header( "Strict-Transport-Security", "max-age=31536000; includeSubDomains" );
+	}
+};
+
+using WitnessApp = crow::App<SecurityHeadersMiddleware>;
+
 class CrowListener
 {
 public:
-	CrowListener( const std::string& Hostname, int Port, bool Secure, DebugConsole* DebugConsoleInstance );
+	CrowListener( const std::string& Hostname, int Port, bool Secure,
+	              const std::string& CertPath, const std::string& KeyPath,
+	              DebugConsole* DebugConsoleInstance );
 	virtual ~CrowListener();
 
 	void Initialise( const std::unordered_map< std::string, std::string >& Settings );
@@ -24,6 +55,9 @@ public:
 	void Start();
 
 	void Stop();
+
+	// Reload TLS certificate and key files (graceful restart)
+	bool ReloadTLS();
 
 	const std::shared_ptr<GlobalContext>& GetGlobalContext() { return m_GlobalContext; }
 
@@ -77,8 +111,11 @@ private:
 	void HandleDebugEnum( const crow::request& req, crow::response& res );
 	void HandleDebugSet( const crow::request& req, crow::response& res );
 	void HandleDebugReset( const crow::request& req, crow::response& res );
+	void HandleDebugReloadTLS( const crow::request& req, crow::response& res );
 
-	crow::SimpleApp m_App;
+	bool ConfigureSSL();
+
+	WitnessApp m_App;
 	std::thread m_ServerThread;
 
 	std::shared_ptr<GlobalContext> m_GlobalContext;
@@ -91,4 +128,12 @@ private:
 	std::string m_Hostname;
 	int m_Port;
 	bool m_Secure;
+	std::string m_CertPath;
+	std::string m_KeyPath;
+
+	// Background cert file monitor
+	std::thread m_CertMonitorThread;
+	std::atomic<bool> m_CertMonitorRunning{ false };
+	std::filesystem::file_time_type m_LastCertModTime;
+	void CertMonitorLoop();
 };

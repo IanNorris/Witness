@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Linq;
 using System.Management.Automation;
 using System.Windows;
@@ -40,9 +40,9 @@ namespace Installer
 						return ConvertedResult.ToArray();
 					}
 				}
-				catch(Exception e)
+				catch(Exception)
 				{
-					MessageBox.Show($"{e.Message}");
+					// Caller handles errors
 				}
 
 				return new string[0];

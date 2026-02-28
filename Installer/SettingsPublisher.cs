@@ -1,4 +1,4 @@
-﻿using SQLite;
+using SQLite;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -58,12 +58,12 @@ namespace Installer
 
 		public string GetWebRoot()
 		{
-			return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Web");
+			return Path.Combine(InstallerPaths.ExeDirectory, "Web");
 		}
 
 		private void EnsureDBCreated()
 		{
-			string Server = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "WitnessServer.exe");
+			string Server = Path.Combine(InstallerPaths.ExeDirectory, "WitnessServer.exe");
 
 			Process ExternalProcess = new Process();
 			ExternalProcess.StartInfo.FileName = Server;
@@ -120,6 +120,11 @@ namespace Installer
 			try
 			{
 				database = new SQLiteConnection(ConnectionString);
+
+				// Ensure User table has all expected columns (handles DBs created before MustChangePassword was added)
+				try { database.Execute("ALTER TABLE User ADD COLUMN MustChangePassword INTEGER NOT NULL DEFAULT 0"); }
+				catch (SQLiteException) { /* Column already exists */ }
+
 				database.BeginTransaction();
 				foreach (var Setting in Settings)
 				{
@@ -142,7 +147,7 @@ namespace Installer
 				
 
 				var PasswordSalt = new byte[16];
-				var RNG = new RNGCryptoServiceProvider();
+				using var RNG = RandomNumberGenerator.Create();
 				RNG.GetBytes(PasswordSalt);
 
 				string HashedPasswordInput = Setup.Username + ":" + Setup.Password;
