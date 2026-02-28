@@ -107,6 +107,44 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 	Success &= GetSettingsField(Settings, "default_background_algorithm", Video.MotionFilterName, Errors);
 	Success &= GetSettingsField(Settings, "export_motion_vectors", Video.ExportMotionVectors, Errors);
 
+	// Detection settings
+	{
+		std::string detectionBackend;
+		if( GetSettingsField( Settings, "detection_backend", detectionBackend, Errors ) && detectionBackend == "onnx" )
+		{
+			Video.DetectionEnabled = true;
+		}
+		GetSettingsField( Settings, "detection_model_path", Video.DetectionModelPath, Errors );
+		GetSettingsField( Settings, "detection_confidence", Video.DetectionConfidence, Errors );
+
+		std::string detectionProvider;
+		if( GetSettingsField( Settings, "detection_provider", detectionProvider, Errors ) && detectionProvider == "gpu" )
+		{
+			Video.DetectionUseGPU = true;
+		}
+
+		// Default model path if not set
+		if( Video.DetectionEnabled && Video.DetectionModelPath.empty() )
+		{
+#ifdef _WIN32
+			wchar_t modelExeBuf[MAX_PATH] = {};
+			GetModuleFileNameW( nullptr, modelExeBuf, MAX_PATH );
+			auto defaultModel = std::filesystem::path( modelExeBuf ).parent_path() / "models" / "yolo26n.onnx";
+#else
+			auto defaultModel = std::filesystem::canonical( "/proc/self/exe" ).parent_path() / "models" / "yolo26n.onnx";
+#endif
+			if( std::filesystem::exists( defaultModel ) )
+			{
+				Video.DetectionModelPath = defaultModel.string();
+			}
+			else
+			{
+				std::cout << "Detection enabled but no model found at: " << defaultModel.string() << std::endl;
+				Video.DetectionEnabled = false;
+			}
+		}
+	}
+
 	if( !CreateListener( Settings ) )
 	{
 		return false;

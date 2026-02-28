@@ -3,6 +3,7 @@
 #include "MotionVectorFilter.h"
 #include "ObservingMotionFilter.h"
 #include "PersonRecognitionFilter.h"
+#include "ONNXDetectionFilter.h"
 
 #include <chrono>
 #include <thread>
@@ -50,32 +51,42 @@ void CameraWorker::WorkerInit()
 	Observing.OnSuccess = Observer;
 	Observing.OnFailure = Observer;
 
+	// If ONNX detection is enabled, insert it between motion detection and observer
+	std::shared_ptr<IRecordFilter> PostMotionTarget = Observer;
+
+	if( Video.DetectionEnabled && !Video.DetectionModelPath.empty() )
+	{
+		MotionChainNode DetectionChain;
+		DetectionChain.OnSuccess = Observer;
+		DetectionChain.OnFailure = Observer;
+
+		auto DetectionFilter = std::make_shared<ONNXDetectionFilter>(
+			DetectionChain,
+			Video.DetectionModelPath.c_str(),
+			(float)Video.DetectionConfidence,
+			Video.DetectionUseGPU
+		);
+
+		if( DetectionFilter->IsModelLoaded() )
+		{
+			PostMotionTarget = DetectionFilter;
+			printf( "Camera %d: ONNX detection enabled (model: %s, confidence: %.2f)\n",
+				Camera.ID, Video.DetectionModelPath.c_str(), Video.DetectionConfidence );
+		}
+		else
+		{
+			printf( "Camera %d: ONNX detection failed to load, falling back to motion-only.\n", Camera.ID );
+		}
+	}
+
 	MotionChainNode MVF;
-	MVF.OnSuccess = Observer;
+	MVF.OnSuccess = PostMotionTarget;
 	MVF.OnFailure = Observer;
 	MVF.MinimumThreshold = (float)Camera.MDThreshold;
 	MVF.InclusiveFilter = ClassificationResult::Motion_Motion;
 	MVF.ExclusiveFilter = 0;
 
 	std::shared_ptr<MotionVectorFilter> RootFilter = std::make_shared<MotionVectorFilter>( MVF, Camera.BlackoutMaskPath.c_str(), Camera.FocusMaskPath.c_str() );
-	
-	/*auto SecondPassMotionNode = make_shared<MotionChainNode>();
-	RootMotionNode->OnSuccess = SecondPassMotionNode;
-	SecondPassMotionNode->Filter = make_shared<MotionFilter>( std::string( Camera.MotionFilterName.begin(), Camera.MotionFilterName.end() ).c_str() );
-	SecondPassMotionNode->MinimumThreshold = (float)Camera.MDThreshold;
-	SecondPassMotionNode->InclusiveFilter = ClassificationResult::Motion_Motion;
-	SecondPassMotionNode->ExclusiveFilter = 0;*/
-
-	/*auto PersonMotionNode = make_shared<MotionChainNode>();
-	RootMotionNode->OnSuccess = PersonMotionNode;
-	//SecondPassMotionNode->OnSuccess = PersonMotionNode;
-	PersonMotionNode->Filter = make_shared<PersonRecognitionFilter>(
-		std::string( Camera.FaceCascadeFilter.begin(), Camera.FaceCascadeFilter.end() ).c_str(),
-		std::string( Camera.FullBodyCascadeFilter.begin(), Camera.FullBodyCascadeFilter.end() ).c_str()
-	);
-	PersonMotionNode->InclusiveFilter = ClassificationResult::Motion_Person;
-	PersonMotionNode->ExclusiveFilter = 0;
-	PersonMotionNode->MinimumThreshold = 0.0f;*/
 
 	Filter = RootFilter;
 
