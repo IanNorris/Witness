@@ -416,6 +416,8 @@ bool ONNXDetectionFilter::ProcessFrame( SharedClassificationTask TaskData )
 
 	bool detected = false;
 	size_t roiStartIndex = TaskData->Result.ROI.size();
+	size_t tagsStartIndex = TaskData->Result.Tags.size();
+	unsigned int supersetBefore = TaskData->Result.ClassificationSuperset;
 
 	if( outputShape.size() != 3 || outputShape[0] != 1 )
 	{
@@ -614,8 +616,10 @@ bool ONNXDetectionFilter::ProcessFrame( SharedClassificationTask TaskData )
 			ID.Baseline.push_back( obj );
 		}
 
-		// Remove the ROIs we added (they're baseline, not real detections)
+		// Remove all traces from TaskData (ROIs, tags, superset flags)
 		TaskData->Result.ROI.resize( roiStartIndex );
+		TaskData->Result.Tags.resize( tagsStartIndex );
+		TaskData->Result.ClassificationSuperset = supersetBefore;
 
 		ID.LastBaselineTime = now;
 		if( !ID.BaselineInitialized )
