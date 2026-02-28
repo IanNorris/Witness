@@ -262,6 +262,25 @@ bool CrowListener::ConfigureSSL()
 #endif
 }
 
+// Resolve a hostname to a bind address. ASIO requires a numeric IP.
+static std::string ResolveBindAddress( const std::string& hostname )
+{
+	if( hostname == "localhost" )
+		return "127.0.0.1";
+	if( hostname == "+" || hostname == "*" || hostname == "0.0.0.0" || hostname.empty() )
+		return "0.0.0.0";
+
+	// Check if it's already a numeric IP
+	std::error_code ec;
+	asio::ip::make_address( hostname, ec );
+	if( !ec )
+		return hostname;
+
+	// It's a domain name — bind to all interfaces
+	std::cout << "Hostname '" << hostname << "' is not an IP address, binding to 0.0.0.0" << std::endl;
+	return "0.0.0.0";
+}
+
 bool CrowListener::ReloadTLS()
 {
 #ifdef CROW_ENABLE_SSL
@@ -310,15 +329,20 @@ bool CrowListener::ReloadTLS()
 
 		m_App.ssl_file( m_CertPath, m_KeyPath );
 
-		std::string bindAddr = m_Hostname;
-		if( bindAddr == "localhost" ) bindAddr = "127.0.0.1";
-		else if( bindAddr == "+" || bindAddr == "*" || bindAddr == "0.0.0.0" ) bindAddr = "0.0.0.0";
+		std::string bindAddr = ResolveBindAddress( m_Hostname );
 
 		m_App.bindaddr( bindAddr ).port( m_Port );
 		m_ServerThread = std::thread( [this]()
 		{
-			m_App.loglevel( crow::LogLevel::Warning );
-			m_App.multithreaded().run();
+			try
+			{
+				m_App.loglevel( crow::LogLevel::Warning );
+				m_App.multithreaded().run();
+			}
+			catch( const std::exception& e )
+			{
+				std::cerr << "Server error after TLS reload: " << e.what() << std::endl;
+			}
 		});
 
 		// Update tracked modification time
@@ -377,20 +401,30 @@ void CrowListener::Start()
 		return;
 	}
 
-	// Crow/ASIO requires a numeric IP, not a hostname
-	std::string bindAddr = m_Hostname;
-	if( bindAddr == "localhost" )
-		bindAddr = "127.0.0.1";
-	else if( bindAddr == "+" || bindAddr == "*" || bindAddr == "0.0.0.0" )
-		bindAddr = "0.0.0.0";
+	std::string bindAddr = ResolveBindAddress( m_Hostname );
 
-	m_App.bindaddr( bindAddr ).port( m_Port );
-
-	m_ServerThread = std::thread( [this]()
+	try
 	{
-		m_App.loglevel( crow::LogLevel::Warning );
-		m_App.multithreaded().run();
-	});
+		m_App.bindaddr( bindAddr ).port( m_Port );
+
+		m_ServerThread = std::thread( [this]()
+		{
+			try
+			{
+				m_App.loglevel( crow::LogLevel::Warning );
+				m_App.multithreaded().run();
+			}
+			catch( const std::exception& e )
+			{
+				std::cerr << "Server error: " << e.what() << std::endl;
+			}
+		});
+	}
+	catch( const std::exception& e )
+	{
+		std::cerr << "Failed to start server on " << bindAddr << ":" << m_Port << " — " << e.what() << std::endl;
+		return;
+	}
 
 	printf( "Crow server started on %s:%d (%s)\n", m_Hostname.c_str(), m_Port, m_Secure ? "HTTPS" : "HTTP" );
 
