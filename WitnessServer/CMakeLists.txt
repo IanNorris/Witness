@@ -15,6 +15,7 @@ set(SERVER_SOURCES
     Source/CrowRoutes_Clip.cpp
     Source/CrowRoutes_Debug.cpp
     Source/CrowRoutes_Group.cpp
+    Source/CrowRoutes_Setup.cpp
     Source/CrowRoutes_Stream.cpp
     Source/CameraWorker.cpp
     Source/Common.cpp

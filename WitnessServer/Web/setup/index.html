@@ -168,7 +168,7 @@
             <table class="review-table" id="review-table"></table>
             <div class="error" id="apply-error" style="margin-bottom:12px"></div>
             <div class="btn-row">
-                <button class="btn btn-secondary" onclick="goToStep(2)">Back</button>
+                <button class="btn btn-secondary" onclick="goToStep(isReconfigure ? 1 : 2)">Back</button>
                 <button class="btn" id="apply-btn" onclick="applySetup()">Apply &amp; Start Server</button>
             </div>
         </div>
@@ -242,7 +242,8 @@
                     document.getElementById('hostname-error').textContent = 'Include the port number (e.g. localhost:8080)';
                     return;
                 }
-                goToStep(fromStep + 1);
+                // In reconfigure mode, skip admin account step
+                goToStep(isReconfigure ? 3 : 2);
             } else if (fromStep === 2) {
                 // Validate admin account
                 const username = document.getElementById('username').value.trim();
@@ -277,8 +278,11 @@
                 ['Hostname', document.getElementById('hostname').value],
                 ['Cache Path', document.getElementById('cache-path').value],
                 ['TLS Mode', mode.options[mode.selectedIndex].text],
-                ['Admin User', document.getElementById('username').value],
             ];
+
+            if (!isReconfigure) {
+                rows.push(['Admin User', document.getElementById('username').value]);
+            }
 
             const tlsMode = mode.value;
             if (tlsMode === 'Manual') {
@@ -342,6 +346,44 @@
                 else if (currentStep === 3) applySetup();
             }
         });
+
+        // Reconfigure mode: try to load existing settings
+        let isReconfigure = false;
+
+        async function initSetup() {
+            try {
+                const res = await fetch('/api/setup/settings');
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data.mode === 'reconfigure') {
+                        isReconfigure = true;
+                        // Pre-populate fields
+                        if (data.server_hostname) document.getElementById('hostname').value = data.server_hostname;
+                        if (data.server_cache) document.getElementById('cache-path').value = data.server_cache;
+                        if (data.server_tls_mode) {
+                            document.getElementById('tls-mode').value = data.server_tls_mode;
+                            onTlsModeChange();
+                        }
+                        if (data.server_tls_cert) document.getElementById('tls-cert').value = data.server_tls_cert;
+                        if (data.server_tls_key) document.getElementById('tls-key').value = data.server_tls_key;
+                        if (data.server_tls_contact) document.getElementById('tls-contact').value = data.server_tls_contact;
+
+                        // Skip welcome and admin steps — go straight to settings
+                        document.getElementById('step-0').querySelector('h1').textContent = 'Reconfigure Server';
+                        document.getElementById('step-0').querySelector('.subtitle').textContent = 'Update your server settings.';
+                        document.getElementById('step-0').querySelector('.alert').textContent =
+                            'You can change server settings below. Admin account settings are managed from the main interface.';
+
+                        // In reconfigure mode, skip admin account step
+                        document.getElementById('step-2').classList.add('hidden');
+                    }
+                }
+            } catch (e) {
+                // Not in reconfigure mode (setup server), continue normally
+            }
+        }
+
+        initSetup();
     </script>
 </body>
 </html>
