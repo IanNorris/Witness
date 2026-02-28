@@ -233,7 +233,7 @@ Replaced the 166MB .NET Installer with a built-in web setup wizard.
 - [ ] **Wire into filter chain** in `CameraWorker::WorkerInit()`
   - Replaces current Azure Vision filter position
   - Can coexist — config selects which backend to use per camera
-- [ ] **Ship default model** — YOLOv8n (~6MB, ~30ms/frame on CPU)
+- [ ] **Ship default model** — YOLO26n (~6MB, ~39ms/frame on CPU, NMS-free)
 - [ ] Optionally keep Azure Vision as alternative cloud backend
 
 ### Phase 5: Notifications & Integrations
