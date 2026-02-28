@@ -99,3 +99,17 @@ add_custom_command(TARGET WitnessServer POST_BUILD
         "$<TARGET_FILE_DIR:WitnessServer>/Web"
     COMMENT "Symlinking Web directory"
 )
+
+# Copy OpenSSL CLI tool to output (used by Installer/Setup-TLS.ps1 for self-signed certs)
+find_program(OPENSSL_EXECUTABLE openssl
+    PATHS "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/tools/openssl"
+    NO_DEFAULT_PATH
+)
+if(OPENSSL_EXECUTABLE)
+    add_custom_command(TARGET WitnessServer POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${OPENSSL_EXECUTABLE}"
+            "$<TARGET_FILE_DIR:WitnessServer>/"
+        COMMENT "Copying OpenSSL CLI tool"
+    )
+endif()

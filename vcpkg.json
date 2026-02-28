@@ -10,7 +10,10 @@
     },
     "opencv4",
     "libsodium",
-    "openssl",
+    {
+      "name": "openssl",
+      "features": ["tools"]
+    },
     "sqlite3"
   ]
 }

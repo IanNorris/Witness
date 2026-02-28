@@ -74,3 +74,10 @@ if(DOTNET_EXECUTABLE AND WIN32)
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
     )
 endif()
+
+# Copy Setup-TLS.ps1 to output
+configure_file(
+    "${CMAKE_SOURCE_DIR}/Setup/Setup-TLS.ps1"
+    "${CMAKE_BINARY_DIR}/bin/Setup-TLS.ps1"
+    COPYONLY
+)
