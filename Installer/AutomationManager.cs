@@ -64,9 +64,48 @@ namespace Installer
 				string Server = Path.Combine(InstallerPaths.ExeDirectory, "WitnessServer.exe");
 
 				CommandRunner.RunCommand($"Remove-NetFirewallRule -DisplayName \"{WitnessFirewallRule}\" -ErrorAction SilentlyContinue");
-				CommandRunner.RunCommand($"(New-NetFirewallRule -DisplayName \"{WitnessFirewallRule}\" -Direction Inbound -Program \"{Server}\" -Action Allow).PrimaryStatus");
+
+				var result = CommandRunner.RunCommand($"(New-NetFirewallRule -DisplayName \"{WitnessFirewallRule}\" -Direction Inbound -Program \"{Server}\" -Action Allow).PrimaryStatus");
+
+				bool success = result.Any(r => r.Contains("OK"));
+				if (!success)
+					PromptFirewallElevation(Server);
 			}
-			catch { }
+			catch
+			{
+				try
+				{
+					string Server = Path.Combine(InstallerPaths.ExeDirectory, "WitnessServer.exe");
+					PromptFirewallElevation(Server);
+				}
+				catch { }
+			}
+		}
+
+		private static void PromptFirewallElevation(string serverPath)
+		{
+			var choice = Application.Current.Dispatcher.Invoke(() => MessageBox.Show(
+				"Could not open the firewall for Witness. This requires administrator privileges.\n\n" +
+				"Would you like to elevate and add the firewall rule now?",
+				"Firewall", MessageBoxButton.YesNo, MessageBoxImage.Warning));
+
+			if (choice == MessageBoxResult.Yes)
+			{
+				try
+				{
+					var psi = new ProcessStartInfo
+					{
+						FileName = "powershell.exe",
+						Arguments = $"-NoProfile -Command \"New-NetFirewallRule -DisplayName '{WitnessFirewallRule}' -Direction Inbound -Program '{serverPath}' -Action Allow\"",
+						Verb = "runas",
+						UseShellExecute = true,
+						CreateNoWindow = true
+					};
+					var p = Process.Start(psi);
+					p?.WaitForExit();
+				}
+				catch { /* User declined UAC */ }
+			}
 		}
 
 		public void UpdateConfig()
