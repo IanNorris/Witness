@@ -6,14 +6,18 @@ This document outlines the plan to modernize the Witness surveillance system —
 
 | Component | Current | Status |
 |-----------|---------|--------|
-| HTTP Server | CppREST SDK 2.9.1 | ❌ Archived/dead — primary Linux blocker |
+| HTTP Server | Crow (replaced CppREST SDK) | ✅ Cross-platform, WebSocket-capable |
+| TLS | OpenSSL via Crow (self-signed, Let's Encrypt, manual) | ✅ Auto-renewal, cert hot-reload |
+| Setup | Built-in web wizard + CLI (`/setup`, `/websetup`) | ✅ Replaced 166MB .NET Installer |
+| Security | CSP, HSTS, secure cookies, input sanitization | ✅ Full security headers middleware |
 | Web Frontend | Knockout.js 3.4.2 | ❌ Unmaintained since 2019 |
 | CSS Framework | Bootstrap 3.3.5 | ❌ EOL |
 | jQuery | 2.1.4 | ⚠️ Outdated (current: 3.7+) |
 | OpenCV | 4.10.0 (vcpkg) | ✅ Updated from 4.0.0-pre |
-| Object Recognition | Azure Vision (cloud) + Haar cascades (local, disabled) | ⚠️ Cloud-dependent, no local ML |
+| Object Recognition | Azure Vision (cloud, disabled) + Haar cascades (local, disabled) | ⚠️ Cloud-dependent, no local ML |
 | Build System | CMake + vcpkg | ✅ Migrated from .vcxproj |
-| Platform | Windows only (Service, TCHAR, Sleep, backslash paths) | ⚠️ Sleep/paths fixed, strings partially migrated |
+| Strings | `std::string` (UTF-8) everywhere | ✅ Fully migrated from `string_t`/TCHAR |
+| Platform | Windows only (Service lifecycle) | ⚠️ Code is cross-platform except service/daemon |
 | Video Pipeline | FFmpeg 7.1, custom C++ pipeline | ✅ Solid, cross-platform code |
 | Password Storage | libsodium argon2 | ✅ Modern and secure |
 | Threading | std::thread / std::mutex | ✅ Already portable |
@@ -32,8 +36,8 @@ This document outlines the plan to modernize the Witness surveillance system —
 | Blocker | Severity | Status |
 |---------|----------|--------|
 | Windows Service (SCM) architecture | Major | Pending — extract to `platform/` |
-| CppREST SDK — archived, limited Linux support | Major | Pending — Phase 2 (Crow) |
-| `string_t` / `_T()` / `tcout` / TCHAR everywhere | Major | ⚠️ Partially done — `StringT` typedefs in place |
+| ~~CppREST SDK — archived, limited Linux support~~ | ~~Major~~ | ✅ Done — replaced with Crow |
+| ~~`string_t` / `_T()` / `tcout` / TCHAR everywhere~~ | ~~Major~~ | ✅ Done — `std::string` throughout |
 | ~~`Sleep()` instead of `std::this_thread::sleep_for()`~~ | ~~Medium~~ | ✅ Done |
 | ~~Backslash path separators~~ | ~~Medium~~ | ✅ Done — `std::filesystem::path` |
 | `%ProgramData%` / `_tgetenv_s()` paths | Medium | Pending |
@@ -52,48 +56,45 @@ The filter architecture is already plugin-based and ready for new backends:
 - Results use `ClassificationResult` with `RegionOfInterest` bounding boxes + classification enums
 - Filter chain is wired in `CameraWorker::WorkerInit()` — configurable per-camera
 
-### Known Security Issues to Fix During Migration
+### Known Security Issues ~~to Fix During Migration~~ — FIXED ✅
 
-| Issue | Severity | Location |
-|-------|----------|----------|
-| CORS `Access-Control-Allow-Origin: *` on stream endpoints | Critical | `Stream.cpp` lines 67, 84, 109 |
-| Session cookie missing `Secure; SameSite=Lax` flags | Critical | `Authenticate.cpp` line 320 |
-| `#if !_DEBUG` auth bypass on stream endpoint | High | `Stream.cpp` lines 40-44 |
-| No CSP header | Medium | HTTP responses |
-| Inline `onclick` handlers in templates | Medium | `preview.html` |
+All security issues identified during the initial audit have been resolved:
+
+| Issue | Status | Resolution |
+|-------|--------|------------|
+| ~~CORS `Access-Control-Allow-Origin: *` on stream endpoints~~ | ✅ Fixed | Removed — auth required on all endpoints |
+| ~~Session cookie missing `Secure; SameSite` flags~~ | ✅ Fixed | `HttpOnly; Secure; SameSite=Strict` |
+| ~~`#if !_DEBUG` auth bypass on stream endpoint~~ | ✅ Fixed | Removed — all endpoints require auth |
+| ~~No CSP header~~ | ✅ Fixed | `SecurityHeadersMiddleware` on all responses |
+| ~~Inline `onclick` handlers in templates~~ | ✅ Fixed | Moved to script blocks |
 
 ---
 
 ## Target Architecture
 
 ```
-Current:                              Target:
-─────────────────────────             ─────────────────────────
-WitnessServer.exe (Windows)           witness-server (Linux/Mac/Windows)
-├── CppREST SDK (HTTP)                ├── Crow (HTTP + WebSocket)
-├── IListenerCommand (routes)         ├── Route handlers
-├── string_t / TCHAR                  ├── std::string (UTF-8)
-├── Windows Service (SCM)             ├── systemd / launchd / SCM
-├── Azure Vision (cloud detection)    ├── ONNX Runtime (local detection)
-└── Manual DLLs                       └── vcpkg (all deps)
+Completed:                              Remaining:
+─────────────────────────────           ─────────────────────────
+WitnessServer.exe                       witness-server (Linux/Mac)
+├── Crow (HTTP + WebSocket)     ✅      ├── systemd / launchd service
+├── Route handlers              ✅      └── Platform path abstraction
+├── std::string (UTF-8)         ✅
+├── SecurityHeadersMiddleware   ✅      Web Frontend:
+├── TLS (OpenSSL)               ✅      ├── Vue 3 (Composition API)
+├── Web Setup Wizard            ✅      ├── Bootstrap 5
+└── vcpkg (all deps)            ✅      ├── fetch API (no jQuery)
+                                        └── PWA + Web Push notifications
+WitnessCamera.dll               ✅
+├── std::this_thread::sleep_for ✅      Object Recognition:
+├── std::string                 ✅      ├── ONNX Runtime (local detection)
+└── Cross-platform pipeline     ✅      └── YOLOv8 default model
 
-WitnessCamera.dll                     libwitnesscamera.so / .dylib / .dll
-├── Sleep()                           ├── std::this_thread::sleep_for()
-├── string_t                          ├── std::string
-└── (otherwise already portable)      └── (same pipeline, portable)
-
-Web Frontend:                         Web Frontend:
-├── Knockout.js 3.4.2                 ├── Vue 3 (Composition API)
-├── Bootstrap 3.3.5                   ├── Bootstrap 5
-├── jQuery 2.1.4                      ├── fetch API (no jQuery)
-└── No mobile support                 └── PWA + Web Push notifications
-
-Build:                                Build:
-├── CMakeLists.txt (root)             ├── CMakeLists.txt (root)  ✅
-│   ├── WitnessCamera/CMakeLists.txt  │   ├── WitnessCamera/CMakeLists.txt
-│   └── WitnessServer/CMakeLists.txt  │   └── WitnessServer/CMakeLists.txt
-├── vcpkg.json (all deps)  ✅        ├── vcpkg.json (all dependencies)
-└── (old .vcxproj removed)           └── GitHub Actions CI (Windows + Linux)
+Build:
+├── CMakeLists.txt (root)       ✅
+│   ├── WitnessCamera/          ✅
+│   └── WitnessServer/          ✅
+├── vcpkg.json (all deps)       ✅
+└── GitHub Actions CI                   Pending
 ```
 
 ### Target vcpkg Dependencies
@@ -101,13 +102,13 @@ Build:                                Build:
 ```json
 {
   "dependencies": [
-    "crow",
-    "nlohmann-json",
-    "ffmpeg",
-    "opencv4",
-    "libsodium",
-    "sqlite3",
-    "onnxruntime"
+    "crow",            // ✅ HTTP server
+    "ffmpeg",          // ✅ Video pipeline
+    "opencv4",         // ✅ Image processing
+    "libsodium",       // ✅ Auth + crypto
+    "openssl",         // ✅ TLS
+    "sqlite3",         // ✅ Database
+    "onnxruntime"      // Pending — Phase 4 (local ML)
   ]
 }
 ```
@@ -116,9 +117,9 @@ Build:                                Build:
 
 ## Implementation Phases
 
-### Phase 1: Cross-Platform Foundation
+### Phase 1: Cross-Platform Foundation ✅ COMPLETE
 
-Make the codebase buildable on Linux without changing functionality.
+Made the codebase buildable on Linux without changing functionality.
 
 - [x] **Replace `Sleep()` with `std::this_thread::sleep_for()`**
   - 6 call sites across 4 files (`CameraWorker.cpp`, `WatchdogWorker.cpp`, `TimerWorker.cpp`, `Main.cpp`)
@@ -128,18 +129,17 @@ Make the codebase buildable on Linux without changing functionality.
   - Replaced backslash path joins → `std::filesystem::path /` operator
   - Replaced `std::tr2::sys::path` (deprecated) → `std::filesystem::path`
 - [x] **Introduce `StringT`/`CharT`/`StringStreamT` intermediary types**
-  - Defined in `Common.h` as aliases for `utility::string_t` (CppREST)
-  - Replaced all direct `string_t` usage across 42 files
-  - When Crow replaces CppREST (Phase 2), change the 3 typedefs to `std::string`/`char`/`std::stringstream`
+  - Defined in `Common.h` as aliases (later migrated to `std::string`/`char` in Phase 2)
 - [x] **CMake migration** — replaced `.vcxproj`/`.sln` with CMake + vcpkg
   - Created `CMakeLists.txt` (root), `WitnessCamera/CMakeLists.txt`, `WitnessServer/CMakeLists.txt`
   - Created `CMakePresets.json` with vcpkg toolchain integration
-  - All dependencies via vcpkg: cpprestsdk, ffmpeg, opencv4, libsodium, sqlite3
+  - All dependencies via vcpkg: ffmpeg, opencv4, libsodium, sqlite3, crow, openssl
   - Updated OpenCV from 4.0.0-pre to 4.10+ (fixed deprecated C API usage)
-- [ ] **Replace `string_t` / `_T()` / TCHAR with `std::string` (UTF-8)**
-  - Incremental approach: first make `string_t` a typedef for `std::string` in `Common.h`, remove `_T()` macros, fix compile errors
-  - Then clean up wide-string remnants during Crow migration (Phase 2)
-  - This is the biggest mechanical change — touches nearly every file
+- [x] **Replace `string_t` / `_T()` / TCHAR with `std::string` (UTF-8)** — completed during Phase 2
+  - `StringT` → `std::string`, `CharT` → `char`, `_T()` → no-op
+  - `std::tcout/tcerr/tcin` → `std::cout/cerr/cin`
+  - SQLite wrapper and Database.cpp converted to narrow strings
+  - WitnessCamera `MotionVectorFilter` API converted to `const char*`
 - [ ] **Abstract service/daemon lifecycle**
   - Extract Windows SCM code from `Main.cpp` into `platform/windows/Service.cpp`
   - Create `platform/linux/Daemon.cpp` using systemd (`.service` file + signal handling)
@@ -163,26 +163,48 @@ cmake --build build --config Release
 
 Requires vcpkg installed and `VCPKG_ROOT` environment variable set (or edit `CMakePresets.json`).
 
-### Phase 2: Replace HTTP Server
+### Phase 2: Replace HTTP Server ✅ COMPLETE
 
-CppREST SDK is the primary Linux blocker. Replacing it is required, not optional.
+CppREST SDK was the primary Linux blocker. Fully replaced with Crow.
 
-- [ ] **Replace CppREST SDK with Crow**
-  - Cross-platform (Linux, Mac, Windows), header-only, vcpkg package
-  - Uses `std::string` natively — aligns with Phase 1 string migration
-  - Built-in WebSocket support (future: replace long-polling for camera state)
-  - JSON via nlohmann/json (cross-platform, modern)
-- [ ] Migrate `WitnessListener` → Crow app
-- [ ] Migrate `IListenerCommand` subclasses → Crow route handlers
-- [ ] Migrate CppREST JSON → nlohmann/json
-- [ ] **Fix security issues during migration:**
-  - Remove CORS wildcard on stream endpoints → origin whitelist or config
-  - Add `Secure; SameSite=Lax` to session cookies
-  - Remove `#if !_DEBUG` auth bypass
-  - Add CSP header to responses
-  - Convert inline `onclick` handlers to framework event bindings
+- [x] **Replace CppREST SDK with Crow**
+  - Cross-platform, header-only HTTP server via vcpkg
+  - Uses `std::string` natively — completed string migration
+  - JSON via `crow::json` (built-in, no external JSON library needed)
+- [x] Migrate `WitnessListener` → `CrowListener` (Crow app with `SecurityHeadersMiddleware`)
+- [x] Migrate all route handlers → Crow route handlers (split into per-domain files):
+  - `CrowRoutes_Camera.cpp` — Preview, enum, record, create, delete, set_groups, reset_stats
+  - `CrowRoutes_Stream.cpp` — HLS playlist and segment serving
+  - `CrowRoutes_Auth.cpp` — Login, logout, profile, user management
+  - `CrowRoutes_Clip.cpp` — Thumbnails, video, enum, toggle save, delete
+  - `CrowRoutes_Group.cpp` — CRUD group operations
+  - `CrowRoutes_Debug.cpp` — Debug value enum, set, reset
+  - `CrowRoutes_Setup.cpp` — Admin-only reconfiguration
+- [x] Remove CppREST SDK entirely (deleted from vcpkg.json, all old handlers removed)
+- [x] Remove cloud HTTP clients (AndroidNotify, AzureEndpoint — disabled, not replaced)
+- [x] **Security fixes:**
+  - CSP + security headers via `SecurityHeadersMiddleware` (`after_handle`)
+  - `X-Content-Type-Options`, `X-Frame-Options`, `HSTS`, `Referrer-Policy`
+  - Session cookies: `HttpOnly; Secure; SameSite=Strict`
+  - Removed CORS wildcard and `#if !_DEBUG` auth bypass
+  - TLS support via Crow + OpenSSL (self-signed, Let's Encrypt, manual certs)
+  - Background cert monitor with 12-hour mtime check + `/debug/reload_tls` endpoint
 
-### Phase 3: Local Object Recognition
+### Phase 3: Built-in Web Setup Wizard ✅ COMPLETE
+
+Replaced the 166MB .NET Installer with a built-in web setup wizard.
+
+- [x] **First-run setup mode** — auto-detects no admin user, starts localhost-only HTTP wizard on random ephemeral port (49152-65000), auto-opens browser on Windows
+- [x] **Headless/CLI setup** — `/setup` for interactive console wizard, `/setup --json <path>` for scripted deployments
+- [x] **Web wizard UI** — 5-step wizard (Welcome → Server Settings → TLS → Admin Account → Review & Apply)
+- [x] **Elevation helper** — `/apply-config <path>` for privileged actions (service install, firewall) via UAC on Windows
+- [x] **Reconfiguration** — `/setup` endpoint on production server (admin-only), pre-populated with current settings
+- [x] **`/websetup` CLI flag** — forces web wizard even when admin exists
+- [x] **Password reset** — reconfigure mode allows optional admin password reset
+- [x] **Security hardening** — hostname sanitization for openssl, unpredictable temp file names, JSON injection prevention
+- [x] **Installer deprecated** — moved to optional CMake target, README updated
+
+### Phase 4: Local Object Recognition
 
 - [ ] **Add ONNX Runtime** as vcpkg dependency
   - Single inference API with multiple hardware backends ("execution providers"):
@@ -214,7 +236,27 @@ CppREST SDK is the primary Linux blocker. Replacing it is required, not optional
 - [ ] **Ship default model** — YOLOv8n (~6MB, ~30ms/frame on CPU)
 - [ ] Optionally keep Azure Vision as alternative cloud backend
 
-### Phase 4: Web Frontend Modernization
+### Phase 5: Notifications & Integrations
+
+- [ ] **Web Push via VAPID** — libsodium for signing (already a dependency, cross-platform)
+- [ ] **Notification triggers** from `ONNXDetectionFilter` results via existing `MessageBus`
+- [ ] **MQTT event publishing** — publish detection events, camera status, and clip creation to MQTT topics. Enables Home Assistant, Node-RED, and other automation platform integration without tight coupling
+- [ ] **Webhook support** — configurable HTTP POST callbacks on events (detection, camera offline, clip saved) for custom integrations
+- [ ] Remove Azure Vision code if ONNX fully replaces it
+
+### Phase 6: Feature Enhancements
+
+- [ ] **Camera setup UI** — finish the new camera creation/editing interface so cameras can be fully configured from the web UI without manual DB edits
+- [ ] **Zone/mask editing UI** — draw regions of interest and ignore zones per camera in the web UI. Reduces false positives and allows focusing detection on specific areas (e.g. driveway, not the street)
+- [ ] **Activity timeline** — visual timeline view showing detected activity across cameras, making it easy to scrub through events at a glance
+- [ ] **Clip date filter** — date picker / date range filter for the clips view, so users can quickly find clips from a specific time period
+- [ ] **Tag search + timeline icons** — searchable tags on detected events (person, car, animal, etc.) with corresponding icons shown on the activity timeline for quick visual scanning
+- [ ] **Clip interestingness scoring** — compare clip preview images against baseline frames captured at the start of each clip (during lead-in period). Calculate a visual difference score to rank clips by "interestingness" and highlight what changed in the frame. *(Design still evolving — needs further ideation on baseline selection, diff algorithm, and UI presentation)*
+- [ ] **Clip export/download** — download individual clips or bulk-export date ranges as MP4/ZIP from the web UI
+- [ ] **Viewer role** — non-admin users who can view live streams and clips but cannot configure cameras or server settings
+- [ ] **24/7 continuous recording** — optional always-on recording mode alongside event-driven clips, with configurable retention policies and tiered storage (hot/cold)
+
+### Phase 7: Web Frontend Modernization
 
 - [ ] **Replace Knockout.js with Vue 3** (Composition API + single-file components)
   - Vite build toolchain (replaces manual script includes)
@@ -225,34 +267,31 @@ CppREST SDK is the primary Linux blocker. Replacing it is required, not optional
   - Modern responsive grid
   - CSS custom properties for theming
 - [ ] **Drop jQuery** — use native `fetch` API for HTTP, `querySelector` for DOM
-- [ ] **Add PWA support** — manifest + service worker for installable web app
 - [ ] **Port HLS client architecture to Vue**
   - StreamDiagnostics system, poll-based watchdog, exponential backoff
   - Preserve the "never seek from outside HLS.js" rule
   - Fullscreen camera view as dedicated Vue route
+- [ ] **Internationalization (i18n)** — multi-language support via Vue I18n. Extract all user-facing strings to locale files. Natural fit after Vue migration since Vue I18n integrates cleanly with Composition API
+- [ ] **Docker deployment** — Dockerfile + docker-compose.yml for containerized deployment. Depends on Linux support (Phase 1 service abstraction)
 
-### Phase 5: Notifications & Cleanup
+### Phase 8: Mobile & PWA
 
-- [ ] **Web Push via VAPID** — libsodium for signing (already a dependency, cross-platform)
-- [ ] **Notification triggers** from `ONNXDetectionFilter` results via existing `MessageBus`
-- [ ] **Evaluate Flutter/Android projects** — PWA may replace them entirely
-- [ ] Remove `.vcxproj` files once CMake is proven stable
-- [ ] Remove Azure Vision code if ONNX fully replaces it
+- [ ] **Add PWA support** — manifest + service worker for installable web app
+- [ ] **Mobile-responsive UI** — ensure all views work well on phone/tablet screens
+- [ ] **Evaluate Flutter/Android projects** — PWA may replace native apps entirely
 
 ---
 
 ## Key Technical Decisions
 
-### String Migration Strategy
+### String Migration Strategy ✅ COMPLETE
 
-**Recommended: Incremental (Option B)**
+Completed incrementally across Phase 1 and 2:
 
-1. Phase 1: Make `string_t` typedef to `std::string` in `Common.h`, remove `_T()` macros, fix all compile errors
-2. Phase 2: Clean up wide-string remnants during Crow migration
+1. Phase 1: Introduced `StringT`/`CharT` typedefs as intermediary
+2. Phase 2: Changed typedefs to `std::string`/`char`, removed `_T()` macros, converted SQLite layer and all APIs to narrow strings
 
-This avoids a massive single PR while keeping the codebase compilable at every step.
-
-### Why Crow Over Alternatives
+### Why Crow Over Alternatives ✅ CHOSEN
 
 | | Crow | Drogon | cpp-httplib | Beast |
 |---|---|---|---|---|
@@ -264,7 +303,7 @@ This avoids a massive single PR while keeping the codebase compilable at every s
 | Learning curve | Low | Medium | Low | High |
 | Community | Active | Active | Active | Boost ecosystem |
 
-Crow wins on simplicity — its routing DSL maps cleanly to the existing `IListenerCommand` pattern, and it's header-only so there's no additional build complexity.
+Crow was chosen for simplicity. Its routing DSL mapped cleanly to the existing route handlers. Built-in JSON (`crow::json`) eliminated the need for nlohmann-json. `SecurityHeadersMiddleware` provides per-response security headers via Crow's middleware system.
 
 ### Why ONNX Runtime Over Alternatives
 
@@ -295,8 +334,9 @@ Vue's reactivity system (`ref`, `computed`, `watch`) maps almost 1:1 to Knockout
 
 ## Notes
 
-- **WitnessCamera DLL boundary is a strength** — the video pipeline is already isolated. Cross-platform means building as `.so` (Linux) / `.dylib` (Mac) instead of `.dll`, but the C++ source is almost clean.
-- **OpenCV and FFmpeg are natively cross-platform** — switching from pre-built Windows binaries to vcpkg packages makes them work everywhere automatically.
-- **Systemd integration on Linux is straightforward** — a `.service` file plus `sigaction()` signal handling replaces the entire Windows SCM layer.
+- **WitnessCamera DLL boundary is a strength** — the video pipeline is already isolated. Cross-platform means building as `.so` (Linux) / `.dylib` (Mac) instead of `.dll`, but the C++ source is clean.
+- **OpenCV and FFmpeg are natively cross-platform** — vcpkg packages work everywhere automatically.
+- **Systemd integration on Linux is straightforward** — a `.service` file plus `sigaction()` signal handling replaces the entire Windows SCM layer. This is the main remaining blocker for Linux.
 - **The filter architecture is the best part of the codebase for extensibility** — ONNX detection is genuinely a "write one class" task because the pipeline, frame decode, and result structures already exist.
-- **Phase ordering is intentional** — each phase is independently useful and shippable. Phase 1+2 unlock Linux. Phase 3 adds local ML. Phase 4+5 modernize the user experience.
+- **Phase ordering is intentional** — each phase is independently useful and shippable. Phases 1-3 are complete. Phase 4 adds local ML. Phase 5 adds integrations. Phase 6 adds user-facing features. Phase 7 modernizes the frontend. Phase 8 adds mobile/PWA.
+- **JSON: Using Crow's built-in JSON** — `crow::json::wvalue`/`rvalue` handles all needs. No external JSON library required. Auto-sets `Content-Type: application/json` on responses.
