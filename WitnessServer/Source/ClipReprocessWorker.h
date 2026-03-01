@@ -9,7 +9,7 @@
 #include <string>
 #include <memory>
 
-static constexpr int CURRENT_DETECTION_VERSION = 1;
+static constexpr int CURRENT_DETECTION_VERSION = 2;
 
 class ClipReprocessWorker : public WorkerBase
 {
@@ -27,9 +27,11 @@ private:
 
 	virtual void WorkerMain() override;
 	void ProcessClip( int64_t clipUID, int64_t timestamp, int camera, int recordMode, const std::string& existingTags );
+	void BackfillLighting();
 
 	std::shared_ptr<SQLiteDatabase> Database;
 	std::shared_ptr<Witness::Camera::ONNXDetectionFilter> DetectionFilter;
 	std::string CachePath;
 	std::function<bool()> IsIdle;
+	bool LightingBackfillComplete = false;
 };

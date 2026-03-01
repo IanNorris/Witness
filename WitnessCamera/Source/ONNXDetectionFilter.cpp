@@ -536,9 +536,18 @@ bool ONNXDetectionFilter::ProcessFrame( SharedClassificationTask TaskData )
 	}
 
 	// Get the decoded BGR frame from the pipeline
-	cv::Mat& frame = TaskData->Frame.GetOrDecodeFrame();
-	if( frame.empty() )
+	cv::Mat& rawFrame = TaskData->Frame.GetOrDecodeFrame();
+	if( rawFrame.empty() )
 		return false;
+
+	// Apply CLAHE for night/IR frames to improve detection
+	cv::Mat enhancedFrame;
+	cv::Mat& frame = rawFrame;
+	if( ClassifyLighting( rawFrame ) == LightingCondition::Night )
+	{
+		enhancedFrame = ApplyCLAHE( rawFrame );
+		frame = enhancedFrame;
+	}
 
 	int origWidth = frame.cols;
 	int origHeight = frame.rows;
@@ -1029,6 +1038,11 @@ std::vector<DetectionResult> ONNXDetectionFilter::DetectFrame( const cv::Mat& bg
 			r.ClassId = classId;
 			r.Confidence = score;
 			r.ClassName = COCOClassNames[classId];
+			// Remap from letterboxed to normalized original coords
+			r.X1 = std::max( 0.0f, ( row[0] - padX ) / ( origWidth * scale ) );
+			r.Y1 = std::max( 0.0f, ( row[1] - padY ) / ( origHeight * scale ) );
+			r.X2 = std::min( 1.0f, ( row[2] - padX ) / ( origWidth * scale ) );
+			r.Y2 = std::min( 1.0f, ( row[3] - padY ) / ( origHeight * scale ) );
 			results.push_back( r );
 		}
 	}
@@ -1095,12 +1109,76 @@ std::vector<DetectionResult> ONNXDetectionFilter::DetectFrame( const cv::Mat& bg
 				r.ClassId = bestClass;
 				r.Confidence = bestScore;
 				r.ClassName = COCOClassNames[bestClass];
+				// Extract cx, cy, w, h and convert to normalized coords
+				float cx, cy, bw, bh;
+				if( transposed )
+				{
+					cx = outputData[0 * numDetections + i];
+					cy = outputData[1 * numDetections + i];
+					bw = outputData[2 * numDetections + i];
+					bh = outputData[3 * numDetections + i];
+				}
+				else
+				{
+					const float* row = outputData + i * numChannels;
+					cx = row[0]; cy = row[1]; bw = row[2]; bh = row[3];
+				}
+				r.X1 = std::max( 0.0f, ( cx - bw * 0.5f - padX ) / ( origWidth * scale ) );
+				r.Y1 = std::max( 0.0f, ( cy - bh * 0.5f - padY ) / ( origHeight * scale ) );
+				r.X2 = std::min( 1.0f, ( cx + bw * 0.5f - padX ) / ( origWidth * scale ) );
+				r.Y2 = std::min( 1.0f, ( cy + bh * 0.5f - padY ) / ( origHeight * scale ) );
 				results.push_back( r );
 			}
 		}
 	}
 
 	return results;
+}
+
+LightingCondition ClassifyLighting( const cv::Mat& bgrFrame )
+{
+	if( bgrFrame.empty() )
+		return LightingCondition::Unknown;
+
+	// Convert to HSV to analyze brightness (V) and color saturation (S)
+	cv::Mat hsv;
+	cv::cvtColor( bgrFrame, hsv, cv::COLOR_BGR2HSV );
+
+	cv::Scalar meanVal = cv::mean( hsv );
+	double meanSaturation = meanVal[1];
+	double meanBrightness = meanVal[2];
+
+	// Low brightness = night, regardless of saturation
+	if( meanBrightness < 40.0 )
+		return LightingCondition::Night;
+
+	// True grayscale = IR camera (dedicated IR cameras output S≈0.0)
+	if( meanSaturation < 5.0 )
+		return LightingCondition::Night;
+
+	return LightingCondition::Day;
+}
+
+cv::Mat ApplyCLAHE( const cv::Mat& bgrFrame, double clipLimit, int tileSize )
+{
+	if( bgrFrame.empty() )
+		return bgrFrame;
+
+	// Convert to LAB color space, apply CLAHE to L channel
+	cv::Mat lab;
+	cv::cvtColor( bgrFrame, lab, cv::COLOR_BGR2Lab );
+
+	std::vector<cv::Mat> labChannels;
+	cv::split( lab, labChannels );
+
+	auto clahe = cv::createCLAHE( clipLimit, cv::Size( tileSize, tileSize ) );
+	clahe->apply( labChannels[0], labChannels[0] );
+
+	cv::merge( labChannels, lab );
+
+	cv::Mat result;
+	cv::cvtColor( lab, result, cv::COLOR_Lab2BGR );
+	return result;
 }
 
 }}

@@ -374,19 +374,19 @@ namespace Database
 		WHERE
 			Timestamp < @Timestamp
 			AND (Save == 0 OR Save IS NULL)
-		LIMIT 500;
+		LIMIT 50;
 	)RAW";
 
 	std::string SelectClipForReprocess = R"RAW(
 		SELECT * FROM Clip
 		WHERE DetectionVersion < @DetectionVersion OR DetectionVersion IS NULL
 		ORDER BY DetectionVersion ASC, Timestamp DESC
-		LIMIT 50;
+		LIMIT 5;
 	)RAW";
 
 	std::string UpdateClipDetection = R"RAW(
 		UPDATE Clip
-		SET Tags = @Tags, DetectionVersion = @DetectionVersion
+		SET Tags = @Tags, DetectionVersion = @DetectionVersion, Lighting = @Lighting
 		WHERE ClipUID = @ClipUID;
 	)RAW";
 
@@ -399,6 +399,17 @@ namespace Database
 	std::string CountClipsToReprocess = R"RAW(
 		SELECT COUNT(*) FROM Clip
 		WHERE DetectionVersion < @DetectionVersion OR DetectionVersion IS NULL;
+	)RAW";
+
+	std::string SelectClipsNeedingLighting = R"RAW(
+		SELECT ClipUID, Timestamp, Camera, RecordMode FROM Clip
+		WHERE Lighting = 0 OR Lighting IS NULL
+		ORDER BY Timestamp DESC
+		LIMIT 200;
+	)RAW";
+
+	std::string UpdateClipLighting = R"RAW(
+		UPDATE Clip SET Lighting = @Lighting WHERE ClipUID = @ClipUID;
 	)RAW";
 
 	std::string SelectAllGroups = R"RAW(
@@ -477,6 +488,7 @@ namespace Database
 
 		// Schema migrations for existing databases (errors ignored if column already exists)
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Clip ADD COLUMN DetectionVersion INT DEFAULT 0;", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Clip ADD COLUMN Lighting INT DEFAULT 0;", nullptr, nullptr, nullptr );
 
 		CREATE_QUERY( GetSetting );
 		CREATE_QUERY( GetAllSettings );
@@ -517,6 +529,8 @@ namespace Database
 		CREATE_QUERY( UpdateClipDetection );
 		CREATE_QUERY( ResetClipDetection );
 		CREATE_QUERY( CountClipsToReprocess );
+		CREATE_QUERY( SelectClipsNeedingLighting );
+		CREATE_QUERY( UpdateClipLighting );
 		CREATE_QUERY( SetClipSaveState );
 		CREATE_QUERY( FindClipByUID );
 		CREATE_QUERY( CountClipsWithinRange );
