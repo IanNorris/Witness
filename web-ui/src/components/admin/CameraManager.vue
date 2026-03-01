@@ -9,6 +9,10 @@ import ConfirmModal from '../common/ConfirmModal.vue'
 const cameraStore = useCameraStore()
 const loading = ref(true)
 
+function maskPassword(url: string): string {
+  return url.replace(/:([^/@]+)@/, ':****@')
+}
+
 interface AdminCamera {
   id: number
   displayName: string
@@ -170,7 +174,7 @@ onMounted(() => {
               {{ cam.status }}
             </span>
           </td>
-          <td class="text-truncate small font-monospace" style="max-width: 250px;">{{ cam.connectionString }}</td>
+          <td class="text-truncate small font-monospace" style="max-width: 250px;">{{ maskPassword(cam.connectionString) }}</td>
           <td>
             <button class="btn btn-sm btn-outline-secondary me-1" @click="openEdit(cam)">Edit</button>
             <button class="btn btn-sm btn-outline-danger" @click="deleteCamera(cam)">Delete</button>

@@ -418,10 +418,34 @@ void CrowListener::HandleAuthChangePassword( const crow::request& req, crow::res
 		return;
 	}
 
-	// Original code was empty/unimplemented
+	if( !body.has("username") || !body.has("password") )
+	{
+		res.code = 400;
+		res.body = "Missing username or password";
+		res.end();
+		return;
+	}
+
+	std::string UsernameStr = body["username"].s();
+	std::string PasswordStr = body["password"].s();
+	std::string Username( UsernameStr.begin(), UsernameStr.end() );
+	std::string Password( PasswordStr.begin(), PasswordStr.end() );
+
+	std::string UsernameLC = Username;
+	std::transform( UsernameLC.begin(), UsernameLC.end(), UsernameLC.begin(), ::tolower );
+
+	std::string Hash = GetHashedPasswordKey_Algorithm0( UsernameLC, Password );
+
+	SQLiteDatabaseQueryInstance SetUserPassword( m_GlobalContext->Database, "SetUserPassword" );
+	SetUserPassword->Bind( "@Username", UsernameLC.c_str() );
+	SetUserPassword->Bind( "@PasswordHash", Hash.c_str() );
+	SetUserPassword->Bind( "@HashMethod", 0 );
+
+	int Result = SetUserPassword->Execute( nullptr );
+
 	res.set_header( "Content-Type", "application/json" );
 	res.body = "{}";
-	res.code = 200;
+	res.code = Result >= 0 ? 200 : 500;
 	res.end();
 }
 
@@ -631,6 +655,46 @@ void CrowListener::HandleAuthSetUserGroups( const crow::request& req, crow::resp
 			DeleteMapping->Execute( [&]( const SQLiteDatabaseQuery& query ) { return true; } );
 		}
 	}
+
+	res.set_header( "Content-Type", "application/json" );
+	res.body = "{}";
+	res.code = 200;
+	res.end();
+}
+
+void CrowListener::HandleAuthClearSessions( const crow::request& req, crow::response& res )
+{
+	auto body = crow::json::load( req.body );
+	if( !body )
+	{
+		res.code = 400;
+		res.end();
+		return;
+	}
+
+	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, &body,
+		CrowAuth::Action::ReadWrite, CrowAuth::Privilege::Administrator );
+	if( UserUID < 0 )
+	{
+		res.code = 400;
+		res.end();
+		return;
+	}
+
+	if( !body.has("username") )
+	{
+		res.code = 400;
+		res.body = "Missing username";
+		res.end();
+		return;
+	}
+
+	std::string UsernameStr = body["username"].s();
+	std::string Username( UsernameStr.begin(), UsernameStr.end() );
+
+	SQLiteDatabaseQueryInstance DeleteUserSessions( m_GlobalContext->Database, "DeleteUserSessions" );
+	DeleteUserSessions->Bind( "@Username", Username.c_str() );
+	DeleteUserSessions->Execute( nullptr );
 
 	res.set_header( "Content-Type", "application/json" );
 	res.body = "{}";

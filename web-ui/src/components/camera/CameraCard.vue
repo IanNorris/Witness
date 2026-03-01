@@ -117,10 +117,7 @@ onUnmounted(() => {
       <div>
         <div class="camera-name">{{ camera.name }}</div>
         <div class="camera-status">
-          <span v-if="camera.isRecording" class="recording-badge">
-            <span class="rec-dot" /> REC
-          </span>
-          <span v-else>{{ camera.status }}</span>
+          <span>{{ camera.status }}</span>
         </div>
       </div>
       <div class="d-flex gap-1">

@@ -3,6 +3,8 @@ import { ref, onMounted } from 'vue'
 import { api } from '../../composables/useApi'
 import { useAuthStore } from '../../stores/auth'
 import InputModal from '../common/InputModal.vue'
+import ConfirmModal from '../common/ConfirmModal.vue'
+import AlertModal from '../common/AlertModal.vue'
 
 interface User {
   userid: number
@@ -24,6 +26,14 @@ const inputTitle = ref('')
 const inputLabel = ref('')
 const inputValue = ref('')
 const inputAction = ref<((val: string) => void) | null>(null)
+
+const showConfirm = ref(false)
+const confirmMessage = ref('')
+const confirmAction = ref<(() => void) | null>(null)
+
+const showAlert = ref(false)
+const alertTitle = ref('')
+const alertMessage = ref('')
 
 function isSelf(user: User) {
   return user.username === authStore.username
@@ -87,9 +97,45 @@ function setDisplayName(user: User) {
   showInput.value = true
 }
 
+function changePassword(user: User) {
+  inputTitle.value = `Change Password — ${user.displayName || user.username}`
+  inputLabel.value = 'New password'
+  inputValue.value = ''
+  inputAction.value = async (password) => {
+    if (!password) return
+    await api('/auth/change_password', {
+      method: 'POST',
+      body: { username: user.username, password },
+    })
+    alertTitle.value = 'Password Changed'
+    alertMessage.value = `Password for "${user.username}" has been updated.`
+    showAlert.value = true
+  }
+  showInput.value = true
+}
+
+function clearSessions(user: User) {
+  confirmMessage.value = `Clear all sessions for "${user.displayName || user.username}"? They will be logged out everywhere.`
+  confirmAction.value = async () => {
+    await api('/auth/clear_sessions', {
+      method: 'POST',
+      body: { username: user.username },
+    })
+    alertTitle.value = 'Sessions Cleared'
+    alertMessage.value = `All sessions for "${user.username}" have been invalidated.`
+    showAlert.value = true
+  }
+  showConfirm.value = true
+}
+
 function onInputSubmit(val: string) {
   showInput.value = false
   inputAction.value?.(val)
+}
+
+function onConfirm() {
+  showConfirm.value = false
+  confirmAction.value?.()
 }
 
 onMounted(fetchUsers)
@@ -152,7 +198,11 @@ onMounted(fetchUsers)
             </div>
           </td>
           <td>
-            <button class="btn btn-sm btn-outline-secondary" @click="setDisplayName(user)">Rename</button>
+            <div class="d-flex gap-1 flex-wrap">
+              <button class="btn btn-sm btn-outline-secondary" @click="setDisplayName(user)">Rename</button>
+              <button class="btn btn-sm btn-outline-secondary" @click="changePassword(user)">Password</button>
+              <button class="btn btn-sm btn-outline-warning" @click="clearSessions(user)">Clear Sessions</button>
+            </div>
           </td>
         </tr>
       </tbody>
@@ -165,6 +215,18 @@ onMounted(fetchUsers)
       :model-value="inputValue"
       @submit="onInputSubmit"
       @cancel="showInput = false"
+    />
+    <ConfirmModal
+      :show="showConfirm"
+      :message="confirmMessage"
+      @confirm="onConfirm"
+      @cancel="showConfirm = false"
+    />
+    <AlertModal
+      :show="showAlert"
+      :title="alertTitle"
+      :message="alertMessage"
+      @close="showAlert = false"
     />
   </div>
 </template>

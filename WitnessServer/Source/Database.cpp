@@ -228,6 +228,11 @@ namespace Database
 		WHERE SessionToken = @SessionToken;
 	)RAW";
 
+	std::string DeleteUserSessions = R"RAW(
+		DELETE FROM Session
+		WHERE UserUID = (SELECT UserUID FROM User WHERE Username = @Username);
+	)RAW";
+
 	std::string GetUserCount = "SELECT COUNT(*) FROM User";
 
 	std::string CreateCamera = R"RAW(
@@ -525,6 +530,7 @@ namespace Database
 		CREATE_QUERY( VerifySessionAndCSRF );
 		CREATE_QUERY( CreateSession );
 		CREATE_QUERY( DeleteSession );
+		CREATE_QUERY( DeleteUserSessions );
 
 		CREATE_QUERY( GetUserCount );
 

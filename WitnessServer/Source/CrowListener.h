@@ -95,6 +95,7 @@ private:
 	void HandleAuthToggleAdmin( const crow::request& req, crow::response& res );
 	void HandleAuthSetDisplayName( const crow::request& req, crow::response& res );
 	void HandleAuthSetUserGroups( const crow::request& req, crow::response& res );
+	void HandleAuthClearSessions( const crow::request& req, crow::response& res );
 
 	// Clips
 	void HandleClipThumbnail( const crow::request& req, crow::response& res, int cameraId, const std::string& clipId, bool video );

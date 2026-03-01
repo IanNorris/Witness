@@ -277,6 +277,12 @@ void CrowListener::RegisterRoutes()
 		HandleAuthSetUserGroups( req, res );
 	});
 
+	CROW_ROUTE( m_App, "/auth/clear_sessions" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleAuthClearSessions( req, res );
+	});
+
 	// Clips
 	CROW_ROUTE( m_App, "/clip/thumb/<int>/<string>" )
 	([this]( const crow::request& req, crow::response& res, int cameraId, const std::string& clipId )
