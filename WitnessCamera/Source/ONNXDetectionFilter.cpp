@@ -1149,12 +1149,11 @@ LightingCondition ClassifyLighting( const cv::Mat& bgrFrame )
 	double meanBrightness = meanVal[2];
 
 	// Low brightness = night, regardless of saturation
-	// IR cameras produce low-saturation grayscale even at moderate brightness
-	if( meanBrightness < 60.0 )
+	if( meanBrightness < 40.0 )
 		return LightingCondition::Night;
 
-	// Moderate brightness but very low saturation = IR illuminated (grayscale)
-	if( meanSaturation < 25.0 )
+	// True grayscale = IR camera (dedicated IR cameras output S≈0.0)
+	if( meanSaturation < 5.0 )
 		return LightingCondition::Night;
 
 	return LightingCondition::Day;

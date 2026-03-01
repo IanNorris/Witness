@@ -347,3 +347,129 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 
 	LOG_INFO( "Reprocessed clip %lld: %s", (long long)clipUID, tagString.c_str() );
 }
+
+void ClipReprocessWorker::BackfillLighting()
+{
+	struct ClipInfo { int64_t ClipUID; int64_t Timestamp; int Camera; int RecordMode; };
+	std::vector<ClipInfo> batch;
+
+	{
+		SQLiteDatabaseQueryInstance q( Database, "SelectClipsNeedingLighting" );
+		q->Execute( [&]( const SQLiteDatabaseQuery& query ) -> bool
+		{
+			ClipInfo c;
+			c.ClipUID = query.GetColumnValueInt64( 0 );
+			c.Timestamp = query.GetColumnValueInt64( 1 );
+			c.Camera = query.GetColumnValueInt( 2 );
+			c.RecordMode = query.GetColumnValueInt( 3 );
+			batch.push_back( c );
+			return true;
+		});
+	}
+
+	if( batch.empty() )
+	{
+		LightingBackfillComplete = true;
+		LOG_INFO( "Lighting backfill complete" );
+		return;
+	}
+
+	UpdateLastTimedAction( "Backfilling lighting" );
+	int classified = 0;
+
+	for( auto& clip : batch )
+	{
+		if( !IsIdle() )
+			break;
+
+		std::stringstream nameStream;
+		nameStream << clip.Camera << "_" << ( clip.RecordMode == 1 ? "Auto" : "Manual" ) << "_" << clip.Timestamp << ".mp4";
+		std::string clipPath = ( fs::path( CachePath ) / nameStream.str() ).string();
+
+		int lighting = 0; // Unknown
+
+		if( fs::exists( clipPath ) )
+		{
+			// Open clip, decode first frame, classify lighting
+			AVFormatContext* fmtCtx = nullptr;
+			if( avformat_open_input( &fmtCtx, clipPath.c_str(), nullptr, nullptr ) >= 0 )
+			{
+				if( avformat_find_stream_info( fmtCtx, nullptr ) >= 0 )
+				{
+					int videoIdx = -1;
+					for( unsigned i = 0; i < fmtCtx->nb_streams; i++ )
+					{
+						if( fmtCtx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO )
+						{ videoIdx = i; break; }
+					}
+
+					if( videoIdx >= 0 )
+					{
+						auto codecpar = fmtCtx->streams[videoIdx]->codecpar;
+						auto codec = avcodec_find_decoder( codecpar->codec_id );
+						if( codec )
+						{
+							auto codecCtx = avcodec_alloc_context3( codec );
+							avcodec_parameters_to_context( codecCtx, codecpar );
+							if( avcodec_open2( codecCtx, codec, nullptr ) >= 0 )
+							{
+								SwsContext* swsCtx = sws_getContext(
+									codecCtx->width, codecCtx->height, codecCtx->pix_fmt,
+									codecCtx->width, codecCtx->height, AV_PIX_FMT_BGR24,
+									SWS_BILINEAR, nullptr, nullptr, nullptr );
+
+								if( swsCtx )
+								{
+									AVPacket* pkt = av_packet_alloc();
+									AVFrame* frame = av_frame_alloc();
+									AVFrame* bgrFrame = av_frame_alloc();
+									int w = codecCtx->width, h = codecCtx->height;
+									int bufSize = av_image_get_buffer_size( AV_PIX_FMT_BGR24, w, h, 1 );
+									std::vector<uint8_t> buf( bufSize );
+									av_image_fill_arrays( bgrFrame->data, bgrFrame->linesize, buf.data(), AV_PIX_FMT_BGR24, w, h, 1 );
+
+									// Decode first video frame
+									while( av_read_frame( fmtCtx, pkt ) >= 0 )
+									{
+										if( pkt->stream_index == videoIdx )
+										{
+											avcodec_send_packet( codecCtx, pkt );
+											if( avcodec_receive_frame( codecCtx, frame ) == 0 )
+											{
+												sws_scale( swsCtx, frame->data, frame->linesize, 0, h,
+													bgrFrame->data, bgrFrame->linesize );
+												cv::Mat mat( h, w, CV_8UC3, bgrFrame->data[0], bgrFrame->linesize[0] );
+												lighting = (int)Witness::Camera::ClassifyLighting( mat );
+												av_packet_unref( pkt );
+												break;
+											}
+										}
+										av_packet_unref( pkt );
+									}
+
+									av_frame_free( &bgrFrame );
+									av_frame_free( &frame );
+									av_packet_free( &pkt );
+									sws_freeContext( swsCtx );
+								}
+							}
+							avcodec_free_context( &codecCtx );
+						}
+					}
+				}
+				avformat_close_input( &fmtCtx );
+			}
+		}
+
+		// Update just the lighting column
+		{
+			SQLiteDatabaseQueryInstance q( Database, "UpdateClipLighting" );
+			q->Bind( "@ClipUID", clip.ClipUID );
+			q->Bind( "@Lighting", lighting );
+			q->Execute( nullptr );
+		}
+		classified++;
+	}
+
+	LOG_INFO( "Lighting backfill: classified %d clips this batch", classified );
+}
