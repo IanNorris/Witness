@@ -18,7 +18,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function fetchProfile() {
     try {
-      const profile = await api<AuthProfile>('/auth/profile')
+      const profile = await api<AuthProfile>('/auth/profile', { method: 'POST' })
       if (profile && profile.csrf) {
         csrfToken.value = profile.csrf
         setCsrfToken(profile.csrf)
