@@ -16,7 +16,9 @@ const emit = defineEmits<{
 const settings = useSettingsStore()
 const imgSrc = ref('')
 const isConnected = ref(false)
+const imgRef = ref<HTMLImageElement | null>(null)
 let refreshTimer: ReturnType<typeof setInterval> | null = null
+let jpegRunning = false
 
 function refreshPreview() {
   if (props.camera.status === 'Connected') {
@@ -27,20 +29,51 @@ function refreshPreview() {
   }
 }
 
+// Continuous JPEG: reload as soon as previous frame loads
+function startJpegLoop() {
+  jpegRunning = true
+  loadNextFrame()
+}
+
+function loadNextFrame() {
+  if (!jpegRunning) return
+  const img = imgRef.value
+  if (!img) {
+    refreshTimer = setTimeout(loadNextFrame, 100)
+    return
+  }
+  imgSrc.value = `/camera/preview/${props.camera.id}?t=${Date.now()}`
+}
+
+function onJpegLoad() {
+  if (jpegRunning) {
+    // Request next frame immediately — browser pipelining gives ~30fps
+    refreshTimer = setTimeout(loadNextFrame, 33)
+  }
+}
+
+function onJpegError() {
+  if (jpegRunning) {
+    // Retry after a short delay on error
+    refreshTimer = setTimeout(loadNextFrame, 1000)
+  }
+}
+
 onMounted(() => {
   refreshPreview()
   if (settings.streamingMode === 'jpeg') {
-    refreshTimer = setInterval(refreshPreview, 2000)
+    startJpegLoop()
   }
 })
 
 onUnmounted(() => {
-  if (refreshTimer) clearInterval(refreshTimer)
+  jpegRunning = false
+  if (refreshTimer) clearTimeout(refreshTimer)
 })
 </script>
 
 <template>
-  <div class="camera-card" @dblclick="emit('openStream', camera.id)">
+  <div class="camera-card" :class="{ 'camera-card-fullscreen': settings.fullscreenMode }" @dblclick="emit('openStream', camera.id)">
     <div class="camera-preview">
       <!-- HLS preview mode -->
       <HlsPlayer
@@ -51,9 +84,11 @@ onUnmounted(() => {
       <!-- JPEG preview mode -->
       <img
         v-else-if="imgSrc && settings.streamingMode === 'jpeg'"
+        ref="imgRef"
         :src="imgSrc"
         :alt="camera.name"
-        loading="lazy"
+        @load="onJpegLoad"
+        @error="onJpegError"
       />
 
       <!-- Disconnected state -->
@@ -65,9 +100,20 @@ onUnmounted(() => {
           <div class="mt-1">Disconnected</div>
         </div>
       </div>
+
+      <!-- REC overlay (always visible, positioned on the video) -->
+      <div v-if="camera.isRecording" class="rec-overlay">
+        <span class="rec-dot" /> REC
+      </div>
+
+      <!-- Camera name overlay in fullscreen -->
+      <div v-if="settings.fullscreenMode" class="camera-name-overlay">
+        {{ camera.name }}
+      </div>
     </div>
 
-    <div class="camera-info">
+    <!-- Info bar: hidden in fullscreen -->
+    <div v-if="!settings.fullscreenMode" class="camera-info">
       <div>
         <div class="camera-name">{{ camera.name }}</div>
         <div class="camera-status">

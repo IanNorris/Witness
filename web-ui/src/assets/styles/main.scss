@@ -191,6 +191,17 @@ html, body, #app {
     border-color: rgba($primary, 0.4);
   }
 
+  // Fullscreen: no borders, fill cell
+  &.camera-card-fullscreen {
+    border: none;
+    border-radius: 0;
+
+    .camera-preview {
+      aspect-ratio: auto;
+      height: 100%;
+    }
+  }
+
   .camera-preview {
     position: relative;
     aspect-ratio: 16 / 9;
@@ -221,6 +232,44 @@ html, body, #app {
       color: #f85149;
       font-size: 0.85rem;
     }
+  }
+
+  .rec-overlay {
+    position: absolute;
+    top: 6px;
+    left: 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    color: #f85149;
+    font-size: 0.7rem;
+    font-weight: 600;
+    background: rgba(0, 0, 0, 0.55);
+    padding: 2px 7px;
+    border-radius: 3px;
+    pointer-events: none;
+    z-index: 2;
+
+    .rec-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #f85149;
+      animation: pulse 1.5s infinite;
+    }
+  }
+
+  .camera-name-overlay {
+    position: absolute;
+    bottom: 4px;
+    left: 6px;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.7rem;
+    background: rgba(0, 0, 0, 0.5);
+    padding: 1px 6px;
+    border-radius: 3px;
+    pointer-events: none;
+    z-index: 2;
   }
 
   .camera-info {
@@ -338,6 +387,27 @@ html, body, #app {
 // Utility
 .text-muted-custom {
   color: rgba($body-color, 0.5) !important;
+}
+
+// Admin nav tabs
+.nav-tabs {
+  border-bottom-color: $border-color;
+
+  .nav-link {
+    color: rgba($body-color, 0.7);
+    border-color: transparent;
+
+    &:hover {
+      color: $body-color;
+      border-color: $border-color $border-color transparent;
+    }
+
+    &.active {
+      color: $body-color;
+      background-color: $card-bg;
+      border-color: $border-color $border-color $card-bg;
+    }
+  }
 }
 
 // Fullscreen mode hides sidebar and topbar

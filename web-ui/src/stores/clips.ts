@@ -20,7 +20,7 @@ export const useClipStore = defineStore('clips', () => {
     currentCameraId.value = cameraId
     pageOffset.value = offset
 
-    const camParam = cameraId ?? 0
+    const camParam = cameraId ?? -1
     const startDate = Math.floor(Date.now() / 1000)
     const rangePeriod = 9999999999
 
