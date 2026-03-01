@@ -14,7 +14,7 @@ This document outlines the plan to modernize the Witness surveillance system —
 | CSS Framework | Bootstrap 3.3.5 | ❌ EOL |
 | jQuery | 2.1.4 | ⚠️ Outdated (current: 3.7+) |
 | OpenCV | 4.10.0 (vcpkg) | ✅ Updated from 4.0.0-pre |
-| Object Recognition | Azure Vision (cloud, disabled) + Haar cascades (local, disabled) | ⚠️ Cloud-dependent, no local ML |
+| Object Recognition | ONNX Runtime + YOLO26n (local), background reprocessor | ✅ Local ML, GPU optional |
 | Build System | CMake + vcpkg | ✅ Migrated from .vcxproj |
 | Strings | `std::string` (UTF-8) everywhere | ✅ Fully migrated from `string_t`/TCHAR |
 | Platform | Windows only (Service lifecycle) | ⚠️ Code is cross-platform except service/daemon |
@@ -85,9 +85,11 @@ WitnessServer.exe                       witness-server (Linux/Mac)
 └── vcpkg (all deps)            ✅      ├── fetch API (no jQuery)
                                         └── PWA + Web Push notifications
 WitnessCamera.dll               ✅
-├── std::this_thread::sleep_for ✅      Object Recognition:
-├── std::string                 ✅      ├── ONNX Runtime (local detection)
-└── Cross-platform pipeline     ✅      └── YOLOv8 default model
+├── std::this_thread::sleep_for ✅      Object Recognition:           ✅
+├── std::string                 ✅      ├── ONNX Runtime (local)      ✅
+└── Cross-platform pipeline     ✅      ├── YOLO26n default model     ✅
+                                        ├── CUDA GPU acceleration     ✅
+                                        └── Background reprocessor    ✅
 
 Build:
 ├── CMakeLists.txt (root)       ✅
@@ -108,7 +110,7 @@ Build:
     "libsodium",       // ✅ Auth + crypto
     "openssl",         // ✅ TLS
     "sqlite3",         // ✅ Database
-    "onnxruntime"      // Pending — Phase 4 (local ML)
+    "onnxruntime-gpu"  // ✅ Local ML (CPU + CUDA)
   ]
 }
 ```
@@ -204,36 +206,49 @@ Replaced the 166MB .NET Installer with a built-in web setup wizard.
 - [x] **Security hardening** — hostname sanitization for openssl, unpredictable temp file names, JSON injection prevention
 - [x] **Installer deprecated** — moved to optional CMake target, README updated
 
-### Phase 4: Local Object Recognition
+### Phase 4: Local Object Recognition ✅ COMPLETE
 
-- [ ] **Add ONNX Runtime** as vcpkg dependency
-  - Single inference API with multiple hardware backends ("execution providers"):
-    - CPU (default, works everywhere)
-    - CUDA (NVIDIA GPUs)
-    - DirectML (Windows, any DirectX 12 GPU)
-    - CoreML (macOS)
-    - OpenVINO (Intel GPUs/NPUs)
-- [ ] **Create `ONNXDetectionFilter`** implementing `IRecordFilter`
-  - Input: `cv::Mat` from existing `GetOrDecodeFrame()` lazy decode
-  - Output: `ClassificationResult` with `RegionOfInterest` bounding boxes (existing structures)
-  - Configurable confidence threshold and class label mapping
-- [ ] **Configuration:**
-  ```json
-  {
-    "recognition": {
-      "backend": "onnx",
-      "model_path": "models/yolov8n.onnx",
-      "execution_provider": "cuda",
-      "confidence_threshold": 0.5,
-      "classes": ["person", "car", "dog", "cat"]
-    }
-  }
-  ```
-  Backend options: `azure`, `onnx`, `cascade`, `none`
-- [ ] **Wire into filter chain** in `CameraWorker::WorkerInit()`
-  - Replaces current Azure Vision filter position
-  - Can coexist — config selects which backend to use per camera
-- [ ] **Ship default model** — YOLOv8n (~6MB, ~30ms/frame on CPU)
+- [x] **Add ONNX Runtime** as vcpkg dependency (`onnxruntime-gpu`)
+  - CPU (default) and CUDA (NVIDIA GPU) execution providers
+- [x] **Create `ONNXDetectionFilter`** implementing `RecordFilterBase`
+  - Input: `cv::Mat` from existing lazy decode
+  - Output: `DetectionResult` with class ID, confidence, and class name
+  - Configurable confidence threshold and max FPS throttle
+  - Standalone `DetectFrame()` method for clip reprocessor
+- [x] **Configuration via DB settings:**
+  - `detection_backend` — `onnx` or empty (disabled)
+  - `detection_provider` — `cpu` or `gpu`
+  - `detection_confidence` — 0.1 to 1.0
+  - `detection_max_fps` — frames per second limit per camera
+  - `cudnn_path` — optional cuDNN install root (auto-scanned if empty)
+- [x] **Wire into filter chain** in `CameraWorker::WorkerInit()`
+- [x] **Ship default model** — YOLO26n (`models/yolo26n.onnx`)
+- [x] **Background clip reprocessor** (`ClipReprocessWorker`)
+  - Processes existing clips with detection, updates tags in DB
+  - First frame baseline filtering (filters permanent scene objects)
+  - Tag separator `;` matches Recording.cpp convention
+  - `DetectionVersion` tracking (-1=retag priority, 0=unprocessed, 1=current)
+  - Batched processing with `ORDER BY DetectionVersion ASC, Timestamp DESC`
+- [x] **Clip re-tag** — `POST /clip/retag/{id}` endpoint, UI button on clips page
+- [x] **CUDA GPU acceleration:**
+  - cuDNN auto-discovery via `LoadLibraryW` pre-loading from common install paths
+  - User-configurable `cudnn_path` setting for custom cuDNN locations
+  - Static CUDA availability caching (tested once, cached for all cameras)
+  - Conservative memory: `OrtCudnnConvAlgoSearchDefault` + `arena_extend_strategy=1`
+  - **CUDA probe process** — `/test-cuda` CLI command tests CUDA in child process, safe against cuDNN `__fastfail` crashes
+  - "Test GPU" button in admin panel and setup wizard
+  - ONNX provider DLLs copied via CMake POST_BUILD step
+- [x] **Admin detection panel** — detection settings + clip cleanup toggle in admin portal
+- [x] **Setup wizard detection** — object detection section with GPU requirements and links
+- [x] **Structured logging** — `spdlog`-based `LOG_INFO/WARNING/ERROR/DEBUG` via `Log.h`
+- [x] **SQLite busy timeout** — `sqlite3_busy_timeout(db, 5000)` prevents write contention
+- [x] **Clip cleanup setting** — `clip_cleanup_enabled` / `clip_retention_days` DB settings, configurable in admin panel, defaults to disabled
+- [x] **Let's Encrypt certbot** — setup wizard runs certbot with UAC elevation, auto-installs via winget if needed, warns about local access requirement
+- [ ] **Improve night/IR detection accuracy**
+  - Standard YOLO models are trained on COCO (daytime RGB) and perform poorly on grayscale IR-illuminated CCTV footage
+  - **Option A: Preprocessing** — Apply CLAHE (Contrast Limited Adaptive Histogram Equalization) to IR frames before inference
+  - **Option B: Fine-tune on IR data** — Use the [FLIR ADAS Thermal Dataset](https://www.flir.com/oem/adas/adas-dataset-form/)
+  - **Option C: Dedicated IR model** — Purpose-built models like CRT-YOLO or MDCFVit-YOLO
 - [ ] Optionally keep Azure Vision as alternative cloud backend
 
 ### Phase 5: Notifications & Integrations
@@ -338,5 +353,5 @@ Vue's reactivity system (`ref`, `computed`, `watch`) maps almost 1:1 to Knockout
 - **OpenCV and FFmpeg are natively cross-platform** — vcpkg packages work everywhere automatically.
 - **Systemd integration on Linux is straightforward** — a `.service` file plus `sigaction()` signal handling replaces the entire Windows SCM layer. This is the main remaining blocker for Linux.
 - **The filter architecture is the best part of the codebase for extensibility** — ONNX detection is genuinely a "write one class" task because the pipeline, frame decode, and result structures already exist.
-- **Phase ordering is intentional** — each phase is independently useful and shippable. Phases 1-3 are complete. Phase 4 adds local ML. Phase 5 adds integrations. Phase 6 adds user-facing features. Phase 7 modernizes the frontend. Phase 8 adds mobile/PWA.
+- **Phase ordering is intentional** — each phase is independently useful and shippable. Phases 1-4 are complete. Phase 5 adds integrations. Phase 6 adds user-facing features. Phase 7 modernizes the frontend. Phase 8 adds mobile/PWA.
 - **JSON: Using Crow's built-in JSON** — `crow::json::wvalue`/`rvalue` handles all needs. No external JSON library required. Auto-sets `Content-Type: application/json` on responses.

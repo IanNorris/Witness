@@ -53,6 +53,7 @@ endif()
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
+add_subdirectory(WitnessCommon)
 add_subdirectory(WitnessCamera)
 add_subdirectory(WitnessServer)
 
@@ -82,3 +83,10 @@ configure_file(
     "${CMAKE_BINARY_DIR}/bin/Setup-TLS.ps1"
     COPYONLY
 )
+
+# Copy ONNX models to output (if any exist)
+file(GLOB ONNX_MODELS "${CMAKE_SOURCE_DIR}/models/*.onnx")
+foreach(MODEL_FILE ${ONNX_MODELS})
+    get_filename_component(MODEL_NAME "${MODEL_FILE}" NAME)
+    configure_file("${MODEL_FILE}" "${CMAKE_BINARY_DIR}/bin/models/${MODEL_NAME}" COPYONLY)
+endforeach()

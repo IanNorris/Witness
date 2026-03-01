@@ -1,4 +1,5 @@
 find_package(Crow CONFIG REQUIRED)
+find_package(FFMPEG REQUIRED)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs videoio objdetect)
 find_package(unofficial-sodium CONFIG REQUIRED)
 find_package(unofficial-sqlite3 CONFIG REQUIRED)
@@ -8,6 +9,7 @@ set(SERVER_SOURCES
     Source/AsyncWorker.cpp
     Source/AuthHelpers.cpp
     Source/ClipHelpers.cpp
+    Source/ClipReprocessWorker.cpp
     Source/CrowAuth.cpp
     Source/CrowListener.cpp
     Source/CrowRoutes_Auth.cpp
@@ -45,6 +47,7 @@ set(SERVER_HEADERS
     Source/CameraState.h
     Source/CameraWorker.h
     Source/ClipHelpers.h
+    Source/ClipReprocessWorker.h
     Source/Common.h
     Source/CrowAuth.h
     Source/CrowListener.h
@@ -71,6 +74,7 @@ add_executable(WitnessServer ${SERVER_SOURCES} ${SERVER_HEADERS})
 target_include_directories(WitnessServer PRIVATE
     Source
     ${CMAKE_SOURCE_DIR}/WitnessCamera/Include
+    ${FFMPEG_INCLUDE_DIRS}
 )
 
 target_compile_definitions(WitnessServer PRIVATE
@@ -87,12 +91,15 @@ if(WIN32)
     target_link_libraries(WitnessServer PRIVATE winmm)
 endif()
 
+target_link_directories(WitnessServer PRIVATE ${FFMPEG_LIBRARY_DIRS})
+
 target_link_libraries(WitnessServer PRIVATE
     WitnessCamera
     Crow::Crow
     OpenSSL::SSL
     OpenSSL::Crypto
     ${OpenCV_LIBS}
+    ${FFMPEG_LIBRARIES}
     unofficial-sodium::sodium
     unofficial::sqlite3::sqlite3
 )
@@ -120,5 +127,20 @@ if(OPENSSL_EXECUTABLE)
             "${OPENSSL_TOOL_DIR}/openssl.cnf"
             "$<TARGET_FILE_DIR:WitnessServer>/"
         COMMENT "Copying OpenSSL CLI tool and config"
+    )
+endif()
+
+# Copy ONNX Runtime CUDA provider DLLs (loaded dynamically, not caught by applocal)
+set(ONNX_PROVIDERS_SHARED "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin/onnxruntime_providers_shared.dll")
+set(ONNX_PROVIDERS_CUDA "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin/onnxruntime_providers_cuda.dll")
+if(EXISTS "${ONNX_PROVIDERS_SHARED}" AND EXISTS "${ONNX_PROVIDERS_CUDA}")
+    add_custom_command(TARGET WitnessServer POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${ONNX_PROVIDERS_SHARED}"
+            "$<TARGET_FILE_DIR:WitnessServer>/"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${ONNX_PROVIDERS_CUDA}"
+            "$<TARGET_FILE_DIR:WitnessServer>/"
+        COMMENT "Copying ONNX Runtime CUDA provider DLLs"
     )
 endif()

@@ -2,13 +2,14 @@
 #include "AuthHelpers.h"
 #include "SQLite.h"
 
+#include <Log.h>
 #include <algorithm>
 
 bool SetupConfig::ApplyToDatabase( const std::shared_ptr<SQLiteDatabase>& DB ) const
 {
-	auto setSetting = [&DB]( const std::string& name, const std::string& value )
+	auto setSetting = [&DB]( const std::string& name, const std::string& value, bool allowEmpty = false )
 	{
-		if( value.empty() ) return;
+		if( value.empty() && !allowEmpty ) return;
 
 		SQLiteDatabaseQueryInstance query( DB, "SetSetting" );
 		query->Bind( "@Name", name.c_str() );
@@ -22,9 +23,17 @@ bool SetupConfig::ApplyToDatabase( const std::shared_ptr<SQLiteDatabase>& DB ) c
 	setSetting( "server_tls_contact", TlsContact );
 	setSetting( "server_tls_cert", TlsCertPath );
 	setSetting( "server_tls_key", TlsKeyPath );
-	setSetting( "server_root", WebRoot );
 	setSetting( "server_cache", CachePath );
 	setSetting( "server_startup_mode", StartupMode );
+
+	// Detection settings — always write even if empty (to allow clearing)
+	setSetting( "detection_backend", DetectionBackend, true );
+	setSetting( "detection_provider", DetectionProvider, true );
+	setSetting( "detection_confidence", DetectionConfidence, true );
+	setSetting( "detection_max_fps", DetectionMaxFPS, true );
+	setSetting( "cudnn_path", CudnnPath, true );
+	setSetting( "clip_cleanup_enabled", ClipCleanupEnabled, true );
+	setSetting( "clip_retention_days", ClipRetentionDays, true );
 
 	// Create or update admin user if credentials provided
 	if( !Username.empty() && !Password.empty() )
@@ -55,7 +64,7 @@ bool SetupConfig::ApplyToDatabase( const std::shared_ptr<SQLiteDatabase>& DB ) c
 			update->Bind( "@HashMethod", 0 );
 			update->Execute( nullptr );
 
-			std::cout << "Admin user '" << Username << "' password updated." << std::endl;
+			LOG_INFO( "Admin user '%s' password updated.", Username.c_str() );
 		}
 		else
 		{
@@ -69,7 +78,7 @@ bool SetupConfig::ApplyToDatabase( const std::shared_ptr<SQLiteDatabase>& DB ) c
 			createUser->Bind( "@Admin", 1 );
 			createUser->Execute( nullptr );
 
-			std::cout << "Admin user '" << Username << "' created." << std::endl;
+			LOG_INFO( "Admin user '%s' created.", Username.c_str() );
 		}
 	}
 

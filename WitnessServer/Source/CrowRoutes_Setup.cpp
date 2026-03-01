@@ -3,6 +3,8 @@
 #include "SetupConfig.h"
 #include "GlobalContext.h"
 
+#include <ONNXDetectionFilter.h>
+#include <Log.h>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -108,6 +110,13 @@ void CrowListener::HandleSetupApply( const crow::request& req, crow::response& r
 	if( body.has( "tls_cert" ) )    config.TlsCertPath = body["tls_cert"].s();
 	if( body.has( "tls_key" ) )     config.TlsKeyPath  = body["tls_key"].s();
 	if( body.has( "tls_contact" ) ) config.TlsContact  = body["tls_contact"].s();
+	if( body.has( "detection_backend" ) )    config.DetectionBackend    = body["detection_backend"].s();
+	if( body.has( "detection_provider" ) )   config.DetectionProvider   = body["detection_provider"].s();
+	if( body.has( "detection_confidence" ) ) config.DetectionConfidence = body["detection_confidence"].s();
+	if( body.has( "detection_max_fps" ) )    config.DetectionMaxFPS     = body["detection_max_fps"].s();
+	if( body.has( "cudnn_path" ) )           config.CudnnPath           = body["cudnn_path"].s();
+	if( body.has( "clip_cleanup_enabled" ) ) config.ClipCleanupEnabled  = body["clip_cleanup_enabled"].s();
+	if( body.has( "clip_retention_days" ) )  config.ClipRetentionDays   = body["clip_retention_days"].s();
 
 	// Apply settings to database
 	if( !config.ApplyToDatabase( m_GlobalContext->Database ) )
@@ -119,7 +128,7 @@ void CrowListener::HandleSetupApply( const crow::request& req, crow::response& r
 		return;
 	}
 
-	std::cout << "Settings updated via /setup by admin (UserUID=" << UserUID << ")" << std::endl;
+	LOG_INFO( "Settings updated via /setup by admin (UserUID=%d)", UserUID );
 
 	// Reload TLS if cert paths changed
 	if( !config.TlsCertPath.empty() || !config.TlsKeyPath.empty() )
@@ -132,6 +141,56 @@ void CrowListener::HandleSetupApply( const crow::request& req, crow::response& r
 	crow::json::wvalue result;
 	result["success"] = true;
 	result["message"] = "Settings applied. Some changes may require a server restart.";
+
+	res.set_header( "Content-Type", "application/json" );
+	res.body = result.dump();
+	res.code = 200;
+	res.end();
+}
+
+void CrowListener::HandleSetupTestCuda( const crow::request& req, crow::response& res )
+{
+	auto body = crow::json::load( req.body );
+	if( !body )
+	{
+		res.code = 400;
+		res.body = R"({"error":"Invalid JSON"})";
+		res.set_header( "Content-Type", "application/json" );
+		res.end();
+		return;
+	}
+
+	// Require admin authentication
+	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, &body,
+		CrowAuth::Action::ReadWrite, CrowAuth::Privilege::Administrator );
+	if( UserUID < 0 )
+	{
+		res.code = 401;
+		res.body = R"({"error":"Admin authentication required"})";
+		res.set_header( "Content-Type", "application/json" );
+		res.end();
+		return;
+	}
+
+	// Get optional cudnn_path from request body
+	const char* cudnnPath = nullptr;
+	std::string cudnnPathStr;
+	if( body.has( "cudnn_path" ) )
+	{
+		cudnnPathStr = body["cudnn_path"].s();
+		if( !cudnnPathStr.empty() )
+			cudnnPath = cudnnPathStr.c_str();
+	}
+
+	LOG_INFO( "CUDA probe requested by admin (UserUID=%d)", UserUID );
+
+	bool success = Witness::Camera::TestCudaViaProbe( cudnnPath );
+
+	crow::json::wvalue result;
+	result["success"] = success;
+	result["message"] = success
+		? "CUDA GPU acceleration is available and working."
+		: "CUDA test failed. Check that CUDA Toolkit 12.x and cuDNN 9.x are installed correctly.";
 
 	res.set_header( "Content-Type", "application/json" );
 	res.body = result.dump();

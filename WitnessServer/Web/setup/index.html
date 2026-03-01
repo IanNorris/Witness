@@ -129,6 +129,57 @@
                     <label for="tls-contact">Contact email (for Let's Encrypt)</label>
                     <input type="email" id="tls-contact" placeholder="you@example.com">
                 </div>
+                <div class="alert hidden" id="letsencrypt-warning" style="font-size:12px">
+                    <strong>⚠ Local access required:</strong> Let's Encrypt will install certbot (if needed) and request a certificate.
+                    This requires a UAC elevation prompt on the server machine. Port 80 must also be available.<br>
+                    If you are configuring this server remotely, choose <strong>Manual</strong> instead and run certbot yourself.
+                </div>
+            </div>
+            <hr style="border-color:#1a4080; margin: 24px 0">
+            <h1 style="font-size:18px; margin-bottom: 4px">Object Detection</h1>
+            <p class="subtitle">AI-powered tagging of recorded clips.</p>
+            <div class="form-group">
+                <label for="detection-backend">Detection</label>
+                <select id="detection-backend" onchange="onDetectionChange()">
+                    <option value="">Disabled</option>
+                    <option value="onnx">Enabled (ONNX / YOLO)</option>
+                </select>
+            </div>
+            <div id="detection-extra" class="hidden">
+                <div class="form-group">
+                    <label for="detection-provider">Hardware</label>
+                    <select id="detection-provider" onchange="onProviderChange()">
+                        <option value="cpu">CPU</option>
+                        <option value="gpu">GPU (NVIDIA CUDA)</option>
+                    </select>
+                </div>
+                <div class="alert hidden" id="cuda-info" style="font-size:12px">
+                    GPU acceleration requires <strong>NVIDIA CUDA Toolkit 12.x</strong> and <strong>cuDNN 9.x</strong> (separate download).<br>
+                    CUDA 13+ is not compatible. The standard GPU driver alone is not sufficient.<br><br>
+                    <a href="https://developer.nvidia.com/cuda-toolkit-archive" target="_blank" style="color:#3498db">Download CUDA 12.x</a>
+                    &nbsp;|&nbsp;
+                    <a href="https://developer.nvidia.com/cudnn" target="_blank" style="color:#3498db">Download cuDNN 9.x</a>
+                    <br><small>cuDNN: copy <code>cudnn64_9.dll</code> into the CUDA <code>bin</code> folder after extracting.</small>
+                    <div style="margin-top:8px">
+                        <button type="button" onclick="testCuda()" id="cuda-test-btn" style="padding:4px 12px; cursor:pointer">Test GPU</button>
+                        <span id="cuda-test-result" style="margin-left:8px"></span>
+                    </div>
+                </div>
+                <div class="form-group hidden" id="cudnn-path-group">
+                    <label for="cudnn-path">cuDNN Path (optional)</label>
+                    <input type="text" id="cudnn-path" placeholder="Auto-detect (leave blank to scan default locations)">
+                    <div class="hint">Version root, e.g. C:\Program Files\NVIDIA\CUDNN\v9.19</div>
+                </div>
+                <div class="form-group">
+                    <label for="detection-confidence">Confidence Threshold</label>
+                    <input type="number" id="detection-confidence" value="0.6" min="0.1" max="1.0" step="0.05">
+                    <div class="hint">Minimum confidence (0.1 - 1.0) to accept a detection. Lower = more detections but more false positives.</div>
+                </div>
+                <div class="form-group">
+                    <label for="detection-maxfps">Max Detection FPS</label>
+                    <input type="number" id="detection-maxfps" value="10" min="1" max="30" step="1">
+                    <div class="hint">Maximum frames per second to process. Lower values reduce CPU usage.</div>
+                </div>
             </div>
             <div class="btn-row">
                 <button class="btn btn-secondary" onclick="goToStep(0)">Back</button>
@@ -218,15 +269,57 @@
             certGroup.classList.add('hidden');
             keyGroup.classList.add('hidden');
             contactGroup.classList.add('hidden');
+            document.getElementById('letsencrypt-warning').classList.add('hidden');
 
             if (mode === 'Manual') {
                 certGroup.classList.remove('hidden');
                 keyGroup.classList.remove('hidden');
             } else if (mode === 'LetsEncrypt') {
                 contactGroup.classList.remove('hidden');
+                document.getElementById('letsencrypt-warning').classList.remove('hidden');
             } else if (mode === 'NoSecurity' || mode === 'SelfSigned') {
                 extra.classList.add('hidden');
             }
+        }
+
+        function onDetectionChange() {
+            const enabled = document.getElementById('detection-backend').value === 'onnx';
+            document.getElementById('detection-extra').classList.toggle('hidden', !enabled);
+        }
+
+        function onProviderChange() {
+            const gpu = document.getElementById('detection-provider').value === 'gpu';
+            document.getElementById('cuda-info').classList.toggle('hidden', !gpu);
+            document.getElementById('cudnn-path-group').classList.toggle('hidden', !gpu);
+        }
+
+        function testCuda() {
+            const btn = document.getElementById('cuda-test-btn');
+            const result = document.getElementById('cuda-test-result');
+            btn.disabled = true;
+            btn.textContent = 'Testing...';
+            result.textContent = '';
+            result.style.color = '';
+
+            const data = { cudnn_path: document.getElementById('cudnn-path').value.trim() };
+            fetch('/api/setup/test-cuda', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            })
+            .then(r => r.json())
+            .then(d => {
+                result.textContent = d.success ? '\u2713 CUDA working' : '\u2717 ' + d.message;
+                result.style.color = d.success ? '#27ae60' : '#e94560';
+            })
+            .catch(() => {
+                result.textContent = '\u2717 Test failed';
+                result.style.color = '#e94560';
+            })
+            .finally(() => {
+                btn.disabled = false;
+                btn.textContent = 'Test GPU';
+            });
         }
 
         function validateAndNext(fromStep) {
@@ -313,13 +406,24 @@
                 rows.push(['Contact', document.getElementById('tls-contact').value]);
             }
 
+            const detBackend = document.getElementById('detection-backend');
+            rows.push(['Detection', detBackend.options[detBackend.selectedIndex].text]);
+            if (detBackend.value === 'onnx') {
+                const detProvider = document.getElementById('detection-provider');
+                rows.push(['Hardware', detProvider.options[detProvider.selectedIndex].text]);
+                rows.push(['Confidence', document.getElementById('detection-confidence').value]);
+                rows.push(['Max FPS', document.getElementById('detection-maxfps').value]);
+                const cudnnPath = document.getElementById('cudnn-path').value;
+                if (cudnnPath) rows.push(['cuDNN Path', cudnnPath]);
+            }
+
             table.innerHTML = rows.map(([k, v]) =>
                 `<tr><td>${k}</td><td>${v || '—'}</td></tr>`
             ).join('');
         }
 
         function getConfig() {
-            return {
+            const config = {
                 username: document.getElementById('username').value.trim(),
                 password: document.getElementById('password').value,
                 hostname: document.getElementById('hostname').value.trim(),
@@ -328,13 +432,27 @@
                 tls_cert: document.getElementById('tls-cert').value.trim(),
                 tls_key: document.getElementById('tls-key').value.trim(),
                 tls_contact: document.getElementById('tls-contact').value.trim(),
+                detection_backend: document.getElementById('detection-backend').value,
+                detection_provider: document.getElementById('detection-provider').value,
+                detection_confidence: document.getElementById('detection-confidence').value,
+                detection_max_fps: document.getElementById('detection-maxfps').value,
+                cudnn_path: document.getElementById('cudnn-path').value.trim(),
             };
+            return config;
         }
 
         async function applySetup() {
             const btn = document.getElementById('apply-btn');
             const errorEl = document.getElementById('apply-error');
             errorEl.textContent = '';
+
+            // Confirm elevation for Let's Encrypt
+            if (document.getElementById('tls-mode').value === 'LetsEncrypt') {
+                if (!confirm('Let\'s Encrypt requires administrator elevation on this machine to install certbot and bind port 80.\n\nA UAC prompt will appear on the server. Are you at the server console?')) {
+                    return;
+                }
+            }
+
             btn.disabled = true;
             btn.innerHTML = '<span class="spinner"></span>Applying settings...';
 
@@ -388,6 +506,19 @@
                         if (data.server_tls_cert) document.getElementById('tls-cert').value = data.server_tls_cert;
                         if (data.server_tls_key) document.getElementById('tls-key').value = data.server_tls_key;
                         if (data.server_tls_contact) document.getElementById('tls-contact').value = data.server_tls_contact;
+
+                        // Detection settings
+                        if (data.detection_backend) {
+                            document.getElementById('detection-backend').value = data.detection_backend;
+                            onDetectionChange();
+                        }
+                        if (data.detection_provider) {
+                            document.getElementById('detection-provider').value = data.detection_provider;
+                            onProviderChange();
+                        }
+                        if (data.detection_confidence) document.getElementById('detection-confidence').value = data.detection_confidence;
+                        if (data.detection_max_fps) document.getElementById('detection-maxfps').value = data.detection_max_fps;
+                        if (data.cudnn_path) document.getElementById('cudnn-path').value = data.cudnn_path;
 
                         // Update welcome page for reconfigure
                         document.getElementById('step-0').querySelector('h1').textContent = 'Reconfigure Server';

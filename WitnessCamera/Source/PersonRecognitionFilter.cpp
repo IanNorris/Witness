@@ -10,6 +10,7 @@
 
 #include <string.h>
 
+#include <Log.h>
 #include "FilterData.h"
 
 using namespace cv;
@@ -38,12 +39,12 @@ PersonRecognitionFilter::PersonRecognitionFilter( const MotionChainNode& Chain, 
 
 	if (!ID.FaceCascade.load(FaceCascadeDataFilename))
 	{
-		printf( "Unable to load face cascade file: %s.\n", FaceCascadeDataFilename );
+			LOG_ERROR( "Unable to load face cascade file: %s.", FaceCascadeDataFilename );
 	}
 
 	if (!ID.BodyCascade.load(FullBodyCascadeDataFilename))
 	{
-		printf( "Unable to load body cascade file: %s.\n", FullBodyCascadeDataFilename );
+			LOG_ERROR( "Unable to load body cascade file: %s.", FullBodyCascadeDataFilename );
 	}
 }
 
@@ -85,7 +86,7 @@ bool PersonRecognitionFilter::ProcessFrame( SharedClassificationTask TaskData )
 
 	if( faces.size() >= 1 )
 	{
-		printf("%d %s detected.\n", (int)faces.size(), ChooseFace ? "face(s)" : "body(s)" );
+			LOG_DEBUG("%d %s detected.", (int)faces.size(), ChooseFace ? "face(s)" : "body(s)" );
 
 		TaskData->Result.ClassificationSuperset |= ClassificationResult::Motion_Person;
 

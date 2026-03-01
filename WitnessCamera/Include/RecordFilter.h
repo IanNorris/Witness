@@ -269,7 +269,7 @@ public:
 	}
 	
 	virtual bool ProcessFrame( SharedClassificationTask TaskData ) = 0;
-
+	
 	virtual void ClearStateThis() {};
 
 	virtual void UpdateROI( SharedClassificationTask TaskData ) {}

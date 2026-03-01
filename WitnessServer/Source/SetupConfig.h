@@ -22,8 +22,18 @@ struct SetupConfig
 	std::string TlsContact;	// email for Let's Encrypt
 	std::string TlsCertPath;
 	std::string TlsKeyPath;
-	std::string WebRoot;
 	std::string CachePath;
+
+	// Detection
+	std::string DetectionBackend;	// "onnx" or empty
+	std::string DetectionProvider;	// "cpu" or "gpu"
+	std::string DetectionConfidence;	// e.g. "0.6"
+	std::string DetectionMaxFPS;	// e.g. "10"
+	std::string CudnnPath;		// cuDNN install root (auto-scanned if empty)
+
+	// Clip cleanup
+	std::string ClipCleanupEnabled;	// "true" or "false"
+	std::string ClipRetentionDays;	// e.g. "10"
 
 	// Startup
 	std::string StartupMode;	// "Service", "Task", "Manual"
@@ -54,8 +64,14 @@ struct SetupConfig
 		if( json.has( "tls_contact" ) ) TlsContact  = json["tls_contact"].s();
 		if( json.has( "tls_cert" ) )    TlsCertPath = json["tls_cert"].s();
 		if( json.has( "tls_key" ) )     TlsKeyPath  = json["tls_key"].s();
-		if( json.has( "web_root" ) )    WebRoot     = json["web_root"].s();
-		if( json.has( "cache_path" ) )  CachePath   = json["cache_path"].s();
+		if( json.has( "cache_path" ) )          CachePath           = json["cache_path"].s();
+		if( json.has( "detection_backend" ) )    DetectionBackend    = json["detection_backend"].s();
+		if( json.has( "detection_provider" ) )   DetectionProvider   = json["detection_provider"].s();
+		if( json.has( "detection_confidence" ) ) DetectionConfidence = json["detection_confidence"].s();
+		if( json.has( "detection_max_fps" ) )    DetectionMaxFPS     = json["detection_max_fps"].s();
+		if( json.has( "cudnn_path" ) )           CudnnPath           = json["cudnn_path"].s();
+		if( json.has( "clip_cleanup_enabled" ) ) ClipCleanupEnabled  = json["clip_cleanup_enabled"].s();
+		if( json.has( "clip_retention_days" ) )  ClipRetentionDays   = json["clip_retention_days"].s();
 		if( json.has( "startup_mode" ) ) StartupMode = json["startup_mode"].s();
 
 		return true;
@@ -72,8 +88,14 @@ struct SetupConfig
 		if( !TlsContact.empty() ) json["tls_contact"]  = TlsContact;
 		if( !TlsCertPath.empty() ) json["tls_cert"]    = TlsCertPath;
 		if( !TlsKeyPath.empty() ) json["tls_key"]      = TlsKeyPath;
-		if( !WebRoot.empty() )    json["web_root"]      = WebRoot;
-		if( !CachePath.empty() )  json["cache_path"]    = CachePath;
+		if( !CachePath.empty() )          json["cache_path"]            = CachePath;
+		if( !DetectionBackend.empty() )    json["detection_backend"]     = DetectionBackend;
+		if( !DetectionProvider.empty() )   json["detection_provider"]    = DetectionProvider;
+		if( !DetectionConfidence.empty() ) json["detection_confidence"]  = DetectionConfidence;
+		if( !DetectionMaxFPS.empty() )     json["detection_max_fps"]     = DetectionMaxFPS;
+		if( !CudnnPath.empty() )           json["cudnn_path"]            = CudnnPath;
+		if( !ClipCleanupEnabled.empty() )  json["clip_cleanup_enabled"]  = ClipCleanupEnabled;
+		if( !ClipRetentionDays.empty() )   json["clip_retention_days"]   = ClipRetentionDays;
 		if( !StartupMode.empty() ) json["startup_mode"] = StartupMode;
 
 		std::ofstream file( path );

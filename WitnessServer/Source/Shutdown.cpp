@@ -10,6 +10,8 @@ void WitnessServer::Shutdown()
 
 	Timer = nullptr;
 
+	ReprocessWorker = nullptr;
+
 	ImageWorkers.clear();
 
 	Context->MessageBus->RemoveClient(nullptr);
@@ -48,6 +50,10 @@ void WitnessServer::RequestShutdown()
 		Watchdog->RequestShutdown();
 	}
 	Timer->RequestShutdown();
+	if (ReprocessWorker)
+	{
+		ReprocessWorker->RequestShutdown();
+	}
 	for (auto& Worker : ImageWorkers)
 	{
 		Worker->RequestShutdown();

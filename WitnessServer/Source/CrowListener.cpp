@@ -4,15 +4,47 @@
 #include "Messages.h"
 #include "AuthHelpers.h"
 
+#include <Log.h>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <format>
 #include <cmath>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 #include "sodium.h"
 
 namespace fs = std::filesystem;
+
+// Route Crow's internal logging through Witness Log framework.
+// Downgrades known-benign SSL handshake errors to Debug level.
+class WitnessCrowLogHandler : public crow::ILogHandler
+{
+public:
+	void log( std::string message, crow::LogLevel level ) override
+	{
+		// SSL handshake failures are benign (scanners, self-signed cert rejection)
+		if( message.find( "Could not start adaptor" ) != std::string::npos )
+		{
+			LOG_DEBUG( "Crow: %s", message.c_str() );
+			return;
+		}
+
+		switch( level )
+		{
+			case crow::LogLevel::Debug:    LOG_DEBUG( "Crow: %s", message.c_str() ); break;
+			case crow::LogLevel::Info:     LOG_INFO( "Crow: %s", message.c_str() ); break;
+			case crow::LogLevel::Warning:  LOG_WARNING( "Crow: %s", message.c_str() ); break;
+			case crow::LogLevel::Error:
+			case crow::LogLevel::Critical: LOG_ERROR( "Crow: %s", message.c_str() ); break;
+		}
+	}
+};
+
+static WitnessCrowLogHandler s_CrowLogHandler;
 
 CrowListener::CrowListener( const std::string& Hostname, int Port, bool Secure,
                             const std::string& CertPath, const std::string& KeyPath,
@@ -24,6 +56,8 @@ CrowListener::CrowListener( const std::string& Hostname, int Port, bool Secure,
 , m_CertPath( CertPath )
 , m_KeyPath( KeyPath )
 {
+	crow::logger::setHandler( &s_CrowLogHandler );
+
 	m_GlobalContext = std::make_unique<GlobalContext>();
 	m_GlobalContext->Port = Port;
 
@@ -38,11 +72,16 @@ CrowListener::~CrowListener()
 
 void CrowListener::Initialise( const std::unordered_map< std::string, std::string >& Settings )
 {
-	// Load static file root
-	std::string Errors;
-	std::string Root;
-	GetSettingsField( Settings, "server_root", Root, Errors );
-	m_StaticRoot = std::string( Root.begin(), Root.end() );
+	// Derive static file root from exe location
+	std::filesystem::path exePath;
+#ifdef _WIN32
+	wchar_t exeBuf[MAX_PATH] = {};
+	GetModuleFileNameW( nullptr, exeBuf, MAX_PATH );
+	exePath = std::filesystem::path( exeBuf ).parent_path();
+#else
+	exePath = std::filesystem::canonical( "/proc/self/exe" ).parent_path();
+#endif
+	m_StaticRoot = ( exePath / "Web" ).string();
 
 	// Build static file map
 	std::unordered_map<std::string, std::string> MimeTypes;
@@ -84,10 +123,10 @@ void CrowListener::Initialise( const std::unordered_map< std::string, std::strin
 
 	if( ec )
 	{
-		std::cerr << "Static file scan error: " << ec.message() << std::endl;
+		LOG_ERROR( "Static file scan error: %s", ec.message().c_str() );
 	}
 
-	std::cout << "Static root: " << m_StaticRoot << " (" << m_StaticFiles.size() << " files)" << std::endl;
+	LOG_INFO( "Static root: %s (%zu files)", m_StaticRoot.c_str(), m_StaticFiles.size() );
 
 	RegisterRoutes();
 }
@@ -263,6 +302,12 @@ void CrowListener::RegisterRoutes()
 		HandleClipDelete( req, res );
 	});
 
+	CROW_ROUTE( m_App, "/clip/retag" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleClipRetag( req, res );
+	});
+
 	// Groups
 	CROW_ROUTE( m_App, "/group/enum" )
 	([this]( const crow::request& req, crow::response& res )
@@ -336,6 +381,12 @@ void CrowListener::RegisterRoutes()
 	([this]( const crow::request& req, crow::response& res )
 	{
 		HandleSetupApply( req, res );
+	});
+
+	CROW_ROUTE( m_App, "/api/setup/test-cuda" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleSetupTestCuda( req, res );
 	});
 
 	// Catch-all route for static files (lowest priority)

@@ -21,6 +21,11 @@ struct VideoSettings
 	, FaceCascadeFilter()
 	, ClipHistoryPeriod( 5.0 )
 	, ExportMotionVectors( 1 )
+	, DetectionEnabled( false )
+	, DetectionModelPath()
+	, DetectionConfidence( 0.5 )
+	, DetectionMaxFPS( 2.0 )
+	, DetectionUseGPU( false )
 	{}
 
 	std::string	DataPath;
@@ -29,6 +34,13 @@ struct VideoSettings
 	std::string	FaceCascadeFilter;
 	double		ClipHistoryPeriod;
 	int			ExportMotionVectors;
+
+	bool		DetectionEnabled;
+	std::string	DetectionModelPath;
+	double		DetectionConfidence;
+	double		DetectionMaxFPS;
+	bool		DetectionUseGPU;
+	std::string	DetectionCudnnPath;
 };
 
 struct CameraSettings

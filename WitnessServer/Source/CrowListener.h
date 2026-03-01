@@ -100,6 +100,7 @@ private:
 	void HandleClipEnum( const crow::request& req, crow::response& res, int cameraId, int maxCount, const std::string& startDate, const std::string& rangePeriod, int pageOffset );
 	void HandleClipToggleSave( const crow::request& req, crow::response& res );
 	void HandleClipDelete( const crow::request& req, crow::response& res );
+	void HandleClipRetag( const crow::request& req, crow::response& res );
 
 	// Groups
 	void HandleGroupEnum( const crow::request& req, crow::response& res );
@@ -117,6 +118,7 @@ private:
 	void HandleSetupPage( const crow::request& req, crow::response& res );
 	void HandleSetupSettings( const crow::request& req, crow::response& res );
 	void HandleSetupApply( const crow::request& req, crow::response& res );
+	void HandleSetupTestCuda( const crow::request& req, crow::response& res );
 
 	bool ConfigureSSL();
 

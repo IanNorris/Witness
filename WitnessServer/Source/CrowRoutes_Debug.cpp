@@ -2,6 +2,7 @@
 #include "CrowAuth.h"
 #include "GlobalContext.h"
 
+#include <Log.h>
 #include <filesystem>
 #include <iostream>
 #include <chrono>
@@ -175,7 +176,7 @@ static bool LogCertExpiry( const std::string& certPath )
 	FILE* fp = fopen( certPath.c_str(), "r" );
 	if( !fp )
 	{
-		std::cerr << "TLS: Unable to open certificate file: " << certPath << std::endl;
+		LOG_ERROR( "TLS: Unable to open certificate file: %s", certPath.c_str() );
 		return false;
 	}
 
@@ -184,7 +185,7 @@ static bool LogCertExpiry( const std::string& certPath )
 
 	if( !cert )
 	{
-		std::cerr << "TLS: Unable to parse certificate: " << certPath << std::endl;
+		LOG_ERROR( "TLS: Unable to parse certificate: %s", certPath.c_str() );
 		return false;
 	}
 
@@ -196,15 +197,15 @@ static bool LogCertExpiry( const std::string& certPath )
 
 	if( expired )
 	{
-		std::cerr << "TLS WARNING: Certificate has expired! (" << certPath << ")" << std::endl;
-		std::cerr << "TLS WARNING: Server will start but clients may reject the connection." << std::endl;
+		LOG_ERROR( "TLS WARNING: Certificate has expired! (%s)", certPath.c_str() );
+		LOG_ERROR( "TLS WARNING: Server will start but clients may reject the connection." );
 	}
 	else
 	{
-		std::cout << "TLS: Certificate expires in " << pday << " days (" << certPath << ")" << std::endl;
+		LOG_INFO( "TLS: Certificate expires in %d days (%s)", pday, certPath.c_str() );
 		if( pday < 30 )
 		{
-			std::cerr << "TLS WARNING: Certificate expires in less than 30 days — consider renewing." << std::endl;
+			LOG_WARNING( "TLS WARNING: Certificate expires in less than 30 days — consider renewing." );
 		}
 	}
 
@@ -223,22 +224,22 @@ bool CrowListener::ConfigureSSL()
 
 	if( m_CertPath.empty() || m_KeyPath.empty() )
 	{
-		std::cerr << "TLS ERROR: TLS is enabled but certificate paths are not configured." << std::endl;
-		std::cerr << "  Set server_tls_cert and server_tls_key in the database settings," << std::endl;
-		std::cerr << "  or run Setup-TLS.ps1 to configure TLS certificates." << std::endl;
-		std::cerr << "  To disable TLS, set server_tls_mode to NoSecurity." << std::endl;
+		LOG_ERROR( "TLS ERROR: TLS is enabled but certificate paths are not configured." );
+		LOG_ERROR( "  Set server_tls_cert and server_tls_key in the database settings," );
+		LOG_ERROR( "  or run Setup-TLS.ps1 to configure TLS certificates." );
+		LOG_ERROR( "  To disable TLS, set server_tls_mode to NoSecurity." );
 		return false;
 	}
 
 	if( !fs::exists( m_CertPath ) )
 	{
-		std::cerr << "TLS ERROR: Certificate file not found: " << m_CertPath << std::endl;
+		LOG_ERROR( "TLS ERROR: Certificate file not found: %s", m_CertPath.c_str() );
 		return false;
 	}
 
 	if( !fs::exists( m_KeyPath ) )
 	{
-		std::cerr << "TLS ERROR: Private key file not found: " << m_KeyPath << std::endl;
+		LOG_ERROR( "TLS ERROR: Private key file not found: %s", m_KeyPath.c_str() );
 		return false;
 	}
 
@@ -250,12 +251,12 @@ bool CrowListener::ConfigureSSL()
 	std::error_code ec;
 	m_LastCertModTime = fs::last_write_time( m_CertPath, ec );
 
-	std::cout << "TLS: Configured with cert=" << m_CertPath << " key=" << m_KeyPath << std::endl;
+	LOG_INFO( "TLS: Configured with cert=%s key=%s", m_CertPath.c_str(), m_KeyPath.c_str() );
 	return true;
 #else
 	if( m_Secure )
 	{
-		std::cerr << "TLS ERROR: TLS requested but CROW_ENABLE_SSL is not compiled in." << std::endl;
+		LOG_ERROR( "TLS ERROR: TLS requested but CROW_ENABLE_SSL is not compiled in." );
 		return false;
 	}
 	return true;
@@ -285,11 +286,11 @@ bool CrowListener::ReloadTLS()
 #ifdef CROW_ENABLE_SSL
 	if( !m_Secure )
 	{
-		std::cout << "TLS reload skipped — TLS is not enabled." << std::endl;
+		LOG_INFO( "TLS reload skipped — TLS is not enabled." );
 		return true;
 	}
 
-	std::cout << "TLS: Reloading certificate..." << std::endl;
+	LOG_INFO( "TLS: Reloading certificate..." );
 
 	LogCertExpiry( m_CertPath );
 
@@ -300,20 +301,20 @@ bool CrowListener::ReloadTLS()
 		auto* sslCtx = SSL_CTX_new( TLS_server_method() );
 		if( !sslCtx )
 		{
-			std::cerr << "TLS reload failed: unable to create new SSL context." << std::endl;
+			LOG_ERROR( "TLS reload failed: unable to create new SSL context." );
 			return false;
 		}
 
 		if( SSL_CTX_use_certificate_chain_file( sslCtx, m_CertPath.c_str() ) != 1 )
 		{
-			std::cerr << "TLS reload failed: unable to load certificate." << std::endl;
+			LOG_ERROR( "TLS reload failed: unable to load certificate." );
 			SSL_CTX_free( sslCtx );
 			return false;
 		}
 
 		if( SSL_CTX_use_PrivateKey_file( sslCtx, m_KeyPath.c_str(), SSL_FILETYPE_PEM ) != 1 )
 		{
-			std::cerr << "TLS reload failed: unable to load private key." << std::endl;
+			LOG_ERROR( "TLS reload failed: unable to load private key." );
 			SSL_CTX_free( sslCtx );
 			return false;
 		}
@@ -321,7 +322,7 @@ bool CrowListener::ReloadTLS()
 		SSL_CTX_free( sslCtx );
 
 		// Validated successfully — now do a graceful server restart
-		std::cout << "TLS: Certificate validated, restarting server..." << std::endl;
+		LOG_INFO( "TLS: Certificate validated, restarting server..." );
 		m_App.stop();
 		if( m_ServerThread.joinable() )
 			m_ServerThread.join();
@@ -340,7 +341,7 @@ bool CrowListener::ReloadTLS()
 			}
 			catch( const std::exception& e )
 			{
-				std::cerr << "Server error after TLS reload: " << e.what() << std::endl;
+				LOG_ERROR( "Server error after TLS reload: %s", e.what() );
 			}
 		});
 
@@ -348,16 +349,16 @@ bool CrowListener::ReloadTLS()
 		std::error_code ec;
 		m_LastCertModTime = std::filesystem::last_write_time( m_CertPath, ec );
 
-		std::cout << "TLS: Certificate reloaded successfully." << std::endl;
+		LOG_INFO( "TLS: Certificate reloaded successfully." );
 		return true;
 	}
 	catch( const std::exception& e )
 	{
-		std::cerr << "TLS reload failed: " << e.what() << std::endl;
+		LOG_ERROR( "TLS reload failed: %s", e.what() );
 		return false;
 	}
 #else
-	std::cout << "TLS reload skipped — CROW_ENABLE_SSL not compiled in." << std::endl;
+	LOG_INFO( "TLS reload skipped — CROW_ENABLE_SSL not compiled in." );
 	return false;
 #endif
 }
@@ -385,7 +386,7 @@ void CrowListener::CertMonitorLoop()
 
 		if( currentModTime != m_LastCertModTime )
 		{
-			std::cout << "TLS: Certificate file changed on disk, triggering reload..." << std::endl;
+			LOG_INFO( "TLS: Certificate file changed on disk, triggering reload..." );
 			ReloadTLS();
 		}
 	}
@@ -396,7 +397,7 @@ void CrowListener::Start()
 {
 	if( !ConfigureSSL() )
 	{
-		std::cerr << "Server failed to start due to TLS configuration error." << std::endl;
+		LOG_ERROR( "Server failed to start due to TLS configuration error." );
 		return;
 	}
 
@@ -415,17 +416,17 @@ void CrowListener::Start()
 			}
 			catch( const std::exception& e )
 			{
-				std::cerr << "Server error: " << e.what() << std::endl;
+				LOG_ERROR( "Server error: %s", e.what() );
 			}
 		});
 	}
 	catch( const std::exception& e )
 	{
-		std::cerr << "Failed to start server on " << bindAddr << ":" << m_Port << " — " << e.what() << std::endl;
+		LOG_ERROR( "Failed to start server on %s:%d — %s", bindAddr.c_str(), m_Port, e.what() );
 		return;
 	}
 
-	printf( "Crow server started on %s:%d (%s)\n", m_Hostname.c_str(), m_Port, m_Secure ? "HTTPS" : "HTTP" );
+	LOG_INFO( "Crow server started on %s:%d (%s)", m_Hostname.c_str(), m_Port, m_Secure ? "HTTPS" : "HTTP" );
 
 	// Start cert file monitor if TLS is active
 	if( m_Secure && !m_CertPath.empty() )

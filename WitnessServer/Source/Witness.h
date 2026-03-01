@@ -7,6 +7,7 @@
 #include "ImageProcessorWorker.h"
 #include "CameraWorker.h"
 #include "WatchdogWorker.h"
+#include "ClipReprocessWorker.h"
 #include "CameraState.h"
 #include <ImageProcessingJob.h>
 
@@ -56,6 +57,7 @@ private:
 	std::unique_ptr<AsyncWorker> Worker;
 	std::unique_ptr<WatchdogWorker> Watchdog;
 	std::unique_ptr<TimerWorker> Timer;
+	std::unique_ptr<ClipReprocessWorker> ReprocessWorker;
 	std::unique_ptr<CrowListener>	Server;
 	std::shared_ptr<GlobalContext> Context;
 	std::shared_ptr<MessageBusQueue> MessageClient;
@@ -69,4 +71,5 @@ private:
 	VideoSettings Video;
 
 	std::string CachePath;
+	bool AllCamerasReported = false;
 };

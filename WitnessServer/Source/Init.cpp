@@ -6,6 +6,8 @@
 #include "ClipHelpers.h"
 #include "Database.h"
 
+#include <Log.h>
+#include <ONNXDetectionFilter.h>
 
 #include <filesystem>
 #ifdef _WIN32
@@ -63,11 +65,11 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 		SetupServer setup( Database, staticRoot );
 		if( !setup.Run() )
 		{
-			std::cerr << "Setup was not completed. Exiting." << std::endl;
+			LOG_ERROR( "Setup was not completed. Exiting." );
 			return false;
 		}
 
-		std::cout << "Setup complete. Starting production server..." << std::endl;
+		LOG_INFO( "Setup complete. Starting production server..." );
 	}
 
 	std::unordered_map< std::string, std::string > Settings;
@@ -98,7 +100,7 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 
 	if (!Success)
 	{
-		std::cout << Errors << std::endl;
+		LOG_ERROR( "%s", Errors.c_str() );
 		return false;
 	}
 
@@ -106,6 +108,46 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 	Success &= GetSettingsField(Settings, "clip_leadin", Video.ClipHistoryPeriod, Errors);
 	Success &= GetSettingsField(Settings, "default_background_algorithm", Video.MotionFilterName, Errors);
 	Success &= GetSettingsField(Settings, "export_motion_vectors", Video.ExportMotionVectors, Errors);
+
+	// Detection settings
+	{
+		std::string detectionBackend;
+		if( GetSettingsField( Settings, "detection_backend", detectionBackend, Errors ) && detectionBackend == "onnx" )
+		{
+			Video.DetectionEnabled = true;
+		}
+		GetSettingsField( Settings, "detection_model_path", Video.DetectionModelPath, Errors );
+		GetSettingsField( Settings, "detection_confidence", Video.DetectionConfidence, Errors );
+		GetSettingsField( Settings, "detection_max_fps", Video.DetectionMaxFPS, Errors );
+
+		std::string detectionProvider;
+		if( GetSettingsField( Settings, "detection_provider", detectionProvider, Errors ) && detectionProvider == "gpu" )
+		{
+			Video.DetectionUseGPU = true;
+		}
+		GetSettingsField( Settings, "cudnn_path", Video.DetectionCudnnPath, Errors );
+
+		// Default model path if not set
+		if( Video.DetectionEnabled && Video.DetectionModelPath.empty() )
+		{
+#ifdef _WIN32
+			wchar_t modelExeBuf[MAX_PATH] = {};
+			GetModuleFileNameW( nullptr, modelExeBuf, MAX_PATH );
+			auto defaultModel = std::filesystem::path( modelExeBuf ).parent_path() / "models" / "yolo26n.onnx";
+#else
+			auto defaultModel = std::filesystem::canonical( "/proc/self/exe" ).parent_path() / "models" / "yolo26n.onnx";
+#endif
+			if( std::filesystem::exists( defaultModel ) )
+			{
+				Video.DetectionModelPath = defaultModel.string();
+			}
+			else
+			{
+				LOG_WARNING( "Detection enabled but no model found at: %s", defaultModel.string().c_str() );
+				Video.DetectionEnabled = false;
+			}
+		}
+	}
 
 	if( !CreateListener( Settings ) )
 	{
@@ -134,7 +176,7 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 	void* ServerMessageClient = nullptr;
 	MessageClient = Context->MessageBus->AddClient( ServerMessageClient );
 
-	std::cout << "Starting web server..." << std::endl;
+	LOG_INFO( "Starting web server..." );
 
 	Server->Initialise( Settings );
 
@@ -143,10 +185,29 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 
 	const int DaysToDelete = 10;
 
-	DeleteOldClips( *Context, DaysToDelete );
-	Timer->AddTimer( [&](){
-		DeleteOldClips( *Context, DaysToDelete );
-	}, 5 * 60 );
+	// Clip cleanup — disabled by default until verified safe
+	std::string clipCleanupEnabled;
+	GetSettingsField( Settings, "clip_cleanup_enabled", clipCleanupEnabled, Errors );
+	if( clipCleanupEnabled == "true" )
+	{
+		std::string clipRetentionStr;
+		int retentionDays = DaysToDelete;
+		if( GetSettingsField( Settings, "clip_retention_days", clipRetentionStr, Errors ) && !clipRetentionStr.empty() )
+		{
+			int parsed = std::atoi( clipRetentionStr.c_str() );
+			if( parsed > 0 ) retentionDays = parsed;
+		}
+
+		LOG_INFO( "Clip cleanup enabled: deleting clips older than %d days.", retentionDays );
+		DeleteOldClips( *Context, retentionDays );
+		Timer->AddTimer( [this, retentionDays](){
+			DeleteOldClips( *Context, retentionDays );
+		}, 5 * 60 );
+	}
+	else
+	{
+		LOG_INFO( "Clip cleanup disabled. Old clips will not be deleted." );
+	}
 
 	try
 	{
@@ -154,15 +215,51 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 	}
 	catch( std::exception& Exception)
 	{
-		std::cerr << "Unable to start server: " << Exception.what() << std::endl;
+		LOG_ERROR( "Unable to start server: %s", Exception.what() );
 		return 1;
 	}
 
-	std::cout << "Starting camera workers..." << std::endl;
+	LOG_INFO( "Starting camera workers..." );
 
 	StartCameraWorkers();
 
-	std::cout << "Server boot complete..." << std::endl;
+	// Start clip reprocessor if detection is enabled
+	if( Video.DetectionEnabled )
+	{
+		auto reprocessFilter = std::make_shared<Witness::Camera::ONNXDetectionFilter>(
+			Witness::Camera::MotionChainNode{},
+			Video.DetectionModelPath.c_str(),
+			(float)Video.DetectionConfidence,
+			Video.DetectionUseGPU,
+			0.0f,
+			Video.DetectionCudnnPath.empty() ? nullptr : Video.DetectionCudnnPath.c_str()
+		);
+
+		if( reprocessFilter->IsModelLoaded() )
+		{
+			auto ctx = Context;
+			ReprocessWorker = std::make_unique<ClipReprocessWorker>(
+				Context->MessageBus,
+				Context->Database,
+				reprocessFilter,
+				CachePath,
+				[ctx]() -> bool
+				{
+					std::lock_guard<std::mutex> lock( ctx->Mutex );
+					for( auto& [id, state] : ctx->GetCameraMap() )
+					{
+						if( state.IsRecording )
+							return false;
+					}
+					return true;
+				}
+			);
+			ReprocessWorker->Start( WorkerBase::Priority::LowPriority );
+			LOG_INFO( "Clip reprocessor started (detection version %d)", CURRENT_DETECTION_VERSION );
+		}
+	}
+
+	LOG_INFO( "Server boot complete..." );
 
 	return true;
 }
@@ -184,7 +281,7 @@ bool WitnessServer::CreateListener( const std::unordered_map< std::string, std::
 
 	if (SplitHostname.size() != 2)
 	{
-		std::cerr << "Hostname is invalid:" << Hostname << std::endl;
+		LOG_ERROR( "Hostname is invalid:%s", Hostname.c_str() );
 		return false;
 	}
 
@@ -209,7 +306,7 @@ bool WitnessServer::CreateListener( const std::unordered_map< std::string, std::
 
 	if (!Success)
 	{
-		std::cout << Errors << std::endl;
+		LOG_ERROR( "%s", Errors.c_str() );
 		return false;
 	}
 
@@ -292,7 +389,7 @@ void WitnessServer::StartCamera(const SQLiteDatabaseQuery& query)
 
 	if (Camera.Enabled)
 	{
-		std::cout << "Starting " << Camera.Name << " camera..." << std::endl;
+		LOG_INFO( "Starting %s camera...", Camera.Name.c_str() );
 
 		auto Worker = std::make_shared<CameraWorker>(Video, Camera, Context->MessageBus, Context);
 		Worker->Start(WorkerBase::Priority::HighPriority);
@@ -304,7 +401,7 @@ void WitnessServer::StartCamera(const SQLiteDatabaseQuery& query)
 	}
 	else
 	{
-		std::cout << "Skipping " << Camera.Name << " camera, it's disabled..." << std::endl;
+		LOG_INFO( "Skipping %s camera, it's disabled...", Camera.Name.c_str() );
 	}
 }
 

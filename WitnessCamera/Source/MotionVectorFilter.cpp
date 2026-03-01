@@ -27,6 +27,7 @@
 #include <map>
 
 #include "FilterData.h"
+#include <Log.h>
 
 using namespace cv;
 
@@ -441,11 +442,21 @@ MotionVectorFilter::MotionVectorFilter( const MotionChainNode& Chain, const char
 	if( ID.hasBlackoutMask )
 	{
 		ID.blackoutMaskOriginal = cv::imread(BlackoutMaskPathStr, IMREAD_GRAYSCALE );
+		if( ID.blackoutMaskOriginal.empty() )
+		{
+			LOG_WARNING( "Blackout mask not found: %s", BlackoutMaskPathStr.c_str() );
+			ID.hasBlackoutMask = false;
+		}
 	}
 
 	if( ID.hasFocusMask )
 	{
 		ID.focusMaskOriginal = cv::imread(FocusMaskPathStr, IMREAD_GRAYSCALE );
+		if( ID.focusMaskOriginal.empty() )
+		{
+			LOG_WARNING( "Focus mask not found: %s", FocusMaskPathStr.c_str() );
+			ID.hasFocusMask = false;
+		}
 	}
 
 	ID.MVSinceKF = 0;
@@ -484,12 +495,12 @@ void MotionVectorFilter::UpdateMasks( unsigned int Width, unsigned int Height )
 {
 	auto& ID = GetData();
 
-	if( ID.hasBlackoutMask )
+	if( ID.hasBlackoutMask && !ID.blackoutMaskOriginal.empty() )
 	{
 		cv::resize( ID.blackoutMaskOriginal, ID.blackoutMask, cv::Size(Width, Height), 0.0, 0.0, INTER_AREA );
 	}
 
-	if( ID.hasFocusMask )
+	if( ID.hasFocusMask && !ID.focusMaskOriginal.empty() )
 	{
 		cv::resize( ID.focusMaskOriginal, ID.focusMask, cv::Size(Width, Height), 0.0, 0.0, INTER_AREA );
 	}

@@ -4,8 +4,8 @@
 #include "StreamData.h"
 #include "ImageProcessingData.h"
 
+#include <Log.h>
 #include <vector>
-#include <iostream>
 #include <chrono>
 
 namespace Witness{
@@ -333,7 +333,7 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 							printf("Source %d: Total %.2fms, Scale: %.2fms, MD: %.2fms, 2p: %.2fms\n", UniqueSourceID, (float)Total, (float)Scale, (float)MD, (float)SP );
 							*/
 
-							printf("Backlog full for source %d\n", JobIn->Frame.SourceID);
+							LOG_WARNING("Backlog full for source %d", JobIn->Frame.SourceID);
 
 							Queue->RemoveAllForSource(JobIn->Frame.SourceID);
 							//CommonJobQueue->ResetStats(UniqueSourceID);
@@ -351,7 +351,7 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 						printf("Source %d: Total %.2fms, Scale: %.2fms, MD: %.2fms, 2p: %.2fms\n", UniqueSourceID, (float)Total, (float)Scale, (float)MD, (float)SP );
 						*/
 
-						printf("Backlog full for source %d\n", UniqueSourceID);
+						LOG_WARNING("Backlog full for source %d", UniqueSourceID);
 
 						CommonJobQueue->RemoveAllForSource(UniqueSourceID);
 						//CommonJobQueue->ResetStats(UniqueSourceID);

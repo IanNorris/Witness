@@ -69,9 +69,6 @@ namespace Installer
 		[SettingName("server_tls_key")]
 		public string TlsKeyPath { get; set; } = null;
 
-		[SettingName("server_root")]
-		public string WebRoot { get; set; } = null;
-
 		[SettingName("server_cache")]
 		public string Cache { get; set; } = "C:\\WitnessCache";
 
