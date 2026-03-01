@@ -2,6 +2,7 @@
 import { ref, onMounted, onUnmounted } from 'vue'
 import type { Camera } from '../../types/camera'
 import { useSettingsStore } from '../../stores/settings'
+import HlsPlayer from './HlsPlayer.vue'
 
 const props = defineProps<{
   camera: Camera
@@ -28,7 +29,6 @@ function refreshPreview() {
 
 onMounted(() => {
   refreshPreview()
-  // JPEG preview refresh — only used in JPEG mode or as HLS fallback
   if (settings.streamingMode === 'jpeg') {
     refreshTimer = setInterval(refreshPreview, 2000)
   }
@@ -42,21 +42,19 @@ onUnmounted(() => {
 <template>
   <div class="camera-card" @dblclick="emit('openStream', camera.id)">
     <div class="camera-preview">
+      <!-- HLS preview mode -->
+      <HlsPlayer
+        v-if="settings.streamingMode === 'hls' && isConnected"
+        :camera-id="camera.id"
+      />
+
       <!-- JPEG preview mode -->
       <img
-        v-if="imgSrc && settings.streamingMode === 'jpeg'"
+        v-else-if="imgSrc && settings.streamingMode === 'jpeg'"
         :src="imgSrc"
         :alt="camera.name"
         loading="lazy"
       />
-
-      <!-- HLS mode placeholder — will be replaced with HLS component in Step 4 -->
-      <div
-        v-else-if="settings.streamingMode === 'hls' && isConnected"
-        class="d-flex align-items-center justify-content-center h-100 text-muted-custom small"
-      >
-        HLS Preview
-      </div>
 
       <!-- Disconnected state -->
       <div v-if="!isConnected" class="camera-overlay connection-lost">
