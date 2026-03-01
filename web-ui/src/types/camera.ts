@@ -21,13 +21,15 @@ export interface CameraEnumResponse {
 }
 
 export interface CameraData {
-  ID: number
-  Name: string
-  Status: string
-  IsRecording: boolean
-  Groups: string
-  FPS: number
-  Bitrate: number
-  Uptime: string
-  Reconnects: number
+  id: number
+  name: string
+  status: string
+  recording: boolean
+  groups: number[]
+  description: string
+  enabled: number
+  lastTimestamp: number
+  frameCount: number
+  connectionString?: string
+  connectionStringSub?: string
 }

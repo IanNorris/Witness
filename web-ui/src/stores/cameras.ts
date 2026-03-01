@@ -10,18 +10,18 @@ export const useCameraStore = defineStore('cameras', () => {
 
   function parseCameraData(data: CameraData[]): Camera[] {
     return data.map((c) => ({
-      id: c.ID,
-      name: c.Name,
-      status: c.Status,
-      isRecording: c.IsRecording,
-      groups: c.Groups ? c.Groups.split(',').map(Number).filter(Boolean) : [],
-      previewUrl: `/camera/preview/${c.ID}`,
-      streamUrl: `/stream/${c.ID}/playlist`,
+      id: c.id,
+      name: c.name,
+      status: c.status ?? 'Unknown',
+      isRecording: c.recording ?? false,
+      groups: Array.isArray(c.groups) ? c.groups : [],
+      previewUrl: `/camera/preview/${c.id}`,
+      streamUrl: `/stream/${c.id}/playlist`,
       stats: {
-        fps: c.FPS,
-        bitrate: c.Bitrate,
-        uptime: c.Uptime,
-        reconnects: c.Reconnects,
+        fps: 0,
+        bitrate: 0,
+        uptime: '',
+        reconnects: 0,
       },
     }))
   }

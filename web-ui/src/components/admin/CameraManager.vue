@@ -9,6 +9,7 @@ const loading = ref(true)
 interface AdminCamera {
   id: number
   displayName: string
+  name: string
   description: string
   connectionString: string
   status: string
@@ -110,7 +111,7 @@ onMounted(fetchCameras)
       <tbody>
         <tr v-for="cam in cameras" :key="cam.id">
           <td>{{ cam.id }}</td>
-          <td>{{ cam.displayName }}</td>
+          <td>{{ cam.displayName || cam.name }}</td>
           <td>
             <span class="badge" :class="cam.status === 'Connected' ? 'bg-success' : 'bg-danger'">
               {{ cam.status }}

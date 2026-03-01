@@ -49,6 +49,11 @@ const router = createRouter({
 router.beforeEach(async (to: RouteLocationNormalized) => {
   const auth = useAuthStore()
 
+  // Don't check auth for the login page
+  if (to.path === '/login') {
+    return
+  }
+
   if (auth.isLoading) {
     await auth.fetchProfile()
   }
