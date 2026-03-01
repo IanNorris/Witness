@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue'
+import { ref, watch, nextTick, computed } from 'vue'
 
 const props = defineProps<{
   show: boolean
@@ -7,6 +7,8 @@ const props = defineProps<{
   label: string
   modelValue?: string
   submitText?: string
+  inputType?: string
+  confirm?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -15,11 +17,15 @@ const emit = defineEmits<{
 }>()
 
 const inputVal = ref('')
+const confirmVal = ref('')
 const inputRef = ref<HTMLInputElement | null>(null)
+
+const mismatch = computed(() => props.confirm && inputVal.value !== confirmVal.value)
 
 watch(() => props.show, async (v) => {
   if (v) {
     inputVal.value = props.modelValue ?? ''
+    confirmVal.value = ''
     await nextTick()
     inputRef.value?.focus()
     inputRef.value?.select()
@@ -27,6 +33,7 @@ watch(() => props.show, async (v) => {
 })
 
 function onSubmit() {
+  if (mismatch.value) return
   emit('submit', inputVal.value)
 }
 
@@ -51,13 +58,27 @@ function onKeydown(e: KeyboardEvent) {
               <input
                 ref="inputRef"
                 v-model="inputVal"
+                :type="inputType ?? 'text'"
                 class="form-control form-control-sm"
                 required
               />
+              <div v-if="confirm" class="mt-2">
+                <label class="form-label small">Confirm {{ label.toLowerCase() }}</label>
+                <input
+                  v-model="confirmVal"
+                  :type="inputType ?? 'text'"
+                  class="form-control form-control-sm"
+                  :class="{ 'is-invalid': confirmVal && mismatch }"
+                  required
+                />
+                <div v-if="confirmVal && mismatch" class="invalid-feedback">
+                  Values do not match
+                </div>
+              </div>
             </div>
             <div class="modal-footer border-secondary py-2">
               <button type="button" class="btn btn-sm btn-secondary" @click="emit('cancel')">Cancel</button>
-              <button type="submit" class="btn btn-sm btn-primary">
+              <button type="submit" class="btn btn-sm btn-primary" :disabled="!!(confirm && mismatch)">
                 {{ submitText ?? 'OK' }}
               </button>
             </div>

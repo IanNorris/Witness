@@ -34,7 +34,7 @@ export async function api<T = unknown>(
 
   if (!response.ok) {
     if ((response.status === 401 || response.status === 403) && redirectOnFail) {
-      window.location.replace('/witness2/')
+      window.location.replace('/witness2/login')
       throw new Error('Unauthorized')
     }
     throw new Error(`API error: ${response.status} ${response.statusText}`)

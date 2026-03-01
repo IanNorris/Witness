@@ -25,6 +25,8 @@ const showInput = ref(false)
 const inputTitle = ref('')
 const inputLabel = ref('')
 const inputValue = ref('')
+const inputType = ref('text')
+const inputConfirm = ref(false)
 const inputAction = ref<((val: string) => void) | null>(null)
 
 const showConfirm = ref(false)
@@ -53,6 +55,8 @@ function addUser() {
   inputTitle.value = 'Add User'
   inputLabel.value = 'Username'
   inputValue.value = ''
+  inputType.value = 'text'
+  inputConfirm.value = false
   inputAction.value = async (username) => {
     if (!username) return
     const data = await api<{ username: string; password: string }>('/auth/new_user', {
@@ -87,6 +91,8 @@ function setDisplayName(user: User) {
   inputTitle.value = 'Set Display Name'
   inputLabel.value = 'Display name'
   inputValue.value = user.displayName
+  inputType.value = 'text'
+  inputConfirm.value = false
   inputAction.value = async (name) => {
     await api('/auth/set_display_name', {
       method: 'POST',
@@ -101,6 +107,8 @@ function changePassword(user: User) {
   inputTitle.value = `Change Password — ${user.displayName || user.username}`
   inputLabel.value = 'New password'
   inputValue.value = ''
+  inputType.value = 'password'
+  inputConfirm.value = true
   inputAction.value = async (password) => {
     if (!password) return
     await api('/auth/change_password', {
@@ -213,6 +221,8 @@ onMounted(fetchUsers)
       :title="inputTitle"
       :label="inputLabel"
       :model-value="inputValue"
+      :input-type="inputType"
+      :confirm="inputConfirm"
       @submit="onInputSubmit"
       @cancel="showInput = false"
     />
