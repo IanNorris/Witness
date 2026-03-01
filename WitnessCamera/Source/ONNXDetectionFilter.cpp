@@ -536,9 +536,18 @@ bool ONNXDetectionFilter::ProcessFrame( SharedClassificationTask TaskData )
 	}
 
 	// Get the decoded BGR frame from the pipeline
-	cv::Mat& frame = TaskData->Frame.GetOrDecodeFrame();
-	if( frame.empty() )
+	cv::Mat& rawFrame = TaskData->Frame.GetOrDecodeFrame();
+	if( rawFrame.empty() )
 		return false;
+
+	// Apply CLAHE for night/IR frames to improve detection
+	cv::Mat enhancedFrame;
+	cv::Mat& frame = rawFrame;
+	if( ClassifyLighting( rawFrame ) == LightingCondition::Night )
+	{
+		enhancedFrame = ApplyCLAHE( rawFrame );
+		frame = enhancedFrame;
+	}
 
 	int origWidth = frame.cols;
 	int origHeight = frame.rows;
@@ -1101,6 +1110,53 @@ std::vector<DetectionResult> ONNXDetectionFilter::DetectFrame( const cv::Mat& bg
 	}
 
 	return results;
+}
+
+LightingCondition ClassifyLighting( const cv::Mat& bgrFrame )
+{
+	if( bgrFrame.empty() )
+		return LightingCondition::Unknown;
+
+	// Convert to HSV to analyze brightness (V) and color saturation (S)
+	cv::Mat hsv;
+	cv::cvtColor( bgrFrame, hsv, cv::COLOR_BGR2HSV );
+
+	cv::Scalar meanVal = cv::mean( hsv );
+	double meanSaturation = meanVal[1];
+	double meanBrightness = meanVal[2];
+
+	// Low brightness = night, regardless of saturation
+	// IR cameras produce low-saturation grayscale even at moderate brightness
+	if( meanBrightness < 60.0 )
+		return LightingCondition::Night;
+
+	// Moderate brightness but very low saturation = IR illuminated (grayscale)
+	if( meanSaturation < 25.0 )
+		return LightingCondition::Night;
+
+	return LightingCondition::Day;
+}
+
+cv::Mat ApplyCLAHE( const cv::Mat& bgrFrame, double clipLimit, int tileSize )
+{
+	if( bgrFrame.empty() )
+		return bgrFrame;
+
+	// Convert to LAB color space, apply CLAHE to L channel
+	cv::Mat lab;
+	cv::cvtColor( bgrFrame, lab, cv::COLOR_BGR2Lab );
+
+	std::vector<cv::Mat> labChannels;
+	cv::split( lab, labChannels );
+
+	auto clahe = cv::createCLAHE( clipLimit, cv::Size( tileSize, tileSize ) );
+	clahe->apply( labChannels[0], labChannels[0] );
+
+	cv::merge( labChannels, lab );
+
+	cv::Mat result;
+	cv::cvtColor( lab, result, cv::COLOR_Lab2BGR );
+	return result;
 }
 
 }}

@@ -108,6 +108,7 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 		UpdateClipDetection->Bind( "@ClipUID", clipUID );
 		UpdateClipDetection->Bind( "@Tags", existingTags.c_str() );
 		UpdateClipDetection->Bind( "@DetectionVersion", CURRENT_DETECTION_VERSION );
+		UpdateClipDetection->Bind( "@Lighting", 0 );
 		UpdateClipDetection->Execute( nullptr );
 		LOG_DEBUG( "ClipReprocess: Clip %lld file not found, skipping: %s", (long long)clipUID, clipPath.c_str() );
 		return;
@@ -190,6 +191,7 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 		durationSec = (double)videoStream->duration * av_q2d( videoStream->time_base );
 
 	std::set<std::string> detectedTags;
+	Witness::Camera::LightingCondition lighting = Witness::Camera::LightingCondition::Unknown;
 	AVPacket* pkt = av_packet_alloc();
 	AVFrame* frame = av_frame_alloc();
 	AVFrame* bgrFrame = av_frame_alloc();
@@ -235,8 +237,17 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 
 					cv::Mat mat( frameHeight, frameWidth, CV_8UC3, bgrFrame->data[0], bgrFrame->linesize[0] );
 
-					// Run ONNX detection
-					auto detections = DetectionFilter->DetectFrame( mat );
+				// Classify lighting on first frame
+				if( !baselineCaptured )
+					lighting = Witness::Camera::ClassifyLighting( mat );
+
+				// Apply CLAHE for night/IR frames to improve detection
+				cv::Mat detectionMat = ( lighting == Witness::Camera::LightingCondition::Night )
+					? Witness::Camera::ApplyCLAHE( mat )
+					: mat;
+
+				// Run ONNX detection
+				auto detections = DetectionFilter->DetectFrame( detectionMat );
 
 					if( !baselineCaptured )
 					{
@@ -307,6 +318,7 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 		UpdateClipDetection->Bind( "@ClipUID", clipUID );
 		UpdateClipDetection->Bind( "@Tags", tagString.c_str() );
 		UpdateClipDetection->Bind( "@DetectionVersion", CURRENT_DETECTION_VERSION );
+		UpdateClipDetection->Bind( "@Lighting", (int)lighting );
 		UpdateClipDetection->Execute( nullptr );
 	}
 

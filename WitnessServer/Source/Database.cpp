@@ -386,7 +386,7 @@ namespace Database
 
 	std::string UpdateClipDetection = R"RAW(
 		UPDATE Clip
-		SET Tags = @Tags, DetectionVersion = @DetectionVersion
+		SET Tags = @Tags, DetectionVersion = @DetectionVersion, Lighting = @Lighting
 		WHERE ClipUID = @ClipUID;
 	)RAW";
 
@@ -477,6 +477,7 @@ namespace Database
 
 		// Schema migrations for existing databases (errors ignored if column already exists)
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Clip ADD COLUMN DetectionVersion INT DEFAULT 0;", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Clip ADD COLUMN Lighting INT DEFAULT 0;", nullptr, nullptr, nullptr );
 
 		CREATE_QUERY( GetSetting );
 		CREATE_QUERY( GetAllSettings );
