@@ -207,9 +207,10 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 
 	// Sample frames at 2-second intervals
 	// First frame is used as baseline - objects present before motion are filtered out
+	// Uses spatial IoU matching: a detection is filtered only if same class AND >50% overlap
 	double sampleInterval = 2.0;
 	double currentTime = 0.0;
-	std::set<std::string> baselineTags;
+	std::vector<Witness::Camera::DetectionResult> baselineDetections;
 	bool baselineCaptured = false;
 
 	while( currentTime <= durationSec || currentTime == 0.0 )
@@ -237,31 +238,53 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 
 					cv::Mat mat( frameHeight, frameWidth, CV_8UC3, bgrFrame->data[0], bgrFrame->linesize[0] );
 
-				// Classify lighting on first frame
-				if( !baselineCaptured )
-					lighting = Witness::Camera::ClassifyLighting( mat );
+					// Classify lighting on first frame
+					if( !baselineCaptured )
+						lighting = Witness::Camera::ClassifyLighting( mat );
 
-				// Apply CLAHE for night/IR frames to improve detection
-				cv::Mat detectionMat = ( lighting == Witness::Camera::LightingCondition::Night )
-					? Witness::Camera::ApplyCLAHE( mat )
-					: mat;
+					// Apply CLAHE for night/IR frames to improve detection
+					cv::Mat detectionMat = ( lighting == Witness::Camera::LightingCondition::Night )
+						? Witness::Camera::ApplyCLAHE( mat )
+						: mat;
 
-				// Run ONNX detection
-				auto detections = DetectionFilter->DetectFrame( detectionMat );
+					// Run ONNX detection
+					auto detections = DetectionFilter->DetectFrame( detectionMat );
 
 					if( !baselineCaptured )
 					{
-						// First frame: capture as baseline
-						for( auto& det : detections )
-							baselineTags.insert( det.ClassName );
+						// First frame: capture all detections as baseline (with bounding boxes)
+						baselineDetections = detections;
 						baselineCaptured = true;
 					}
 					else
 					{
-						// Subsequent frames: only keep detections not in baseline
+						// Subsequent frames: filter out detections matching baseline by class + IoU
 						for( auto& det : detections )
 						{
-							if( baselineTags.find( det.ClassName ) == baselineTags.end() )
+							bool isBaseline = false;
+							for( auto& base : baselineDetections )
+							{
+								if( det.ClassId != base.ClassId )
+									continue;
+								// Compute IoU between detection and baseline bounding boxes
+								float ix1 = std::max( det.X1, base.X1 );
+								float iy1 = std::max( det.Y1, base.Y1 );
+								float ix2 = std::min( det.X2, base.X2 );
+								float iy2 = std::min( det.Y2, base.Y2 );
+								float iw = std::max( 0.0f, ix2 - ix1 );
+								float ih = std::max( 0.0f, iy2 - iy1 );
+								float intersection = iw * ih;
+								float areaA = ( det.X2 - det.X1 ) * ( det.Y2 - det.Y1 );
+								float areaB = ( base.X2 - base.X1 ) * ( base.Y2 - base.Y1 );
+								float unionArea = areaA + areaB - intersection;
+								float iou = unionArea > 0.0f ? intersection / unionArea : 0.0f;
+								if( iou > 0.5f )
+								{
+									isBaseline = true;
+									break;
+								}
+							}
+							if( !isBaseline )
 								detectedTags.insert( det.ClassName );
 						}
 					}

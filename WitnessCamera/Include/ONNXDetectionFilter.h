@@ -24,6 +24,8 @@ struct CAMERA_API DetectionResult
 	int ClassId;
 	float Confidence;
 	std::string ClassName;
+	// Normalized bounding box (0.0-1.0 relative to frame dimensions)
+	float X1, Y1, X2, Y2;
 };
 
 class CAMERA_API ONNXDetectionFilter : public RecordFilterBase<ONNXDetectionFilterData>

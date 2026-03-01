@@ -1038,6 +1038,11 @@ std::vector<DetectionResult> ONNXDetectionFilter::DetectFrame( const cv::Mat& bg
 			r.ClassId = classId;
 			r.Confidence = score;
 			r.ClassName = COCOClassNames[classId];
+			// Remap from letterboxed to normalized original coords
+			r.X1 = std::max( 0.0f, ( row[0] - padX ) / ( origWidth * scale ) );
+			r.Y1 = std::max( 0.0f, ( row[1] - padY ) / ( origHeight * scale ) );
+			r.X2 = std::min( 1.0f, ( row[2] - padX ) / ( origWidth * scale ) );
+			r.Y2 = std::min( 1.0f, ( row[3] - padY ) / ( origHeight * scale ) );
 			results.push_back( r );
 		}
 	}
@@ -1104,6 +1109,24 @@ std::vector<DetectionResult> ONNXDetectionFilter::DetectFrame( const cv::Mat& bg
 				r.ClassId = bestClass;
 				r.Confidence = bestScore;
 				r.ClassName = COCOClassNames[bestClass];
+				// Extract cx, cy, w, h and convert to normalized coords
+				float cx, cy, bw, bh;
+				if( transposed )
+				{
+					cx = outputData[0 * numDetections + i];
+					cy = outputData[1 * numDetections + i];
+					bw = outputData[2 * numDetections + i];
+					bh = outputData[3 * numDetections + i];
+				}
+				else
+				{
+					const float* row = outputData + i * numChannels;
+					cx = row[0]; cy = row[1]; bw = row[2]; bh = row[3];
+				}
+				r.X1 = std::max( 0.0f, ( cx - bw * 0.5f - padX ) / ( origWidth * scale ) );
+				r.Y1 = std::max( 0.0f, ( cy - bh * 0.5f - padY ) / ( origHeight * scale ) );
+				r.X2 = std::min( 1.0f, ( cx + bw * 0.5f - padX ) / ( origWidth * scale ) );
+				r.Y2 = std::min( 1.0f, ( cy + bh * 0.5f - padY ) / ( origHeight * scale ) );
 				results.push_back( r );
 			}
 		}
