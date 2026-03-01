@@ -451,5 +451,27 @@ void CrowListener::ServeStaticFile( const crow::request& req, crow::response& re
 		}
 	}
 
+	// SPA fallback: Vue Router paths under witness2/ should serve witness2/index.html
+	if( path.substr( 0, 9 ) == "witness2/" || path == "witness2" )
+	{
+		auto it = m_StaticFiles.find( "witness2/index.html" );
+		if( it != m_StaticFiles.end() )
+		{
+			fs::path fullPath = m_StaticRoot;
+			fullPath /= it->first;
+
+			std::ifstream file( fullPath, std::ios::binary );
+			if( file )
+			{
+				std::string body( (std::istreambuf_iterator<char>(file)),
+								  std::istreambuf_iterator<char>() );
+				res.set_header( "Content-Type", it->second );
+				res.body = std::move( body );
+				res.code = 200;
+				return;
+			}
+		}
+	}
+
 	res.code = 404;
 }

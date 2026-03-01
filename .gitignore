@@ -319,3 +319,6 @@ models/*.onnx
 models/*.pt
 
 clahe_examples/
+
+# Vue web-ui build output (served by WitnessServer)
+WitnessServer/Web/witness2/
