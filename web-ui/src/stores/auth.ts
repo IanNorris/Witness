@@ -36,21 +36,17 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function login(user: string, password: string): Promise<boolean> {
     try {
-      const result = await api<AuthProfile>('/auth/login', {
+      const response = await fetch('/auth/login', {
         method: 'POST',
-        body: { username: user, password },
-        redirectOnFail: false,
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username: user, password }),
       })
-      if (result && result.csrf) {
-        csrfToken.value = result.csrf
-        setCsrfToken(result.csrf)
-        username.value = result.username
-        displayName.value = result.displayName || result.username
-        isAdmin.value = result.admin
-        isAuthenticated.value = true
-        return true
-      }
-      return false
+      if (!response.ok) return false
+
+      // Login succeeded — session cookie is set. Now fetch profile for CSRF + user info.
+      await fetchProfile()
+      return isAuthenticated.value
     } catch {
       return false
     }
