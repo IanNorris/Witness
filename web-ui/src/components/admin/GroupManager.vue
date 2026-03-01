@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { api } from '../../composables/useApi'
+import InputModal from '../common/InputModal.vue'
+import ConfirmModal from '../common/ConfirmModal.vue'
 
 interface Group {
   id: number
@@ -10,6 +12,17 @@ interface Group {
 
 const groups = ref<Group[]>([])
 const loading = ref(true)
+
+// Modal state
+const showInput = ref(false)
+const inputTitle = ref('')
+const inputLabel = ref('')
+const inputValue = ref('')
+const inputAction = ref<((val: string) => void) | null>(null)
+
+const showConfirm = ref(false)
+const confirmMessage = ref('')
+const confirmAction = ref<(() => void) | null>(null)
 
 async function fetchGroups() {
   loading.value = true
@@ -21,24 +34,46 @@ async function fetchGroups() {
   }
 }
 
-async function addGroup() {
-  const name = prompt('Group name:')
-  if (!name) return
-  await api('/group/create', { method: 'POST', body: { displayName: name } })
-  await fetchGroups()
+function addGroup() {
+  inputTitle.value = 'Add Group'
+  inputLabel.value = 'Group name'
+  inputValue.value = ''
+  inputAction.value = async (name) => {
+    if (!name) return
+    await api('/group/create', { method: 'POST', body: { displayName: name } })
+    await fetchGroups()
+  }
+  showInput.value = true
 }
 
-async function renameGroup(group: Group) {
-  const name = prompt('New name:', group.displayName)
-  if (name === null) return
-  await api('/group/update', { method: 'POST', body: { id: group.id, displayName: name } })
-  group.displayName = name
+function renameGroup(group: Group) {
+  inputTitle.value = 'Rename Group'
+  inputLabel.value = 'New name'
+  inputValue.value = group.displayName
+  inputAction.value = async (name) => {
+    await api('/group/update', { method: 'POST', body: { id: group.id, displayName: name } })
+    group.displayName = name
+  }
+  showInput.value = true
 }
 
-async function deleteGroup(group: Group) {
-  if (!confirm(`Delete group "${group.displayName}"?`)) return
-  await api('/group/delete', { method: 'POST', body: { id: group.id } })
-  groups.value = groups.value.filter(g => g.id !== group.id)
+function deleteGroup(group: Group) {
+  confirmMessage.value = `Delete group "${group.displayName}"?`
+  confirmAction.value = async () => {
+    await api('/group/delete', { method: 'POST', body: { id: group.id } })
+    groups.value = groups.value.filter(g => g.id !== group.id)
+  }
+  showConfirm.value = true
+}
+
+function onInputSubmit(val: string) {
+  showInput.value = false
+  inputAction.value?.(val)
+}
+
+function onConfirm() {
+  showConfirm.value = false
+  confirmAction.value?.()
 }
 
 onMounted(fetchGroups)
@@ -77,5 +112,20 @@ onMounted(fetchGroups)
         </tr>
       </tbody>
     </table>
+
+    <InputModal
+      :show="showInput"
+      :title="inputTitle"
+      :label="inputLabel"
+      :model-value="inputValue"
+      @submit="onInputSubmit"
+      @cancel="showInput = false"
+    />
+    <ConfirmModal
+      :show="showConfirm"
+      :message="confirmMessage"
+      @confirm="onConfirm"
+      @cancel="showConfirm = false"
+    />
   </div>
 </template>

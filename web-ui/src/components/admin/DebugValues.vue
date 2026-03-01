@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { api } from '../../composables/useApi'
+import InputModal from '../common/InputModal.vue'
+import ConfirmModal from '../common/ConfirmModal.vue'
+import AlertModal from '../common/AlertModal.vue'
 
 interface DebugValue {
   name: string
@@ -9,6 +12,20 @@ interface DebugValue {
 
 const values = ref<DebugValue[]>([])
 const loading = ref(true)
+
+// Modal state
+const showInput = ref(false)
+const inputTitle = ref('')
+const inputLabel = ref('')
+const inputValue = ref('')
+const inputAction = ref<((val: string) => void) | null>(null)
+
+const showConfirm = ref(false)
+const confirmMessage = ref('')
+const confirmAction = ref<(() => void) | null>(null)
+
+const showAlert = ref(false)
+const alertMessage = ref('')
 
 async function fetchValues() {
   loading.value = true
@@ -20,11 +37,15 @@ async function fetchValues() {
   }
 }
 
-async function setValue(item: DebugValue) {
-  const val = prompt(`Set ${item.name}:`, item.value)
-  if (val === null) return
-  await api('/debug/set', { method: 'POST', body: { name: item.name, value: val } })
-  item.value = val
+function setValue(item: DebugValue) {
+  inputTitle.value = 'Set Debug Value'
+  inputLabel.value = item.name
+  inputValue.value = item.value
+  inputAction.value = async (val) => {
+    await api('/debug/set', { method: 'POST', body: { name: item.name, value: val } })
+    item.value = val
+  }
+  showInput.value = true
 }
 
 async function resetValue(item: DebugValue) {
@@ -32,12 +53,15 @@ async function resetValue(item: DebugValue) {
   await fetchValues()
 }
 
-async function resetAll() {
-  if (!confirm('Reset all debug values to defaults?')) return
-  for (const item of values.value) {
-    await api('/debug/reset', { method: 'POST', body: { name: item.name } })
+function resetAll() {
+  confirmMessage.value = 'Reset all debug values to defaults?'
+  confirmAction.value = async () => {
+    for (const item of values.value) {
+      await api('/debug/reset', { method: 'POST', body: { name: item.name } })
+    }
+    await fetchValues()
   }
-  await fetchValues()
+  showConfirm.value = true
 }
 
 async function reloadTls() {
@@ -45,7 +69,18 @@ async function reloadTls() {
     method: 'POST',
     body: {},
   })
-  alert(data.message)
+  alertMessage.value = data.message
+  showAlert.value = true
+}
+
+function onInputSubmit(val: string) {
+  showInput.value = false
+  inputAction.value?.(val)
+}
+
+function onConfirm() {
+  showConfirm.value = false
+  confirmAction.value?.()
 }
 
 onMounted(fetchValues)
@@ -87,5 +122,26 @@ onMounted(fetchValues)
         </tr>
       </tbody>
     </table>
+
+    <InputModal
+      :show="showInput"
+      :title="inputTitle"
+      :label="inputLabel"
+      :model-value="inputValue"
+      @submit="onInputSubmit"
+      @cancel="showInput = false"
+    />
+    <ConfirmModal
+      :show="showConfirm"
+      :message="confirmMessage"
+      @confirm="onConfirm"
+      @cancel="showConfirm = false"
+    />
+    <AlertModal
+      :show="showAlert"
+      title="TLS Reload"
+      :message="alertMessage"
+      @close="showAlert = false"
+    />
   </div>
 </template>

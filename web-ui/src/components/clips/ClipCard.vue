@@ -52,6 +52,11 @@ const lightingClass = computed(() => {
   <div class="clip-card" :class="{ 'clip-saved': clip.saved }">
     <div class="clip-thumb" @click="emit('play', clip)">
       <img :src="thumbUrl" :alt="`Clip ${clip.uid}`" loading="lazy" />
+      <div class="clip-play-btn">
+        <svg width="36" height="36" viewBox="0 0 24 24" fill="currentColor">
+          <path d="M8 5v14l11-7z"/>
+        </svg>
+      </div>
       <div class="clip-duration">{{ durationStr }}</div>
       <span v-if="lightingLabel" class="badge clip-lighting" :class="lightingClass">
         {{ lightingLabel }}
@@ -134,6 +139,23 @@ const lightingClass = computed(() => {
   width: 100%;
   height: 100%;
   object-fit: cover;
+}
+.clip-play-btn {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(0, 0, 0, 0.25);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.clip-play-btn svg {
+  filter: drop-shadow(0 1px 3px rgba(0,0,0,0.5));
+}
+.clip-thumb:hover .clip-play-btn {
+  opacity: 1;
 }
 .clip-duration {
   position: absolute;

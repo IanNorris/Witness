@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { api } from '../../composables/useApi'
+import { useAuthStore } from '../../stores/auth'
+import InputModal from '../common/InputModal.vue'
 
 interface User {
   userid: number
@@ -11,9 +13,21 @@ interface User {
   groups: number[]
 }
 
+const authStore = useAuthStore()
 const users = ref<User[]>([])
 const loading = ref(true)
 const newUserResult = ref<{ username: string; password: string } | null>(null)
+
+// Modal state
+const showInput = ref(false)
+const inputTitle = ref('')
+const inputLabel = ref('')
+const inputValue = ref('')
+const inputAction = ref<((val: string) => void) | null>(null)
+
+function isSelf(user: User) {
+  return user.username === authStore.username
+}
 
 async function fetchUsers() {
   loading.value = true
@@ -25,18 +39,24 @@ async function fetchUsers() {
   }
 }
 
-async function addUser() {
-  const username = prompt('Enter username:')
-  if (!username) return
-  const data = await api<{ username: string; password: string }>('/auth/new_user', {
-    method: 'POST',
-    body: { username },
-  })
-  newUserResult.value = data
-  await fetchUsers()
+function addUser() {
+  inputTitle.value = 'Add User'
+  inputLabel.value = 'Username'
+  inputValue.value = ''
+  inputAction.value = async (username) => {
+    if (!username) return
+    const data = await api<{ username: string; password: string }>('/auth/new_user', {
+      method: 'POST',
+      body: { username },
+    })
+    newUserResult.value = data
+    await fetchUsers()
+  }
+  showInput.value = true
 }
 
 async function toggleEnabled(user: User) {
+  if (isSelf(user)) return
   await api('/auth/toggle_enabled', {
     method: 'POST',
     body: { username: user.username, value: !user.enabled },
@@ -45,6 +65,7 @@ async function toggleEnabled(user: User) {
 }
 
 async function toggleAdmin(user: User) {
+  if (isSelf(user)) return
   await api('/auth/toggle_admin', {
     method: 'POST',
     body: { username: user.username, value: !user.admin },
@@ -52,14 +73,23 @@ async function toggleAdmin(user: User) {
   user.admin = user.admin ? 0 : 1
 }
 
-async function setDisplayName(user: User) {
-  const name = prompt('Display name:', user.displayName)
-  if (name === null) return
-  await api('/auth/set_display_name', {
-    method: 'POST',
-    body: { username: user.username, value: name },
-  })
-  user.displayName = name
+function setDisplayName(user: User) {
+  inputTitle.value = 'Set Display Name'
+  inputLabel.value = 'Display name'
+  inputValue.value = user.displayName
+  inputAction.value = async (name) => {
+    await api('/auth/set_display_name', {
+      method: 'POST',
+      body: { username: user.username, value: name },
+    })
+    user.displayName = name
+  }
+  showInput.value = true
+}
+
+function onInputSubmit(val: string) {
+  showInput.value = false
+  inputAction.value?.(val)
 }
 
 onMounted(fetchUsers)
@@ -83,41 +113,58 @@ onMounted(fetchUsers)
       <div class="spinner-border spinner-border-sm" />
     </div>
 
-    <table v-else class="table table-dark table-sm">
+    <table v-else class="table table-dark table-sm align-middle">
       <thead>
         <tr>
           <th>Username</th>
           <th>Display Name</th>
-          <th>Admin</th>
-          <th>Enabled</th>
+          <th class="text-center">Admin</th>
+          <th class="text-center">Enabled</th>
           <th>Actions</th>
         </tr>
       </thead>
       <tbody>
-        <tr v-for="user in users" :key="user.userid">
+        <tr v-for="user in users" :key="user.userid" :class="{ 'opacity-50': !user.enabled && !isSelf(user) }">
           <td>{{ user.username }}</td>
           <td>{{ user.displayName }}</td>
-          <td>
-            <span class="badge" :class="user.admin ? 'bg-primary' : 'bg-secondary'">
-              {{ user.admin ? 'Yes' : 'No' }}
-            </span>
+          <td class="text-center">
+            <div class="form-check d-inline-block mb-0">
+              <input
+                class="form-check-input"
+                type="checkbox"
+                :checked="!!user.admin"
+                :disabled="isSelf(user)"
+                :title="isSelf(user) ? 'Cannot change your own admin status' : ''"
+                @change="toggleAdmin(user)"
+              />
+            </div>
+          </td>
+          <td class="text-center">
+            <div class="form-check d-inline-block mb-0">
+              <input
+                class="form-check-input"
+                type="checkbox"
+                :checked="!!user.enabled"
+                :disabled="isSelf(user)"
+                :title="isSelf(user) ? 'Cannot disable your own account' : ''"
+                @change="toggleEnabled(user)"
+              />
+            </div>
           </td>
           <td>
-            <span class="badge" :class="user.enabled ? 'bg-success' : 'bg-danger'">
-              {{ user.enabled ? 'Yes' : 'No' }}
-            </span>
-          </td>
-          <td>
-            <button class="btn btn-sm btn-outline-secondary me-1" @click="setDisplayName(user)">Rename</button>
-            <button class="btn btn-sm btn-outline-secondary me-1" @click="toggleAdmin(user)">
-              {{ user.admin ? 'Revoke Admin' : 'Make Admin' }}
-            </button>
-            <button class="btn btn-sm" :class="user.enabled ? 'btn-outline-warning' : 'btn-outline-success'" @click="toggleEnabled(user)">
-              {{ user.enabled ? 'Disable' : 'Enable' }}
-            </button>
+            <button class="btn btn-sm btn-outline-secondary" @click="setDisplayName(user)">Rename</button>
           </td>
         </tr>
       </tbody>
     </table>
+
+    <InputModal
+      :show="showInput"
+      :title="inputTitle"
+      :label="inputLabel"
+      :model-value="inputValue"
+      @submit="onInputSubmit"
+      @cancel="showInput = false"
+    />
   </div>
 </template>

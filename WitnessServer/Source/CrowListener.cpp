@@ -192,6 +192,12 @@ void CrowListener::RegisterRoutes()
 		HandleCameraCreate( req, res );
 	});
 
+	CROW_ROUTE( m_App, "/camera/admin_update" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleCameraUpdate( req, res );
+	});
+
 	CROW_ROUTE( m_App, "/camera/admin_delete" ).methods( crow::HTTPMethod::POST )
 	([this]( const crow::request& req, crow::response& res )
 	{

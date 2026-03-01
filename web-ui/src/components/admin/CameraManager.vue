@@ -2,6 +2,9 @@
 import { ref, onMounted } from 'vue'
 import { api } from '../../composables/useApi'
 import { useCameraStore } from '../../stores/cameras'
+import CameraEditorModal from './CameraEditorModal.vue'
+import type { CameraFormData } from './CameraEditorModal.vue'
+import ConfirmModal from '../common/ConfirmModal.vue'
 
 const cameraStore = useCameraStore()
 const loading = ref(true)
@@ -12,13 +15,34 @@ interface AdminCamera {
   name: string
   description: string
   connectionString: string
+  connectionStringSub: string
   status: string
+  enabled: number
+  skipFrames: number
+  mdFrameHeight: number
+  mdThreshold: number
+  motionFilter: string
+  blackoutMaskPath: string
+  focusMaskPath: string
   groups: number[]
 }
 
+interface Group {
+  id: number
+  displayName: string
+}
+
 const cameras = ref<AdminCamera[]>([])
-const showAddForm = ref(false)
-const newCamera = ref({ displayName: '', connectionString: '', connectionStringSub: '', description: '' })
+const groups = ref<Group[]>([])
+
+// Editor modal state
+const showEditor = ref(false)
+const editingCamera = ref<CameraFormData | null>(null)
+
+// Confirm modal state
+const showConfirm = ref(false)
+const confirmMessage = ref('')
+const confirmAction = ref<(() => void) | null>(null)
 
 async function fetchCameras() {
   loading.value = true
@@ -30,29 +54,81 @@ async function fetchCameras() {
   }
 }
 
-async function addCamera() {
-  if (!newCamera.value.displayName || !newCamera.value.connectionString) return
-  await api('/camera/admin_create', { method: 'POST', body: newCamera.value })
-  newCamera.value = { displayName: '', connectionString: '', connectionStringSub: '', description: '' }
-  showAddForm.value = false
+async function fetchGroups() {
+  try {
+    const data = await api<{ groups: Group[] }>('/group/enum')
+    groups.value = data.groups ?? []
+  } catch { /* groups are optional */ }
+}
+
+function openAdd() {
+  editingCamera.value = null
+  showEditor.value = true
+}
+
+function openEdit(cam: AdminCamera) {
+  editingCamera.value = {
+    id: cam.id,
+    displayName: cam.displayName || cam.name,
+    connectionString: cam.connectionString,
+    connectionStringSub: cam.connectionStringSub ?? '',
+    description: cam.description ?? '',
+    enabled: cam.enabled,
+    skipFrames: cam.skipFrames ?? 1,
+    mdFrameHeight: cam.mdFrameHeight ?? 400,
+    mdThreshold: cam.mdThreshold ?? 0.0001,
+    motionFilter: cam.motionFilter ?? '',
+    blackoutMaskPath: cam.blackoutMaskPath ?? '',
+    focusMaskPath: cam.focusMaskPath ?? '',
+    groups: [...(cam.groups ?? [])],
+  }
+  showEditor.value = true
+}
+
+async function onSave(data: CameraFormData) {
+  showEditor.value = false
+  const body = { ...data } as Record<string, unknown>
+  if (data.id) {
+    await api('/camera/admin_update', { method: 'POST', body })
+    await api('/camera/set_groups', {
+      method: 'POST',
+      body: { camera: data.id, value: data.groups },
+    })
+  } else {
+    await api('/camera/admin_create', { method: 'POST', body })
+  }
   await fetchCameras()
   await cameraStore.fetchCameras()
 }
 
-async function deleteCamera(cam: AdminCamera) {
-  if (!confirm(`Delete camera "${cam.displayName}"? All clips will be lost.`)) return
-  await api('/camera/admin_delete', { method: 'POST', body: { id: cam.id } })
-  await fetchCameras()
-  await cameraStore.fetchCameras()
+function deleteCamera(cam: AdminCamera) {
+  confirmMessage.value = `Delete camera "${cam.displayName || cam.name}"? All clips will be lost.`
+  confirmAction.value = async () => {
+    await api('/camera/admin_delete', { method: 'POST', body: { id: cam.id } })
+    await fetchCameras()
+    await cameraStore.fetchCameras()
+  }
+  showConfirm.value = true
 }
 
-async function resetStats() {
-  if (!confirm('Reset all camera stats?')) return
-  await api('/camera/admin_reset_stats', { method: 'POST', body: {} })
-  await fetchCameras()
+function resetStats() {
+  confirmMessage.value = 'Reset all camera stats?'
+  confirmAction.value = async () => {
+    await api('/camera/admin_reset_stats', { method: 'POST', body: {} })
+    await fetchCameras()
+  }
+  showConfirm.value = true
 }
 
-onMounted(fetchCameras)
+function onConfirm() {
+  showConfirm.value = false
+  confirmAction.value?.()
+}
+
+onMounted(() => {
+  fetchCameras()
+  fetchGroups()
+})
 </script>
 
 <template>
@@ -61,36 +137,7 @@ onMounted(fetchCameras)
       <h6 class="mb-0">Cameras</h6>
       <div>
         <button class="btn btn-sm btn-outline-secondary me-1" @click="resetStats">Reset Stats</button>
-        <button class="btn btn-sm btn-primary" @click="showAddForm = !showAddForm">
-          {{ showAddForm ? 'Cancel' : '+ Add Camera' }}
-        </button>
-      </div>
-    </div>
-
-    <!-- Add camera form -->
-    <div v-if="showAddForm" class="card bg-dark mb-3">
-      <div class="card-body">
-        <div class="row g-2">
-          <div class="col-md-4">
-            <label class="form-label small">Name</label>
-            <input v-model="newCamera.displayName" class="form-control form-control-sm" placeholder="Front Door" />
-          </div>
-          <div class="col-md-8">
-            <label class="form-label small">RTSP URL (Main)</label>
-            <input v-model="newCamera.connectionString" class="form-control form-control-sm" placeholder="rtsp://user:pass@192.168.1.x/stream1" />
-          </div>
-          <div class="col-md-8">
-            <label class="form-label small">RTSP URL (Sub-stream, optional)</label>
-            <input v-model="newCamera.connectionStringSub" class="form-control form-control-sm" placeholder="rtsp://user:pass@192.168.1.x/stream2" />
-          </div>
-          <div class="col-md-4">
-            <label class="form-label small">Description</label>
-            <input v-model="newCamera.description" class="form-control form-control-sm" />
-          </div>
-          <div class="col-12">
-            <button class="btn btn-sm btn-primary" @click="addCamera">Create Camera</button>
-          </div>
-        </div>
+        <button class="btn btn-sm btn-primary" @click="openAdd">+ Add Camera</button>
       </div>
     </div>
 
@@ -98,31 +145,52 @@ onMounted(fetchCameras)
       <div class="spinner-border spinner-border-sm" />
     </div>
 
-    <table v-else class="table table-dark table-sm">
+    <table v-else class="table table-dark table-sm align-middle">
       <thead>
         <tr>
           <th>ID</th>
           <th>Name</th>
+          <th class="text-center">Enabled</th>
           <th>Status</th>
           <th>Connection</th>
           <th>Actions</th>
         </tr>
       </thead>
       <tbody>
-        <tr v-for="cam in cameras" :key="cam.id">
+        <tr v-for="cam in cameras" :key="cam.id" :class="{ 'opacity-50': !cam.enabled }">
           <td>{{ cam.id }}</td>
           <td>{{ cam.displayName || cam.name }}</td>
+          <td class="text-center">
+            <span class="badge" :class="cam.enabled ? 'bg-success' : 'bg-secondary'">
+              {{ cam.enabled ? 'Yes' : 'No' }}
+            </span>
+          </td>
           <td>
             <span class="badge" :class="cam.status === 'Connected' ? 'bg-success' : 'bg-danger'">
               {{ cam.status }}
             </span>
           </td>
-          <td class="text-truncate small" style="max-width: 300px;">{{ cam.connectionString }}</td>
+          <td class="text-truncate small font-monospace" style="max-width: 250px;">{{ cam.connectionString }}</td>
           <td>
+            <button class="btn btn-sm btn-outline-secondary me-1" @click="openEdit(cam)">Edit</button>
             <button class="btn btn-sm btn-outline-danger" @click="deleteCamera(cam)">Delete</button>
           </td>
         </tr>
       </tbody>
     </table>
+
+    <CameraEditorModal
+      :show="showEditor"
+      :camera="editingCamera"
+      :available-groups="groups"
+      @save="onSave"
+      @cancel="showEditor = false"
+    />
+    <ConfirmModal
+      :show="showConfirm"
+      :message="confirmMessage"
+      @confirm="onConfirm"
+      @cancel="showConfirm = false"
+    />
   </div>
 </template>

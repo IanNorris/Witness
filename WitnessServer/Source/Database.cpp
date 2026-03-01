@@ -236,6 +236,22 @@ namespace Database
 	)RAW";
 
 	
+	std::string UpdateCamera = R"RAW(
+		UPDATE Camera SET
+			CameraName = @CameraName,
+			CameraString = @CameraString,
+			CameraStringSub = @CameraStringSub,
+			Description = @Description,
+			Enabled = @Enabled,
+			SkipFrames = @SkipFrames,
+			MDFrameHeight = @MDFrameHeight,
+			MDThreshold = @MDThreshold,
+			MotionFilter = @MotionFilter,
+			BlackoutMaskPath = @BlackoutMaskPath,
+			FocusMaskPath = @FocusMaskPath
+		WHERE CameraUID = @CameraId;
+	)RAW";
+
 	std::string DeleteCamera = R"RAW(
 		DELETE FROM Camera 
 		WHERE 
@@ -513,6 +529,7 @@ namespace Database
 		CREATE_QUERY( GetUserCount );
 
 		CREATE_QUERY( CreateCamera );
+		CREATE_QUERY( UpdateCamera );
 		CREATE_QUERY( GetCameras );
 		CREATE_QUERY( GetCamera );
 		CREATE_QUERY( GetCamerasForUser );

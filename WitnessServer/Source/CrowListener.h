@@ -79,6 +79,7 @@ private:
 	void HandleCameraEnum( const crow::request& req, crow::response& res, bool asAdmin, bool longPoll );
 	void HandleCameraRecord( const crow::request& req, crow::response& res, int cameraId );
 	void HandleCameraCreate( const crow::request& req, crow::response& res );
+	void HandleCameraUpdate( const crow::request& req, crow::response& res );
 	void HandleCameraDelete( const crow::request& req, crow::response& res );
 	void HandleCameraSetGroups( const crow::request& req, crow::response& res );
 	void HandleCameraResetStats( const crow::request& req, crow::response& res );
