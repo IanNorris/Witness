@@ -71,4 +71,5 @@ private:
 	VideoSettings Video;
 
 	std::string CachePath;
+	bool AllCamerasReported = false;
 };

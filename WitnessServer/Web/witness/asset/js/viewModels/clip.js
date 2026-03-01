@@ -28,6 +28,10 @@ var ClipViewModel = function( parent, newClipUID, newTimestamp, newCameraID, new
 		self.parent.showDeleteDialog(self.clipUID());
 	};
 	
+	self.retagClip = function(){
+		self.parent.retagClip(self.clipUID(), self);
+	};
+	
 	self.thumbnail = ko.computed( function() {
 		return "/clip/thumb/" + self.cameraID() + "/" + self.timestamp();
 	} );

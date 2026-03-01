@@ -40,6 +40,7 @@ struct VideoSettings
 	double		DetectionConfidence;
 	double		DetectionMaxFPS;
 	bool		DetectionUseGPU;
+	std::string	DetectionCudnnPath;
 };
 
 struct CameraSettings

@@ -15,6 +15,7 @@
 #include <string>
 #include <array>
 #include <algorithm>
+#include <filesystem>
 #include <Log.h>
 
 #include <chrono>
@@ -118,7 +119,191 @@ struct ONNXDetectionFilterData : public FilterDataBase
 
 PIMPL_CONSTRUCT(ONNXDetectionFilterData)
 
-ONNXDetectionFilter::ONNXDetectionFilter( const MotionChainNode& Chain, const char* ModelPath, float ConfidenceThreshold, bool UseGPU, float MaxFPS )
+// Pre-load cuDNN DLL so ONNX Runtime can find it when initializing CUDA
+static void AddCudnnSearchPaths( const char* CudnnPath )
+{
+#ifdef _WIN32
+	static bool s_Loaded = false;
+	if( s_Loaded ) return;
+	s_Loaded = true;
+
+	const wchar_t* dllName = L"cudnn64_9.dll";
+
+	// Check if already loadable from default search paths
+	HMODULE test = LoadLibraryW( dllName );
+	if( test )
+	{
+		LOG_INFO( "ONNX Detection: cuDNN already available in system path." );
+		return;
+	}
+
+	auto tryLoad = []( const std::filesystem::path& dir, const wchar_t* dll ) -> bool
+	{
+		auto full = dir / dll;
+		if( !std::filesystem::exists( full ) )
+			return false;
+
+		HMODULE h = LoadLibraryW( full.c_str() );
+		if( h )
+		{
+			LOG_INFO( "ONNX Detection: Pre-loaded cuDNN from: %ls", full.c_str() );
+			return true;
+		}
+		return false;
+	};
+
+	// If user specified a cuDNN root path, search for the DLL
+	if( CudnnPath && CudnnPath[0] != '\0' )
+	{
+		std::filesystem::path root( CudnnPath );
+		if( !std::filesystem::exists( root ) )
+		{
+			LOG_WARNING( "ONNX Detection: Specified cuDNN path does not exist: %s", CudnnPath );
+			return;
+		}
+
+		// Search recursively for cudnn64_9.dll
+		for( auto& entry : std::filesystem::recursive_directory_iterator( root,
+			std::filesystem::directory_options::skip_permission_denied ) )
+		{
+			if( entry.is_regular_file() && entry.path().filename() == dllName )
+			{
+				if( tryLoad( entry.path().parent_path(), dllName ) )
+					return;
+			}
+		}
+		LOG_WARNING( "ONNX Detection: cudnn64_9.dll not found under: %s", CudnnPath );
+		return;
+	}
+
+	// Auto-scan common NVIDIA cuDNN install locations
+	const std::wstring cudnnRoots[] = {
+		L"C:\\Program Files\\NVIDIA\\CUDNN",
+		L"C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDNN",
+	};
+
+	for( const auto& root : cudnnRoots )
+	{
+		if( !std::filesystem::exists( root ) )
+			continue;
+
+		for( auto& entry : std::filesystem::recursive_directory_iterator( root,
+			std::filesystem::directory_options::skip_permission_denied ) )
+		{
+			if( entry.is_regular_file() && entry.path().filename() == dllName )
+			{
+				if( tryLoad( entry.path().parent_path(), dllName ) )
+					return;
+			}
+		}
+	}
+
+	LOG_WARNING( "ONNX Detection: cudnn64_9.dll not found. GPU acceleration may fail. "
+		"Set cudnn_path in admin settings or install cuDNN 9.x." );
+#endif
+}
+
+// Test CUDA by actually creating an ONNX session with CUDA provider.
+// Called in the probe child process. Will crash (via __fastfail) if cuDNN is broken.
+bool TestCudaAvailability( const char* ModelPath, const char* CudnnPath )
+{
+#ifdef _WIN32
+	AddCudnnSearchPaths( CudnnPath );
+
+	try
+	{
+		Ort::Env env( ORT_LOGGING_LEVEL_WARNING, "cuda_probe" );
+		Ort::SessionOptions options;
+		options.SetIntraOpNumThreads( 1 );
+		options.SetGraphOptimizationLevel( GraphOptimizationLevel::ORT_ENABLE_ALL );
+
+		OrtCUDAProviderOptions cudaOptions{};
+		cudaOptions.device_id = 0;
+		cudaOptions.cudnn_conv_algo_search = OrtCudnnConvAlgoSearchDefault;
+		cudaOptions.arena_extend_strategy = 1;
+		options.AppendExecutionProvider_CUDA( cudaOptions );
+
+		if( ModelPath && ModelPath[0] != '\0' )
+		{
+			int len = MultiByteToWideChar( CP_UTF8, 0, ModelPath, -1, nullptr, 0 );
+			std::wstring widePath( len, 0 );
+			MultiByteToWideChar( CP_UTF8, 0, ModelPath, -1, &widePath[0], len );
+			Ort::Session session( env, widePath.c_str(), options );
+		}
+
+		return true;
+	}
+	catch( const Ort::Exception& )
+	{
+		return false;
+	}
+	catch( ... )
+	{
+		return false;
+	}
+#else
+	return false;
+#endif
+}
+
+// Spawn a child process to test CUDA safely.
+bool TestCudaViaProbe( const char* CudnnPath )
+{
+#ifdef _WIN32
+	// Get our own exe path
+	wchar_t exePath[MAX_PATH] = {};
+	GetModuleFileNameW( nullptr, exePath, MAX_PATH );
+
+	// Build command line: "exePath" /test-cuda ["cudnnPath"]
+	std::wstring cmdLine = L"\"";
+	cmdLine += exePath;
+	cmdLine += L"\" /test-cuda";
+
+	if( CudnnPath && CudnnPath[0] != '\0' )
+	{
+		int len = MultiByteToWideChar( CP_UTF8, 0, CudnnPath, -1, nullptr, 0 );
+		std::wstring wideCudnn( len, 0 );
+		MultiByteToWideChar( CP_UTF8, 0, CudnnPath, -1, &wideCudnn[0], len );
+		cmdLine += L" \"";
+		cmdLine += wideCudnn.c_str();
+		cmdLine += L"\"";
+	}
+
+	STARTUPINFOW si = {};
+	si.cb = sizeof(si);
+	si.dwFlags = STARTF_USESHOWWINDOW;
+	si.wShowWindow = SW_HIDE;
+	PROCESS_INFORMATION pi = {};
+
+	if( !CreateProcessW( nullptr, &cmdLine[0], nullptr, nullptr, FALSE,
+		CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi ) )
+	{
+		LOG_WARNING( "ONNX Detection: Failed to launch CUDA probe process." );
+		return false;
+	}
+
+	// Wait up to 30 seconds for the probe
+	DWORD waitResult = WaitForSingleObject( pi.hProcess, 30000 );
+	DWORD exitCode = 1;
+
+	if( waitResult == WAIT_OBJECT_0 )
+	{
+		GetExitCodeProcess( pi.hProcess, &exitCode );
+	}
+	else
+	{
+		LOG_WARNING( "ONNX Detection: CUDA probe timed out." );
+		TerminateProcess( pi.hProcess, 1 );
+	}
+
+	CloseHandle( pi.hThread );
+	CloseHandle( pi.hProcess );
+
+	return exitCode == 0;
+}
+#endif
+
+ONNXDetectionFilter::ONNXDetectionFilter( const MotionChainNode& Chain, const char* ModelPath, float ConfidenceThreshold, bool UseGPU, float MaxFPS, const char* CudnnPath )
 : RecordFilterBase( Chain )
 , m_ModelLoaded( false )
 {
@@ -144,20 +329,52 @@ ONNXDetectionFilter::ONNXDetectionFilter( const MotionChainNode& Chain, const ch
 		ID.SessionOptions.SetIntraOpNumThreads( 1 );
 		ID.SessionOptions.SetGraphOptimizationLevel( GraphOptimizationLevel::ORT_ENABLE_ALL );
 
+		static enum { Untested, Available, Unavailable } s_CudaStatus = Untested;
+		static std::string s_CudaError;
+
 		if( UseGPU )
 		{
-			// The onnxruntime-gpu package includes CUDA support
-			// CUDA will be used if available, otherwise falls back to CPU
-			try
+			if( s_CudaStatus == Untested )
 			{
-				OrtCUDAProviderOptions cudaOptions;
-				cudaOptions.device_id = 0;
-				ID.SessionOptions.AppendExecutionProvider_CUDA( cudaOptions );
-				LOG_INFO( "ONNX Detection: CUDA GPU acceleration enabled." );
+				AddCudnnSearchPaths( CudnnPath );
+
+				// Probe CUDA in a child process first — cuDNN calls __fastfail on error
+				// which kills the process and cannot be caught by SEH or signal handlers.
+				LOG_INFO( "ONNX Detection: Testing CUDA availability (probe process)..." );
+				if( !TestCudaViaProbe( CudnnPath ) )
+				{
+					LOG_WARNING( "ONNX Detection: CUDA probe failed. Falling back to CPU. "
+						"Check CUDA Toolkit 12.x, cuDNN 9.x, and GPU driver are installed correctly." );
+					s_CudaStatus = Unavailable;
+				}
+				else
+				{
+					try
+					{
+						OrtCUDAProviderOptions cudaOptions{};
+						cudaOptions.device_id = 0;
+						cudaOptions.cudnn_conv_algo_search = OrtCudnnConvAlgoSearchDefault;
+						cudaOptions.arena_extend_strategy = 1;
+						ID.SessionOptions.AppendExecutionProvider_CUDA( cudaOptions );
+						LOG_INFO( "ONNX Detection: CUDA GPU acceleration enabled." );
+						s_CudaStatus = Available;
+					}
+					catch( const Ort::Exception& e )
+					{
+						s_CudaError = e.what();
+						LOG_WARNING( "ONNX Detection: CUDA initialization failed. Falling back to CPU." );
+						LOG_WARNING( "ONNX Detection: CUDA error detail: %s", s_CudaError.c_str() );
+						s_CudaStatus = Unavailable;
+					}
+				}
 			}
-			catch( const Ort::Exception& e )
+			else if( s_CudaStatus == Available )
 			{
-				LOG_WARNING( "ONNX Detection: CUDA unavailable (%s), using CPU.", e.what() );
+				OrtCUDAProviderOptions cudaOptions{};
+				cudaOptions.device_id = 0;
+				cudaOptions.cudnn_conv_algo_search = OrtCudnnConvAlgoSearchDefault;
+				cudaOptions.arena_extend_strategy = 1;
+				ID.SessionOptions.AppendExecutionProvider_CUDA( cudaOptions );
 			}
 		}
 

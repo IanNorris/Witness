@@ -32,6 +32,15 @@ ClipReprocessWorker::ClipReprocessWorker(
 {
 }
 
+struct ClipToReprocess
+{
+	int64_t ClipUID;
+	int64_t Timestamp;
+	int Camera;
+	int RecordMode;
+	std::string ExistingTags;
+};
+
 void ClipReprocessWorker::WorkerMain()
 {
 	UpdateLastTimedAction( "Idle" );
@@ -43,37 +52,50 @@ void ClipReprocessWorker::WorkerMain()
 		return;
 	}
 
-	// Query for next clip needing reprocessing
-	int64_t clipUID = 0;
-	int64_t timestamp = 0;
-	int camera = 0;
-	int recordMode = 0;
-	std::string existingTags;
+	// Fetch a batch of clips needing reprocessing
+	std::vector<ClipToReprocess> batch;
 
 	{
 		SQLiteDatabaseQueryInstance SelectClipForReprocess( Database, "SelectClipForReprocess" );
 		SelectClipForReprocess->Bind( "@DetectionVersion", CURRENT_DETECTION_VERSION );
 		SelectClipForReprocess->Execute( [&]( const SQLiteDatabaseQuery& query ) -> bool
 		{
-			clipUID = query.GetColumnValueInt64( 0 );
-			timestamp = query.GetColumnValueInt64( 1 );
-			camera = query.GetColumnValueInt( 2 );
-			recordMode = query.GetColumnValueInt( 6 );
+			ClipToReprocess clip;
+			clip.ClipUID = query.GetColumnValueInt64( 0 );
+			clip.Timestamp = query.GetColumnValueInt64( 1 );
+			clip.Camera = query.GetColumnValueInt( 2 );
+			clip.RecordMode = query.GetColumnValueInt( 6 );
 			const char* tags = query.GetColumnValueText( 10 );
 			if( tags )
-				existingTags = tags;
-			return false; // only need first row
+				clip.ExistingTags = tags;
+			batch.push_back( std::move( clip ) );
+			return true;
 		});
 	}
 
-	if( clipUID == 0 )
+	if( batch.empty() )
 	{
 		std::this_thread::sleep_for( std::chrono::seconds( 30 ) );
 		return;
 	}
 
-	UpdateLastTimedAction( "Reprocessing clip" );
+	UpdateLastTimedAction( "Reprocessing clips" );
 
+	for( auto& clip : batch )
+	{
+		// Yield if cameras become active mid-batch
+		if( !IsIdle() )
+			break;
+
+		ProcessClip( clip.ClipUID, clip.Timestamp, clip.Camera, clip.RecordMode, clip.ExistingTags );
+
+		// Sleep between clips to stay low-priority
+		std::this_thread::sleep_for( std::chrono::milliseconds( 500 ) );
+	}
+}
+
+void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int camera, int recordMode, const std::string& existingTags )
+{
 	// Build clip filename: {Camera}_{Auto|Manual}_{Timestamp}.mp4
 	std::stringstream nameStream;
 	nameStream << camera << "_" << ( recordMode == 1 ? "Auto" : "Manual" ) << "_" << timestamp << ".mp4";
@@ -81,13 +103,13 @@ void ClipReprocessWorker::WorkerMain()
 
 	if( !fs::exists( clipPath ) )
 	{
-		// File missing — mark as processed to skip it
+		// File missing - mark as processed to skip it
 		SQLiteDatabaseQueryInstance UpdateClipDetection( Database, "UpdateClipDetection" );
 		UpdateClipDetection->Bind( "@ClipUID", clipUID );
 		UpdateClipDetection->Bind( "@Tags", existingTags.c_str() );
 		UpdateClipDetection->Bind( "@DetectionVersion", CURRENT_DETECTION_VERSION );
 		UpdateClipDetection->Execute( nullptr );
-		LOG_WARNING( "ClipReprocess: Clip %lld file not found, skipping: %s", (long long)clipUID, clipPath.c_str() );
+		LOG_DEBUG( "ClipReprocess: Clip %lld file not found, skipping: %s", (long long)clipUID, clipPath.c_str() );
 		return;
 	}
 
@@ -182,8 +204,11 @@ void ClipReprocessWorker::WorkerMain()
 		AV_PIX_FMT_BGR24, frameWidth, frameHeight, 1 );
 
 	// Sample frames at 2-second intervals
+	// First frame is used as baseline - objects present before motion are filtered out
 	double sampleInterval = 2.0;
 	double currentTime = 0.0;
+	std::set<std::string> baselineTags;
+	bool baselineCaptured = false;
 
 	while( currentTime <= durationSec || currentTime == 0.0 )
 	{
@@ -212,8 +237,23 @@ void ClipReprocessWorker::WorkerMain()
 
 					// Run ONNX detection
 					auto detections = DetectionFilter->DetectFrame( mat );
-					for( auto& det : detections )
-						detectedTags.insert( det.ClassName );
+
+					if( !baselineCaptured )
+					{
+						// First frame: capture as baseline
+						for( auto& det : detections )
+							baselineTags.insert( det.ClassName );
+						baselineCaptured = true;
+					}
+					else
+					{
+						// Subsequent frames: only keep detections not in baseline
+						for( auto& det : detections )
+						{
+							if( baselineTags.find( det.ClassName ) == baselineTags.end() )
+								detectedTags.insert( det.ClassName );
+						}
+					}
 
 					gotFrame = true;
 					av_packet_unref( pkt );
@@ -243,9 +283,8 @@ void ClipReprocessWorker::WorkerMain()
 	{
 		std::istringstream iss( existingTags );
 		std::string tag;
-		while( std::getline( iss, tag, ',' ) )
+		while( std::getline( iss, tag, ';' ) )
 		{
-			// Trim whitespace
 			size_t start = tag.find_first_not_of( ' ' );
 			size_t end = tag.find_last_not_of( ' ' );
 			if( start != std::string::npos )
@@ -258,20 +297,8 @@ void ClipReprocessWorker::WorkerMain()
 	for( auto& t : allTags )
 	{
 		if( !tagString.empty() )
-			tagString += ",";
+			tagString += ";";
 		tagString += t;
-	}
-
-	// Count remaining clips to reprocess
-	int remaining = 0;
-	{
-		SQLiteDatabaseQueryInstance CountClipsToReprocess( Database, "CountClipsToReprocess" );
-		CountClipsToReprocess->Bind( "@DetectionVersion", CURRENT_DETECTION_VERSION );
-		CountClipsToReprocess->Execute( [&]( const SQLiteDatabaseQuery& query ) -> bool
-		{
-			remaining = query.GetColumnValueInt( 0 );
-			return false;
-		});
 	}
 
 	// Update clip in database
@@ -283,8 +310,5 @@ void ClipReprocessWorker::WorkerMain()
 		UpdateClipDetection->Execute( nullptr );
 	}
 
-	LOG_INFO( "Reprocessed clip %lld: %s (%d remaining)", (long long)clipUID, tagString.c_str(), remaining );
-
-	// Sleep between clips to stay low-priority
-	std::this_thread::sleep_for( std::chrono::seconds( 1 ) );
+	LOG_INFO( "Reprocessed clip %lld: %s", (long long)clipUID, tagString.c_str() );
 }

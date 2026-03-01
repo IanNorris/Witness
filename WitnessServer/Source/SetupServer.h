@@ -36,6 +36,7 @@ private:
 
 	// TLS helpers
 	bool GenerateSelfSignedCert( struct SetupConfig& config );
+	bool RunLetsEncryptCertbot( struct SetupConfig& config );
 
 	std::string m_PendingConfigPath;  // Path to pending config JSON for elevation
 

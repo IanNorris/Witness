@@ -26,6 +26,7 @@ public:
 private:
 
 	virtual void WorkerMain() override;
+	void ProcessClip( int64_t clipUID, int64_t timestamp, int camera, int recordMode, const std::string& existingTags );
 
 	std::shared_ptr<SQLiteDatabase> Database;
 	std::shared_ptr<Witness::Camera::ONNXDetectionFilter> DetectionFilter;

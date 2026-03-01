@@ -184,6 +184,9 @@ SQLiteDatabase::SQLiteDatabase( const std::string& filename, const std::string& 
 	int result = sqlite3_open_v2( NewFilename.c_str(), &m_database, flags, nullptr );
 	AssertDB( result == 0, "Failed to open database: %s\n%s", NewFilename.c_str(), sqlite3_errmsg( m_database ) );
 
+	// Allow up to 5 seconds for write contention before returning SQLITE_BUSY
+	sqlite3_busy_timeout( m_database, 5000 );
+
 	if( initScript.length() > 0 )
 	{
 		char* errorMessage = nullptr;

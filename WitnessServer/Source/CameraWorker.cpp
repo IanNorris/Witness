@@ -68,7 +68,8 @@ void CameraWorker::WorkerInit()
 			Video.DetectionModelPath.c_str(),
 			(float)Video.DetectionConfidence,
 			Video.DetectionUseGPU,
-			(float)Video.DetectionMaxFPS
+			(float)Video.DetectionMaxFPS,
+			Video.DetectionCudnnPath.empty() ? nullptr : Video.DetectionCudnnPath.c_str()
 		);
 
 		if( DetectionFilter->IsModelLoaded() )

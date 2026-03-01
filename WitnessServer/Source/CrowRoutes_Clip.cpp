@@ -44,7 +44,7 @@ void CrowListener::HandleClipThumbnail( const crow::request& req, crow::response
 		res.end();
 		return;
 	}
-
+	
 	// Try in-memory thumbnail first (non-video only)
 	if( !video )
 	{
@@ -330,6 +330,51 @@ void CrowListener::HandleClipDelete( const crow::request& req, crow::response& r
 	SQLiteDatabaseQueryInstance DeleteClipQuery( m_GlobalContext->Database, "DeleteClip" );
 	DeleteClipQuery->Bind( "@ClipUID", ClipUID );
 	DeleteClipQuery->Execute( [&]( const SQLiteDatabaseQuery& query ) { return true; } );
+
+	res.set_header( "Content-Type", "application/json" );
+	res.body = "{}";
+	res.code = 200;
+	res.end();
+}
+
+void CrowListener::HandleClipRetag( const crow::request& req, crow::response& res )
+{
+	auto body = crow::json::load( req.body );
+	if( !body || !body.has("id") )
+	{
+		res.code = 400;
+		res.end();
+		return;
+	}
+
+	int ClipUID = (int)body["id"].i();
+
+	// Get camera ID for auth check
+	int TargetCameraInt = 0;
+	{
+		SQLiteDatabaseQueryInstance SelectClipID( m_GlobalContext->Database, "SelectClipID" );
+		SelectClipID->Bind( "@ClipUID", ClipUID );
+		SelectClipID->Execute(
+			[&]( const SQLiteDatabaseQuery& query )
+			{
+				TargetCameraInt = query.GetColumnValueInt( 2 );
+				return true;
+			}
+		);
+	}
+
+	int UserUID = CrowAuth::IsCameraAuthenticated( *m_GlobalContext, req, &body,
+		CrowAuth::Action::ReadWrite, CrowAuth::Privilege::Normal, TargetCameraInt );
+	if( UserUID <= 0 )
+	{
+		res.code = 403;
+		res.end();
+		return;
+	}
+
+	SQLiteDatabaseQueryInstance ResetClipDetection( m_GlobalContext->Database, "ResetClipDetection" );
+	ResetClipDetection->Bind( "@ClipUID", ClipUID );
+	ResetClipDetection->Execute( [&]( const SQLiteDatabaseQuery& query ) { return true; } );
 
 	res.set_header( "Content-Type", "application/json" );
 	res.body = "{}";

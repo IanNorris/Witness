@@ -290,9 +290,11 @@ void SetupServer::HandleApply( const crow::request& req, crow::response& res )
 	if( body.has( "tls_cert" ) )    config.TlsCertPath = body["tls_cert"].s();
 	if( body.has( "tls_key" ) )     config.TlsKeyPath  = body["tls_key"].s();
 	if( body.has( "tls_contact" ) ) config.TlsContact  = body["tls_contact"].s();
-
-	// Set web root to current static root
-	config.WebRoot = m_StaticRoot;
+	if( body.has( "detection_backend" ) )    config.DetectionBackend    = body["detection_backend"].s();
+	if( body.has( "detection_provider" ) )   config.DetectionProvider   = body["detection_provider"].s();
+	if( body.has( "detection_confidence" ) ) config.DetectionConfidence = body["detection_confidence"].s();
+	if( body.has( "detection_max_fps" ) )    config.DetectionMaxFPS     = body["detection_max_fps"].s();
+	if( body.has( "cudnn_path" ) )           config.CudnnPath           = body["cudnn_path"].s();
 
 	// Generate self-signed cert if requested
 	if( config.TlsMode == "SelfSigned" )
@@ -301,6 +303,17 @@ void SetupServer::HandleApply( const crow::request& req, crow::response& res )
 		{
 			res.code = 500;
 			res.body = R"({"error":"Failed to generate self-signed certificate"})";
+			res.set_header( "Content-Type", "application/json" );
+			res.end();
+			return;
+		}
+	}
+	else if( config.TlsMode == "LetsEncrypt" )
+	{
+		if( !RunLetsEncryptCertbot( config ) )
+		{
+			res.code = 500;
+			res.body = R"({"error":"Let's Encrypt certificate generation failed. Check that certbot is installed and port 80 is available."})";
 			res.set_header( "Content-Type", "application/json" );
 			res.end();
 			return;
@@ -587,7 +600,14 @@ bool SetupServer::GenerateSelfSignedCert( SetupConfig& config )
 
 	LOG_INFO( "Generating self-signed certificate for %s...", hostname.c_str() );
 
-	int result = std::system( (envPrefix + cmd).c_str() );
+	// On Windows, cmd /c requires an extra set of outer quotes when the
+	// executable path is quoted. Wrap the whole command in quotes.
+	std::string fullCmd = envPrefix + cmd;
+#ifdef _WIN32
+	fullCmd = "\"" + fullCmd + "\"";
+#endif
+
+	int result = std::system( fullCmd.c_str() );
 
 	if( result != 0 )
 	{
@@ -599,5 +619,164 @@ bool SetupServer::GenerateSelfSignedCert( SetupConfig& config )
 	config.TlsKeyPath = keyPath.string();
 
 	LOG_INFO( "Certificate generated: %s", certPath.string().c_str() );
+	return true;
+}
+
+bool SetupServer::RunLetsEncryptCertbot( SetupConfig& config )
+{
+	// Extract hostname (strip port)
+	std::string hostname = config.Hostname;
+	auto colonPos = hostname.find( ':' );
+	if( colonPos != std::string::npos )
+		hostname = hostname.substr( 0, colonPos );
+	if( hostname.empty() )
+	{
+		LOG_ERROR( "Let's Encrypt: hostname is required." );
+		return false;
+	}
+
+	// Validate hostname
+	for( char c : hostname )
+	{
+		if( !std::isalnum( static_cast<unsigned char>( c ) ) && c != '.' && c != '-' )
+		{
+			LOG_ERROR( "Let's Encrypt: invalid hostname character: %c", c );
+			return false;
+		}
+	}
+
+	// Check for existing certbot certificate
+	fs::path certbotLive = fs::path( "C:\\Certbot\\live" ) / hostname;
+	fs::path existingCert = certbotLive / "fullchain.pem";
+	fs::path existingKey = certbotLive / "privkey.pem";
+
+	if( fs::exists( existingCert ) && fs::exists( existingKey ) )
+	{
+		LOG_INFO( "Let's Encrypt: Using existing certificate for %s", hostname.c_str() );
+		config.TlsCertPath = existingCert.string();
+		config.TlsKeyPath = existingKey.string();
+		return true;
+	}
+
+	// Find certbot executable
+	std::string certbotExe;
+	const char* searchPaths[] = {
+		"C:\\Program Files\\Certbot\\bin\\certbot.exe",
+		"C:\\Program Files (x86)\\Certbot\\bin\\certbot.exe",
+	};
+
+	for( const char* path : searchPaths )
+	{
+		if( fs::exists( path ) )
+		{
+			certbotExe = path;
+			break;
+		}
+	}
+
+	if( certbotExe.empty() )
+	{
+		// Try PATH
+		if( std::system( "where certbot >nul 2>&1" ) == 0 )
+			certbotExe = "certbot";
+	}
+
+	if( certbotExe.empty() )
+	{
+		// Try installing via winget (elevated)
+		LOG_INFO( "Let's Encrypt: certbot not found, attempting install via winget..." );
+
+		SHELLEXECUTEINFOW sei = {};
+		sei.cbSize = sizeof(sei);
+		sei.fMask = SEE_MASK_NOCLOSEPROCESS;
+		sei.lpVerb = L"runas";
+		sei.lpFile = L"winget";
+		sei.lpParameters = L"install EFF.Certbot --accept-source-agreements --accept-package-agreements";
+		sei.nShow = SW_SHOW;
+
+		if( ShellExecuteExW( &sei ) && sei.hProcess )
+		{
+			WaitForSingleObject( sei.hProcess, 120000 );
+			DWORD exitCode = 1;
+			GetExitCodeProcess( sei.hProcess, &exitCode );
+			CloseHandle( sei.hProcess );
+
+			if( exitCode == 0 )
+			{
+				for( const char* path : searchPaths )
+				{
+					if( fs::exists( path ) )
+					{
+						certbotExe = path;
+						break;
+					}
+				}
+			}
+		}
+
+		if( certbotExe.empty() )
+		{
+			LOG_ERROR( "Let's Encrypt: certbot not found after install attempt. Install manually from https://certbot.eff.org/" );
+			return false;
+		}
+	}
+
+	// Build certbot command
+	std::string email = config.TlsContact;
+	if( email.empty() )
+	{
+		LOG_ERROR( "Let's Encrypt: contact email is required." );
+		return false;
+	}
+
+	std::string certbotArgs = "certonly --standalone -d " + hostname +
+		" --agree-tos --email " + email + " --non-interactive";
+
+	LOG_INFO( "Let's Encrypt: Running certbot for %s...", hostname.c_str() );
+
+	// certbot needs elevation (binds port 80)
+	int wlen = MultiByteToWideChar( CP_UTF8, 0, certbotExe.c_str(), -1, nullptr, 0 );
+	std::wstring wideCertbot( wlen, 0 );
+	MultiByteToWideChar( CP_UTF8, 0, certbotExe.c_str(), -1, &wideCertbot[0], wlen );
+
+	int alen = MultiByteToWideChar( CP_UTF8, 0, certbotArgs.c_str(), -1, nullptr, 0 );
+	std::wstring wideArgs( alen, 0 );
+	MultiByteToWideChar( CP_UTF8, 0, certbotArgs.c_str(), -1, &wideArgs[0], alen );
+
+	SHELLEXECUTEINFOW sei = {};
+	sei.cbSize = sizeof(sei);
+	sei.fMask = SEE_MASK_NOCLOSEPROCESS;
+	sei.lpVerb = L"runas";
+	sei.lpFile = wideCertbot.c_str();
+	sei.lpParameters = wideArgs.c_str();
+	sei.nShow = SW_SHOW;
+
+	if( !ShellExecuteExW( &sei ) || !sei.hProcess )
+	{
+		LOG_ERROR( "Let's Encrypt: Failed to launch certbot (elevation may have been cancelled)." );
+		return false;
+	}
+
+	WaitForSingleObject( sei.hProcess, 120000 );
+	DWORD exitCode = 1;
+	GetExitCodeProcess( sei.hProcess, &exitCode );
+	CloseHandle( sei.hProcess );
+
+	if( exitCode != 0 )
+	{
+		LOG_ERROR( "Let's Encrypt: certbot failed (exit code %lu)", exitCode );
+		return false;
+	}
+
+	if( !fs::exists( existingCert ) || !fs::exists( existingKey ) )
+	{
+		LOG_ERROR( "Let's Encrypt: Certificate files not found at %s", certbotLive.string().c_str() );
+		return false;
+	}
+
+	config.TlsCertPath = existingCert.string();
+	config.TlsKeyPath = existingKey.string();
+
+	LOG_INFO( "Let's Encrypt: Certificate obtained: %s", existingCert.string().c_str() );
 	return true;
 }

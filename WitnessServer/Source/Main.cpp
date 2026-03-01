@@ -250,7 +250,7 @@ int wmain( int argc, wchar_t* argv[] )
 	{
 		auto logDir = GetConfigFilePath( "logs" );
 		std::filesystem::create_directories( logDir );
-		Witness::LogInit( logDir.string() );
+		Witness::LogInit( logDir.string(), Witness::LogLevel::Info );
 	}
 
 	if (argc >= 2)
@@ -356,11 +356,6 @@ int wmain( int argc, wchar_t* argv[] )
 				std::getline(std::cin, config.CachePath);
 				if (config.CachePath.empty()) config.CachePath = "C:\\WitnessCache";
 
-				// Derive web root from exe path
-				wchar_t exeBuf[MAX_PATH] = {};
-				GetModuleFileNameW(nullptr, exeBuf, MAX_PATH);
-				config.WebRoot = (std::filesystem::path(exeBuf).parent_path() / "Web").string();
-
 				if (!config.ApplyToDatabase(DB))
 				{
 					LOG_ERROR( "Failed to apply configuration." );
@@ -370,6 +365,29 @@ int wmain( int argc, wchar_t* argv[] )
 				LOG_INFO( "Setup complete. Start WitnessServer normally to run." );
 				return 0;
 			}
+		}
+		else if (_wcsicmp(argv[1], L"/test-cuda") == 0)
+		{
+			// CUDA probe: test if GPU acceleration works without crashing the main server.
+			// cuDNN calls __fastfail on error which kills the process — this is expected.
+			const char* cudnnPath = nullptr;
+			char cudnnPathBuf[MAX_PATH] = {};
+			if (argc >= 3)
+			{
+				WideCharToMultiByte(CP_UTF8, 0, argv[2], -1, cudnnPathBuf, MAX_PATH, nullptr, nullptr);
+				cudnnPath = cudnnPathBuf;
+			}
+
+			// Find default model
+			wchar_t exeBuf[MAX_PATH] = {};
+			GetModuleFileNameW(nullptr, exeBuf, MAX_PATH);
+			auto modelPath = std::filesystem::path(exeBuf).parent_path() / "models" / "yolo26n.onnx";
+			std::string modelPathStr = modelPath.string();
+
+			bool success = Witness::Camera::TestCudaAvailability(
+				std::filesystem::exists(modelPath) ? modelPathStr.c_str() : nullptr,
+				cudnnPath );
+			return success ? 0 : 1;
 		}
 		else if (_wcsicmp(argv[1], L"/apply-config") == 0 && argc >= 3)
 		{

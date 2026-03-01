@@ -125,6 +125,7 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 		{
 			Video.DetectionUseGPU = true;
 		}
+		GetSettingsField( Settings, "cudnn_path", Video.DetectionCudnnPath, Errors );
 
 		// Default model path if not set
 		if( Video.DetectionEnabled && Video.DetectionModelPath.empty() )
@@ -184,10 +185,29 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 
 	const int DaysToDelete = 10;
 
-	DeleteOldClips( *Context, DaysToDelete );
-	Timer->AddTimer( [&](){
-		DeleteOldClips( *Context, DaysToDelete );
-	}, 5 * 60 );
+	// Clip cleanup — disabled by default until verified safe
+	std::string clipCleanupEnabled;
+	GetSettingsField( Settings, "clip_cleanup_enabled", clipCleanupEnabled, Errors );
+	if( clipCleanupEnabled == "true" )
+	{
+		std::string clipRetentionStr;
+		int retentionDays = DaysToDelete;
+		if( GetSettingsField( Settings, "clip_retention_days", clipRetentionStr, Errors ) && !clipRetentionStr.empty() )
+		{
+			int parsed = std::atoi( clipRetentionStr.c_str() );
+			if( parsed > 0 ) retentionDays = parsed;
+		}
+
+		LOG_INFO( "Clip cleanup enabled: deleting clips older than %d days.", retentionDays );
+		DeleteOldClips( *Context, retentionDays );
+		Timer->AddTimer( [this, retentionDays](){
+			DeleteOldClips( *Context, retentionDays );
+		}, 5 * 60 );
+	}
+	else
+	{
+		LOG_INFO( "Clip cleanup disabled. Old clips will not be deleted." );
+	}
 
 	try
 	{
@@ -211,7 +231,8 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 			Video.DetectionModelPath.c_str(),
 			(float)Video.DetectionConfidence,
 			Video.DetectionUseGPU,
-			0.0f
+			0.0f,
+			Video.DetectionCudnnPath.empty() ? nullptr : Video.DetectionCudnnPath.c_str()
 		);
 
 		if( reprocessFilter->IsModelLoaded() )

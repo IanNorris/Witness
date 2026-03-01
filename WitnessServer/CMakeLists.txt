@@ -129,3 +129,18 @@ if(OPENSSL_EXECUTABLE)
         COMMENT "Copying OpenSSL CLI tool and config"
     )
 endif()
+
+# Copy ONNX Runtime CUDA provider DLLs (loaded dynamically, not caught by applocal)
+set(ONNX_PROVIDERS_SHARED "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin/onnxruntime_providers_shared.dll")
+set(ONNX_PROVIDERS_CUDA "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/bin/onnxruntime_providers_cuda.dll")
+if(EXISTS "${ONNX_PROVIDERS_SHARED}" AND EXISTS "${ONNX_PROVIDERS_CUDA}")
+    add_custom_command(TARGET WitnessServer POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${ONNX_PROVIDERS_SHARED}"
+            "$<TARGET_FILE_DIR:WitnessServer>/"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${ONNX_PROVIDERS_CUDA}"
+            "$<TARGET_FILE_DIR:WitnessServer>/"
+        COMMENT "Copying ONNX Runtime CUDA provider DLLs"
+    )
+endif()

@@ -380,13 +380,19 @@ namespace Database
 	std::string SelectClipForReprocess = R"RAW(
 		SELECT * FROM Clip
 		WHERE DetectionVersion < @DetectionVersion OR DetectionVersion IS NULL
-		ORDER BY Timestamp DESC
-		LIMIT 1;
+		ORDER BY DetectionVersion ASC, Timestamp DESC
+		LIMIT 50;
 	)RAW";
 
 	std::string UpdateClipDetection = R"RAW(
 		UPDATE Clip
 		SET Tags = @Tags, DetectionVersion = @DetectionVersion
+		WHERE ClipUID = @ClipUID;
+	)RAW";
+
+	std::string ResetClipDetection = R"RAW(
+		UPDATE Clip
+		SET DetectionVersion = -1, Tags = ''
 		WHERE ClipUID = @ClipUID;
 	)RAW";
 
@@ -509,6 +515,7 @@ namespace Database
 		CREATE_QUERY( SelectClipsToDelete );
 		CREATE_QUERY( SelectClipForReprocess );
 		CREATE_QUERY( UpdateClipDetection );
+		CREATE_QUERY( ResetClipDetection );
 		CREATE_QUERY( CountClipsToReprocess );
 		CREATE_QUERY( SetClipSaveState );
 		CREATE_QUERY( FindClipByUID );

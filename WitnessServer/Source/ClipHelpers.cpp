@@ -91,7 +91,13 @@ void DeleteOldClips( const GlobalContext& Context, int DaysToDelete )
 			uint64_t ClipID = query.GetColumnValueInt64(0);
 			int64_t Timestamp = query.GetColumnValueInt64(1);
 			int CameraID = query.GetColumnValueInt(2);
+			int Save = query.GetColumnValueInt(9);
 			bool Manual = query.GetColumnValueInt(6) == 0;
+			const char* TagsStr = query.GetColumnValueText(10);
+
+			LOG_WARNING( "DELETE_DEBUG: ClipUID=%llu cam=%d ts=%lld save=%d mode=%s tags=%s",
+				(unsigned long long)ClipID, CameraID, (long long)Timestamp, Save,
+				Manual ? "Manual" : "Auto", TagsStr ? TagsStr : "" );
 
 			ClipToDelete Clip;
 			Clip.ClipID = ClipID;
@@ -107,9 +113,12 @@ void DeleteOldClips( const GlobalContext& Context, int DaysToDelete )
 
 	if( ClipsToDelete.size() )
 	{
-		LOG_INFO( "Deleting %zu clips as they were more than %d days old.", ClipsToDelete.size(), DaysToDelete );
+		LOG_WARNING( "DELETE_DEBUG: Would delete %zu clips (DaysToDelete=%d, cutoff timestamp=%lld). SKIPPING - deletion disabled for debugging.",
+			ClipsToDelete.size(), DaysToDelete, (long long)Timestamp );
 	}
 
+	// TEMPORARILY DISABLED FOR DEBUGGING — uncomment when issue is resolved
+	/*
 	for( auto& Clip : ClipsToDelete )
 	{
 		SQLiteDatabaseQueryInstance DeleteClipQuery( Context.Database, "DeleteClip" );
@@ -125,4 +134,5 @@ void DeleteOldClips( const GlobalContext& Context, int DaysToDelete )
 			);
 		}
 	}
+	*/
 }

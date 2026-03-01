@@ -67,6 +67,24 @@ var CameraClipsViewModel = function( parent, authentication, cameraID ) {
 		);
 	};
 	
+	self.retagClip = function( id, clipVM ) {
+		if( !self.isBusy() ) {
+			self.isBusy(true);
+			var retagData = {
+				'csrf': self.authentication.csrfToken(),
+				id: id
+			};
+			makeQuery( retagData, '/clip/retag/', true, "error|Error queuing clip for re-tagging.",
+				function(result){
+					clipVM.tags('Queued...');
+				},
+				function(result){ /*finally*/
+					self.isBusy(false);
+				}
+			);
+		}
+	};
+	
 	self.page = ko.computed( function() {
 		return Math.floor( self.pageOffset() / self.maxCount() );
 	} );
