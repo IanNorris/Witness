@@ -156,6 +156,30 @@ html, body, #app {
   }
 }
 
+.fullscreen-exit-btn {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  z-index: 1001;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: #fff;
+  border-radius: 0.375rem;
+  padding: 6px 10px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s;
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.85);
+    opacity: 1 !important;
+  }
+}
+
+.camera-grid.fullscreen:hover .fullscreen-exit-btn {
+  opacity: 0.7;
+}
+
 .camera-card {
   background: $card-bg;
   border: 1px solid $card-border-color;

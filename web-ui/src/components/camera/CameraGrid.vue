@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useCameraStore } from '../../stores/cameras'
 import { useSettingsStore } from '../../stores/settings'
@@ -29,6 +29,15 @@ function openStream(cameraId: number) {
 function openClips(cameraId: number) {
   router.push(`/clips/${cameraId}`)
 }
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && settings.fullscreenMode) {
+    settings.toggleFullscreen()
+  }
+}
+
+onMounted(() => window.addEventListener('keydown', onKeydown))
+onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 </script>
 
 <template>
@@ -48,6 +57,19 @@ function openClips(cameraId: number) {
     :class="{ fullscreen: settings.fullscreenMode }"
     :style="gridStyle"
   >
+    <!-- Fullscreen exit button -->
+    <button
+      v-if="settings.fullscreenMode"
+      class="fullscreen-exit-btn"
+      @click="settings.toggleFullscreen"
+      title="Exit fullscreen (Esc)"
+    >
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="4 14 10 14 10 20"/><polyline points="20 10 14 10 14 4"/>
+        <line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/>
+      </svg>
+    </button>
+
     <CameraCard
       v-for="camera in cameraStore.cameras"
       :key="camera.id"

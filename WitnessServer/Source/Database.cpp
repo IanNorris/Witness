@@ -255,7 +255,7 @@ namespace Database
 	)RAW";
 
 	std::string GetCamerasForUser = R"RAW(
-		SELECT * FROM Camera C
+		SELECT DISTINCT C.* FROM Camera C
 		INNER JOIN CameraGroupMapping CGM ON CGM.Camera = C.CameraUID
 		INNER JOIN UserGroupMapping UGM ON UGM.`Group` = CGM.`Group`
 		WHERE UGM.UserUID = @User
