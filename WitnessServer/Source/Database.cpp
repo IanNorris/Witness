@@ -617,13 +617,51 @@ namespace Database
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Clip ADD COLUMN Lighting INT DEFAULT 0;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Clip ADD COLUMN Reviewed INT DEFAULT 0;", nullptr, nullptr, nullptr );
 
-		// Migrate old Tag table schema if it has the old columns (Description instead of Display)
-		// The CREATE TABLE IF NOT EXISTS in the init script handles fresh installs;
-		// for upgrades, add missing columns (errors ignored if they already exist)
-		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Tag ADD COLUMN Display TEXT NOT NULL DEFAULT '';", nullptr, nullptr, nullptr );
-		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Tag ADD COLUMN Icon TEXT DEFAULT '';", nullptr, nullptr, nullptr );
-		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Tag ADD COLUMN SortOrder INTEGER DEFAULT 0;", nullptr, nullptr, nullptr );
-		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Tag ADD COLUMN Hidden INTEGER DEFAULT 0;", nullptr, nullptr, nullptr );
+		// Migrate old Tag table schema — drop and recreate if it has the old schema
+		// (old schema had Name CHAR(64), Description TEXT; new needs Name TEXT UNIQUE, Display, Icon, etc.)
+		{
+			char* errMsg = nullptr;
+			// Check if old schema (has Description column but no Display column)
+			int hasDisplay = 0;
+			sqlite3_exec( DB->GetDatabase(), "SELECT Display FROM Tag LIMIT 1;",
+				[]( void* data, int, char**, char** ) -> int { *(int*)data = 1; return 0; },
+				&hasDisplay, &errMsg );
+			if( errMsg ) { sqlite3_free( errMsg ); errMsg = nullptr; }
+
+			if( !hasDisplay )
+			{
+				// Old schema — drop and recreate
+				sqlite3_exec( DB->GetDatabase(), "DROP TABLE IF EXISTS Tag;", nullptr, nullptr, nullptr );
+				sqlite3_exec( DB->GetDatabase(), R"(
+					CREATE TABLE IF NOT EXISTS Tag(
+						TagUID INTEGER PRIMARY KEY AUTOINCREMENT,
+						Name TEXT UNIQUE NOT NULL,
+						Display TEXT NOT NULL,
+						Icon TEXT DEFAULT '',
+						SortOrder INTEGER DEFAULT 0,
+						Hidden INTEGER DEFAULT 0
+					);
+				)", nullptr, nullptr, nullptr );
+			}
+		}
+
+		// Ensure ClipTag and CameraTagExclusion tables exist (no-op on fresh installs)
+		sqlite3_exec( DB->GetDatabase(), R"(
+			CREATE TABLE IF NOT EXISTS ClipTag(
+				ClipUID INTEGER NOT NULL,
+				TagUID INTEGER NOT NULL,
+				PRIMARY KEY (ClipUID, TagUID),
+				FOREIGN KEY (ClipUID) REFERENCES Clip(ClipUID) ON DELETE CASCADE,
+				FOREIGN KEY (TagUID) REFERENCES Tag(TagUID)
+			);
+			CREATE INDEX IF NOT EXISTS ClipTagByTag ON ClipTag (TagUID);
+			CREATE TABLE IF NOT EXISTS CameraTagExclusion(
+				CameraID INTEGER NOT NULL,
+				TagUID INTEGER NOT NULL,
+				PRIMARY KEY (CameraID, TagUID),
+				FOREIGN KEY (TagUID) REFERENCES Tag(TagUID)
+			);
+		)", nullptr, nullptr, nullptr );
 
 		CREATE_QUERY( GetSetting );
 		CREATE_QUERY( GetAllSettings );

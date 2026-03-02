@@ -97,7 +97,11 @@ namespace TagHelpers
 			q->Bind( "@Display", display.c_str() );
 			q->Bind( "@Icon", icon.c_str() );
 			q->Bind( "@SortOrder", 0 );
-			q->Execute( nullptr );
+			int result = q->Execute( nullptr );
+			if( result < 0 )
+			{
+				LOG_INFO( "FindOrCreateTag INSERT failed for '%s'", name.c_str() );
+			}
 		}
 
 		// Get the UID
@@ -105,11 +109,15 @@ namespace TagHelpers
 		{
 			SQLiteDatabaseQueryInstance q( DB, "SelectTagByName" );
 			q->Bind( "@Name", name.c_str() );
-			q->Execute( [&tagUID]( const SQLiteDatabaseQuery& query )
+			int rows = q->Execute( [&tagUID]( const SQLiteDatabaseQuery& query )
 			{
 				tagUID = query.GetColumnValueInt( 0 );
 				return true;
 			});
+			if( rows == 0 )
+			{
+				LOG_INFO( "SelectTagByName found 0 rows for '%s'", name.c_str() );
+			}
 		}
 
 		return tagUID;
@@ -173,6 +181,11 @@ namespace TagHelpers
 			});
 		}
 
+		if( !rows.empty() )
+		{
+			LOG_INFO( "Sample tag data: clip %lld tags='%s'", (long long)rows[0].clipUID, rows[0].tags.c_str() );
+		}
+
 		// Process in a transaction for speed
 		sqlite3_exec( DB->GetDatabase(), "BEGIN TRANSACTION;", nullptr, nullptr, nullptr );
 
@@ -181,6 +194,11 @@ namespace TagHelpers
 		for( const auto& row : rows )
 		{
 			auto tags = ParseTagString( row.tags );
+			if( tags.empty() && !row.tags.empty() )
+			{
+				LOG_INFO( "ParseTagString returned empty for clip %lld with tags='%s' (len=%d)",
+					(long long)row.clipUID, row.tags.c_str(), (int)row.tags.size() );
+			}
 			for( const auto& tag : tags )
 			{
 				int tagUID = FindOrCreateTag( DB, tag );
