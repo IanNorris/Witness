@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import AppLayout from '../components/layout/AppLayout.vue'
 import ClipCard from '../components/clips/ClipCard.vue'
 import ClipPlayer from '../components/clips/ClipPlayer.vue'
+import ActivityStrip from '../components/clips/ActivityStrip.vue'
 import { useCameraStore } from '../stores/cameras'
 import { useClipStore } from '../stores/clips'
 import { useSettingsStore } from '../stores/settings'
@@ -102,6 +103,7 @@ function handleTagClick(_tag: string) {
     <template #title>{{ title }}</template>
     <template #actions>
       <div class="d-flex align-items-center gap-3">
+        <button class="btn btn-sm btn-outline-secondary" @click="loadClips" title="Refresh">↻</button>
         <div class="form-check form-switch mb-0">
           <input
             class="form-check-input"
@@ -125,6 +127,9 @@ function handleTagClick(_tag: string) {
         </span>
       </div>
     </template>
+
+    <!-- Activity Strip -->
+    <ActivityStrip @play="handlePlay" />
 
     <!-- Loading -->
     <div v-if="clipStore.loading" class="text-center py-5">

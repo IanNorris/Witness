@@ -61,7 +61,7 @@ const lightingClass = computed(() => {
 </script>
 
 <template>
-  <div class="clip-card" :class="{ 'clip-saved': clip.saved, 'clip-trivial': trivial }">
+  <div class="clip-card" :class="{ 'clip-saved': clip.saved, 'clip-trivial': trivial, 'clip-unreviewed': !clip.reviewed }">
     <div class="clip-thumb" @click="emit('play', clip)">
       <img :src="thumbUrl" :alt="`Clip ${clip.uid}`" loading="lazy" />
       <div class="clip-play-btn">
@@ -154,6 +154,9 @@ const lightingClass = computed(() => {
 }
 .clip-trivial:hover {
   opacity: 0.75;
+}
+.clip-unreviewed {
+  border-left: 3px solid var(--bs-info, #0dcaf0);
 }
 
 .clip-thumb {

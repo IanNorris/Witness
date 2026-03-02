@@ -10,6 +10,17 @@ export interface Clip {
   description: string
   detectionVersion: number
   lighting: LightingCondition
+  reviewed: boolean
+}
+
+export interface Tag {
+  id: number
+  name: string
+  display: string
+  icon: string
+  sortOrder: number
+  hidden: boolean
+  clipCount: number
 }
 
 export const LightingCondition = {

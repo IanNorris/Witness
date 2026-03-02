@@ -66,6 +66,7 @@ set(SERVER_HEADERS
     Source/SettingsMap.h
     Source/SQLite.h
     Source/TagHelpers.h
+    Source/EventBroadcaster.h
     Source/TimerWorker.h
     Source/WatchdogWorker.h
     Source/Witness.h

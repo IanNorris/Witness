@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue'
+import { onMounted } from 'vue'
 import AppLayout from '../components/layout/AppLayout.vue'
 import CameraGrid from '../components/camera/CameraGrid.vue'
 import { useCameraStore } from '../stores/cameras'
@@ -10,11 +10,6 @@ const settings = useSettingsStore()
 
 onMounted(async () => {
   await cameraStore.fetchCameras()
-  cameraStore.startLongPoll()
-})
-
-onUnmounted(() => {
-  cameraStore.stopLongPoll()
 })
 </script>
 

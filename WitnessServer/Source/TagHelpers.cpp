@@ -90,34 +90,24 @@ namespace TagHelpers
 		std::string display = TitleCase( name );
 		std::string icon = GetDefaultIcon( name );
 
-		// Insert if not exists
 		{
 			SQLiteDatabaseQueryInstance q( DB, "FindOrCreateTag" );
 			q->Bind( "@Name", name.c_str() );
 			q->Bind( "@Display", display.c_str() );
 			q->Bind( "@Icon", icon.c_str() );
 			q->Bind( "@SortOrder", 0 );
-			int result = q->Execute( nullptr );
-			if( result < 0 )
-			{
-				LOG_INFO( "FindOrCreateTag INSERT failed for '%s'", name.c_str() );
-			}
+			q->Execute( nullptr );
 		}
 
-		// Get the UID
 		int tagUID = 0;
 		{
 			SQLiteDatabaseQueryInstance q( DB, "SelectTagByName" );
 			q->Bind( "@Name", name.c_str() );
-			int rows = q->Execute( [&tagUID]( const SQLiteDatabaseQuery& query )
+			q->Execute( [&tagUID]( const SQLiteDatabaseQuery& query )
 			{
 				tagUID = query.GetColumnValueInt( 0 );
 				return true;
 			});
-			if( rows == 0 )
-			{
-				LOG_INFO( "SelectTagByName found 0 rows for '%s'", name.c_str() );
-			}
 		}
 
 		return tagUID;
@@ -149,20 +139,10 @@ namespace TagHelpers
 
 	void MigrateLegacyTags( const std::shared_ptr<SQLiteDatabase>& DB )
 	{
-		// Check if migration is needed: if ClipTag table has any rows, skip
-		int existingCount = 0;
-		sqlite3_exec( DB->GetDatabase(), "SELECT COUNT(*) FROM ClipTag;",
-			[]( void* data, int, char** argv, char** ) -> int
-			{
-				*(int*)data = std::atoi( argv[0] );
-				return 0;
-			},
-			&existingCount, nullptr );
+		// Normalize empty-string Tags to NULL for consistency
+		sqlite3_exec( DB->GetDatabase(), "UPDATE Clip SET Tags = NULL WHERE Tags = '';", nullptr, nullptr, nullptr );
 
-		if( existingCount > 0 )
-			return; // Already migrated
-
-		LOG_INFO( "Migrating legacy tags to Tag/ClipTag tables..." );
+		LOG_INFO( "Checking for legacy tags to migrate..." );
 
 		// Read all clips with tags
 		struct ClipTagRow { int64_t clipUID; std::string tags; };
@@ -181,10 +161,10 @@ namespace TagHelpers
 			});
 		}
 
-		if( !rows.empty() )
-		{
-			LOG_INFO( "Sample tag data: clip %lld tags='%s'", (long long)rows[0].clipUID, rows[0].tags.c_str() );
-		}
+		if( rows.empty() )
+			return; // Nothing to migrate
+
+		LOG_INFO( "Migrating %d clips with legacy tags to ClipTag table...", (int)rows.size() );
 
 		// Process in a transaction for speed
 		sqlite3_exec( DB->GetDatabase(), "BEGIN TRANSACTION;", nullptr, nullptr, nullptr );
@@ -194,11 +174,6 @@ namespace TagHelpers
 		for( const auto& row : rows )
 		{
 			auto tags = ParseTagString( row.tags );
-			if( tags.empty() && !row.tags.empty() )
-			{
-				LOG_INFO( "ParseTagString returned empty for clip %lld with tags='%s' (len=%d)",
-					(long long)row.clipUID, row.tags.c_str(), (int)row.tags.size() );
-			}
 			for( const auto& tag : tags )
 			{
 				int tagUID = FindOrCreateTag( DB, tag );
@@ -213,6 +188,16 @@ namespace TagHelpers
 			}
 		}
 
+		sqlite3_exec( DB->GetDatabase(), "COMMIT;", nullptr, nullptr, nullptr );
+
+		// Clear legacy Tags column on migrated clips so they won't be re-migrated
+		sqlite3_exec( DB->GetDatabase(), "BEGIN TRANSACTION;", nullptr, nullptr, nullptr );
+		for( const auto& row : rows )
+		{
+			SQLiteDatabaseQueryInstance q( DB, "ClearLegacyClipTags" );
+			q->Bind( "@ClipUID", row.clipUID );
+			q->Execute( nullptr );
+		}
 		sqlite3_exec( DB->GetDatabase(), "COMMIT;", nullptr, nullptr, nullptr );
 
 		// Count unique tags created

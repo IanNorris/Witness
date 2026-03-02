@@ -106,6 +106,16 @@ void WitnessServer::StopCameraRecording( const ClipStatistics& ClipStats, int Ca
 		{
 			int64_t clipUID = query.GetColumnValueInt64( 0 );
 			TagHelpers::SyncClipTags( Context->Database, clipUID, Tags );
+
+			// Broadcast clip:new event
+			crow::json::wvalue ev;
+			ev["clipUID"] = clipUID;
+			ev["cameraID"] = CameraID;
+			ev["timestamp"] = (int64_t)ClipStats.TimestampClipStarted;
+			ev["duration"] = (int64_t)(ClipStats.TimestampClipEnded - ClipStats.TimestampClipStarted);
+			ev["tags"] = Tags;
+			Context->Events->Broadcast( "clip:new", std::move( ev ) );
+
 			return true;
 		});
 	}

@@ -438,6 +438,43 @@ void CrowListener::RegisterRoutes()
 		HandleSetupTestCuda( req, res );
 	});
 
+	// WebSocket event stream
+	CROW_WEBSOCKET_ROUTE( m_App, "/ws/events" )
+		.onopen([this]( crow::websocket::connection& conn )
+		{
+			m_GlobalContext->Events->AddConnection( &conn );
+
+			// Send initial state: all cameras with recording status
+			crow::json::wvalue initData;
+			std::vector<crow::json::wvalue> cams;
+			{
+				std::lock_guard<std::mutex> lock( m_GlobalContext->Mutex );
+				for( auto& [id, state] : m_GlobalContext->GetCameraMap() )
+				{
+					crow::json::wvalue cam;
+					cam["cameraID"] = id;
+					cam["name"] = state.Name;
+					cam["status"] = state.Status;
+					cam["recording"] = state.IsRecording;
+					cams.push_back( std::move( cam ) );
+				}
+			}
+			initData["cameras"] = std::move( cams );
+
+			crow::json::wvalue envelope;
+			envelope["event"] = "init";
+			envelope["data"] = std::move( initData );
+			conn.send_text( envelope.dump() );
+		})
+		.onclose([this]( crow::websocket::connection& conn, const std::string& /*reason*/ )
+		{
+			m_GlobalContext->Events->RemoveConnection( &conn );
+		})
+		.onmessage([this]( crow::websocket::connection& /*conn*/, const std::string& /*data*/, bool /*is_binary*/ )
+		{
+			// Client->server messages not used; REST handles mutations
+		});
+
 	// Catch-all route for static files (lowest priority)
 	CROW_CATCHALL_ROUTE( m_App )
 	([this]( crow::response& res )

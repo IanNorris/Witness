@@ -210,29 +210,49 @@ void CrowListener::HandleClipRecent( const crow::request& req, crow::response& r
 	maxCount = std::min( maxCount, 50 );
 
 	std::vector<crow::json::wvalue> clips;
+	std::vector<int64_t> clipUIDs;
 
 	SQLiteDatabaseQueryInstance q( m_GlobalContext->Database, "SelectRecentUnreviewed" );
 	q->Bind( "@UserUID", UserUID );
 	q->Bind( "@MaxCount", maxCount );
 
-	q->Execute( [&clips]( const SQLiteDatabaseQuery& query )
+	q->Execute( [&clips, &clipUIDs]( const SQLiteDatabaseQuery& query )
 	{
+		int64_t ClipID = query.GetColumnValueInt64( 0 );
 		crow::json::wvalue Clip;
-		Clip["clipUID"] = query.GetColumnValueInt64( 0 );
+		Clip["clipUID"] = ClipID;
 		Clip["timestamp"] = query.GetColumnValueInt64( 1 );
 		Clip["cameraID"] = query.GetColumnValueInt( 2 );
 		Clip["duration"] = query.GetColumnValueInt( 5 );
 		Clip["recordMode"] = query.GetColumnValueInt( 6 );
-
-		const char* TagsStr = query.GetColumnValueText( 10 );
-		Clip["tags"] = std::string( TagsStr ? TagsStr : "" );
-
 		Clip["lighting"] = query.GetColumnValueInt( 12 );
 		Clip["reviewed"] = query.GetColumnValueInt( 13 );
 
+		clipUIDs.push_back( ClipID );
 		clips.push_back( std::move( Clip ) );
 		return true;
 	});
+
+	// Populate tags from ClipTag junction table
+	for( size_t i = 0; i < clipUIDs.size(); i++ )
+	{
+		std::string tags;
+		{
+			SQLiteDatabaseQueryInstance tq( m_GlobalContext->Database, "SelectTagsForClip" );
+			tq->Bind( "@ClipUID", clipUIDs[i] );
+			tq->Execute( [&tags]( const SQLiteDatabaseQuery& query )
+			{
+				const char* name = query.GetColumnValueText( 1 );
+				if( name )
+				{
+					if( !tags.empty() ) tags += ";";
+					tags += name;
+				}
+				return true;
+			});
+		}
+		clips[i]["tags"] = tags;
+	}
 
 	crow::json::wvalue Data;
 	Data["clips"] = std::move( clips );

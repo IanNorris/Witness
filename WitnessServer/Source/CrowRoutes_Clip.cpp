@@ -160,6 +160,9 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 		);
 	}
 
+	// Collect clip UIDs during enumeration for tag lookup
+	std::vector<int64_t> clipUIDs;
+
 	if( Count > 0 )
 	{
 		SQLiteDatabaseQueryInstance SelectClips( m_GlobalContext->Database, cameraId == -1 ? "SelectClipsWithinRangeAll" : "SelectClipsWithinRange" );
@@ -173,9 +176,9 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 		SelectClips->Bind( "@PageOffset", pageOffset );
 
 		SelectClips->Execute(
-			[&Array]( const SQLiteDatabaseQuery& query )
+			[&Array, &clipUIDs]( const SQLiteDatabaseQuery& query )
 			{
-				uint64_t ClipID = query.GetColumnValueInt64( 0 );
+				int64_t ClipID = query.GetColumnValueInt64( 0 );
 				uint64_t Timestamp = query.GetColumnValueInt64( 1 );
 				int CameraID = query.GetColumnValueInt( 2 );
 				uint64_t MotionTimestamp = query.GetColumnValueInt64( 3 );
@@ -188,10 +191,6 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 				std::string Description = DescriptionStr ? DescriptionStr : "";
 
 				int Saved = query.GetColumnValueInt( 9 );
-
-				const char* TagsStr = query.GetColumnValueText( 10 );
-				std::string Tags = TagsStr ? TagsStr : "";
-
 				int Lighting = query.GetColumnValueInt( 12 );
 				int Reviewed = query.GetColumnValueInt( 13 );
 
@@ -206,14 +205,35 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 				Clip["maxMotion"] = MaxMotion;
 				Clip["description"] = Description;
 				Clip["saved"] = Saved;
-				Clip["tags"] = Tags;
 				Clip["lighting"] = Lighting;
 				Clip["reviewed"] = Reviewed;
 
+				clipUIDs.push_back( ClipID );
 				Array.push_back( std::move( Clip ) );
 				return true;
 			}
 		);
+	}
+
+	// Populate tags from ClipTag junction table
+	for( size_t i = 0; i < clipUIDs.size(); i++ )
+	{
+		std::string tags;
+		{
+			SQLiteDatabaseQueryInstance q( m_GlobalContext->Database, "SelectTagsForClip" );
+			q->Bind( "@ClipUID", clipUIDs[i] );
+			q->Execute( [&tags]( const SQLiteDatabaseQuery& query )
+			{
+				const char* name = query.GetColumnValueText( 1 );
+				if( name )
+				{
+					if( !tags.empty() ) tags += ";";
+					tags += name;
+				}
+				return true;
+			});
+		}
+		Array[i]["tags"] = tags;
 	}
 
 	crow::json::wvalue Data;

@@ -39,6 +39,12 @@ void WitnessServer::HandleCameraBeginMotionMessage(const CameraBeginMotionMessag
 			}
 
 			CameraState->IsRecording = true;
+
+			// Broadcast recording started
+			crow::json::wvalue ev;
+			ev["cameraID"] = Data.Camera;
+			ev["recording"] = true;
+			Context->Events->Broadcast( "camera:recording", std::move( ev ) );
 		}
 	}
 
@@ -76,6 +82,12 @@ void WitnessServer::HandleCameraEndMotionMessage(const CameraEndMotionMessage& D
 			}
 
 			CameraState->IsRecording = false;
+
+			// Broadcast recording stopped
+			crow::json::wvalue ev;
+			ev["cameraID"] = Data.Camera;
+			ev["recording"] = false;
+			Context->Events->Broadcast( "camera:recording", std::move( ev ) );
 		}
 	}
 

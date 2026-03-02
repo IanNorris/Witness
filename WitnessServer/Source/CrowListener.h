@@ -23,6 +23,7 @@ struct SecurityHeadersMiddleware
 	{
 		static const char* CSP =
 			"default-src 'self'; "
+			"connect-src 'self' ws: wss:; "
 			"script-src 'self' 'unsafe-inline' 'unsafe-eval' https://maxcdn.bootstrapcdn.com https://ajax.googleapis.com/ https://cdnjs.cloudflare.com/ https://cloud.githubusercontent.com/; "
 			"worker-src 'self' blob:; "
 			"style-src 'self' 'unsafe-inline' https://maxcdn.bootstrapcdn.com https://ajax.googleapis.com/ https://cdnjs.cloudflare.com/ https://cloud.githubusercontent.com/; "

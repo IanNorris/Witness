@@ -579,6 +579,11 @@ namespace Database
 		WHERE Tags IS NOT NULL AND Tags != '';
 	)RAW";
 
+	// Clear legacy Tags column after migration to ClipTag
+	std::string ClearLegacyClipTags = R"RAW(
+		UPDATE Clip SET Tags = NULL WHERE ClipUID = @ClipUID;
+	)RAW";
+
 	std::string CreateUserGroupMapping = R"RAW(
 		INSERT INTO UserGroupMapping (UserUID,`Group`)
 		VALUES(@UserUID,@Group);
@@ -740,6 +745,7 @@ namespace Database
 		CREATE_QUERY( SelectRecentUnreviewed );
 		CREATE_QUERY( SelectClipCountsByDay );
 		CREATE_QUERY( SelectClipsWithTags );
+		CREATE_QUERY( ClearLegacyClipTags );
 
 		CREATE_QUERY( FindActions );
 		CREATE_QUERY( GetAction );
