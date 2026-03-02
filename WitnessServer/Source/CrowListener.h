@@ -103,6 +103,14 @@ private:
 	void HandleClipToggleSave( const crow::request& req, crow::response& res );
 	void HandleClipDelete( const crow::request& req, crow::response& res );
 	void HandleClipRetag( const crow::request& req, crow::response& res );
+	void HandleClipReview( const crow::request& req, crow::response& res );
+	void HandleClipRecent( const crow::request& req, crow::response& res, int maxCount );
+	void HandleClipCalendar( const crow::request& req, crow::response& res, int year, int month );
+
+	// Tags
+	void HandleTagEnum( const crow::request& req, crow::response& res );
+	void HandleTagUpdate( const crow::request& req, crow::response& res );
+	void HandleCameraTagExclusions( const crow::request& req, crow::response& res, int cameraId );
 
 	// Groups
 	void HandleGroupEnum( const crow::request& req, crow::response& res );

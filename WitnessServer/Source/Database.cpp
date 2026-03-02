@@ -87,8 +87,28 @@ namespace Database
 
 		CREATE TABLE IF NOT EXISTS Tag(
 			TagUID			INTEGER PRIMARY KEY	AUTOINCREMENT,
-			Name			CHAR(64)							NOT NULL,
-			Description		TEXT								NOT NULL
+			Name			TEXT UNIQUE				NOT NULL,
+			Display			TEXT					NOT NULL,
+			Icon			TEXT					DEFAULT '',
+			SortOrder		INTEGER					DEFAULT 0,
+			Hidden			INTEGER					DEFAULT 0
+		);
+
+		CREATE TABLE IF NOT EXISTS ClipTag(
+			ClipUID			INTEGER					NOT NULL,
+			TagUID			INTEGER					NOT NULL,
+			PRIMARY KEY (ClipUID, TagUID),
+			FOREIGN KEY (ClipUID) REFERENCES Clip(ClipUID) ON DELETE CASCADE,
+			FOREIGN KEY (TagUID) REFERENCES Tag(TagUID)
+		);
+
+		CREATE INDEX IF NOT EXISTS ClipTagByTag ON ClipTag (TagUID);
+
+		CREATE TABLE IF NOT EXISTS CameraTagExclusion(
+			CameraID		INTEGER					NOT NULL,
+			TagUID			INTEGER					NOT NULL,
+			PRIMARY KEY (CameraID, TagUID),
+			FOREIGN KEY (TagUID) REFERENCES Tag(TagUID)
 		);
 
 		CREATE TABLE IF NOT EXISTS Action(
@@ -331,6 +351,7 @@ namespace Database
 	)RAW";
 	
 	std::string DeleteClip = R"RAW(
+		DELETE FROM ClipTag WHERE ClipUID == @ClipUID;
 		DELETE FROM Clip 
 		WHERE 
 				ClipUID == @ClipUID 
@@ -412,6 +433,7 @@ namespace Database
 	)RAW";
 
 	std::string ResetClipDetection = R"RAW(
+		DELETE FROM ClipTag WHERE ClipUID = @ClipUID;
 		UPDATE Clip
 		SET DetectionVersion = -1, Tags = ''
 		WHERE ClipUID = @ClipUID;
@@ -474,6 +496,89 @@ namespace Database
 		;
 	)RAW";
 
+	// Tag queries
+	std::string FindOrCreateTag = R"RAW(
+		INSERT OR IGNORE INTO Tag (Name, Display, Icon, SortOrder) VALUES(@Name, @Display, @Icon, @SortOrder);
+	)RAW";
+
+	std::string SelectTagByName = R"RAW(
+		SELECT TagUID FROM Tag WHERE Name = @Name;
+	)RAW";
+
+	std::string SelectAllTags = R"RAW(
+		SELECT t.TagUID, t.Name, t.Display, t.Icon, t.SortOrder, t.Hidden,
+			(SELECT COUNT(*) FROM ClipTag ct WHERE ct.TagUID = t.TagUID) AS ClipCount
+		FROM Tag t
+		ORDER BY t.SortOrder, t.Display;
+	)RAW";
+
+	std::string UpdateTag = R"RAW(
+		UPDATE Tag SET Display = @Display, Icon = @Icon, Hidden = @Hidden
+		WHERE TagUID = @TagUID;
+	)RAW";
+
+	std::string InsertClipTag = R"RAW(
+		INSERT OR IGNORE INTO ClipTag (ClipUID, TagUID) VALUES(@ClipUID, @TagUID);
+	)RAW";
+
+	std::string DeleteClipTags = R"RAW(
+		DELETE FROM ClipTag WHERE ClipUID = @ClipUID;
+	)RAW";
+
+	std::string SelectTagsForClip = R"RAW(
+		SELECT t.TagUID, t.Name, t.Display, t.Icon
+		FROM Tag t
+		INNER JOIN ClipTag ct ON ct.TagUID = t.TagUID
+		WHERE ct.ClipUID = @ClipUID;
+	)RAW";
+
+	std::string SelectCameraTagExclusions = R"RAW(
+		SELECT TagUID FROM CameraTagExclusion WHERE CameraID = @CameraID;
+	)RAW";
+
+	std::string InsertCameraTagExclusion = R"RAW(
+		INSERT OR IGNORE INTO CameraTagExclusion (CameraID, TagUID) VALUES(@CameraID, @TagUID);
+	)RAW";
+
+	std::string DeleteCameraTagExclusions = R"RAW(
+		DELETE FROM CameraTagExclusion WHERE CameraID = @CameraID;
+	)RAW";
+
+	// Clip review
+	std::string SetClipReviewed = R"RAW(
+		UPDATE Clip SET Reviewed = @Reviewed WHERE ClipUID = @ClipUID;
+	)RAW";
+
+	std::string SetAllClipsReviewed = R"RAW(
+		UPDATE Clip SET Reviewed = 1 WHERE Reviewed = 0;
+	)RAW";
+
+	std::string SelectRecentUnreviewed = R"RAW(
+		SELECT DISTINCT Clip.* FROM Clip
+			INNER JOIN Camera C ON C.CameraUID = Clip.Camera
+			INNER JOIN CameraGroupMapping CGM ON CGM.Camera = C.CameraUID
+			INNER JOIN UserGroupMapping UGM ON UGM.`Group` = CGM.`Group`
+		WHERE Reviewed = 0
+			AND UGM.UserUID == @UserUID
+		ORDER BY Timestamp DESC
+		LIMIT @MaxCount;
+	)RAW";
+
+	// Calendar (event counts per day)
+	std::string SelectClipCountsByDay = R"RAW(
+		SELECT date(Timestamp, 'unixepoch', 'localtime') AS day, COUNT(*) AS cnt
+		FROM Clip
+		WHERE Timestamp >= @TimestampFrom AND Timestamp < @TimestampTo
+		GROUP BY day
+		ORDER BY day;
+	)RAW";
+
+	// Tag migration: select clips with non-empty legacy tags
+	std::string SelectClipsWithTags = R"RAW(
+		SELECT ClipUID, Tags FROM Clip
+		WHERE Tags IS NOT NULL AND Tags != '';
+	)RAW";
+
 	std::string CreateUserGroupMapping = R"RAW(
 		INSERT INTO UserGroupMapping (UserUID,`Group`)
 		VALUES(@UserUID,@Group);
@@ -510,6 +615,15 @@ namespace Database
 		// Schema migrations for existing databases (errors ignored if column already exists)
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Clip ADD COLUMN DetectionVersion INT DEFAULT 0;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Clip ADD COLUMN Lighting INT DEFAULT 0;", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Clip ADD COLUMN Reviewed INT DEFAULT 0;", nullptr, nullptr, nullptr );
+
+		// Migrate old Tag table schema if it has the old columns (Description instead of Display)
+		// The CREATE TABLE IF NOT EXISTS in the init script handles fresh installs;
+		// for upgrades, add missing columns (errors ignored if they already exist)
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Tag ADD COLUMN Display TEXT NOT NULL DEFAULT '';", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Tag ADD COLUMN Icon TEXT DEFAULT '';", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Tag ADD COLUMN SortOrder INTEGER DEFAULT 0;", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Tag ADD COLUMN Hidden INTEGER DEFAULT 0;", nullptr, nullptr, nullptr );
 
 		CREATE_QUERY( GetSetting );
 		CREATE_QUERY( GetAllSettings );
@@ -572,6 +686,22 @@ namespace Database
 		CREATE_QUERY( DeleteCameraGroupMapping );
 
 		CREATE_QUERY( SelectGroupsForUser );
+
+		CREATE_QUERY( FindOrCreateTag );
+		CREATE_QUERY( SelectTagByName );
+		CREATE_QUERY( SelectAllTags );
+		CREATE_QUERY( UpdateTag );
+		CREATE_QUERY( InsertClipTag );
+		CREATE_QUERY( DeleteClipTags );
+		CREATE_QUERY( SelectTagsForClip );
+		CREATE_QUERY( SelectCameraTagExclusions );
+		CREATE_QUERY( InsertCameraTagExclusion );
+		CREATE_QUERY( DeleteCameraTagExclusions );
+		CREATE_QUERY( SetClipReviewed );
+		CREATE_QUERY( SetAllClipsReviewed );
+		CREATE_QUERY( SelectRecentUnreviewed );
+		CREATE_QUERY( SelectClipCountsByDay );
+		CREATE_QUERY( SelectClipsWithTags );
 
 		CREATE_QUERY( FindActions );
 		CREATE_QUERY( GetAction );

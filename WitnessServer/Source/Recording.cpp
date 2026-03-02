@@ -3,6 +3,7 @@
 #include "ClipHelpers.h"
 #include "ObservingMotionFilter.h"
 #include "Witness.h"
+#include "TagHelpers.h"
 
 #include <Log.h>
 #include <filesystem>
@@ -49,6 +50,11 @@ void WitnessServer::StartCameraRecording( const std::shared_ptr<CameraWorker>& W
 	CreateClip->Bind( "@Save", 0 );
 	CreateClip->Bind( "@Tags", Tags.c_str() );
 	CreateClip->Execute( nullptr );
+
+	// Sync ClipTag junction table
+	int64_t clipUID = CreateClip->GetLastInsertionId();
+	if( clipUID > 0 )
+		TagHelpers::SyncClipTags( Context->Database, clipUID, Tags );
 }
 
 void WitnessServer::StopCameraRecording( const ClipStatistics& ClipStats, int CameraID, const ClassificationResult& Result )
@@ -90,6 +96,19 @@ void WitnessServer::StopCameraRecording( const ClipStatistics& ClipStats, int Ca
 
 	UpdateClip->Bind( "@MaxMotion", ClipStats.LargestMotionDelta );
 	UpdateClip->Execute( nullptr );
+
+	// Sync ClipTag junction table — look up ClipUID by timestamp+camera
+	{
+		SQLiteDatabaseQueryInstance SelectClip( Context->Database, "SelectClip" );
+		SelectClip->Bind( "@CameraID", CameraID );
+		SelectClip->Bind( "@Timestamp", (int64_t)ClipStats.TimestampClipStarted );
+		SelectClip->Execute( [&]( const SQLiteDatabaseQuery& query )
+		{
+			int64_t clipUID = query.GetColumnValueInt64( 0 );
+			TagHelpers::SyncClipTags( Context->Database, clipUID, Tags );
+			return true;
+		});
+	}
 
 	auto WriteThumbnailMessage = std::make_shared<CameraWriteThumbnailMessage>( CameraID );
 	

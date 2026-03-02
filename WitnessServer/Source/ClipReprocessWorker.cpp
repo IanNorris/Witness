@@ -1,4 +1,5 @@
 #include "ClipReprocessWorker.h"
+#include "TagHelpers.h"
 
 #include <Log.h>
 #include <filesystem>
@@ -344,6 +345,9 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 		UpdateClipDetection->Bind( "@Lighting", (int)lighting );
 		UpdateClipDetection->Execute( nullptr );
 	}
+
+	// Sync ClipTag junction table
+	TagHelpers::SyncClipTags( Database, clipUID, tagString );
 
 	LOG_INFO( "Reprocessed clip %lld: %s", (long long)clipUID, tagString.c_str() );
 }

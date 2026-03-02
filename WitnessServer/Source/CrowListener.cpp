@@ -320,6 +320,43 @@ void CrowListener::RegisterRoutes()
 		HandleClipRetag( req, res );
 	});
 
+	CROW_ROUTE( m_App, "/clip/review" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleClipReview( req, res );
+	});
+
+	CROW_ROUTE( m_App, "/clip/recent/<int>" )
+	([this]( const crow::request& req, crow::response& res, int maxCount )
+	{
+		HandleClipRecent( req, res, maxCount );
+	});
+
+	CROW_ROUTE( m_App, "/clip/calendar/<int>/<int>" )
+	([this]( const crow::request& req, crow::response& res, int year, int month )
+	{
+		HandleClipCalendar( req, res, year, month );
+	});
+
+	// Tags
+	CROW_ROUTE( m_App, "/clip/tags" )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleTagEnum( req, res );
+	});
+
+	CROW_ROUTE( m_App, "/clip/tags/update" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleTagUpdate( req, res );
+	});
+
+	CROW_ROUTE( m_App, "/clip/tags/camera-exclusions/<int>" ).methods( crow::HTTPMethod::GET, crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res, int cameraId )
+	{
+		HandleCameraTagExclusions( req, res, cameraId );
+	});
+
 	// Groups
 	CROW_ROUTE( m_App, "/group/enum" )
 	([this]( const crow::request& req, crow::response& res )

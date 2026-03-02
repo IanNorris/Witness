@@ -193,6 +193,7 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 				std::string Tags = TagsStr ? TagsStr : "";
 
 				int Lighting = query.GetColumnValueInt( 12 );
+				int Reviewed = query.GetColumnValueInt( 13 );
 
 				crow::json::wvalue Clip;
 				Clip["clipUID"] = ClipID;
@@ -207,6 +208,7 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 				Clip["saved"] = Saved;
 				Clip["tags"] = Tags;
 				Clip["lighting"] = Lighting;
+				Clip["reviewed"] = Reviewed;
 
 				Array.push_back( std::move( Clip ) );
 				return true;

@@ -19,6 +19,7 @@ set(SERVER_SOURCES
     Source/CrowRoutes_Group.cpp
     Source/CrowRoutes_Setup.cpp
     Source/CrowRoutes_Stream.cpp
+    Source/CrowRoutes_Tag.cpp
     Source/CameraWorker.cpp
     Source/Common.cpp
     Source/Database.cpp
@@ -36,6 +37,7 @@ set(SERVER_SOURCES
     Source/Shutdown.cpp
     Source/SQLite.cpp
     Source/StatusEvents.cpp
+    Source/TagHelpers.cpp
     Source/TimerWorker.cpp
     Source/WatchdogWorker.cpp
     Source/WorkerBase.cpp
@@ -63,6 +65,7 @@ set(SERVER_HEADERS
     Source/SetupServer.h
     Source/SettingsMap.h
     Source/SQLite.h
+    Source/TagHelpers.h
     Source/TimerWorker.h
     Source/WatchdogWorker.h
     Source/Witness.h
