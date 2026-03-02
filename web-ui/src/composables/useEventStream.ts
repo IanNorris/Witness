@@ -97,12 +97,17 @@ function installCameraHandler() {
           cam.isRecording = c.recording
         }
       }
+      // Trigger array reactivity
+      cameraStore.cameras = [...cameraStore.cameras]
     }
 
     if (evt.event === 'camera:recording') {
       const d = evt.data as { cameraID: number; recording: boolean }
       const cam = cameraStore.getCameraById(d.cameraID)
-      if (cam) cam.isRecording = d.recording
+      if (cam) {
+        cam.isRecording = d.recording
+        cameraStore.cameras = [...cameraStore.cameras]
+      }
     }
 
     if (evt.event === 'camera:state') {
@@ -111,6 +116,7 @@ function installCameraHandler() {
       if (cam) {
         if (d.status !== undefined) cam.status = d.status
         if (d.recording !== undefined) cam.isRecording = d.recording
+        cameraStore.cameras = [...cameraStore.cameras]
       }
     }
   })

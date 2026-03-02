@@ -25,7 +25,7 @@ const previewTick = ref(0)
 
 // Cameras currently recording (ongoing) — pinned left with live preview
 const ongoingCameras = computed(() =>
-  cameraStore.cameras.filter(c => c.isRecording && c.status === 'Connected')
+  cameraStore.cameras.filter(c => c.isRecording)
 )
 
 // Recent clips sorted by time, hiding trivial (<2s), capped to strip size
