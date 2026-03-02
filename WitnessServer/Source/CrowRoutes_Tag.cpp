@@ -44,7 +44,8 @@ void CrowListener::HandleTagEnum( const crow::request& req, crow::response& res 
 
 void CrowListener::HandleTagUpdate( const crow::request& req, crow::response& res )
 {
-	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, nullptr,
+	auto body = crow::json::load( req.body );
+	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, &body,
 		CrowAuth::Action::ReadWrite, CrowAuth::Privilege::Administrator );
 	if( UserUID < 0 )
 	{
@@ -53,7 +54,6 @@ void CrowListener::HandleTagUpdate( const crow::request& req, crow::response& re
 		return;
 	}
 
-	auto body = crow::json::load( req.body );
 	if( !body || !body.has("id") )
 	{
 		res.code = 400;

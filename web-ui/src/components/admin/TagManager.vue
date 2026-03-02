@@ -99,8 +99,9 @@ onMounted(() => {
             <td>{{ tag.display }}</td>
             <td class="text-center small">{{ tag.clipCount }}</td>
             <td class="text-center">
-              <span v-if="tag.hidden" class="text-danger">Hidden</span>
-              <span v-else class="text-success">✓</span>
+              <input type="checkbox" class="form-check-input"
+                :checked="!tag.hidden"
+                @change="tagStore.updateTag(tag.id, tag.display, tag.icon, !tag.hidden)" />
             </td>
             <td class="text-end">
               <button class="btn btn-sm btn-outline-secondary" @click="startEdit(tag)">Edit</button>
