@@ -6,6 +6,7 @@
 #include "CameraWorker.h"
 #include "SettingsMap.h"
 #include "LongPoll.h"
+#include "EventBroadcaster.h"
 
 struct CameraStateToggleRecordMessage : public Message
 {
@@ -22,6 +23,7 @@ public:
 	GlobalContext()
 	: Mutex()
 	, LongPoll(std::make_shared<LongPollDispatch>())
+	, Events(std::make_shared<EventBroadcaster>())
 	{}
 
 	CameraState* FindCameraById(int Id)
@@ -77,6 +79,8 @@ public:
 	uint16_t Port;
 
 	mutable std::shared_ptr<LongPollDispatch> LongPoll;
+
+	std::shared_ptr<EventBroadcaster> Events;
 
 private:
 	std::unordered_map< int, CameraState> Cameras;

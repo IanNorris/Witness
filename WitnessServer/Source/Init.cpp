@@ -5,6 +5,7 @@
 #include "AuthHelpers.h"
 #include "ClipHelpers.h"
 #include "Database.h"
+#include "TagHelpers.h"
 
 #include <Log.h>
 #include <ONNXDetectionFilter.h>
@@ -47,6 +48,9 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 	auto DatabaseFile = GetConfigFilePath("server.db");
 
 	std::shared_ptr<SQLiteDatabase> Database = Database::InitializeDatabase(DatabaseFile.string());
+
+	// Migrate legacy semicolon-delimited tags to Tag/ClipTag tables
+	TagHelpers::MigrateLegacyTags( Database );
 
 	// If no admin user exists, run the web setup wizard first
 	if( !Database::HasAdminUser( Database ) )

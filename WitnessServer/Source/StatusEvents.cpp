@@ -18,12 +18,25 @@ void WitnessServer::HandleCameraReconnectMessage(const CameraReconnectMessage& D
 	{
 		CameraState->IsRecording = false;
 		CameraState->IsManualRecording = false;
+
+		crow::json::wvalue ev;
+		ev["cameraID"] = Data.Camera;
+		ev["status"] = "Reconnecting";
+		ev["recording"] = false;
+		Context->Events->Broadcast( "camera:state", std::move( ev ) );
 	}
 }
 
 void WitnessServer::HandleCameraConnectedMessage(const CameraConnectedMessage& Data)
 {
 	StatusMessage( Data.Camera, "Connected", "Connected to camera" );
+
+	{
+		crow::json::wvalue ev;
+		ev["cameraID"] = Data.Camera;
+		ev["status"] = "Connected";
+		Context->Events->Broadcast( "camera:state", std::move( ev ) );
+	}
 
 	if( !AllCamerasReported )
 	{

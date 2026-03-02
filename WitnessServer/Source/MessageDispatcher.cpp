@@ -59,6 +59,11 @@ void WitnessServer::MessageLoop( bool& ContinueRunning )
 					{
 						CameraState->IsRecording = Data.Record;
 						Change = true;
+
+						crow::json::wvalue ev;
+						ev["cameraID"] = Data.Camera;
+						ev["recording"] = Data.Record;
+						Context->Events->Broadcast( "camera:recording", std::move( ev ) );
 					}
 				}
 			}

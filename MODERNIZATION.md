@@ -378,6 +378,29 @@ Capture cropped images of detected objects (people, animals, vehicles) during re
 - Especially valuable for person/face highlights — immediately shows who triggered the recording
 - Could extend to face detection/recognition in the future (cluster faces across clips)
 
+### Event Bisection Search
+
+Binary search tool for finding when something specific happened. Useful for forensic investigation (e.g., "when was the car stolen?").
+
+- User selects a time range (e.g., "last 48 hours") and a camera
+- System shows a clip from the midpoint and asks: "Has it happened yet?" → **Yes** / **No** / **Can't tell**
+- Based on the answer, the range narrows by half (or shifts if "can't tell")
+- Repeats until the range is small enough to identify the exact event
+- Could show side-by-side "before" and "after" thumbnails at each step for quick comparison
+- Display a visual range indicator showing the narrowing search window
+- Typically finds the exact clip in ~10 steps even across thousands of clips
+
+### Spatial Motion Indexing
+
+Tag and track motion at specific locations within a camera's field of view, enabling queries like "show me everything that happened in this area."
+
+- User draws a region of interest on a camera frame (polygon or rectangle)
+- System indexes motion activity within that region across all clips for that camera
+- Query: "show all clips where motion occurred in this zone" with timeline visualization
+- Could use existing detection bounding boxes to determine spatial overlap
+- Enables use cases like: monitoring a specific parking spot, doorway, or gate
+- Could generate per-zone activity heatmaps over time
+
 ---
 
 ## Notes

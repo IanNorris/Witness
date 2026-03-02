@@ -1,4 +1,5 @@
 #include "ClipReprocessWorker.h"
+#include "TagHelpers.h"
 
 #include <Log.h>
 #include <filesystem>
@@ -106,10 +107,18 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 		// File missing - mark as processed to skip it
 		SQLiteDatabaseQueryInstance UpdateClipDetection( Database, "UpdateClipDetection" );
 		UpdateClipDetection->Bind( "@ClipUID", clipUID );
-		UpdateClipDetection->Bind( "@Tags", existingTags.c_str() );
+		UpdateClipDetection->Bind( "@Tags", "" );
 		UpdateClipDetection->Bind( "@DetectionVersion", CURRENT_DETECTION_VERSION );
 		UpdateClipDetection->Bind( "@Lighting", 0 );
 		UpdateClipDetection->Execute( nullptr );
+
+		// Clear any stale ClipTag rows for this missing clip
+		{
+			SQLiteDatabaseQueryInstance q( Database, "DeleteClipTags" );
+			q->Bind( "@ClipUID", clipUID );
+			q->Execute( nullptr );
+		}
+
 		LOG_DEBUG( "ClipReprocess: Clip %lld file not found, skipping: %s", (long long)clipUID, clipPath.c_str() );
 		return;
 	}
@@ -344,6 +353,9 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 		UpdateClipDetection->Bind( "@Lighting", (int)lighting );
 		UpdateClipDetection->Execute( nullptr );
 	}
+
+	// Sync ClipTag junction table
+	TagHelpers::SyncClipTags( Database, clipUID, tagString );
 
 	LOG_INFO( "Reprocessed clip %lld: %s", (long long)clipUID, tagString.c_str() );
 }

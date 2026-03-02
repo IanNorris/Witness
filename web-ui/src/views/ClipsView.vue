@@ -4,15 +4,19 @@ import { useRoute } from 'vue-router'
 import AppLayout from '../components/layout/AppLayout.vue'
 import ClipCard from '../components/clips/ClipCard.vue'
 import ClipPlayer from '../components/clips/ClipPlayer.vue'
+import ActivityStrip from '../components/clips/ActivityStrip.vue'
+import ClipFilters from '../components/clips/ClipFilters.vue'
 import { useCameraStore } from '../stores/cameras'
 import { useClipStore } from '../stores/clips'
 import { useSettingsStore } from '../stores/settings'
+import { useFilterStore } from '../stores/filters'
 import type { Clip } from '../types/clip'
 
 const route = useRoute()
 const cameraStore = useCameraStore()
 const clipStore = useClipStore()
 const settings = useSettingsStore()
+const filterStore = useFilterStore()
 
 const playingClip = ref<Clip | null>(null)
 const confirmDelete = ref<Clip | null>(null)
@@ -48,6 +52,7 @@ async function loadClips() {
 }
 
 watch(cameraId, () => loadClips())
+watch(() => filterStore.filterQueryString, () => loadClips())
 onMounted(() => loadClips())
 
 function handlePlay(clip: Clip) {
@@ -102,6 +107,7 @@ function handleTagClick(_tag: string) {
     <template #title>{{ title }}</template>
     <template #actions>
       <div class="d-flex align-items-center gap-3">
+        <button class="btn btn-sm btn-outline-secondary" @click="loadClips" title="Refresh">↻</button>
         <div class="form-check form-switch mb-0">
           <input
             class="form-check-input"
@@ -126,59 +132,71 @@ function handleTagClick(_tag: string) {
       </div>
     </template>
 
-    <!-- Loading -->
-    <div v-if="clipStore.loading" class="text-center py-5">
-      <div class="spinner-border text-primary" role="status">
-        <span class="visually-hidden">Loading...</span>
+    <!-- Activity Strip -->
+    <ActivityStrip @play="handlePlay" />
+
+    <!-- Main content: sidebar + clips -->
+    <div class="clips-layout">
+      <div class="clips-main">
+        <!-- Loading -->
+        <div v-if="clipStore.loading" class="text-center py-5">
+          <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+          </div>
+        </div>
+
+        <!-- Empty state -->
+        <div v-else-if="clipStore.clips.length === 0" class="text-muted-custom text-center py-5">
+          No clips found
+        </div>
+
+        <!-- Clip grid -->
+        <div v-else>
+          <div class="clip-grid">
+            <ClipCard
+              v-for="clip in displayedClips"
+              :key="clip.uid"
+              :clip="clip"
+              :trivial="isTrivialClip(clip)"
+              @play="handlePlay"
+              @toggle-save="handleToggleSave"
+              @delete="handleDeleteRequest"
+              @retag="handleRetag"
+              @tag-click="handleTagClick"
+            />
+          </div>
+
+          <!-- Pagination -->
+          <nav v-if="clipStore.totalPages > 1" class="mt-3 d-flex justify-content-center">
+            <ul class="pagination pagination-sm">
+              <li class="page-item" :class="{ disabled: clipStore.currentPage === 0 }">
+                <a class="page-link" href="#" @click.prevent="clipStore.goToPage(0)">«</a>
+              </li>
+              <li class="page-item" :class="{ disabled: clipStore.currentPage === 0 }">
+                <a class="page-link" href="#" @click.prevent="clipStore.prevPage()">‹</a>
+              </li>
+              <li
+                v-for="p in pageNumbers"
+                :key="p"
+                class="page-item"
+                :class="{ active: p === clipStore.currentPage }"
+              >
+                <a class="page-link" href="#" @click.prevent="clipStore.goToPage(p)">{{ p + 1 }}</a>
+              </li>
+              <li class="page-item" :class="{ disabled: clipStore.currentPage >= clipStore.totalPages - 1 }">
+                <a class="page-link" href="#" @click.prevent="clipStore.nextPage()">›</a>
+              </li>
+              <li class="page-item" :class="{ disabled: clipStore.currentPage >= clipStore.totalPages - 1 }">
+                <a class="page-link" href="#" @click.prevent="clipStore.goToPage(clipStore.totalPages - 1)">»</a>
+              </li>
+            </ul>
+          </nav>
+        </div>
       </div>
-    </div>
 
-    <!-- Empty state -->
-    <div v-else-if="clipStore.clips.length === 0" class="text-muted-custom text-center py-5">
-      No clips found
-    </div>
-
-    <!-- Clip grid -->
-    <div v-else>
-      <div class="clip-grid">
-        <ClipCard
-          v-for="clip in displayedClips"
-          :key="clip.uid"
-          :clip="clip"
-          :trivial="isTrivialClip(clip)"
-          @play="handlePlay"
-          @toggle-save="handleToggleSave"
-          @delete="handleDeleteRequest"
-          @retag="handleRetag"
-          @tag-click="handleTagClick"
-        />
-      </div>
-
-      <!-- Pagination -->
-      <nav v-if="clipStore.totalPages > 1" class="mt-3 d-flex justify-content-center">
-        <ul class="pagination pagination-sm">
-          <li class="page-item" :class="{ disabled: clipStore.currentPage === 0 }">
-            <a class="page-link" href="#" @click.prevent="clipStore.goToPage(0)">«</a>
-          </li>
-          <li class="page-item" :class="{ disabled: clipStore.currentPage === 0 }">
-            <a class="page-link" href="#" @click.prevent="clipStore.prevPage()">‹</a>
-          </li>
-          <li
-            v-for="p in pageNumbers"
-            :key="p"
-            class="page-item"
-            :class="{ active: p === clipStore.currentPage }"
-          >
-            <a class="page-link" href="#" @click.prevent="clipStore.goToPage(p)">{{ p + 1 }}</a>
-          </li>
-          <li class="page-item" :class="{ disabled: clipStore.currentPage >= clipStore.totalPages - 1 }">
-            <a class="page-link" href="#" @click.prevent="clipStore.nextPage()">›</a>
-          </li>
-          <li class="page-item" :class="{ disabled: clipStore.currentPage >= clipStore.totalPages - 1 }">
-            <a class="page-link" href="#" @click.prevent="clipStore.goToPage(clipStore.totalPages - 1)">»</a>
-          </li>
-        </ul>
-      </nav>
+      <aside class="clips-sidebar">
+        <ClipFilters />
+      </aside>
     </div>
 
     <!-- Video player modal -->
@@ -200,6 +218,21 @@ function handleTagClick(_tag: string) {
 </template>
 
 <style scoped>
+.clips-layout {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
+}
+.clips-sidebar {
+  flex: 0 0 200px;
+  position: sticky;
+  top: 1rem;
+}
+.clips-main {
+  flex: 1;
+  min-width: 0;
+}
+
 .clip-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));

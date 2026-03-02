@@ -4,6 +4,7 @@ import { api } from '../composables/useApi'
 import type { Clip } from '../types/clip'
 import { LightingCondition } from '../types/clip'
 import { useSettingsStore } from './settings'
+import { useFilterStore } from './filters'
 
 export const useClipStore = defineStore('clips', () => {
   const clips = ref<Clip[]>([])
@@ -13,6 +14,7 @@ export const useClipStore = defineStore('clips', () => {
   const currentCameraId = ref<number | null>(null)
 
   const settings = useSettingsStore()
+  const filterStore = useFilterStore()
   const pageSize = computed(() => settings.clipsPerPage)
   const currentPage = computed(() => Math.floor(pageOffset.value / pageSize.value))
   const totalPages = computed(() => Math.ceil(totalCount.value / pageSize.value))
@@ -28,7 +30,7 @@ export const useClipStore = defineStore('clips', () => {
 
     try {
       const data = await api<{ count: number; clips: Record<string, unknown>[] }>(
-        `/clip/enum/${camParam}/${pageSize.value}/${startDate}/${rangePeriod}/${offset}`
+        `/clip/enum/${camParam}/${pageSize.value}/${startDate}/${rangePeriod}/${offset}${filterStore.filterQueryString}`
       )
       totalCount.value = data.count ?? 0
       clips.value = (data.clips ?? []).map(mapClip)
@@ -54,6 +56,28 @@ export const useClipStore = defineStore('clips', () => {
 
   async function retagClip(clipUid: number) {
     await api('/clip/retag', { method: 'POST', body: { id: clipUid } })
+  }
+
+  async function reviewClip(clipUid: number) {
+    await api('/clip/review', { method: 'POST', body: { id: clipUid, value: true } })
+    const clip = clips.value.find(c => c.uid === clipUid)
+    if (clip) clip.reviewed = true
+  }
+
+  async function reviewAllClips() {
+    await api('/clip/review', { method: 'POST', body: { all: true } })
+    clips.value.forEach(c => { c.reviewed = true })
+  }
+
+  const recentClips = ref<Clip[]>([])
+
+  async function fetchRecent(count = 20) {
+    try {
+      const data = await api<{ clips: Record<string, unknown>[] }>(`/clip/recent/${count}`)
+      recentClips.value = (data.clips ?? []).map(mapClip)
+    } catch {
+      recentClips.value = []
+    }
   }
 
   function nextPage() {
@@ -83,7 +107,9 @@ export const useClipStore = defineStore('clips', () => {
   return {
     clips, totalCount, loading, pageSize, pageOffset,
     currentCameraId, currentPage, totalPages,
+    recentClips,
     fetchClips, toggleSave, deleteClip, retagClip,
+    reviewClip, reviewAllClips, fetchRecent,
     nextPage, prevPage, goToPage,
     thumbnailUrl, videoUrl,
   }
@@ -102,5 +128,6 @@ function mapClip(raw: Record<string, unknown>): Clip {
     description: (raw.description as string) ?? '',
     detectionVersion: (raw.detectionVersion as number) ?? 0,
     lighting: (raw.lighting as number ?? 0) as LightingCondition,
+    reviewed: (raw.reviewed as number) === 1,
   }
 }
