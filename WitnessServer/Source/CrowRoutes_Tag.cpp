@@ -310,3 +310,80 @@ void CrowListener::HandleClipCalendar( const crow::request& req, crow::response&
 	res.code = 200;
 	res.end();
 }
+
+void CrowListener::HandleClipTimeline( const crow::request& req, crow::response& res, int year, int month, int day )
+{
+	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, nullptr,
+		CrowAuth::Action::Read, CrowAuth::Privilege::Normal );
+	if( UserUID < 0 )
+	{
+		res.code = 403;
+		res.end();
+		return;
+	}
+
+	// Calculate timestamp range for the day (local time)
+	struct tm startTm = {};
+	startTm.tm_year = year - 1900;
+	startTm.tm_mon = month - 1;
+	startTm.tm_mday = day;
+	time_t startTime = mktime( &startTm );
+
+	struct tm endTm = startTm;
+	endTm.tm_mday += 1;
+	time_t endTime = mktime( &endTm );
+
+	std::vector<crow::json::wvalue> clips;
+	std::vector<int64_t> clipUIDs;
+
+	SQLiteDatabaseQueryInstance q( m_GlobalContext->Database, "SelectClipsForTimeline" );
+	q->Bind( "@TimestampFrom", (int64_t)startTime );
+	q->Bind( "@TimestampTo", (int64_t)endTime );
+
+	q->Execute( [&clips, &clipUIDs]( const SQLiteDatabaseQuery& query )
+	{
+		crow::json::wvalue clip;
+		int64_t uid = query.GetColumnValueInt64( 0 );
+		clip["clipUID"] = uid;
+		clip["timestamp"] = query.GetColumnValueInt64( 1 );
+		clip["duration"] = query.GetColumnValueInt( 2 );
+		clip["cameraID"] = query.GetColumnValueInt( 3 );
+		clip["cameraName"] = std::string( query.GetColumnValueText( 4 ) ? query.GetColumnValueText( 4 ) : "" );
+		clip["recordMode"] = query.GetColumnValueInt( 5 );
+		clip["lighting"] = query.GetColumnValueInt( 6 );
+		clip["saved"] = query.GetColumnValueInt( 7 );
+		clip["reviewed"] = query.GetColumnValueInt( 8 );
+		clips.push_back( std::move( clip ) );
+		clipUIDs.push_back( uid );
+		return true;
+	});
+
+	// Add tags for each clip
+	for( size_t i = 0; i < clips.size(); i++ )
+	{
+		std::string tagStr;
+		SQLiteDatabaseQueryInstance tq( m_GlobalContext->Database, "SelectTagsForClip" );
+		tq->Bind( "@ClipUID", clipUIDs[i] );
+		tq->Execute( [&tagStr]( const SQLiteDatabaseQuery& query )
+		{
+			if( !tagStr.empty() )
+				tagStr += ";";
+			const char* name = query.GetColumnValueText( 1 );
+			if( name )
+				tagStr += name;
+			return true;
+		});
+		clips[i]["tags"] = tagStr;
+	}
+
+	crow::json::wvalue Data;
+	Data["year"] = year;
+	Data["month"] = month;
+	Data["day"] = day;
+	Data["clips"] = std::move( clips );
+
+	res.set_header( "Content-Type", "application/json" );
+	res.body = Data.dump();
+	res.code = 200;
+	res.end();
+}

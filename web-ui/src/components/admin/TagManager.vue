@@ -1,9 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useTagStore } from '../../stores/tags'
+import { useFilterStore } from '../../stores/filters'
 import type { Tag } from '../../types/clip'
 
 const tagStore = useTagStore()
+const filterStore = useFilterStore()
+const router = useRouter()
 
 const editingTag = ref<Tag | null>(null)
 const editDisplay = ref('')
@@ -35,6 +39,12 @@ async function saveEdit() {
   } finally {
     saving.value = false
   }
+}
+
+function viewClipsForTag(tagName: string) {
+  filterStore.clearFilters()
+  filterStore.activeFilters.tags = [tagName]
+  router.push('/clips')
 }
 
 onMounted(() => {
@@ -97,7 +107,9 @@ onMounted(() => {
             <td class="tag-icon-cell">{{ tag.icon }}</td>
             <td class="small text-muted-custom">{{ tag.name }}</td>
             <td>{{ tag.display }}</td>
-            <td class="text-center small">{{ tag.clipCount }}</td>
+            <td class="text-center small">
+              <a href="#" class="tag-count-link" @click.prevent="viewClipsForTag(tag.name)">{{ tag.clipCount }}</a>
+            </td>
             <td class="text-center">
               <input type="checkbox" class="form-check-input"
                 :checked="!tag.hidden"
@@ -122,5 +134,12 @@ onMounted(() => {
   width: 3rem;
   text-align: center;
   font-size: 1rem;
+}
+.tag-count-link {
+  color: #58a6ff;
+  text-decoration: none;
+}
+.tag-count-link:hover {
+  text-decoration: underline;
 }
 </style>

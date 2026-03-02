@@ -5,6 +5,7 @@ import AppLayout from '../components/layout/AppLayout.vue'
 import ClipCard from '../components/clips/ClipCard.vue'
 import ClipPlayer from '../components/clips/ClipPlayer.vue'
 import ActivityStrip from '../components/clips/ActivityStrip.vue'
+import ActivityTimeline from '../components/clips/ActivityTimeline.vue'
 import ClipFilters from '../components/clips/ClipFilters.vue'
 import { useCameraStore } from '../stores/cameras'
 import { useClipStore } from '../stores/clips'
@@ -100,6 +101,23 @@ function changePageSize(event: Event) {
 function handleTagClick(_tag: string) {
   // Future: filter by tag
 }
+
+function handleTimelinePlay(clip: { uid: number; camera: number; timestamp: number; duration: number; tags: string }) {
+  playingClip.value = {
+    uid: clip.uid,
+    camera: clip.camera,
+    timestamp: clip.timestamp,
+    duration: clip.duration,
+    tags: clip.tags,
+    cameraName: '',
+    saved: false,
+    recordMode: '',
+    description: '',
+    detectionVersion: 0,
+    lighting: 0,
+    reviewed: false,
+  } as Clip
+}
 </script>
 
 <template>
@@ -134,6 +152,9 @@ function handleTagClick(_tag: string) {
 
     <!-- Activity Strip -->
     <ActivityStrip @play="handlePlay" />
+
+    <!-- Activity Timeline -->
+    <ActivityTimeline @play="handleTimelinePlay" />
 
     <!-- Main content: sidebar + clips -->
     <div class="clips-layout">

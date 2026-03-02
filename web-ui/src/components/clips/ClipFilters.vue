@@ -10,7 +10,28 @@ onMounted(() => {
   if (tagStore.tags.length === 0) tagStore.fetchTags()
 })
 
-const visibleTags = computed(() => tagStore.tags.filter(t => !t.hidden && t.clipCount > 0))
+const visibleGroups = computed(() =>
+  tagStore.groupedTags.filter(g => !g.hidden && g.clipCount > 0)
+)
+
+function isGroupActive(names: string[]) {
+  return names.some(n => filterStore.activeFilters.tags.includes(n))
+}
+
+function toggleGroup(names: string[]) {
+  const active = isGroupActive(names)
+  if (active) {
+    // Remove all names in this group
+    filterStore.activeFilters.tags = filterStore.activeFilters.tags.filter(t => !names.includes(t))
+  } else {
+    // Add all names in this group
+    for (const n of names) {
+      if (!filterStore.activeFilters.tags.includes(n)) {
+        filterStore.activeFilters.tags.push(n)
+      }
+    }
+  }
+}
 </script>
 
 <template>
@@ -84,18 +105,18 @@ const visibleTags = computed(() => tagStore.tags.filter(t => !t.hidden && t.clip
     </div>
 
     <!-- Tags -->
-    <div v-if="visibleTags.length > 0" class="filter-section">
+    <div v-if="visibleGroups.length > 0" class="filter-section">
       <div class="filter-section-label">Tags</div>
       <div class="filter-tags">
         <button
-          v-for="tag in visibleTags"
-          :key="tag.id"
+          v-for="group in visibleGroups"
+          :key="group.display"
           class="tag-chip"
-          :class="{ active: filterStore.activeFilters.tags.includes(tag.name) }"
-          @click="filterStore.toggleTag(tag.name)"
+          :class="{ active: isGroupActive(group.names) }"
+          @click="toggleGroup(group.names)"
         >
-          <span v-if="tag.icon" class="tag-icon">{{ tag.icon }}</span>
-          {{ tag.display || tag.name }}
+          <span v-if="group.icon" class="tag-icon">{{ group.icon }}</span>
+          {{ group.display }}
         </button>
       </div>
     </div>

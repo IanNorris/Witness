@@ -4,6 +4,7 @@ import type { Clip } from '../../types/clip'
 import { LightingCondition } from '../../types/clip'
 import { useClipStore } from '../../stores/clips'
 import { useCameraStore } from '../../stores/cameras'
+import { useTagStore } from '../../stores/tags'
 import { format, isToday, isYesterday, differenceInDays } from 'date-fns'
 
 const props = defineProps<{
@@ -21,6 +22,7 @@ const emit = defineEmits<{
 
 const clipStore = useClipStore()
 const cameraStore = useCameraStore()
+const tagStore = useTagStore()
 
 const camera = computed(() => cameraStore.getCameraById(props.clip.camera))
 const thumbUrl = computed(() => clipStore.thumbnailUrl(props.clip.camera, props.clip.timestamp))
@@ -42,10 +44,7 @@ const durationStr = computed(() => {
   return `${Math.floor(s / 60)}m ${s % 60}s`
 })
 
-const tagList = computed(() => {
-  if (!props.clip.tags) return []
-  return props.clip.tags.split(/[;,]/).map(t => t.trim()).filter(Boolean)
-})
+const displayTags = computed(() => tagStore.getDisplayTags(props.clip.tags))
 
 const lightingLabel = computed(() => {
   if (props.clip.lighting === LightingCondition.Day) return 'Day'
@@ -92,12 +91,12 @@ const lightingClass = computed(() => {
         <div class="clip-tags mt-1">
           <span v-if="clip.recordMode === 'Manual'" class="badge bg-info clip-tag-chip">Manual</span>
           <span
-            v-for="tag in tagList"
-            :key="tag"
+            v-for="dt in displayTags"
+            :key="dt.display"
             class="badge bg-secondary clip-tag-chip"
-            @click="emit('tagClick', tag)"
+            @click="emit('tagClick', dt.display)"
           >
-            {{ tag }}
+            <span v-if="dt.icon">{{ dt.icon }}</span> {{ dt.display }}
           </span>
         </div>
       </div>

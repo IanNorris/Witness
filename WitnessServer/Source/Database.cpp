@@ -573,6 +573,16 @@ namespace Database
 		ORDER BY day;
 	)RAW";
 
+	// Timeline: all clips for a day with camera name
+	std::string SelectClipsForTimeline = R"RAW(
+		SELECT c.ClipUID, c.Timestamp, c.Duration, c.Camera, cam.Name AS CameraName,
+			c.RecordMode, c.Lighting, c.Save, c.Reviewed
+		FROM Clip c
+		INNER JOIN Camera cam ON cam.CameraUID = c.Camera
+		WHERE c.Timestamp >= @TimestampFrom AND c.Timestamp < @TimestampTo
+		ORDER BY c.Timestamp ASC;
+	)RAW";
+
 	// Tag migration: select clips with non-empty legacy tags
 	std::string SelectClipsWithTags = R"RAW(
 		SELECT ClipUID, Tags FROM Clip
@@ -744,6 +754,7 @@ namespace Database
 		CREATE_QUERY( SetAllClipsReviewed );
 		CREATE_QUERY( SelectRecentUnreviewed );
 		CREATE_QUERY( SelectClipCountsByDay );
+		CREATE_QUERY( SelectClipsForTimeline );
 		CREATE_QUERY( SelectClipsWithTags );
 		CREATE_QUERY( ClearLegacyClipTags );
 
