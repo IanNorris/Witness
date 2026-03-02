@@ -347,6 +347,39 @@ Vue's reactivity system (`ref`, `computed`, `watch`) maps almost 1:1 to Knockout
 
 ---
 
+## Future Ideas
+
+These are longer-term ideas that don't fit neatly into existing phases — they may become their own phases or fold into existing ones as designs mature.
+
+### Clip Quick Filters
+
+Add a quick filter bar to the clips view with one-click presets: **Today**, **Yesterday**, **This Week**, **Last Week**, **Saved**, **Custom Range** (date picker). Reduces friction for the most common clip browsing patterns. Pairs with the Phase 6 clip date filter item but focuses on UX shortcuts rather than raw date pickers.
+
+### Tag Database Redesign
+
+The current tag system stores tags as a semicolon-delimited string in the Clip table. This works but makes filtering, searching, and aggregation expensive (requires `LIKE '%tag%'` queries). A proper relational design would use:
+
+- **`Tag` table** — `(id, name)` with unique tag names
+- **`ClipTag` junction table** — `(clip_id, tag_id)` for many-to-many relationships
+- Indexed lookups, proper `JOIN`-based filtering, tag rename/merge operations
+- Tag management UI (rename, merge duplicates, delete unused)
+- Migration path: parse existing semicolon strings → populate new tables → deprecate string column
+
+This would unlock fast tag-based filtering, tag autocomplete, and tag usage statistics.
+
+### Detection Highlight Collages
+
+Capture cropped images of detected objects (people, animals, vehicles) during recording and assemble them into a visual collage thumbnail for each clip. This gives an at-a-glance summary of what was detected without watching the full clip.
+
+- During recording, crop bounding boxes from detection results and save as small JPEGs
+- Select the best/most diverse crops (highest confidence, different classes, different timestamps)
+- Compose into a grid collage image stored alongside the clip thumbnail
+- On hover over a clip card, animate through the sequence of crops as a mini slideshow
+- Especially valuable for person/face highlights — immediately shows who triggered the recording
+- Could extend to face detection/recognition in the future (cluster faces across clips)
+
+---
+
 ## Notes
 
 - **WitnessCamera DLL boundary is a strength** — the video pipeline is already isolated. Cross-platform means building as `.so` (Linux) / `.dylib` (Mac) instead of `.dll`, but the C++ source is clean.

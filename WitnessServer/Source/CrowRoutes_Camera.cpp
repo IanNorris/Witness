@@ -104,6 +104,20 @@ void CrowListener::HandleCameraEnum( const crow::request& req, crow::response& r
 						{
 							Camera["connectionString"] = ConnectionString;
 							Camera["connectionStringSub"] = ConnectionStringSub;
+
+							int SkipFrames = query.GetColumnValueInt( 6 );
+							int MDFrameHeight = query.GetColumnValueInt( 7 );
+							double MDThreshold = query.GetColumnValueDouble( 8 );
+							const char* MotionFilter = query.GetColumnValueText( 9 );
+							const char* BlackoutMaskPath = query.GetColumnValueText( 10 );
+							const char* FocusMaskPath = query.GetColumnValueText( 11 );
+
+							Camera["skipFrames"] = SkipFrames;
+							Camera["mdFrameHeight"] = MDFrameHeight;
+							Camera["mdThreshold"] = MDThreshold;
+							Camera["motionFilter"] = MotionFilter ? MotionFilter : "";
+							Camera["blackoutMaskPath"] = BlackoutMaskPath ? BlackoutMaskPath : "";
+							Camera["focusMaskPath"] = FocusMaskPath ? FocusMaskPath : "";
 						}
 
 						Camera["groups"] = std::move( Groups );
@@ -474,6 +488,80 @@ void CrowListener::HandleCameraResetStats( const crow::request& req, crow::respo
 
 	res.set_header( "Content-Type", "application/json" );
 	res.body = "\"OK\"";
+	res.code = 200;
+	res.end();
+}
+
+void CrowListener::HandleCameraUpdate( const crow::request& req, crow::response& res )
+{
+	auto body = crow::json::load( req.body );
+	if( !body )
+	{
+		res.code = 400;
+		res.end();
+		return;
+	}
+
+	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, &body,
+		CrowAuth::Action::ReadWrite, CrowAuth::Privilege::Administrator );
+	if( UserUID < 0 )
+	{
+		res.code = 400;
+		res.end();
+		return;
+	}
+
+	if( !body.has("id") )
+	{
+		res.code = 400;
+		res.body = "Missing 'id' field";
+		res.end();
+		return;
+	}
+
+	int CameraID = (int)body["id"].i();
+
+	std::string DisplayName = body.has("displayName") ? std::string(body["displayName"].s()) : "";
+	std::string ConnectionString = body.has("connectionString") ? std::string(body["connectionString"].s()) : "";
+	std::string ConnectionStringSub = body.has("connectionStringSub") ? std::string(body["connectionStringSub"].s()) : "";
+	std::string Description = body.has("description") ? std::string(body["description"].s()) : "";
+	int Enabled = body.has("enabled") ? (int)body["enabled"].i() : 1;
+	int SkipFrames = body.has("skipFrames") ? (int)body["skipFrames"].i() : 1;
+	int MDFrameHeight = body.has("mdFrameHeight") ? (int)body["mdFrameHeight"].i() : 400;
+	double MDThreshold = body.has("mdThreshold") ? body["mdThreshold"].d() : 0.0001;
+	std::string MotionFilter = body.has("motionFilter") ? std::string(body["motionFilter"].s()) : "";
+	std::string BlackoutMaskPath = body.has("blackoutMaskPath") ? std::string(body["blackoutMaskPath"].s()) : "";
+	std::string FocusMaskPath = body.has("focusMaskPath") ? std::string(body["focusMaskPath"].s()) : "";
+
+	SQLiteDatabaseQueryInstance UpdateCamera( m_GlobalContext->Database, "UpdateCamera" );
+	UpdateCamera->Bind( "@CameraId", CameraID );
+	UpdateCamera->Bind( "@CameraName", DisplayName.c_str() );
+	UpdateCamera->Bind( "@CameraString", ConnectionString.c_str() );
+	UpdateCamera->Bind( "@CameraStringSub", ConnectionStringSub.c_str() );
+	UpdateCamera->Bind( "@Description", Description.c_str() );
+	UpdateCamera->Bind( "@Enabled", Enabled );
+	UpdateCamera->Bind( "@SkipFrames", SkipFrames );
+	UpdateCamera->Bind( "@MDFrameHeight", MDFrameHeight );
+	UpdateCamera->Bind( "@MDThreshold", MDThreshold );
+	UpdateCamera->Bind( "@MotionFilter", MotionFilter.empty() ? nullptr : MotionFilter.c_str() );
+	UpdateCamera->Bind( "@BlackoutMaskPath", BlackoutMaskPath.empty() ? nullptr : BlackoutMaskPath.c_str() );
+	UpdateCamera->Bind( "@FocusMaskPath", FocusMaskPath.empty() ? nullptr : FocusMaskPath.c_str() );
+
+	if( UpdateCamera->Execute( nullptr ) < 0 )
+	{
+		crow::json::wvalue Data;
+		Data["errorMessage"] = UpdateCamera->GetLastError();
+		res.set_header( "Content-Type", "application/json" );
+		res.body = Data.dump();
+		res.code = 400;
+		res.end();
+		return;
+	}
+
+	m_GlobalContext->LongPoll->NotifyAll();
+
+	res.set_header( "Content-Type", "application/json" );
+	res.body = "{}";
 	res.code = 200;
 	res.end();
 }

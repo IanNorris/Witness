@@ -228,6 +228,11 @@ namespace Database
 		WHERE SessionToken = @SessionToken;
 	)RAW";
 
+	std::string DeleteUserSessions = R"RAW(
+		DELETE FROM Session
+		WHERE UserUID = (SELECT UserUID FROM User WHERE Username = @Username);
+	)RAW";
+
 	std::string GetUserCount = "SELECT COUNT(*) FROM User";
 
 	std::string CreateCamera = R"RAW(
@@ -236,6 +241,22 @@ namespace Database
 	)RAW";
 
 	
+	std::string UpdateCamera = R"RAW(
+		UPDATE Camera SET
+			CameraName = @CameraName,
+			CameraString = @CameraString,
+			CameraStringSub = @CameraStringSub,
+			Description = @Description,
+			Enabled = @Enabled,
+			SkipFrames = @SkipFrames,
+			MDFrameHeight = @MDFrameHeight,
+			MDThreshold = @MDThreshold,
+			MotionFilter = @MotionFilter,
+			BlackoutMaskPath = @BlackoutMaskPath,
+			FocusMaskPath = @FocusMaskPath
+		WHERE CameraUID = @CameraId;
+	)RAW";
+
 	std::string DeleteCamera = R"RAW(
 		DELETE FROM Camera 
 		WHERE 
@@ -255,7 +276,7 @@ namespace Database
 	)RAW";
 
 	std::string GetCamerasForUser = R"RAW(
-		SELECT * FROM Camera C
+		SELECT DISTINCT C.* FROM Camera C
 		INNER JOIN CameraGroupMapping CGM ON CGM.Camera = C.CameraUID
 		INNER JOIN UserGroupMapping UGM ON UGM.`Group` = CGM.`Group`
 		WHERE UGM.UserUID = @User
@@ -509,10 +530,12 @@ namespace Database
 		CREATE_QUERY( VerifySessionAndCSRF );
 		CREATE_QUERY( CreateSession );
 		CREATE_QUERY( DeleteSession );
+		CREATE_QUERY( DeleteUserSessions );
 
 		CREATE_QUERY( GetUserCount );
 
 		CREATE_QUERY( CreateCamera );
+		CREATE_QUERY( UpdateCamera );
 		CREATE_QUERY( GetCameras );
 		CREATE_QUERY( GetCamera );
 		CREATE_QUERY( GetCamerasForUser );

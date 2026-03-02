@@ -84,6 +84,17 @@ configure_file(
     COPYONLY
 )
 
+# Build Vue 3 web UI and copy to Web/witness2/
+find_program(NPM_EXECUTABLE npm)
+if(NPM_EXECUTABLE)
+    add_custom_target(WebUI
+        COMMAND ${NPM_EXECUTABLE} run build
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/web-ui"
+        COMMENT "Building Vue 3 web UI"
+    )
+    add_dependencies(WitnessServer WebUI)
+endif()
+
 # Copy ONNX models to output (if any exist)
 file(GLOB ONNX_MODELS "${CMAKE_SOURCE_DIR}/models/*.onnx")
 foreach(MODEL_FILE ${ONNX_MODELS})

@@ -1,0 +1,460 @@
+// Bootstrap 5 variable overrides
+$primary: #4a90d9;
+$dark: #1a1d23;
+$body-bg: #0f1117;
+$body-color: #e1e4e8;
+$card-bg: #1a1d23;
+$card-border-color: #2d333b;
+$border-color: #2d333b;
+$input-bg: #22272e;
+$input-border-color: #373e47;
+$input-color: #e1e4e8;
+$modal-content-bg: #1a1d23;
+$modal-content-border-color: #2d333b;
+$navbar-dark-color: #e1e4e8;
+
+// Bootstrap import (after overrides)
+@import "bootstrap/scss/bootstrap";
+
+// App layout
+html, body, #app {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+.app-wrapper {
+  display: flex;
+  height: 100vh;
+}
+
+.app-sidebar {
+  width: 240px;
+  background: $dark;
+  border-right: 1px solid $border-color;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  overflow-y: auto;
+
+  .sidebar-brand {
+    padding: 1rem 1.25rem;
+    font-size: 1.25rem;
+    font-weight: 600;
+    border-bottom: 1px solid $border-color;
+    color: $primary;
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .sidebar-clock {
+    margin-left: auto;
+    font-size: 0.75rem;
+    font-weight: 400;
+    font-variant-numeric: tabular-nums;
+    color: rgba($body-color, 0.5);
+  }
+
+  .sidebar-nav {
+    padding: 0.5rem 0;
+    flex: 1;
+  }
+
+  .nav-item {
+    .nav-link {
+      color: rgba($body-color, 0.7);
+      padding: 0.6rem 1.25rem;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      font-size: 0.9rem;
+      border-left: 3px solid transparent;
+      transition: all 0.15s;
+
+      &:hover {
+        color: $body-color;
+        background: rgba(white, 0.04);
+      }
+
+      &.router-link-active {
+        color: $primary;
+        border-left-color: $primary;
+        background: rgba($primary, 0.08);
+      }
+    }
+  }
+
+  .sidebar-section {
+    padding: 0.75rem 1.25rem 0.25rem;
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: rgba($body-color, 0.4);
+  }
+
+  .sidebar-camera {
+    .nav-link {
+      padding: 0.4rem 1.25rem 0.4rem 2rem;
+      font-size: 0.85rem;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+
+      &.connected { background: #3fb950; }
+      &.disconnected { background: #f85149; }
+      &.unknown { background: #8b949e; }
+    }
+  }
+}
+
+.app-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.app-topbar {
+  height: 52px;
+  background: $dark;
+  border-bottom: 1px solid $border-color;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 1.25rem;
+  flex-shrink: 0;
+
+  .topbar-title {
+    font-size: 1rem;
+    font-weight: 500;
+  }
+
+  .topbar-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+}
+
+.app-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.25rem;
+}
+
+// Camera grid
+.camera-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+
+  &.fullscreen {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    background: black;
+    padding: 0;
+    gap: 2px;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-content: center;
+
+    > .camera-card-fullscreen {
+      width: calc(100% / var(--fs-cols) - 2px);
+      height: calc(100vh / var(--fs-rows) - 2px);
+    }
+  }
+}
+
+.fullscreen-exit-btn {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  z-index: 1001;
+  background: rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: #fff;
+  border-radius: 0.375rem;
+  padding: 6px 10px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s;
+
+  &:hover {
+    background: rgba(0, 0, 0, 0.85);
+    opacity: 1 !important;
+  }
+}
+
+.camera-grid.fullscreen:hover .fullscreen-exit-btn {
+  opacity: 0.7;
+}
+
+.camera-card {
+  background: $card-bg;
+  border: 1px solid $card-border-color;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  transition: border-color 0.15s;
+
+  &:hover {
+    border-color: rgba($primary, 0.4);
+  }
+
+  // Fullscreen: no borders, fill cell, center video
+  &.camera-card-fullscreen {
+    border: none;
+    border-radius: 0;
+
+    .camera-preview {
+      aspect-ratio: auto;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+
+      .camera-video-wrap {
+        height: auto;
+        max-height: 100%;
+        aspect-ratio: 16 / 9;
+      }
+    }
+  }
+
+  .camera-preview {
+    position: relative;
+    aspect-ratio: 16 / 9;
+    background: #000;
+    overflow: hidden;
+
+    .camera-video-wrap {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      cursor: pointer;
+
+      video, img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+      }
+
+      .camera-overlay {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        pointer-events: none;
+      }
+
+      .connection-lost {
+        background: rgba(0, 0, 0, 0.7);
+        color: #f85149;
+        font-size: 0.85rem;
+      }
+    }
+  }
+
+  .rec-overlay {
+    position: absolute;
+    top: 6px;
+    left: 8px;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    color: #f85149;
+    font-size: 0.7rem;
+    font-weight: 600;
+    background: rgba(0, 0, 0, 0.55);
+    padding: 2px 7px;
+    border-radius: 3px;
+    pointer-events: none;
+    z-index: 2;
+
+    .rec-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #f85149;
+      animation: pulse 1.5s infinite;
+    }
+  }
+
+  .camera-name-overlay {
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    color: rgba(255, 255, 255, 0.85);
+    font-size: 0.8rem;
+    font-weight: 500;
+    background: rgba(0, 0, 0, 0.6);
+    padding: 2px 10px;
+    border-radius: 3px;
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  .camera-info {
+    padding: 0.65rem 0.85rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+
+    .camera-name {
+      font-weight: 500;
+      font-size: 0.9rem;
+    }
+
+    .camera-status {
+      font-size: 0.75rem;
+      color: rgba($body-color, 0.5);
+    }
+
+    .recording-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      color: #f85149;
+      font-size: 0.75rem;
+
+      .rec-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: #f85149;
+        animation: pulse 1.5s infinite;
+      }
+    }
+  }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+// Clip cards
+.clip-card {
+  background: $card-bg;
+  border: 1px solid $card-border-color;
+  border-radius: 0.5rem;
+  overflow: hidden;
+
+  .clip-thumbnail {
+    aspect-ratio: 16 / 9;
+    background: #000;
+    cursor: pointer;
+
+    img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+  }
+
+  .clip-info {
+    padding: 0.65rem 0.85rem;
+
+    .clip-time {
+      font-size: 0.85rem;
+      font-weight: 500;
+    }
+
+    .clip-meta {
+      font-size: 0.75rem;
+      color: rgba($body-color, 0.5);
+    }
+  }
+
+  .clip-tags {
+    padding: 0 0.85rem 0.65rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+  }
+}
+
+.tag-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 1rem;
+  font-size: 0.7rem;
+  font-weight: 500;
+
+  &.tag-person { background: rgba(#4a90d9, 0.2); color: #79b8ff; }
+  &.tag-vehicle { background: rgba(#f0883e, 0.2); color: #ffab70; }
+  &.tag-animal { background: rgba(#3fb950, 0.2); color: #7ee787; }
+  &.tag-day { background: rgba(#f9e2af, 0.2); color: #f9e2af; }
+  &.tag-night { background: rgba(#6e7681, 0.2); color: #8b949e; }
+}
+
+// Login page
+.login-container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: $body-bg;
+}
+
+.login-card {
+  background: $card-bg;
+  border: 1px solid $card-border-color;
+  border-radius: 0.75rem;
+  padding: 2.5rem;
+  width: 100%;
+  max-width: 400px;
+}
+
+// Utility
+.text-muted-custom {
+  color: rgba($body-color, 0.5) !important;
+}
+
+// Admin nav tabs
+.nav-tabs {
+  border-bottom-color: $border-color;
+
+  .nav-link {
+    color: rgba($body-color, 0.7);
+    border-color: transparent;
+
+    &:hover {
+      color: $body-color;
+      border-color: $border-color $border-color transparent;
+    }
+
+    &.active {
+      color: $body-color;
+      background-color: $card-bg;
+      border-color: $border-color $border-color $card-bg;
+    }
+  }
+}
+
+// Fullscreen mode hides sidebar and topbar
+.fullscreen-active {
+  .app-sidebar,
+  .app-topbar {
+    display: none;
+  }
+
+  .app-content {
+    padding: 0;
+  }
+}
+
+// Responsive
+@media (max-width: 768px) {
+  .app-sidebar {
+    display: none;
+  }
+}

@@ -192,6 +192,12 @@ void CrowListener::RegisterRoutes()
 		HandleCameraCreate( req, res );
 	});
 
+	CROW_ROUTE( m_App, "/camera/admin_update" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleCameraUpdate( req, res );
+	});
+
 	CROW_ROUTE( m_App, "/camera/admin_delete" ).methods( crow::HTTPMethod::POST )
 	([this]( const crow::request& req, crow::response& res )
 	{
@@ -269,6 +275,12 @@ void CrowListener::RegisterRoutes()
 	([this]( const crow::request& req, crow::response& res )
 	{
 		HandleAuthSetUserGroups( req, res );
+	});
+
+	CROW_ROUTE( m_App, "/auth/clear_sessions" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleAuthClearSessions( req, res );
 	});
 
 	// Clips
@@ -448,6 +460,28 @@ void CrowListener::ServeStaticFile( const crow::request& req, crow::response& re
 		if( pass == 0 )
 		{
 			lookup += "/index.html";
+		}
+	}
+
+	// SPA fallback: Vue Router paths under witness2/ should serve witness2/index.html
+	if( path.substr( 0, 9 ) == "witness2/" || path == "witness2" )
+	{
+		auto it = m_StaticFiles.find( "witness2/index.html" );
+		if( it != m_StaticFiles.end() )
+		{
+			fs::path fullPath = m_StaticRoot;
+			fullPath /= it->first;
+
+			std::ifstream file( fullPath, std::ios::binary );
+			if( file )
+			{
+				std::string body( (std::istreambuf_iterator<char>(file)),
+								  std::istreambuf_iterator<char>() );
+				res.set_header( "Content-Type", it->second );
+				res.body = std::move( body );
+				res.code = 200;
+				return;
+			}
 		}
 	}
 
