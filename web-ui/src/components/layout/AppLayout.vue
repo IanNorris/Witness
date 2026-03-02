@@ -1,10 +1,33 @@
 <script setup lang="ts">
+import { ref, onMounted, onUnmounted } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useAuthStore } from '../../stores/auth'
 import { useCameraStore } from '../../stores/cameras'
+import { format } from 'date-fns'
 
 const auth = useAuthStore()
 const cameraStore = useCameraStore()
+
+const clockTime = ref('')
+const clockDate = ref('')
+let clockTimer: ReturnType<typeof setInterval> | null = null
+
+function updateClock() {
+  const now = new Date()
+  clockTime.value = format(now, 'HH:mm:ss')
+  clockDate.value = format(now, 'EEE, dd MMM')
+}
+
+function downloadDiag() {
+  const fn = (window as unknown as Record<string, unknown>)._witnessDumpDiag as (() => void) | undefined
+  if (fn) fn()
+}
+
+onMounted(() => {
+  updateClock()
+  clockTimer = setInterval(updateClock, 1000)
+})
+onUnmounted(() => { if (clockTimer) clearInterval(clockTimer) })
 </script>
 
 <template>
@@ -16,6 +39,7 @@ const cameraStore = useCameraStore()
           <circle cx="12" cy="12" r="3" /><path d="M2 12s4-8 10-8 10 8 10 8-4 8-10 8-10-8-10-8z" />
         </svg>
         Witness
+        <span class="sidebar-clock">{{ clockTime }}</span>
       </RouterLink>
 
       <nav class="sidebar-nav">
@@ -71,6 +95,9 @@ const cameraStore = useCameraStore()
             </div>
             <span class="small">{{ auth.displayName }}</span>
           </div>
+          <button class="btn btn-sm btn-outline-secondary" @click="downloadDiag" title="Download HLS diagnostics">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          </button>
           <button class="btn btn-sm btn-outline-secondary" @click="auth.logout()" title="Logout">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
           </button>

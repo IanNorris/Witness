@@ -9,11 +9,15 @@ const cameraStore = useCameraStore()
 const settings = useSettingsStore()
 const router = useRouter()
 
+const fullscreenCols = computed(() => Math.ceil(Math.sqrt(cameraStore.cameras.length)))
+const fullscreenRows = computed(() => Math.ceil(cameraStore.cameras.length / fullscreenCols.value))
+
 const gridStyle = computed(() => {
   if (settings.fullscreenMode) {
-    const cols = Math.ceil(Math.sqrt(cameraStore.cameras.length))
+    // Use flexbox for fullscreen so last row centers naturally
     return {
-      gridTemplateColumns: `repeat(${cols}, 1fr)`,
+      '--fs-cols': fullscreenCols.value,
+      '--fs-rows': fullscreenRows.value,
     }
   }
   const minWidth = Math.max(200, (settings.cameraPreviewScale / 100) * 600)

@@ -21,8 +21,8 @@ const { showSpinner, connectionLost } = useHls(
   <div class="hls-container">
     <video ref="videoRef" playsinline muted />
 
-    <!-- Spinner: visible when fragments are flowing -->
-    <div v-if="showSpinner" class="camera-overlay spinner-overlay">
+    <!-- Spinner: connecting / buffering -->
+    <div v-if="showSpinner" class="spinner-indicator">
       <div class="spinner-border spinner-border-sm text-light" role="status">
         <span class="visually-hidden">Loading...</span>
       </div>
@@ -54,5 +54,13 @@ const { showSpinner, connectionLost } = useHls(
   height: 100%;
   object-fit: contain;
   background: #000;
+}
+
+.spinner-indicator {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  z-index: 2;
+  pointer-events: none;
 }
 </style>

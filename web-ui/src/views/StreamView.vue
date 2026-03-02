@@ -28,7 +28,7 @@ onMounted(async () => {
       </button>
     </template>
 
-    <div v-if="camera" class="stream-container">
+    <div v-if="camera" class="stream-container" @click="cameraStore.toggleRecording(cameraId)">
       <HlsPlayer :camera-id="cameraId" suffix="_stream" :debug="true" />
       <div v-if="camera.isRecording" class="rec-overlay">
         <span class="rec-dot" /> REC
@@ -49,6 +49,7 @@ onMounted(async () => {
   background: #000;
   border-radius: 0.5rem;
   overflow: hidden;
+  cursor: pointer;
 }
 .rec-overlay {
   position: absolute;

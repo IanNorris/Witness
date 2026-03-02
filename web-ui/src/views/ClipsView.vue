@@ -6,11 +6,13 @@ import ClipCard from '../components/clips/ClipCard.vue'
 import ClipPlayer from '../components/clips/ClipPlayer.vue'
 import { useCameraStore } from '../stores/cameras'
 import { useClipStore } from '../stores/clips'
+import { useSettingsStore } from '../stores/settings'
 import type { Clip } from '../types/clip'
 
 const route = useRoute()
 const cameraStore = useCameraStore()
 const clipStore = useClipStore()
+const settings = useSettingsStore()
 
 const playingClip = ref<Clip | null>(null)
 const confirmDelete = ref<Clip | null>(null)
@@ -70,15 +72,58 @@ async function handleDeleteConfirm() {
 async function handleRetag(clip: Clip) {
   await clipStore.retagClip(clip.uid)
 }
+
+const TRIVIAL_DURATION = 2
+
+const displayedClips = computed(() => {
+  if (!settings.hideShortClips) return clipStore.clips
+  return clipStore.clips.filter(c => c.duration >= TRIVIAL_DURATION)
+})
+
+function isTrivialClip(clip: Clip) {
+  return clip.duration < TRIVIAL_DURATION
+}
+
+const pageSizeOptions = [6, 12, 24, 48, 100]
+
+function changePageSize(event: Event) {
+  const val = Number((event.target as HTMLSelectElement).value)
+  settings.clipsPerPage = val
+  clipStore.fetchClips(cameraId.value, 0)
+}
+
+function handleTagClick(_tag: string) {
+  // Future: filter by tag
+}
 </script>
 
 <template>
   <AppLayout>
     <template #title>{{ title }}</template>
     <template #actions>
-      <span v-if="clipStore.totalCount" class="text-muted-custom small">
-        {{ clipStore.totalCount }} clips
-      </span>
+      <div class="d-flex align-items-center gap-3">
+        <div class="form-check form-switch mb-0">
+          <input
+            class="form-check-input"
+            type="checkbox"
+            id="hideShortClips"
+            v-model="settings.hideShortClips"
+          />
+          <label class="form-check-label small text-muted-custom" for="hideShortClips">
+            Hide short clips
+          </label>
+        </div>
+        <select
+          class="form-select form-select-sm page-size-select"
+          :value="settings.clipsPerPage"
+          @change="changePageSize"
+        >
+          <option v-for="n in pageSizeOptions" :key="n" :value="n">{{ n }} per page</option>
+        </select>
+        <span v-if="clipStore.totalCount" class="text-muted-custom small">
+          {{ clipStore.totalCount }} clips
+        </span>
+      </div>
     </template>
 
     <!-- Loading -->
@@ -97,19 +142,24 @@ async function handleRetag(clip: Clip) {
     <div v-else>
       <div class="clip-grid">
         <ClipCard
-          v-for="clip in clipStore.clips"
+          v-for="clip in displayedClips"
           :key="clip.uid"
           :clip="clip"
+          :trivial="isTrivialClip(clip)"
           @play="handlePlay"
           @toggle-save="handleToggleSave"
           @delete="handleDeleteRequest"
           @retag="handleRetag"
+          @tag-click="handleTagClick"
         />
       </div>
 
       <!-- Pagination -->
       <nav v-if="clipStore.totalPages > 1" class="mt-3 d-flex justify-content-center">
         <ul class="pagination pagination-sm">
+          <li class="page-item" :class="{ disabled: clipStore.currentPage === 0 }">
+            <a class="page-link" href="#" @click.prevent="clipStore.goToPage(0)">«</a>
+          </li>
           <li class="page-item" :class="{ disabled: clipStore.currentPage === 0 }">
             <a class="page-link" href="#" @click.prevent="clipStore.prevPage()">‹</a>
           </li>
@@ -123,6 +173,9 @@ async function handleRetag(clip: Clip) {
           </li>
           <li class="page-item" :class="{ disabled: clipStore.currentPage >= clipStore.totalPages - 1 }">
             <a class="page-link" href="#" @click.prevent="clipStore.nextPage()">›</a>
+          </li>
+          <li class="page-item" :class="{ disabled: clipStore.currentPage >= clipStore.totalPages - 1 }">
+            <a class="page-link" href="#" @click.prevent="clipStore.goToPage(clipStore.totalPages - 1)">»</a>
           </li>
         </ul>
       </nav>
@@ -151,6 +204,14 @@ async function handleRetag(clip: Clip) {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 1rem;
+}
+
+.page-size-select {
+  width: auto;
+  min-width: 120px;
+  background-color: var(--bs-dark, #1e1e2e);
+  color: var(--bs-body-color, #e1e4e8);
+  border-color: var(--bs-border-color, #333);
 }
 
 .clip-modal-overlay {

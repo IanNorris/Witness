@@ -6,6 +6,11 @@ import InputModal from '../common/InputModal.vue'
 import ConfirmModal from '../common/ConfirmModal.vue'
 import AlertModal from '../common/AlertModal.vue'
 
+interface Group {
+  id: number
+  displayName: string
+}
+
 interface User {
   userid: number
   username: string
@@ -17,6 +22,7 @@ interface User {
 
 const authStore = useAuthStore()
 const users = ref<User[]>([])
+const groups = ref<Group[]>([])
 const loading = ref(true)
 const newUserResult = ref<{ username: string; password: string } | null>(null)
 
@@ -49,6 +55,25 @@ async function fetchUsers() {
   } finally {
     loading.value = false
   }
+}
+
+async function fetchGroups() {
+  try {
+    const data = await api<{ groups: Group[] }>('/group/enum')
+    groups.value = data.groups ?? []
+  } catch { /* optional */ }
+}
+
+async function toggleUserGroup(user: User, groupId: number) {
+  const idx = user.groups.indexOf(groupId)
+  const newGroups = [...user.groups]
+  if (idx >= 0) newGroups.splice(idx, 1)
+  else newGroups.push(groupId)
+  await api('/auth/set_user_groups', {
+    method: 'POST',
+    body: { userid: user.userid, value: newGroups },
+  })
+  user.groups = newGroups
 }
 
 function addUser() {
@@ -146,7 +171,10 @@ function onConfirm() {
   confirmAction.value?.()
 }
 
-onMounted(fetchUsers)
+onMounted(() => {
+  fetchUsers()
+  fetchGroups()
+})
 </script>
 
 <template>
@@ -172,6 +200,7 @@ onMounted(fetchUsers)
         <tr>
           <th>Username</th>
           <th>Display Name</th>
+          <th>Groups</th>
           <th class="text-center">Admin</th>
           <th class="text-center">Enabled</th>
           <th>Actions</th>
@@ -181,6 +210,21 @@ onMounted(fetchUsers)
         <tr v-for="user in users" :key="user.userid" :class="{ 'opacity-50': !user.enabled && !isSelf(user) }">
           <td>{{ user.username }}</td>
           <td>{{ user.displayName }}</td>
+          <td>
+            <div v-if="groups.length" class="d-flex flex-wrap gap-1">
+              <div v-for="g in groups" :key="g.id" class="form-check form-check-inline mb-0">
+                <input
+                  class="form-check-input"
+                  type="checkbox"
+                  :id="`ug-${user.userid}-${g.id}`"
+                  :checked="user.groups.includes(g.id)"
+                  @change="toggleUserGroup(user, g.id)"
+                />
+                <label class="form-check-label small" :for="`ug-${user.userid}-${g.id}`">{{ g.displayName }}</label>
+              </div>
+            </div>
+            <span v-else class="text-muted small">No groups</span>
+          </td>
           <td class="text-center">
             <div class="form-check d-inline-block mb-0">
               <input

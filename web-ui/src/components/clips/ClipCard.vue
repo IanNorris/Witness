@@ -4,10 +4,11 @@ import type { Clip } from '../../types/clip'
 import { LightingCondition } from '../../types/clip'
 import { useClipStore } from '../../stores/clips'
 import { useCameraStore } from '../../stores/cameras'
-import { format } from 'date-fns'
+import { format, isToday, isYesterday, differenceInDays } from 'date-fns'
 
 const props = defineProps<{
   clip: Clip
+  trivial?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -15,6 +16,7 @@ const emit = defineEmits<{
   toggleSave: [clip: Clip]
   delete: [clip: Clip]
   retag: [clip: Clip]
+  tagClick: [tag: string]
 }>()
 
 const clipStore = useClipStore()
@@ -22,8 +24,18 @@ const cameraStore = useCameraStore()
 
 const camera = computed(() => cameraStore.getCameraById(props.clip.camera))
 const thumbUrl = computed(() => clipStore.thumbnailUrl(props.clip.camera, props.clip.timestamp))
-const dateStr = computed(() => format(new Date(props.clip.timestamp * 1000), 'dd MMM yyyy'))
-const timeStr = computed(() => format(new Date(props.clip.timestamp * 1000), 'HH:mm:ss'))
+
+const clipDate = computed(() => new Date(props.clip.timestamp * 1000))
+const fullDateTime = computed(() => format(clipDate.value, 'dd MMM yyyy HH:mm:ss'))
+const dateStr = computed(() => {
+  const d = clipDate.value
+  if (isToday(d)) return 'Today'
+  if (isYesterday(d)) return 'Yesterday'
+  const days = differenceInDays(new Date(), d)
+  if (days < 7) return `${days} day${days === 1 ? '' : 's'} ago`
+  return format(d, 'dd MMM yyyy')
+})
+const timeStr = computed(() => format(clipDate.value, 'HH:mm:ss'))
 const durationStr = computed(() => {
   const s = props.clip.duration
   if (s < 60) return `${s}s`
@@ -32,7 +44,7 @@ const durationStr = computed(() => {
 
 const tagList = computed(() => {
   if (!props.clip.tags) return []
-  return props.clip.tags.split(',').map(t => t.trim()).filter(Boolean)
+  return props.clip.tags.split(/[;,]/).map(t => t.trim()).filter(Boolean)
 })
 
 const lightingLabel = computed(() => {
@@ -49,7 +61,7 @@ const lightingClass = computed(() => {
 </script>
 
 <template>
-  <div class="clip-card" :class="{ 'clip-saved': clip.saved }">
+  <div class="clip-card" :class="{ 'clip-saved': clip.saved, 'clip-trivial': trivial }">
     <div class="clip-thumb" @click="emit('play', clip)">
       <img :src="thumbUrl" :alt="`Clip ${clip.uid}`" loading="lazy" />
       <div class="clip-play-btn">
@@ -68,47 +80,55 @@ const lightingClass = computed(() => {
       </div>
     </div>
 
-    <div class="clip-info">
-      <div class="clip-meta">
-        <span class="clip-date">{{ dateStr }}</span>
-        <span class="clip-time">{{ timeStr }}</span>
+    <div class="clip-body">
+      <div class="clip-info">
+        <div class="clip-meta" :title="fullDateTime">
+          <span class="clip-date">{{ dateStr }}</span>
+          <span class="clip-time">{{ timeStr }}</span>
+        </div>
+        <div v-if="camera" class="clip-camera text-muted-custom small">
+          {{ camera.name }}
+        </div>
+        <div class="clip-tags mt-1">
+          <span v-if="clip.recordMode === 'Manual'" class="badge bg-info clip-tag-chip">Manual</span>
+          <span
+            v-for="tag in tagList"
+            :key="tag"
+            class="badge bg-secondary clip-tag-chip"
+            @click="emit('tagClick', tag)"
+          >
+            {{ tag }}
+          </span>
+        </div>
       </div>
-      <div v-if="camera" class="clip-camera text-muted-custom small">
-        {{ camera.name }}
-      </div>
-      <div v-if="tagList.length" class="clip-tags mt-1">
-        <span v-for="tag in tagList" :key="tag" class="badge bg-secondary me-1">
-          {{ tag }}
-        </span>
-      </div>
-    </div>
 
-    <div class="clip-actions">
-      <button
-        class="btn btn-sm"
-        :class="clip.saved ? 'btn-warning' : 'btn-outline-secondary'"
-        :title="clip.saved ? 'Unsave' : 'Save'"
-        @click="emit('toggleSave', clip)"
-      >
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-          <path v-if="clip.saved" d="M2 2v13.5a.5.5 0 0 0 .74.439L8 13.069l5.26 2.87A.5.5 0 0 0 14 15.5V2a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2z"/>
-          <path v-else d="M2 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v13.5a.5.5 0 0 1-.74.439L8 13.069l-5.26 2.87A.5.5 0 0 1 2 15.5V2zm2-1a1 1 0 0 0-1 1v12.566l4.723-2.482a.5.5 0 0 1 .554 0L13 14.566V2a1 1 0 0 0-1-1H4z"/>
-        </svg>
-      </button>
-      <button
-        class="btn btn-sm btn-outline-secondary"
-        title="Re-detect"
-        @click="emit('retag', clip)"
-      >
-        ↻
-      </button>
-      <button
-        class="btn btn-sm btn-outline-danger"
-        title="Delete"
-        @click="emit('delete', clip)"
-      >
-        ✕
-      </button>
+      <div class="clip-actions">
+        <button
+          class="btn btn-sm"
+          :class="clip.saved ? 'btn-warning' : 'btn-outline-secondary'"
+          :title="clip.saved ? 'Unsave' : 'Save'"
+          @click="emit('toggleSave', clip)"
+        >
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+            <path v-if="clip.saved" d="M2 2v13.5a.5.5 0 0 0 .74.439L8 13.069l5.26 2.87A.5.5 0 0 0 14 15.5V2a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2z"/>
+            <path v-else d="M2 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v13.5a.5.5 0 0 1-.74.439L8 13.069l-5.26 2.87A.5.5 0 0 1 2 15.5V2zm2-1a1 1 0 0 0-1 1v12.566l4.723-2.482a.5.5 0 0 1 .554 0L13 14.566V2a1 1 0 0 0-1-1H4z"/>
+          </svg>
+        </button>
+        <button
+          class="btn btn-sm btn-outline-secondary"
+          title="Re-detect"
+          @click="emit('retag', clip)"
+        >
+          ↻
+        </button>
+        <button
+          class="btn btn-sm btn-outline-danger"
+          title="Delete"
+          @click="emit('delete', clip)"
+        >
+          ✕
+        </button>
+      </div>
     </div>
   </div>
 </template>
@@ -120,12 +140,20 @@ const lightingClass = computed(() => {
   border-radius: 0.5rem;
   overflow: hidden;
   transition: border-color 0.15s;
+  display: flex;
+  flex-direction: column;
 }
 .clip-card:hover {
   border-color: var(--bs-primary, #7c3aed);
 }
 .clip-saved {
   border-color: var(--bs-warning, #f59e0b);
+}
+.clip-trivial {
+  opacity: 0.45;
+}
+.clip-trivial:hover {
+  opacity: 0.75;
 }
 
 .clip-thumb {
@@ -134,6 +162,7 @@ const lightingClass = computed(() => {
   aspect-ratio: 16 / 9;
   background: #000;
   overflow: hidden;
+  flex-shrink: 0;
 }
 .clip-thumb img {
   width: 100%;
@@ -180,21 +209,40 @@ const lightingClass = computed(() => {
   color: var(--bs-warning, #f59e0b);
 }
 
+.clip-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
 .clip-info {
   padding: 0.5rem;
+  flex: 1;
 }
 .clip-meta {
   display: flex;
   justify-content: space-between;
   font-size: 0.8rem;
 }
-.clip-tags .badge {
+.clip-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+.clip-tag-chip {
   font-size: 0.65rem;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+.clip-tag-chip:hover {
+  background-color: var(--bs-primary, #7c3aed) !important;
 }
 
 .clip-actions {
   display: flex;
   gap: 0.25rem;
   padding: 0 0.5rem 0.5rem;
+  justify-content: flex-end;
+  margin-top: auto;
 }
 </style>

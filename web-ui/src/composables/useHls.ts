@@ -251,7 +251,10 @@ export function useHls(
       }
 
       if (lastFragTime === 0) {
+        // Initial connection — show spinner while waiting for first fragment
         const sinceLaunch = Date.now() - streamStartTime
+        showSpinner.value = true
+        connectionLost.value = false
         if (sinceLaunch > HLS_RESTART_TIMEOUT_MS) {
           connectionLost.value = true
           showSpinner.value = false
@@ -267,17 +270,17 @@ export function useHls(
       const elapsed = Date.now() - lastFragTime
 
       if (elapsed <= HLS_SPINNER_TIMEOUT_MS) {
-        showSpinner.value = true
+        // Fragments flowing normally — no indicators
+        showSpinner.value = false
         connectionLost.value = false
       } else {
-        showSpinner.value = false
-        if (elapsed > HLS_RESTART_TIMEOUT_MS) {
-          connectionLost.value = true
-          if (!restartInProgress) {
-            diag.stats.stallCount++
-            diag.log('stall', { timeSinceLastFragMs: elapsed })
-            restartStream()
-          }
+        // Fragments stopped — show spinner briefly, then connection lost
+        showSpinner.value = elapsed <= HLS_RESTART_TIMEOUT_MS
+        connectionLost.value = elapsed > HLS_RESTART_TIMEOUT_MS
+        if (elapsed > HLS_RESTART_TIMEOUT_MS && !restartInProgress) {
+          diag.stats.stallCount++
+          diag.log('stall', { timeSinceLastFragMs: elapsed })
+          restartStream()
         }
       }
     }, HLS_WATCHDOG_INTERVAL_MS)

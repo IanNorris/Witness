@@ -3,15 +3,17 @@ import { ref, computed } from 'vue'
 import { api } from '../composables/useApi'
 import type { Clip } from '../types/clip'
 import { LightingCondition } from '../types/clip'
+import { useSettingsStore } from './settings'
 
 export const useClipStore = defineStore('clips', () => {
   const clips = ref<Clip[]>([])
   const totalCount = ref(0)
   const loading = ref(false)
-  const pageSize = ref(24)
   const pageOffset = ref(0)
   const currentCameraId = ref<number | null>(null)
 
+  const settings = useSettingsStore()
+  const pageSize = computed(() => settings.clipsPerPage)
   const currentPage = computed(() => Math.floor(pageOffset.value / pageSize.value))
   const totalPages = computed(() => Math.ceil(totalCount.value / pageSize.value))
 
@@ -96,7 +98,7 @@ function mapClip(raw: Record<string, unknown>): Clip {
     duration: raw.duration as number,
     tags: (raw.tags as string) ?? '',
     saved: (raw.saved as number) === 1,
-    recordMode: (raw.recordMode as number) === 1 ? 'Manual' : 'Auto',
+    recordMode: (raw.recordMode as number) === 0 ? 'Manual' : 'Auto',
     description: (raw.description as string) ?? '',
     detectionVersion: (raw.detectionVersion as number) ?? 0,
     lighting: (raw.lighting as number ?? 0) as LightingCondition,

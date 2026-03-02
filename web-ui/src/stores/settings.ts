@@ -6,6 +6,8 @@ export const useSettingsStore = defineStore('settings', () => {
   const streamingMode = useLocalStorage<'hls' | 'jpeg'>('streamingMode', 'hls')
   const fullscreenMode = useLocalStorage('fullscreenMode', false)
   const darkMode = useLocalStorage('darkMode', false)
+  const clipsPerPage = useLocalStorage('clipsPerPage', 24)
+  const hideShortClips = useLocalStorage('hideShortClips', false)
 
   function increaseScale() {
     cameraPreviewScale.value = Math.min(100, cameraPreviewScale.value + 5)
@@ -28,6 +30,8 @@ export const useSettingsStore = defineStore('settings', () => {
     streamingMode,
     fullscreenMode,
     darkMode,
+    clipsPerPage,
+    hideShortClips,
     increaseScale,
     decreaseScale,
     toggleFullscreen,

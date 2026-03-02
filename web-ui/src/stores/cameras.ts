@@ -68,6 +68,21 @@ export const useCameraStore = defineStore('cameras', () => {
     return cameras.value.find((c) => c.id === id)
   }
 
+  async function toggleRecording(cameraId: number) {
+    const camera = getCameraById(cameraId)
+    if (!camera) return
+    const newState = !camera.isRecording
+    try {
+      await api(`/camera/record/${cameraId}`, {
+        method: 'POST',
+        body: { record: newState },
+      })
+      camera.isRecording = newState
+    } catch (err) {
+      console.error('Failed to toggle recording:', err)
+    }
+  }
+
   return {
     cameras,
     isLoading,
@@ -75,5 +90,6 @@ export const useCameraStore = defineStore('cameras', () => {
     startLongPoll,
     stopLongPoll,
     getCameraById,
+    toggleRecording,
   }
 })
