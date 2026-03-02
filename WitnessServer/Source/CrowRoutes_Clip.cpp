@@ -4,6 +4,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 
 namespace fs = std::filesystem;
 
@@ -137,9 +138,162 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 		}
 	}
 
+	// Read optional filter query params
+	const char* pReviewed = req.url_params.get( "reviewed" );
+	const char* pSaved = req.url_params.get( "saved" );
+	const char* pMode = req.url_params.get( "mode" );
+	const char* pLighting = req.url_params.get( "lighting" );
+	const char* pMinDuration = req.url_params.get( "minDuration" );
+	const char* pTags = req.url_params.get( "tags" );
+
+	bool hasFilters = pReviewed || pSaved || pMode || pLighting || pMinDuration || pTags;
+
 	int Count = 0;
 	std::vector<crow::json::wvalue> Array;
+	std::vector<int64_t> clipUIDs;
 
+	if( hasFilters )
+	{
+		// Build dynamic SQL with filters
+		std::string extraWhere;
+		std::string tagJoins;
+
+		if( pReviewed )
+			extraWhere += " AND Clip.Reviewed = " + std::string( pReviewed );
+		if( pSaved )
+			extraWhere += " AND Clip.Save = " + std::string( pSaved );
+		if( pMode )
+			extraWhere += " AND Clip.RecordMode = " + std::string( pMode );
+		if( pLighting )
+			extraWhere += " AND Clip.Lighting = " + std::string( pLighting );
+		if( pMinDuration )
+			extraWhere += " AND Clip.Duration >= " + std::string( pMinDuration );
+
+		// Parse and validate tag names
+		std::vector<std::string> tagNames;
+		if( pTags )
+		{
+			std::istringstream tagStream( pTags );
+			std::string tagName;
+			while( std::getline( tagStream, tagName, ',' ) )
+			{
+				if( tagName.empty() ) continue;
+				// Reject unsafe characters
+				bool safe = true;
+				for( char c : tagName )
+				{
+					if( c == '\'' || c == '"' || c == ';' || c == '\\' || c == '-' )
+					{
+						safe = false;
+						break;
+					}
+				}
+				if( safe )
+					tagNames.push_back( tagName );
+			}
+
+			for( size_t t = 0; t < tagNames.size(); t++ )
+			{
+				std::string n = std::to_string( t );
+				tagJoins += " INNER JOIN ClipTag ct" + n + " ON ct" + n + ".ClipUID = Clip.ClipUID"
+					" INNER JOIN Tag t" + n + " ON t" + n + ".TagUID = ct" + n + ".TagUID AND t" + n + ".Name = '" + tagNames[t] + "'";
+			}
+		}
+
+		std::string tsFrom = std::to_string( (int64_t)(StartDateInt - RangePeriodInt) );
+		std::string tsTo = std::to_string( (int64_t)StartDateInt );
+
+		std::string countSQL, selectSQL;
+		if( cameraId == -1 )
+		{
+			countSQL = "SELECT COUNT(DISTINCT Clip.ClipUID) FROM Clip"
+				" INNER JOIN Camera C ON C.CameraUID = Clip.Camera"
+				" INNER JOIN CameraGroupMapping CGM ON CGM.Camera = C.CameraUID"
+				" INNER JOIN UserGroupMapping UGM ON UGM.`Group` = CGM.`Group`"
+				+ tagJoins +
+				" WHERE Clip.Timestamp >= " + tsFrom + " AND Clip.Timestamp <= " + tsTo +
+				" AND UGM.UserUID = " + std::to_string( UserUID ) + extraWhere;
+
+			selectSQL = "SELECT DISTINCT Clip.* FROM Clip"
+				" INNER JOIN Camera C ON C.CameraUID = Clip.Camera"
+				" INNER JOIN CameraGroupMapping CGM ON CGM.Camera = C.CameraUID"
+				" INNER JOIN UserGroupMapping UGM ON UGM.`Group` = CGM.`Group`"
+				+ tagJoins +
+				" WHERE Clip.Timestamp >= " + tsFrom + " AND Clip.Timestamp <= " + tsTo +
+				" AND UGM.UserUID = " + std::to_string( UserUID ) + extraWhere +
+				" ORDER BY Clip.Timestamp DESC LIMIT " + std::to_string( maxCount ) + " OFFSET " + std::to_string( pageOffset );
+		}
+		else
+		{
+			countSQL = "SELECT COUNT(DISTINCT Clip.ClipUID) FROM Clip"
+				+ tagJoins +
+				" WHERE Clip.Camera = " + std::to_string( cameraId ) +
+				" AND Clip.Timestamp >= " + tsFrom + " AND Clip.Timestamp <= " + tsTo + extraWhere;
+
+			selectSQL = "SELECT Clip.* FROM Clip"
+				+ tagJoins +
+				" WHERE Clip.Camera = " + std::to_string( cameraId ) +
+				" AND Clip.Timestamp >= " + tsFrom + " AND Clip.Timestamp <= " + tsTo + extraWhere +
+				" ORDER BY Clip.Timestamp DESC LIMIT " + std::to_string( maxCount ) + " OFFSET " + std::to_string( pageOffset );
+		}
+
+		// Execute count query
+		sqlite3_exec( m_GlobalContext->Database->GetDatabase(), countSQL.c_str(),
+			[]( void* data, int, char** argv, char** ) -> int
+			{
+				if( argv[0] )
+					*static_cast<int*>( data ) = std::atoi( argv[0] );
+				return 0;
+			}, &Count, nullptr );
+
+		// Execute select query
+		struct EnumContext { std::vector<crow::json::wvalue>* array; std::vector<int64_t>* clipUIDs; };
+		EnumContext ctx{ &Array, &clipUIDs };
+
+		if( Count > 0 )
+		{
+			sqlite3_exec( m_GlobalContext->Database->GetDatabase(), selectSQL.c_str(),
+				[]( void* data, int, char** argv, char** ) -> int
+				{
+					auto* ctx = static_cast<EnumContext*>( data );
+					if( !argv[0] ) return 0;
+
+					int64_t ClipID = std::stoll( argv[0] );
+					uint64_t Timestamp = argv[1] ? std::stoull( argv[1] ) : 0;
+					int CameraID = argv[2] ? std::atoi( argv[2] ) : 0;
+					uint64_t MotionTimestamp = argv[3] ? std::stoull( argv[3] ) : 0;
+					int ActiveDuration = argv[4] ? std::atoi( argv[4] ) : 0;
+					int Duration = argv[5] ? std::atoi( argv[5] ) : 0;
+					int RecordMode = argv[6] ? std::atoi( argv[6] ) : 0;
+					double MaxMotion = argv[7] ? std::atof( argv[7] ) : 0.0;
+					std::string Description = argv[8] ? argv[8] : "";
+					int Saved = argv[9] ? std::atoi( argv[9] ) : 0;
+					int Lighting = argv[12] ? std::atoi( argv[12] ) : 0;
+					int Reviewed = argv[13] ? std::atoi( argv[13] ) : 0;
+
+					crow::json::wvalue Clip;
+					Clip["clipUID"] = ClipID;
+					Clip["timestamp"] = Timestamp;
+					Clip["cameraID"] = CameraID;
+					Clip["motionTimestamp"] = MotionTimestamp;
+					Clip["activeDuration"] = ActiveDuration;
+					Clip["duration"] = Duration;
+					Clip["recordMode"] = RecordMode;
+					Clip["maxMotion"] = MaxMotion;
+					Clip["description"] = Description;
+					Clip["saved"] = Saved;
+					Clip["lighting"] = Lighting;
+					Clip["reviewed"] = Reviewed;
+
+					ctx->clipUIDs->push_back( ClipID );
+					ctx->array->push_back( std::move( Clip ) );
+					return 0;
+				}, &ctx, nullptr );
+		}
+	}
+	else
+	{
+	// Unfiltered path: use prepared statements
 	{
 		SQLiteDatabaseQueryInstance CountClips( m_GlobalContext->Database, cameraId == -1 ? "CountClipsWithinRangeAll" : "CountClipsWithinRange" );
 		if( cameraId == -1 )
@@ -159,9 +313,6 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 			}
 		);
 	}
-
-	// Collect clip UIDs during enumeration for tag lookup
-	std::vector<int64_t> clipUIDs;
 
 	if( Count > 0 )
 	{
@@ -214,6 +365,7 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 			}
 		);
 	}
+	} // end unfiltered path
 
 	// Populate tags from ClipTag junction table
 	for( size_t i = 0; i < clipUIDs.size(); i++ )

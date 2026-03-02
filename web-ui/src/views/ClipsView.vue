@@ -5,15 +5,18 @@ import AppLayout from '../components/layout/AppLayout.vue'
 import ClipCard from '../components/clips/ClipCard.vue'
 import ClipPlayer from '../components/clips/ClipPlayer.vue'
 import ActivityStrip from '../components/clips/ActivityStrip.vue'
+import ClipFilters from '../components/clips/ClipFilters.vue'
 import { useCameraStore } from '../stores/cameras'
 import { useClipStore } from '../stores/clips'
 import { useSettingsStore } from '../stores/settings'
+import { useFilterStore } from '../stores/filters'
 import type { Clip } from '../types/clip'
 
 const route = useRoute()
 const cameraStore = useCameraStore()
 const clipStore = useClipStore()
 const settings = useSettingsStore()
+const filterStore = useFilterStore()
 
 const playingClip = ref<Clip | null>(null)
 const confirmDelete = ref<Clip | null>(null)
@@ -49,6 +52,7 @@ async function loadClips() {
 }
 
 watch(cameraId, () => loadClips())
+watch(() => filterStore.filterQueryString, () => loadClips())
 onMounted(() => loadClips())
 
 function handlePlay(clip: Clip) {
@@ -130,6 +134,9 @@ function handleTagClick(_tag: string) {
 
     <!-- Activity Strip -->
     <ActivityStrip @play="handlePlay" />
+
+    <!-- Clip Filters -->
+    <ClipFilters />
 
     <!-- Loading -->
     <div v-if="clipStore.loading" class="text-center py-5">

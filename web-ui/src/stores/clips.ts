@@ -4,6 +4,7 @@ import { api } from '../composables/useApi'
 import type { Clip } from '../types/clip'
 import { LightingCondition } from '../types/clip'
 import { useSettingsStore } from './settings'
+import { useFilterStore } from './filters'
 
 export const useClipStore = defineStore('clips', () => {
   const clips = ref<Clip[]>([])
@@ -13,6 +14,7 @@ export const useClipStore = defineStore('clips', () => {
   const currentCameraId = ref<number | null>(null)
 
   const settings = useSettingsStore()
+  const filterStore = useFilterStore()
   const pageSize = computed(() => settings.clipsPerPage)
   const currentPage = computed(() => Math.floor(pageOffset.value / pageSize.value))
   const totalPages = computed(() => Math.ceil(totalCount.value / pageSize.value))
@@ -28,7 +30,7 @@ export const useClipStore = defineStore('clips', () => {
 
     try {
       const data = await api<{ count: number; clips: Record<string, unknown>[] }>(
-        `/clip/enum/${camParam}/${pageSize.value}/${startDate}/${rangePeriod}/${offset}`
+        `/clip/enum/${camParam}/${pageSize.value}/${startDate}/${rangePeriod}/${offset}${filterStore.filterQueryString}`
       )
       totalCount.value = data.count ?? 0
       clips.value = (data.clips ?? []).map(mapClip)
