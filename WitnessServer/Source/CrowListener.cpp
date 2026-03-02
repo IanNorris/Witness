@@ -408,11 +408,11 @@ void CrowListener::RegisterRoutes()
 		res.code = 404;
 	});
 
-	// Static file routes
+	// Static file routes — root redirects to new Vue UI
 	CROW_ROUTE( m_App, "/" )
 	([this]( const crow::request& req, crow::response& res )
 	{
-		ServeStaticFile( req, res, "" );
+		res.redirect( "/witness2/" );
 		res.end();
 	});
 
