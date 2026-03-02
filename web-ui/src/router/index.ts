@@ -32,6 +32,7 @@ const routes = [
       { path: 'users', component: () => import('../components/admin/UserManager.vue') },
       { path: 'groups', component: () => import('../components/admin/GroupManager.vue') },
       { path: 'detection', component: () => import('../components/admin/DetectionSettings.vue') },
+      { path: 'tags', component: () => import('../components/admin/TagManager.vue') },
       { path: 'debug', component: () => import('../components/admin/DebugValues.vue') },
     ],
   },

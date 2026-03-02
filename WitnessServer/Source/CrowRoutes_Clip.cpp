@@ -156,7 +156,6 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 	{
 		// Build dynamic SQL with filters
 		std::string extraWhere;
-		std::string tagJoins;
 
 		if( pReviewed )
 			extraWhere += " AND Clip.Reviewed = " + std::string( pReviewed );
@@ -192,11 +191,19 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 					tagNames.push_back( tagName );
 			}
 
-			for( size_t t = 0; t < tagNames.size(); t++ )
+			// Tag filter: OR — match clips having ANY of the specified tags
+			if( !tagNames.empty() )
 			{
-				std::string n = std::to_string( t );
-				tagJoins += " INNER JOIN ClipTag ct" + n + " ON ct" + n + ".ClipUID = Clip.ClipUID"
-					" INNER JOIN Tag t" + n + " ON t" + n + ".TagUID = ct" + n + ".TagUID AND t" + n + ".Name = '" + tagNames[t] + "'";
+				std::string inList;
+				for( size_t t = 0; t < tagNames.size(); t++ )
+				{
+					if( t > 0 ) inList += ",";
+					inList += "'" + tagNames[t] + "'";
+				}
+				extraWhere += " AND Clip.ClipUID IN ("
+					"SELECT ct.ClipUID FROM ClipTag ct"
+					" INNER JOIN Tag t ON t.TagUID = ct.TagUID"
+					" WHERE t.Name IN (" + inList + "))";
 			}
 		}
 
@@ -210,7 +217,6 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 				" INNER JOIN Camera C ON C.CameraUID = Clip.Camera"
 				" INNER JOIN CameraGroupMapping CGM ON CGM.Camera = C.CameraUID"
 				" INNER JOIN UserGroupMapping UGM ON UGM.`Group` = CGM.`Group`"
-				+ tagJoins +
 				" WHERE Clip.Timestamp >= " + tsFrom + " AND Clip.Timestamp <= " + tsTo +
 				" AND UGM.UserUID = " + std::to_string( UserUID ) + extraWhere;
 
@@ -218,7 +224,6 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 				" INNER JOIN Camera C ON C.CameraUID = Clip.Camera"
 				" INNER JOIN CameraGroupMapping CGM ON CGM.Camera = C.CameraUID"
 				" INNER JOIN UserGroupMapping UGM ON UGM.`Group` = CGM.`Group`"
-				+ tagJoins +
 				" WHERE Clip.Timestamp >= " + tsFrom + " AND Clip.Timestamp <= " + tsTo +
 				" AND UGM.UserUID = " + std::to_string( UserUID ) + extraWhere +
 				" ORDER BY Clip.Timestamp DESC LIMIT " + std::to_string( maxCount ) + " OFFSET " + std::to_string( pageOffset );
@@ -226,12 +231,10 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 		else
 		{
 			countSQL = "SELECT COUNT(DISTINCT Clip.ClipUID) FROM Clip"
-				+ tagJoins +
 				" WHERE Clip.Camera = " + std::to_string( cameraId ) +
 				" AND Clip.Timestamp >= " + tsFrom + " AND Clip.Timestamp <= " + tsTo + extraWhere;
 
 			selectSQL = "SELECT Clip.* FROM Clip"
-				+ tagJoins +
 				" WHERE Clip.Camera = " + std::to_string( cameraId ) +
 				" AND Clip.Timestamp >= " + tsFrom + " AND Clip.Timestamp <= " + tsTo + extraWhere +
 				" ORDER BY Clip.Timestamp DESC LIMIT " + std::to_string( maxCount ) + " OFFSET " + std::to_string( pageOffset );
