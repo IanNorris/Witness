@@ -5,6 +5,7 @@ import AppLayout from '../components/layout/AppLayout.vue'
 import ClipCard from '../components/clips/ClipCard.vue'
 import ClipPlayer from '../components/clips/ClipPlayer.vue'
 import ActivityStrip from '../components/clips/ActivityStrip.vue'
+import ActivityTimeline from '../components/clips/ActivityTimeline.vue'
 import ClipFilters from '../components/clips/ClipFilters.vue'
 import { useCameraStore } from '../stores/cameras'
 import { useClipStore } from '../stores/clips'
@@ -53,6 +54,7 @@ async function loadClips() {
 
 watch(cameraId, () => loadClips())
 watch(() => filterStore.filterQueryString, () => loadClips())
+watch(() => filterStore.timeRange, () => loadClips())
 onMounted(() => loadClips())
 
 function handlePlay(clip: Clip) {
@@ -134,6 +136,9 @@ function handleTagClick(_tag: string) {
 
     <!-- Activity Strip -->
     <ActivityStrip @play="handlePlay" />
+
+    <!-- Activity Timeline -->
+    <ActivityTimeline />
 
     <!-- Main content: sidebar + clips -->
     <div class="clips-layout">

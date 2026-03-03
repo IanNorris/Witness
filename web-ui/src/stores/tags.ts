@@ -1,7 +1,15 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { api } from '../composables/useApi'
 import type { Tag } from '../types/clip'
+
+export interface TagGroup {
+  display: string
+  icon: string
+  names: string[]  // all raw tag names in this group
+  clipCount: number
+  hidden: boolean
+}
 
 export const useTagStore = defineStore('tags', () => {
   const tags = ref<Tag[]>([])
@@ -27,6 +35,29 @@ export const useTagStore = defineStore('tags', () => {
     }
   }
 
+  // Group tags by display name for de-duplication in filters
+  const groupedTags = computed<TagGroup[]>(() => {
+    const groups = new Map<string, TagGroup>()
+    for (const t of tags.value) {
+      const key = t.display.toLowerCase()
+      const existing = groups.get(key)
+      if (existing) {
+        existing.names.push(t.name)
+        existing.clipCount += t.clipCount
+        existing.hidden = existing.hidden && t.hidden
+      } else {
+        groups.set(key, {
+          display: t.display,
+          icon: t.icon,
+          names: [t.name],
+          clipCount: t.clipCount,
+          hidden: t.hidden,
+        })
+      }
+    }
+    return Array.from(groups.values())
+  })
+
   async function updateTag(id: number, display: string, icon: string, hidden: boolean) {
     await api('/clip/tags/update', {
       method: 'POST',
@@ -45,5 +76,22 @@ export const useTagStore = defineStore('tags', () => {
     return tag ? { display: tag.display, icon: tag.icon } : { display: name, icon: '' }
   }
 
-  return { tags, loading, fetchTags, updateTag, getTagDisplay }
+  // Get de-duped display tags for a clip's raw tag string
+  function getDisplayTags(tagString: string): { display: string; icon: string }[] {
+    if (!tagString) return []
+    const rawTags = tagString.split(/[;,]/).map(t => t.trim()).filter(Boolean)
+    const seen = new Set<string>()
+    const result: { display: string; icon: string }[] = []
+    for (const raw of rawTags) {
+      const info = getTagDisplay(raw)
+      const key = info.display.toLowerCase()
+      if (!seen.has(key)) {
+        seen.add(key)
+        result.push(info)
+      }
+    }
+    return result
+  }
+
+  return { tags, loading, groupedTags, fetchTags, updateTag, getTagDisplay, getDisplayTags }
 })

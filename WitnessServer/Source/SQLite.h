@@ -45,10 +45,14 @@ public:
 
 	std::string GetLastError() { return m_lastError; }
 
+	void SetQueryName( const std::string& name ) { m_queryName = name; }
+	const std::string& GetQueryName() const { return m_queryName; }
+
 private:
 
 	std::mutex												m_tMutex;
 
+	std::string												m_queryName;
 	std::string												m_lastError;
 	std::shared_ptr<SQLiteDatabase>							m_database;
 	std::vector<sqlite3_stmt*>								m_statements;

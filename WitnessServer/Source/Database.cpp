@@ -573,6 +573,16 @@ namespace Database
 		ORDER BY day;
 	)RAW";
 
+	// Timeline: all clips for a day with camera name
+	std::string SelectClipsForTimeline = R"RAW(
+		SELECT Clip.ClipUID, Clip.Timestamp, Clip.Duration, Clip.Camera, Camera.CameraName,
+			Clip.RecordMode, Clip.Lighting, Clip.Save, Clip.Reviewed
+		FROM Clip
+		INNER JOIN Camera ON Camera.CameraUID = Clip.Camera
+		WHERE Clip.Timestamp >= @TimestampFrom AND Clip.Timestamp < @TimestampTo
+		ORDER BY Clip.Timestamp ASC;
+	)RAW";
+
 	// Tag migration: select clips with non-empty legacy tags
 	std::string SelectClipsWithTags = R"RAW(
 		SELECT ClipUID, Tags FROM Clip
@@ -613,7 +623,7 @@ namespace Database
 		auto DB = std::make_shared<SQLiteDatabase>( Filename, Database::InitializationScript, true,
 			[]( const std::string& Message )
 			{
-				LOG_INFO( "%s", Message.c_str() );
+				LOG_ERROR( "%s", Message.c_str() );
 			}
 		);
 
@@ -744,6 +754,7 @@ namespace Database
 		CREATE_QUERY( SetAllClipsReviewed );
 		CREATE_QUERY( SelectRecentUnreviewed );
 		CREATE_QUERY( SelectClipCountsByDay );
+		CREATE_QUERY( SelectClipsForTimeline );
 		CREATE_QUERY( SelectClipsWithTags );
 		CREATE_QUERY( ClearLegacyClipTags );
 

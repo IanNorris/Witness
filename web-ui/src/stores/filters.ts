@@ -8,6 +8,8 @@ export interface ActiveFilters {
   lighting?: number
   minDuration?: number
   tags: string[]
+  timeFrom?: number
+  timeTo?: number
 }
 
 const STORAGE_KEY = 'clipFilters'
@@ -25,7 +27,9 @@ export const useFilterStore = defineStore('filters', () => {
   const activePreset = ref<string | null>(null)
 
   watch(activeFilters, (val) => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(val))
+    // Don't persist time range — it's session-only
+    const { timeFrom, timeTo, ...rest } = val
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(rest))
   }, { deep: true })
 
   const filterQueryString = computed(() => {
@@ -46,6 +50,15 @@ export const useFilterStore = defineStore('filters', () => {
       f.mode !== undefined || f.lighting !== undefined ||
       (f.minDuration !== undefined && f.minDuration > 0) ||
       f.tags.length > 0
+  })
+
+  // Time range — used by clip store for path params, not query params
+  const timeRange = computed(() => {
+    const f = activeFilters.value
+    if (f.timeFrom !== undefined && f.timeTo !== undefined) {
+      return { from: f.timeFrom, to: f.timeTo }
+    }
+    return null
   })
 
   function setPreset(preset: string) {
@@ -100,6 +113,7 @@ export const useFilterStore = defineStore('filters', () => {
     activePreset,
     filterQueryString,
     hasActiveFilters,
+    timeRange,
     setPreset,
     clearFilters,
     toggleTag,
