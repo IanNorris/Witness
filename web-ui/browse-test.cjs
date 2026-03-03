@@ -17,7 +17,7 @@ const { chromium } = require('playwright');
 
   try {
     // Login
-    await page.goto('http://localhost:11237/witness2/login', { timeout: 15000 });
+    await page.goto('http://localhost:11237/login', { timeout: 15000 });
     await page.waitForTimeout(3000);
     const hasLogin = await page.locator('#username').isVisible({ timeout: 5000 }).catch(() => false);
     if (!hasLogin) { console.log('❌ No login form'); await snap('err-no-login'); await browser.close(); return; }
@@ -116,7 +116,7 @@ const { chromium } = require('playwright');
     console.log(`Stream container visible: ${streamContent}`);
 
     // Admin - Cameras tab
-    await page.goto('http://localhost:11237/witness2/admin', { timeout: 10000 });
+    await page.goto('http://localhost:11237/admin', { timeout: 10000 });
     await page.waitForTimeout(3000);
     await snap('08-admin-cameras');
     // Check active tab styling
@@ -141,7 +141,7 @@ const { chromium } = require('playwright');
     await snap('10-admin-debug');
 
     // All clips
-    await page.goto('http://localhost:11237/witness2/clips', { timeout: 10000 });
+    await page.goto('http://localhost:11237/clips', { timeout: 10000 });
     await page.waitForTimeout(3000);
     await snap('11-all-clips');
     const allClips = await page.locator('.clip-card').count();
@@ -164,3 +164,4 @@ const { chromium } = require('playwright');
   await browser.close();
   console.log('\n✅ Done');
 })();
+

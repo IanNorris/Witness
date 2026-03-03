@@ -488,11 +488,11 @@ void CrowListener::RegisterRoutes()
 		res.code = 404;
 	});
 
-	// Static file routes — root redirects to new Vue UI
+	// Static file routes — serve Vue SPA
 	CROW_ROUTE( m_App, "/" )
 	([this]( const crow::request& req, crow::response& res )
 	{
-		res.redirect( "/witness2/" );
+		ServeStaticFile( req, res, "index.html" );
 		res.end();
 	});
 
@@ -543,24 +543,30 @@ void CrowListener::ServeStaticFile( const crow::request& req, crow::response& re
 		}
 	}
 
-	// SPA fallback: Vue Router paths under witness2/ should serve witness2/index.html
-	if( path.substr( 0, 9 ) == "witness2/" || path == "witness2" )
+	// SPA fallback: Vue Router paths should serve index.html
+	// (paths that didn't match a static file or API route)
+	if( !lookup.empty() && lookup.find('.') == std::string::npos )
 	{
-		auto it = m_StaticFiles.find( "witness2/index.html" );
-		if( it != m_StaticFiles.end() )
+		// No file extension = likely a Vue Router path (e.g., /clips, /admin, /login)
+		// Skip setup/ which has its own index.html
+		if( path.substr( 0, 6 ) != "setup/" && path != "setup" )
 		{
-			fs::path fullPath = m_StaticRoot;
-			fullPath /= it->first;
-
-			std::ifstream file( fullPath, std::ios::binary );
-			if( file )
+			auto it = m_StaticFiles.find( "index.html" );
+			if( it != m_StaticFiles.end() )
 			{
-				std::string body( (std::istreambuf_iterator<char>(file)),
-								  std::istreambuf_iterator<char>() );
-				res.set_header( "Content-Type", it->second );
-				res.body = std::move( body );
-				res.code = 200;
-				return;
+				fs::path fullPath = m_StaticRoot;
+				fullPath /= it->first;
+
+				std::ifstream file( fullPath, std::ios::binary );
+				if( file )
+				{
+					std::string body( (std::istreambuf_iterator<char>(file)),
+									  std::istreambuf_iterator<char>() );
+					res.set_header( "Content-Type", it->second );
+					res.body = std::move( body );
+					res.code = 200;
+					return;
+				}
 			}
 		}
 	}

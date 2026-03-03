@@ -3,10 +3,10 @@ import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
   plugins: [vue()],
-  base: '/witness2/',
+  base: '/',
   build: {
-    outDir: '../WitnessServer/Web/witness2',
-    emptyOutDir: true,
+    outDir: '../WitnessServer/Web',
+    emptyOutDir: false, // preserve setup/ directory
   },
   server: {
     proxy: {

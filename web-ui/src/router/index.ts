@@ -43,7 +43,7 @@ const routes = [
 ]
 
 const router = createRouter({
-  history: createWebHistory('/witness2/'),
+  history: createWebHistory('/'),
   routes,
 })
 

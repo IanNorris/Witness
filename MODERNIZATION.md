@@ -10,9 +10,9 @@ This document outlines the plan to modernize the Witness surveillance system —
 | TLS | OpenSSL via Crow (self-signed, Let's Encrypt, manual) | ✅ Auto-renewal, cert hot-reload |
 | Setup | Built-in web wizard + CLI (`/setup`, `/websetup`) | ✅ Replaced 166MB .NET Installer |
 | Security | CSP, HSTS, secure cookies, input sanitization | ✅ Full security headers middleware |
-| Web Frontend | Knockout.js 3.4.2 | ❌ Unmaintained since 2019 |
-| CSS Framework | Bootstrap 3.3.5 | ❌ EOL |
-| jQuery | 2.1.4 | ⚠️ Outdated (current: 3.7+) |
+| Web Frontend | Vue 3 + Bootstrap 5 (new), Knockout.js (legacy) | 🔄 New UI in progress |
+| CSS Framework | Bootstrap 5 (new), Bootstrap 3.3.5 (legacy) | 🔄 New UI in progress |
+| jQuery | Removed from new UI; 2.1.4 in legacy | 🔄 Legacy only |
 | OpenCV | 4.10.0 (vcpkg) | ✅ Updated from 4.0.0-pre |
 | Object Recognition | ONNX Runtime + YOLO26n (local), background reprocessor | ✅ Local ML, GPU optional |
 | Build System | CMake + vcpkg | ✅ Migrated from .vcxproj |
@@ -21,7 +21,9 @@ This document outlines the plan to modernize the Witness surveillance system —
 | Video Pipeline | FFmpeg 7.1, custom C++ pipeline | ✅ Solid, cross-platform code |
 | Password Storage | libsodium argon2 | ✅ Modern and secure |
 | Threading | std::thread / std::mutex | ✅ Already portable |
-| Database | SQLite3 | ✅ Cross-platform |
+| Database | SQLite3 with relational tag system | ✅ Cross-platform |
+| Tags | Relational Tag/ClipTag tables with emoji icons | ✅ Migrated from semicolon-delimited strings |
+| Real-time Events | WebSocket push (clip created/reprocessed) | ✅ Live updates |
 
 ### What's Good (Keep)
 
@@ -79,17 +81,45 @@ WitnessServer.exe                       witness-server (Linux/Mac)
 ├── Crow (HTTP + WebSocket)     ✅      ├── systemd / launchd service
 ├── Route handlers              ✅      └── Platform path abstraction
 ├── std::string (UTF-8)         ✅
-├── SecurityHeadersMiddleware   ✅      Web Frontend:
-├── TLS (OpenSSL)               ✅      ├── Vue 3 (Composition API)
-├── Web Setup Wizard            ✅      ├── Bootstrap 5
-└── vcpkg (all deps)            ✅      ├── fetch API (no jQuery)
-                                        └── PWA + Web Push notifications
+├── SecurityHeadersMiddleware   ✅      Web Frontend (remaining):
+├── TLS (OpenSSL)               ✅      ├── Port remaining legacy pages
+├── Web Setup Wizard            ✅      ├── PWA + Web Push notifications
+├── WebSocket events            ✅      └── i18n
+└── vcpkg (all deps)            ✅
+                                        
 WitnessCamera.dll               ✅
-├── std::this_thread::sleep_for ✅      Object Recognition:           ✅
-├── std::string                 ✅      ├── ONNX Runtime (local)      ✅
-└── Cross-platform pipeline     ✅      ├── YOLO26n default model     ✅
-                                        ├── CUDA GPU acceleration     ✅
-                                        └── Background reprocessor    ✅
+├── std::this_thread::sleep_for ✅
+├── std::string                 ✅
+└── Cross-platform pipeline     ✅
+
+Object Recognition:             ✅
+├── ONNX Runtime (local)        ✅
+├── YOLO26n default model       ✅
+├── CUDA GPU acceleration       ✅
+└── Background reprocessor      ✅
+
+Web Frontend (new Vue 3):       🔄
+├── Vue 3 + Composition API     ✅
+├── Vite build toolchain        ✅
+├── Vue Router                  ✅
+├── Pinia state management      ✅
+├── Bootstrap 5                 ✅
+├── HLS.js composable           ✅
+├── Dashboard (live cameras)    ✅
+├── Clips browser + filters     ✅
+├── Activity timeline           ✅
+├── Tag management admin        ✅
+├── Camera management admin     ✅
+├── Detection settings admin    ✅
+└── User management admin       ✅
+
+Tag System:                     ✅
+├── Relational Tag/ClipTag DB   ✅
+├── Tag CRUD API                ✅
+├── Emoji icons per tag         ✅
+├── Tag grouping (aliases)      ✅
+├── Per-camera tag exclusions   ✅
+└── Tag-based clip filtering    ✅
 
 Build:
 ├── CMakeLists.txt (root)       ✅
@@ -242,6 +272,7 @@ Replaced the 166MB .NET Installer with a built-in web setup wizard.
 - [x] **Setup wizard detection** — object detection section with GPU requirements and links
 - [x] **Structured logging** — `spdlog`-based `LOG_INFO/WARNING/ERROR/DEBUG` via `Log.h`
 - [x] **SQLite busy timeout** — `sqlite3_busy_timeout(db, 5000)` prevents write contention
+- [x] **SQLite error diagnostics** — `AssertQuery` macro prefixes errors with `[QueryName]`, error callback uses `LOG_ERROR` instead of `LOG_INFO`, making failed queries immediately identifiable in logs
 - [x] **Clip cleanup setting** — `clip_cleanup_enabled` / `clip_retention_days` DB settings, configurable in admin panel, defaults to disabled
 - [x] **Let's Encrypt certbot** — setup wizard runs certbot with UAC elevation, auto-installs via winget if needed, warns about local access requirement
 - [ ] **Improve night/IR detection accuracy**
@@ -259,34 +290,46 @@ Replaced the 166MB .NET Installer with a built-in web setup wizard.
 - [ ] **Webhook support** — configurable HTTP POST callbacks on events (detection, camera offline, clip saved) for custom integrations
 - [ ] Remove Azure Vision code if ONNX fully replaces it
 
-### Phase 6: Feature Enhancements
+### Phase 6: Feature Enhancements 🔄 IN PROGRESS
 
 - [ ] **Camera setup UI** — finish the new camera creation/editing interface so cameras can be fully configured from the web UI without manual DB edits
 - [ ] **Zone/mask editing UI** — draw regions of interest and ignore zones per camera in the web UI. Reduces false positives and allows focusing detection on specific areas (e.g. driveway, not the street)
-- [ ] **Activity timeline** — visual timeline view showing detected activity across cameras, making it easy to scrub through events at a glance
-- [ ] **Clip date filter** — date picker / date range filter for the clips view, so users can quickly find clips from a specific time period
-- [ ] **Tag search + timeline icons** — searchable tags on detected events (person, car, animal, etc.) with corresponding icons shown on the activity timeline for quick visual scanning
+- [x] **Activity timeline** — visual timeline showing detected activity across cameras with server-side aggregated events, adaptive time bucketing (5min → 1week based on range), camera color-coding, emoji tag markers, drag-to-select time ranges, calendar date picker, and clip retention cutoff marker
+- [x] **Clip date filter** — unified time presets (Today/Yesterday/This Week/Last Week/This Month/Last Month/Older/Custom range) integrated into the timeline nav bar, driving both timeline and clip grid
+- [x] **Tag search + timeline icons** — searchable tags with emoji icons shown on the activity timeline per event, tag-based filtering in the clip browser sidebar
 - [ ] **Clip interestingness scoring** — compare clip preview images against baseline frames captured at the start of each clip (during lead-in period). Calculate a visual difference score to rank clips by "interestingness" and highlight what changed in the frame. *(Design still evolving — needs further ideation on baseline selection, diff algorithm, and UI presentation)*
 - [ ] **Clip export/download** — download individual clips or bulk-export date ranges as MP4/ZIP from the web UI
 - [ ] **Viewer role** — non-admin users who can view live streams and clips but cannot configure cameras or server settings
 - [ ] **24/7 continuous recording** — optional always-on recording mode alongside event-driven clips, with configurable retention policies and tiered storage (hot/cold)
+- [ ] **WebSocket disconnect overlay** — full-screen overlay with disconnected logo when WebSocket connection is lost
 
-### Phase 7: Web Frontend Modernization
+### Phase 7: Web Frontend Modernization 🔄 IN PROGRESS
 
-- [ ] **Replace Knockout.js with Vue 3** (Composition API + single-file components)
-  - Vite build toolchain (replaces manual script includes)
-  - Vue Router for client-side navigation
-  - Pinia for state management (replaces global ViewModel)
-- [ ] **Replace Bootstrap 3 with Bootstrap 5**
+- [x] **Replace Knockout.js with Vue 3** (Composition API + single-file components)
+  - Vite build toolchain with dev proxy to backend
+  - Vue Router for client-side navigation (hash mode)
+  - Pinia for state management (filters, clips, tags, cameras)
+  - Served at `/witness2/` alongside legacy UI at `/witness/`
+- [x] **Replace Bootstrap 3 with Bootstrap 5**
+  - Dark theme throughout
   - No jQuery dependency
   - Modern responsive grid
-  - CSS custom properties for theming
-- [ ] **Drop jQuery** — use native `fetch` API for HTTP, `querySelector` for DOM
-- [ ] **Port HLS client architecture to Vue**
-  - StreamDiagnostics system, poll-based watchdog, exponential backoff
-  - Preserve the "never seek from outside HLS.js" rule
-  - Fullscreen camera view as dedicated Vue route
-- [ ] **Internationalization (i18n)** — multi-language support via Vue I18n. Extract all user-facing strings to locale files. Natural fit after Vue migration since Vue I18n integrates cleanly with Composition API
+- [x] **Drop jQuery** — all new code uses native `fetch` API and Vue reactivity
+- [x] **Port HLS client architecture to Vue**
+  - `useHlsPlayer` composable wrapping HLS.js lifecycle
+  - Poll-based watchdog with exponential backoff
+  - StreamDiagnostics preserved
+  - "Never seek from outside HLS.js" rule maintained
+- [x] **Vue pages implemented:**
+  - Dashboard — live camera grid with HLS streams
+  - Clips browser — paginated grid with filters, tag display, player modal
+  - Admin — camera management, user management, tag management, detection settings, debug values
+  - Login page
+- [x] **Activity timeline** — aggregated event timeline with emoji markers, drag-to-select, calendar picker, time presets, retention cutoff line
+- [x] **Tag system UI** — filter sidebar with tag toggles (grouped by display name), tag admin with emoji/display editing, per-camera exclusions
+- [x] **WebSocket integration** — real-time clip creation and reprocessing events update the clip grid live
+- [ ] **Port remaining legacy pages** — some legacy Knockout.js pages may still be in use
+- [ ] **Internationalization (i18n)** — multi-language support via Vue I18n. Extract all user-facing strings to locale files
 - [ ] **Docker deployment** — Dockerfile + docker-compose.yml for containerized deployment. Depends on Linux support (Phase 1 service abstraction)
 
 ### Phase 8: Mobile & PWA
@@ -351,21 +394,28 @@ Vue's reactivity system (`ref`, `computed`, `watch`) maps almost 1:1 to Knockout
 
 These are longer-term ideas that don't fit neatly into existing phases — they may become their own phases or fold into existing ones as designs mature.
 
-### Clip Quick Filters
+### Clip Quick Filters ✅ COMPLETE
 
-Add a quick filter bar to the clips view with one-click presets: **Today**, **Yesterday**, **This Week**, **Last Week**, **Saved**, **Custom Range** (date picker). Reduces friction for the most common clip browsing patterns. Pairs with the Phase 6 clip date filter item but focuses on UX shortcuts rather than raw date pickers.
+Implemented as part of the Vue 3 clip browser:
+- Time presets in timeline nav: **Today**, **Yesterday**, **This Week**, **Last Week**, **This Month**, **Last Month**, **Older**, **Custom Range** (date picker popup)
+- Filter sidebar with: reviewed/saved/unsaved status, lighting mode (day/night), minimum duration slider, tag toggles (grouped by display name)
+- Drag-to-select time range on the activity timeline
+- All filters stored in Pinia filter store and applied via API query params
 
-### Tag Database Redesign
+### Tag Database Redesign ✅ COMPLETE
 
-The current tag system stores tags as a semicolon-delimited string in the Clip table. This works but makes filtering, searching, and aggregation expensive (requires `LIKE '%tag%'` queries). A proper relational design would use:
+The tag system has been fully redesigned from semicolon-delimited strings to a proper relational model:
 
-- **`Tag` table** — `(id, name)` with unique tag names
-- **`ClipTag` junction table** — `(clip_id, tag_id)` for many-to-many relationships
-- Indexed lookups, proper `JOIN`-based filtering, tag rename/merge operations
-- Tag management UI (rename, merge duplicates, delete unused)
-- Migration path: parse existing semicolon strings → populate new tables → deprecate string column
-
-This would unlock fast tag-based filtering, tag autocomplete, and tag usage statistics.
+- **`Tag` table** — `TagUID` (auto-increment), `Name` (unique), `Display` (user label), `Icon` (emoji), `SortOrder`, `Hidden` (global exclusion), `ClipCount` (cached)
+- **`ClipTag` junction table** — `ClipUID + TagUID` composite primary key with foreign keys
+- **`CameraTagExclusion` table** — per-camera tag hiding
+- Startup migration parses existing `Clip.Tags` column → populates `Tag` + `ClipTag` tables
+- Built-in emoji icon map for YOLO classes (person→🧑, car→🚗, cat→🐱, dog→🐕, etc.)
+- Recording.cpp and ClipReprocessWorker.cpp use INSERT OR IGNORE for new tags
+- Legacy `Tags` column still written for backward compatibility
+- Tag admin UI: rename, change emoji, hide/unhide, group by display name
+- Tag grouping: tags with same display name filter together and show as one entry
+- Per-camera tag exclusion management in admin UI
 
 ### Detection Highlight Collages
 
@@ -409,5 +459,5 @@ Tag and track motion at specific locations within a camera's field of view, enab
 - **OpenCV and FFmpeg are natively cross-platform** — vcpkg packages work everywhere automatically.
 - **Systemd integration on Linux is straightforward** — a `.service` file plus `sigaction()` signal handling replaces the entire Windows SCM layer. This is the main remaining blocker for Linux.
 - **The filter architecture is the best part of the codebase for extensibility** — ONNX detection is genuinely a "write one class" task because the pipeline, frame decode, and result structures already exist.
-- **Phase ordering is intentional** — each phase is independently useful and shippable. Phases 1-4 are complete. Phase 5 adds integrations. Phase 6 adds user-facing features. Phase 7 modernizes the frontend. Phase 8 adds mobile/PWA.
+- **Phase ordering is intentional** — each phase is independently useful and shippable. Phases 1-4 are complete. Phase 5 adds integrations. Phases 6-7 are in progress (activity timeline, clip browser, tag system, Vue 3 frontend). Phase 8 adds mobile/PWA.
 - **JSON: Using Crow's built-in JSON** — `crow::json::wvalue`/`rvalue` handles all needs. No external JSON library required. Auto-sets `Content-Type: application/json` on responses.

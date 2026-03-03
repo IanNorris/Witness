@@ -1,79 +1,14 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Witness</title>
-
-  <link rel="stylesheet" type="text/css" href="witness/asset/css/bootstrap.min.css">
-
-  <link rel="stylesheet" type="text/css" href="witness/asset/css/plugins/font-awesome.min.css"/>
-  <link rel="stylesheet" type="text/css" href="witness/asset/css/plugins/simple-line-icons.css"/>
-  <link rel="stylesheet" type="text/css" href="witness/asset/css/plugins/animate.min.css"/>
-  <link rel="stylesheet" type="text/css" href="witness/asset/css/plugins/icheck/skins/flat/aero.css"/>
-  <link href="witness/asset/css/style.css" rel="stylesheet">
-
-  <link rel="shortcut icon" href="witness/asset/img/shortcut.png">
-  <!-- HTML5 shim and Respond.js IE8 support of HTML5 elements and media queries -->
-    <!--[if lt IE 9]>
-      <script src="https://oss.maxcdn.com/html5shiv/3.7.2/html5shiv.min.js"></script>
-      <script src="https://oss.maxcdn.com/respond/1.4.2/respond.min.js"></script>
-      <![endif]-->
-    </head>
-	
-    <body class="dashboard form-signin-wrapper">
-		<div class="spinner-background">
-			<div class="spinner-container"></div>
-			<div class="spinner-container2"></div>
-		</div>
-	
-		<div class="signin-outer" style="display:none">
-			<div class="signin-middle">
-				<div class="signin-inner">
-					<form id="loginForm" class="form-signin" data-bind="fadeVisible: loginVisible" style="display:none">
-					  <div class="panel periodic-login">
-						  <div class="panel-body text-center">
-						  
-							<h1>Witness</h1>
-							<img src="witness/asset/img/logo.svg"/>
-							  
-							<div class="form-group form-animate-text" style="margin-top:40px !important;">
-									<input name="username" type="text" class="form-text" data-bind="value: username, valueUpdate: 'keyup'" required>
-									<span class="bar"></span>
-									<label>Username</label>
-							</div>
-							<div class="form-group form-animate-text" style="margin-top:10px !important;" data-bind="css: { 'form-animate-error': invalidLogin }">
-								<input name="password" type="password" class="form-text"  data-bind="value: password, valueUpdate: 'keyup'" required>
-								<span class="bar"></span>
-								<label>Password</label>
-							</div>
-							  
-							<div class="alert alert-danger" data-bind="visible: invalidLogin" role="alert">
-								<p data-bind="text: errorMessage"></p>
-							</div>
-							  
-							<button class="btn ripple btn-round col-md-12" role="button" data-bind="click: function(){ submitLogin(); }, enable: canSubmit"><span data-bind="html: loginButtonLabel"></button>
-						</div>
-					</div>
-				</form>
-			</div>
-		</div>
-      </div>
-
-      <script src="witness/asset/js/jquery.min.js"></script>
-      <script src="witness/asset/js/jquery.ui.min.js"></script>
-      <script src="witness/asset/js/bootstrap.min.js"></script>
-	  
-	  <script src="witness/asset/js/knockout-3.4.2.js"></script>
-	  
-	  <script src="witness/asset/js/knockout-utilities.js"></script>
-
-      <script src="witness/asset/js/plugins/moment.min.js"></script>
-      <script src="witness/asset/js/plugins/icheck.min.js"></script>
-	  
-	  <script src="witness/asset/js/utilities.js"></script>
-	  
-	  <script src="witness/asset/js/login.js"></script>
-   </body>
-   </html>
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>web-ui</title>
+    <script type="module" crossorigin src="/assets/index-B2bb_HXF.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/index-BieDQuwm.css">
+  </head>
+  <body>
+    <div id="app"></div>
+  </body>
+</html>
