@@ -3,6 +3,10 @@
 #include "GlobalContext.h"
 #include "TagHelpers.h"
 
+#include <Log.h>
+#include <set>
+#include <map>
+
 // ===== Tag Handlers =====
 
 void CrowListener::HandleTagEnum( const crow::request& req, crow::response& res )
@@ -311,7 +315,7 @@ void CrowListener::HandleClipCalendar( const crow::request& req, crow::response&
 	res.end();
 }
 
-void CrowListener::HandleClipTimeline( const crow::request& req, crow::response& res, int year, int month, int day )
+void CrowListener::HandleClipTimeline( const crow::request& req, crow::response& res, const std::string& fromStr, const std::string& toStr )
 {
 	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, nullptr,
 		CrowAuth::Action::Read, CrowAuth::Privilege::Normal );
@@ -322,65 +326,173 @@ void CrowListener::HandleClipTimeline( const crow::request& req, crow::response&
 		return;
 	}
 
-	// Calculate timestamp range for the day (local time)
-	struct tm startTm = {};
-	startTm.tm_year = year - 1900;
-	startTm.tm_mon = month - 1;
-	startTm.tm_mday = day;
-	time_t startTime = mktime( &startTm );
+	int64_t tsFrom = std::stoll( fromStr );
+	int64_t tsTo = std::stoll( toStr );
+	int64_t rangeSecs = tsTo - tsFrom;
 
-	struct tm endTm = startTm;
-	endTm.tm_mday += 1;
-	time_t endTime = mktime( &endTm );
+	// Target ~288 slots, round bucket to nearest clean time unit
+	int64_t rawBucket = rangeSecs / 288;
+	int64_t bucketSecs;
+	if( rawBucket <= 300 )        bucketSecs = 300;       // 5 min
+	else if( rawBucket <= 900 )   bucketSecs = 900;       // 15 min
+	else if( rawBucket <= 1800 )  bucketSecs = 1800;      // 30 min
+	else if( rawBucket <= 3600 )  bucketSecs = 3600;      // 1 hour
+	else if( rawBucket <= 7200 )  bucketSecs = 7200;      // 2 hours
+	else if( rawBucket <= 21600 ) bucketSecs = 21600;     // 6 hours
+	else if( rawBucket <= 86400 ) bucketSecs = 86400;     // 1 day
+	else                          bucketSecs = 604800;    // 1 week
 
-	std::vector<crow::json::wvalue> clips;
-	std::vector<int64_t> clipUIDs;
+	// Minimum clip duration to include (filter short triggers for longer ranges)
+	int minDuration = (rangeSecs > 86400) ? 3 : 0;
+
+	// Raw clip data
+	struct RawClip {
+		int64_t uid;
+		int64_t timestamp;
+		int duration;
+		int cameraID;
+		int recordMode;
+	};
+	std::vector<RawClip> rawClips;
 
 	SQLiteDatabaseQueryInstance q( m_GlobalContext->Database, "SelectClipsForTimeline" );
-	q->Bind( "@TimestampFrom", (int64_t)startTime );
-	q->Bind( "@TimestampTo", (int64_t)endTime );
+	q->Bind( "@TimestampFrom", tsFrom );
+	q->Bind( "@TimestampTo", tsTo );
 
-	q->Execute( [&clips, &clipUIDs]( const SQLiteDatabaseQuery& query )
+	q->Execute( [&rawClips, minDuration]( const SQLiteDatabaseQuery& query )
 	{
-		crow::json::wvalue clip;
-		int64_t uid = query.GetColumnValueInt64( 0 );
-		clip["clipUID"] = uid;
-		clip["timestamp"] = query.GetColumnValueInt64( 1 );
-		clip["duration"] = query.GetColumnValueInt( 2 );
-		clip["cameraID"] = query.GetColumnValueInt( 3 );
-		clip["cameraName"] = std::string( query.GetColumnValueText( 4 ) ? query.GetColumnValueText( 4 ) : "" );
-		clip["recordMode"] = query.GetColumnValueInt( 5 );
-		clip["lighting"] = query.GetColumnValueInt( 6 );
-		clip["saved"] = query.GetColumnValueInt( 7 );
-		clip["reviewed"] = query.GetColumnValueInt( 8 );
-		clips.push_back( std::move( clip ) );
-		clipUIDs.push_back( uid );
+		int duration = query.GetColumnValueInt( 2 );
+		if( duration < minDuration ) return true; // skip short clips
+
+		RawClip c;
+		c.uid = query.GetColumnValueInt64( 0 );
+		c.timestamp = query.GetColumnValueInt64( 1 );
+		c.duration = duration;
+		c.cameraID = query.GetColumnValueInt( 3 );
+		c.recordMode = query.GetColumnValueInt( 5 );
+		rawClips.push_back( c );
 		return true;
 	});
 
-	// Add tags for each clip
-	for( size_t i = 0; i < clips.size(); i++ )
+	// Fetch tags — limit to 500 clips max to avoid hammering the DB on huge ranges
+	std::unordered_map<int64_t, std::vector<std::string>> clipTags;
 	{
-		std::string tagStr;
-		SQLiteDatabaseQueryInstance tq( m_GlobalContext->Database, "SelectTagsForClip" );
-		tq->Bind( "@ClipUID", clipUIDs[i] );
-		tq->Execute( [&tagStr]( const SQLiteDatabaseQuery& query )
+		size_t tagLimit = std::min( rawClips.size(), (size_t)500 );
+		// Sample evenly across clips to get representative tags
+		size_t step = rawClips.size() > tagLimit ? rawClips.size() / tagLimit : 1;
+		for( size_t i = 0; i < rawClips.size(); i += step )
 		{
-			if( !tagStr.empty() )
-				tagStr += ";";
-			const char* name = query.GetColumnValueText( 1 );
-			if( name )
-				tagStr += name;
-			return true;
-		});
-		clips[i]["tags"] = tagStr;
+			auto& c = rawClips[i];
+			SQLiteDatabaseQueryInstance tq( m_GlobalContext->Database, "SelectTagsForClip" );
+			tq->Bind( "@ClipUID", c.uid );
+			tq->Execute( [&clipTags, uid = c.uid]( const SQLiteDatabaseQuery& query )
+			{
+				const char* name = query.GetColumnValueText( 1 );
+				if( name )
+					clipTags[uid].push_back( name );
+				return true;
+			});
+		}
+	}
+
+	// Aggregate into time buckets
+	struct Event {
+		int64_t from;
+		int64_t to;
+		int clipCount = 0;
+		std::set<int> cameraIDs;
+		std::set<std::string> tags;
+	};
+
+	auto buildBuckets = [&]( int64_t bs ) -> std::map<int64_t, Event>
+	{
+		std::map<int64_t, Event> buckets;
+		for( auto& c : rawClips )
+		{
+			int64_t bucketKey = ((c.timestamp - tsFrom) / bs) * bs + tsFrom;
+			auto& evt = buckets[bucketKey];
+			if( evt.clipCount == 0 )
+			{
+				evt.from = bucketKey;
+				evt.to = bucketKey + bs;
+			}
+			evt.clipCount++;
+			evt.cameraIDs.insert( c.cameraID );
+			auto it = clipTags.find( c.uid );
+			if( it != clipTags.end() )
+			{
+				for( auto& tag : it->second )
+					evt.tags.insert( tag );
+			}
+		}
+		return buckets;
+	};
+
+	// Re-bucket if too many events (cap at 1000)
+	auto buckets = buildBuckets( bucketSecs );
+	while( buckets.size() > 1000 && bucketSecs < rangeSecs )
+	{
+		bucketSecs *= 2;
+		buckets = buildBuckets( bucketSecs );
+	}
+
+	// Build response
+	std::vector<crow::json::wvalue> events;
+	for( auto& [key, evt] : buckets )
+	{
+		crow::json::wvalue e;
+		e["from"] = evt.from;
+		e["to"] = evt.to;
+		e["clipCount"] = evt.clipCount;
+
+		std::vector<crow::json::wvalue> cams;
+		for( int id : evt.cameraIDs )
+			cams.push_back( crow::json::wvalue( id ) );
+		e["cameraIDs"] = std::move( cams );
+
+		// Join tags as semicolon-separated string
+		std::string tagStr;
+		for( auto& tag : evt.tags )
+		{
+			if( !tagStr.empty() ) tagStr += ";";
+			tagStr += tag;
+		}
+		e["tags"] = tagStr;
+
+		events.push_back( std::move( e ) );
 	}
 
 	crow::json::wvalue Data;
-	Data["year"] = year;
-	Data["month"] = month;
-	Data["day"] = day;
-	Data["clips"] = std::move( clips );
+	Data["from"] = tsFrom;
+	Data["to"] = tsTo;
+	Data["bucketSeconds"] = bucketSecs;
+	Data["events"] = std::move( events );
+
+	// Include clip retention cutoff — always show if retention days configured
+	{
+		std::string retentionStr;
+		SQLiteDatabaseQueryInstance rq( m_GlobalContext->Database, "GetSetting" );
+		rq->Bind( "@Name", "clip_retention_days" );
+		rq->Execute( [&retentionStr]( const SQLiteDatabaseQuery& query ) {
+			const char* val = query.GetColumnValueText( 0 );
+			if( val ) retentionStr = val;
+			return true;
+		});
+
+		int retentionDays = 0;
+		if( !retentionStr.empty() )
+		{
+			int parsed = std::atoi( retentionStr.c_str() );
+			if( parsed > 0 ) retentionDays = parsed;
+		}
+
+		if( retentionDays > 0 )
+		{
+			int64_t cutoff = static_cast<int64_t>( time( nullptr ) ) - (int64_t)retentionDays * 86400;
+			Data["retentionCutoff"] = cutoff;
+			Data["retentionDays"] = retentionDays;
+		}
+	}
 
 	res.set_header( "Content-Type", "application/json" );
 	res.body = Data.dump();

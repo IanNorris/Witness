@@ -107,7 +107,7 @@ private:
 	void HandleClipReview( const crow::request& req, crow::response& res );
 	void HandleClipRecent( const crow::request& req, crow::response& res, int maxCount );
 	void HandleClipCalendar( const crow::request& req, crow::response& res, int year, int month );
-	void HandleClipTimeline( const crow::request& req, crow::response& res, int year, int month, int day );
+	void HandleClipTimeline( const crow::request& req, crow::response& res, const std::string& fromStr, const std::string& toStr );
 
 	// Tags
 	void HandleTagEnum( const crow::request& req, crow::response& res );

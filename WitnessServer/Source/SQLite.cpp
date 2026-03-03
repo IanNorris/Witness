@@ -1,7 +1,7 @@
 #include "SQLite.h"
 #include "Common.h"
 
-#define AssertQuery( condition, message, ... ) if( !(condition) ) { m_database->ThrowError( StringPrintfA( message, __VA_ARGS__ ) ); }
+#define AssertQuery( condition, message, ... ) if( !(condition) ) { m_database->ThrowError( "[" + m_queryName + "] " + StringPrintfA( message, __VA_ARGS__ ) ); }
 #define AssertDB( condition, message, ... ) if( !(condition) ) { ThrowError( StringPrintfA( message, __VA_ARGS__ ) ); }
 
 SQLiteDatabaseQuery::SQLiteDatabaseQuery(std::shared_ptr<SQLiteDatabase> database )
@@ -219,6 +219,7 @@ std::shared_ptr<SQLiteDatabaseQuery> SQLiteDatabase::CreateQuery( const std::str
 	AssertDB( m_database, "Database was not valid" );
 
 	auto generatedQuery = std::make_shared<SQLiteDatabaseQuery>( shared_from_this() );
+	generatedQuery->SetQueryName( queryName );
 
 	std::string newQuery = query;
 	const char* nextStatement = newQuery.c_str();

@@ -25,8 +25,17 @@ export const useClipStore = defineStore('clips', () => {
     pageOffset.value = offset
 
     const camParam = cameraId ?? -1
-    const startDate = Math.floor(Date.now() / 1000)
-    const rangePeriod = 9999999999
+    const range = filterStore.timeRange
+    let startDate: number
+    let rangePeriod: number
+    if (range) {
+      // Time range set: startDate = end of range, rangePeriod = duration
+      startDate = Math.floor(range.to)
+      rangePeriod = Math.floor(range.to - range.from)
+    } else {
+      startDate = Math.floor(Date.now() / 1000)
+      rangePeriod = 9999999999
+    }
 
     try {
       const data = await api<{ count: number; clips: Record<string, unknown>[] }>(

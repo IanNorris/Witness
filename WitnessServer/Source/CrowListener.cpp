@@ -338,10 +338,10 @@ void CrowListener::RegisterRoutes()
 		HandleClipCalendar( req, res, year, month );
 	});
 
-	CROW_ROUTE( m_App, "/clip/timeline/<int>/<int>/<int>" )
-	([this]( const crow::request& req, crow::response& res, int year, int month, int day )
+	CROW_ROUTE( m_App, "/clip/timeline/<string>/<string>" )
+	([this]( const crow::request& req, crow::response& res, const std::string& fromStr, const std::string& toStr )
 	{
-		HandleClipTimeline( req, res, year, month, day );
+		HandleClipTimeline( req, res, fromStr, toStr );
 	});
 
 	// Tags

@@ -21,10 +21,8 @@ function isGroupActive(names: string[]) {
 function toggleGroup(names: string[]) {
   const active = isGroupActive(names)
   if (active) {
-    // Remove all names in this group
     filterStore.activeFilters.tags = filterStore.activeFilters.tags.filter(t => !names.includes(t))
   } else {
-    // Add all names in this group
     for (const n of names) {
       if (!filterStore.activeFilters.tags.includes(n)) {
         filterStore.activeFilters.tags.push(n)

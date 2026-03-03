@@ -54,6 +54,7 @@ async function loadClips() {
 
 watch(cameraId, () => loadClips())
 watch(() => filterStore.filterQueryString, () => loadClips())
+watch(() => filterStore.timeRange, () => loadClips())
 onMounted(() => loadClips())
 
 function handlePlay(clip: Clip) {
@@ -101,23 +102,6 @@ function changePageSize(event: Event) {
 function handleTagClick(_tag: string) {
   // Future: filter by tag
 }
-
-function handleTimelinePlay(clip: { uid: number; camera: number; timestamp: number; duration: number; tags: string }) {
-  playingClip.value = {
-    uid: clip.uid,
-    camera: clip.camera,
-    timestamp: clip.timestamp,
-    duration: clip.duration,
-    tags: clip.tags,
-    cameraName: '',
-    saved: false,
-    recordMode: '',
-    description: '',
-    detectionVersion: 0,
-    lighting: 0,
-    reviewed: false,
-  } as Clip
-}
 </script>
 
 <template>
@@ -154,7 +138,7 @@ function handleTimelinePlay(clip: { uid: number; camera: number; timestamp: numb
     <ActivityStrip @play="handlePlay" />
 
     <!-- Activity Timeline -->
-    <ActivityTimeline @play="handleTimelinePlay" />
+    <ActivityTimeline />
 
     <!-- Main content: sidebar + clips -->
     <div class="clips-layout">
