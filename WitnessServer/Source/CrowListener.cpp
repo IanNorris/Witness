@@ -446,6 +446,13 @@ void CrowListener::RegisterRoutes()
 
 	// WebSocket event stream
 	CROW_WEBSOCKET_ROUTE( m_App, "/ws/events" )
+		.onaccept([this]( const crow::request& req, void** ) -> bool
+		{
+			// Reject unauthenticated WebSocket connections
+			int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, nullptr,
+				CrowAuth::Action::Read, CrowAuth::Privilege::Normal );
+			return UserUID >= 0;
+		})
 		.onopen([this]( crow::websocket::connection& conn )
 		{
 			m_GlobalContext->Events->AddConnection( &conn );
