@@ -1,15 +1,26 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue'
+import { onMounted, onUnmounted, watch } from 'vue'
 import { useSettingsStore } from './stores/settings'
+import { useAuthStore } from './stores/auth'
 import { useEventStream } from './composables/useEventStream'
 
 const settings = useSettingsStore()
+const auth = useAuthStore()
 const events = useEventStream()
 
-onMounted(() => {
+function startEventStream() {
   events.installCameraHandler()
   events.installClipHandler()
   events.connect()
+}
+
+onMounted(() => {
+  if (auth.isAuthenticated) startEventStream()
+})
+
+watch(() => auth.isAuthenticated, (loggedIn) => {
+  if (loggedIn) startEventStream()
+  else events.disconnect()
 })
 
 onUnmounted(() => {
