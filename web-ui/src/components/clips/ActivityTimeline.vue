@@ -897,6 +897,7 @@ onUnmounted(() => {
   line-height: 1;
   pointer-events: none;
   white-space: nowrap;
+  letter-spacing: -0.5em;
 }
 
 /* Timeline bar */
