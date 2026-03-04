@@ -213,6 +213,23 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 		LOG_INFO( "Clip cleanup disabled. Old clips will not be deleted." );
 	}
 
+	// Continuous recording cleanup
+	{
+		std::string contRetentionStr;
+		int contRetentionDays = 3; // default
+		if( GetSettingsField( Settings, "continuous_recording_retention_days", contRetentionStr, Errors ) && !contRetentionStr.empty() )
+		{
+			int parsed = std::atoi( contRetentionStr.c_str() );
+			if( parsed > 0 ) contRetentionDays = parsed;
+		}
+
+		LOG_INFO( "Continuous recording cleanup: deleting segments older than %d days.", contRetentionDays );
+		DeleteOldContinuousSegments( *Context, contRetentionDays );
+		Timer->AddTimer( [this, contRetentionDays](){
+			DeleteOldContinuousSegments( *Context, contRetentionDays );
+		}, 5 * 60 );
+	}
+
 	try
 	{
 		Server->Start();
@@ -377,6 +394,9 @@ void WitnessServer::StartCamera(const SQLiteDatabaseQuery& query)
 
 	Camera.BlackoutMaskPath = BlackoutMaskPath ? BlackoutMaskPath : "";
 	Camera.FocusMaskPath = FocusMaskPath ? FocusMaskPath : "";
+
+	// ContinuousRecording column added via migration (may be NULL on old DBs)
+	Camera.ContinuousRecording = query.GetColumnValueInt(12);
 
 	Camera.MotionFilterName = MotionFilterName && strlen(MotionFilterName) ? MotionFilterName : Video.MotionFilterName.c_str();
 

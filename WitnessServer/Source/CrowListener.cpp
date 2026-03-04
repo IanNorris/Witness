@@ -444,6 +444,31 @@ void CrowListener::RegisterRoutes()
 		HandleSetupTestCuda( req, res );
 	});
 
+	// DVR (continuous recording playback)
+	CROW_ROUTE( m_App, "/dvr/coverage/<int>/<string>/<string>" )
+	([this]( const crow::request& req, crow::response& res, int cameraId, const std::string& from, const std::string& to )
+	{
+		HandleDvrCoverage( req, res, cameraId, from, to );
+	});
+
+	CROW_ROUTE( m_App, "/dvr/segment/<int>" )
+	([this]( const crow::request& req, crow::response& res, int segmentId )
+	{
+		HandleDvrSegment( req, res, segmentId );
+	});
+
+	CROW_ROUTE( m_App, "/dvr/playlist/<int>/<string>/<string>" )
+	([this]( const crow::request& req, crow::response& res, int cameraId, const std::string& from, const std::string& to )
+	{
+		HandleDvrPlaylist( req, res, cameraId, from, to );
+	});
+
+	CROW_ROUTE( m_App, "/dvr/segments/<int>/<string>/<string>" )
+	([this]( const crow::request& req, crow::response& res, int cameraId, const std::string& from, const std::string& to )
+	{
+		HandleDvrSegments( req, res, cameraId, from, to );
+	});
+
 	// WebSocket event stream
 	CROW_WEBSOCKET_ROUTE( m_App, "/ws/events" )
 		.onaccept([this]( const crow::request& req, void** ) -> bool
@@ -552,7 +577,7 @@ void CrowListener::ServeStaticFile( const crow::request& req, crow::response& re
 
 	// SPA fallback: Vue Router paths should serve index.html
 	// (paths that didn't match a static file or API route)
-	if( !lookup.empty() && lookup.find('.') == std::string::npos )
+	if( !path.empty() && path.find('.') == std::string::npos )
 	{
 		// No file extension = likely a Vue Router path (e.g., /clips, /admin, /login)
 		// Skip setup/ which has its own index.html

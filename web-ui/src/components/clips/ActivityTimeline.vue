@@ -1,9 +1,12 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, onUnmounted } from 'vue'
 import { api } from '../../composables/useApi'
+import { useEventStream, type WsEvent } from '../../composables/useEventStream'
 import { useTagStore } from '../../stores/tags'
 import { useFilterStore } from '../../stores/filters'
+import { useCameraStore } from '../../stores/cameras'
 import { format, startOfDay, startOfWeek, startOfMonth, subWeeks, subMonths, isToday as isTodayFn } from 'date-fns'
+import DvrMultiPlayer from './DvrMultiPlayer.vue'
 
 interface TimelineEvent {
   from: number
@@ -26,6 +29,14 @@ const loading = ref(false)
 const bucketSeconds = ref(300)
 const retentionCutoff = ref<number | null>(null)
 const retentionDays = ref<number | null>(null)
+
+// DVR coverage
+interface DvrRange { from: number; to: number }
+const dvrCoverage = ref<Map<number, DvrRange[]>>(new Map())
+const dvrPlayback = ref<{ from: number; to: number; startAt?: number } | null>(null)
+
+const cameraStore = useCameraStore()
+const { onEvent } = useEventStream()
 
 // Calendar
 const calendarDays = ref<CalendarDay[]>([])
@@ -129,6 +140,68 @@ async function fetchTimeline() {
   } finally {
     loading.value = false
   }
+}
+
+// DVR coverage
+async function fetchDvrCoverage() {
+  const cameras = cameraStore.cameras
+  const from = rangeFrom.value
+  const to = rangeTo.value
+  const newCoverage = new Map<number, DvrRange[]>()
+
+  for (const cam of cameras) {
+    try {
+      const data = await api<{ ranges: DvrRange[] }>(`/dvr/coverage/${cam.id}/${from}/${to}`)
+      if (data.ranges?.length) {
+        newCoverage.set(cam.id, data.ranges)
+      }
+    } catch { /* camera may not have continuous recording */ }
+  }
+  dvrCoverage.value = newCoverage
+}
+
+// Camera IDs that have DVR coverage
+const dvrCameraIds = computed(() => Array.from(dvrCoverage.value.keys()).sort((a, b) => a - b))
+
+// Merge all cameras' coverage into a single unified bar
+const dvrMergedRanges = computed(() => {
+  const all: DvrRange[] = []
+  for (const ranges of dvrCoverage.value.values()) {
+    all.push(...ranges)
+  }
+  if (all.length === 0) return []
+  all.sort((a, b) => a.from - b.from)
+  const merged: DvrRange[] = [{ ...all[0]! }]
+  for (let i = 1; i < all.length; i++) {
+    const last = merged[merged.length - 1]!
+    if (all[i]!.from <= last.to + 2) {
+      last.to = Math.max(last.to, all[i]!.to)
+    } else {
+      merged.push({ ...all[i]! })
+    }
+  }
+  return merged
+})
+
+const dvrSegments = computed(() => {
+  return dvrMergedRanges.value.map(r => {
+    const left = tsToPercent(r.from)
+    const right = tsToPercent(r.to)
+    const width = Math.max(0.2, right - left)
+    return { left, width, from: r.from, to: r.to }
+  })
+})
+
+function onDvrClick(seg: { from: number; to: number }, event: MouseEvent) {
+  const bar = (event.currentTarget as HTMLElement)
+  const rect = bar.getBoundingClientRect()
+  const pct = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width))
+  const clickedTs = seg.from + pct * (seg.to - seg.from)
+  dvrPlayback.value = { from: seg.from, to: seg.to, startAt: clickedTs }
+}
+
+function closeDvrPlayer() {
+  dvrPlayback.value = null
 }
 
 // Calendar
@@ -526,7 +599,11 @@ watch(() => filterStore.timeRange, () => {
   selectionFrom.value = null
   selectionTo.value = null
   fetchTimeline()
+  fetchDvrCoverage()
 }, { deep: true })
+
+// Listen for real-time DVR segment events
+let unsubDvr: (() => void) | null = null
 
 onMounted(() => {
   if (tagStore.tags.length === 0) tagStore.fetchTags()
@@ -535,11 +612,32 @@ onMounted(() => {
     goToday()
   }
   fetchTimeline()
+  fetchDvrCoverage()
+
+  unsubDvr = onEvent((evt: WsEvent) => {
+    if (evt.event === 'dvr:segment') {
+      const seg = evt.data as { cameraId: number; from: number; to: number }
+      // Extend coverage in-place if within visible range
+      if (seg.from <= rangeTo.value && seg.to >= rangeFrom.value) {
+        const existing = dvrCoverage.value.get(seg.cameraId) ?? []
+        // Try to extend last range
+        if (existing.length > 0 && seg.from <= existing[existing.length - 1]!.to + 5) {
+          existing[existing.length - 1]!.to = Math.max(existing[existing.length - 1]!.to, seg.to)
+        } else {
+          existing.push({ from: seg.from, to: seg.to })
+        }
+        dvrCoverage.value.set(seg.cameraId, existing)
+        // Trigger reactivity
+        dvrCoverage.value = new Map(dvrCoverage.value)
+      }
+    }
+  })
 })
 
 onUnmounted(() => {
   window.removeEventListener('mousemove', onDragMove)
   window.removeEventListener('mouseup', onDragEnd)
+  if (unsubDvr) unsubDvr()
 })
 </script>
 
@@ -641,6 +739,21 @@ onUnmounted(() => {
           </div>
         </div>
 
+        <!-- DVR coverage bars -->
+        <div class="timeline-dvr-coverage">
+          <div
+            v-for="(seg, i) in dvrSegments"
+            :key="`dvr-${i}`"
+            class="dvr-bar"
+            :style="{
+              left: `${seg.left}%`,
+              width: `${seg.width}%`,
+            }"
+            :title="`DVR: ${formatTimestamp(seg.from)} — ${formatTimestamp(seg.to)}`"
+            @click.stop="onDvrClick(seg, $event)"
+          ></div>
+        </div>
+
         <!-- Event markers -->
         <div class="timeline-clips">
           <div
@@ -706,6 +819,16 @@ onUnmounted(() => {
       </div>
       <div v-if="getEventEmojis(tooltipEvent)" class="tt-tags">{{ getEventEmojis(tooltipEvent) }}</div>
     </div>
+
+    <!-- DVR multi-camera player -->
+    <DvrMultiPlayer
+      v-if="dvrPlayback"
+      :camera-ids="dvrCameraIds"
+      :from="dvrPlayback.from"
+      :to="dvrPlayback.to"
+      :start-at="dvrPlayback.startAt"
+      @close="closeDvrPlayer"
+    />
   </div>
 </template>
 
@@ -940,6 +1063,28 @@ onUnmounted(() => {
   pointer-events: none;
 }
 
+/* DVR coverage */
+.timeline-dvr-coverage {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 100%;
+  z-index: 1;
+  pointer-events: none;
+}
+.dvr-bar {
+  position: absolute;
+  height: 100%;
+  background: rgba(59, 130, 246, 0.15);
+  pointer-events: auto;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.dvr-bar:hover {
+  background: rgba(59, 130, 246, 0.35);
+}
+
 /* Clip markers */
 .timeline-clips {
   position: absolute;
@@ -947,6 +1092,7 @@ onUnmounted(() => {
   left: 0;
   right: 0;
   height: 14px;
+  pointer-events: none;
 }
 .timeline-marker {
   position: absolute;
@@ -956,6 +1102,7 @@ onUnmounted(() => {
   cursor: pointer;
   opacity: 0.85;
   transition: opacity 0.1s, height 0.1s;
+  pointer-events: auto;
 }
 .timeline-marker:hover {
   opacity: 1;

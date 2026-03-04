@@ -4,8 +4,9 @@ import Hls from 'hls.js'
 // ── Constants ─────────────────────────────────────────────────────────
 // Segments arrive every ~2s in bursts of partials. Spinner timeout must
 // exceed the segment interval to avoid flickering between deliveries.
+// Cameras with long GOPs (5s+) need more time before declaring a stall.
 const HLS_SPINNER_TIMEOUT_MS = 3000
-const HLS_RESTART_TIMEOUT_MS = 5000
+const HLS_INITIAL_TIMEOUT_MS = 5000
 const HLS_WATCHDOG_INTERVAL_MS = 250
 
 // ── Diagnostics ───────────────────────────────────────────────────────
@@ -118,11 +119,15 @@ function createHlsConfig(debug: boolean): Partial<Hls['config']> {
   return {
     debug,
     enableWorker: true,
-    lowLatencyMode: true,
+    // Disable low-latency mode: LL-HLS partial loading uses aggressive
+    // PART-HOLD-BACK sync that causes timestamp alignment issues between
+    // the playlist timeline and actual fMP4 media timestamps. Standard
+    // mode loads full segments and is far more reliable. Adds ~2-4s latency.
+    lowLatencyMode: false,
     liveDurationInfinity: true,
     backBufferLength: 5,
-    liveSyncDuration: 2,
-    liveMaxLatencyDuration: 5,
+    liveSyncDuration: 4,
+    liveMaxLatencyDuration: 12,
     maxLiveSyncPlaybackRate: 1.05,
   }
 }
@@ -156,6 +161,7 @@ export function useHls(
   let watchdog: ReturnType<typeof setInterval> | null = null
   let lowReadyStateSince = 0
   let stuckBackoffMs = 3000
+  let restartBackoffMs = 10000
   let destroyed = false
 
   function attachEvents(h: Hls, element: HTMLVideoElement) {
@@ -183,8 +189,15 @@ export function useHls(
         isActive.value = false
         if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
           h.recoverMediaError()
+        } else {
+          // Fatal network or other error — full restart needed
+          restartStream('fatalError')
         }
       }
+      // Non-fatal errors (bufferStalledError, bufferNudgeOnStall, etc.)
+      // are left to HLS.js internal recovery. Do NOT call recoverMediaError()
+      // on non-fatal stalls — it reattaches media and resets playback state,
+      // which is more destructive than the stall itself.
     })
 
     h.on(Hls.Events.MEDIA_ATTACHED, () => {
@@ -195,12 +208,12 @@ export function useHls(
     })
   }
 
-  function restartStream() {
+  function restartStream(reason: string) {
     const element = videoRef.value
     if (restartInProgress || !element || destroyed) return
     restartInProgress = true
     diag.stats.restartCount++
-    diag.log('restart', { reason: 'timeout' })
+    diag.log('restart', { reason, nextBackoffMs: restartBackoffMs })
     hls?.destroy()
     hls = new Hls(createHlsConfig(debug))
     diag.setRefs(element, hls)
@@ -229,8 +242,20 @@ export function useHls(
     watchdog = setInterval(() => {
       if (!element) return
 
-      // Detect sustained low readyState with exponential backoff
-      if (!element.paused && element.readyState <= 1 && lastFragTime > 0) {
+      // Reset backoffs when stream is healthy (frags flowing + playback active)
+      if (element.readyState >= 3 && lastFragTime > 0 && Date.now() - lastFragTime < HLS_SPINNER_TIMEOUT_MS) {
+        stuckBackoffMs = 3000
+        restartBackoffMs = 10000
+      }
+
+      // Detect sustained low readyState with exponential backoff.
+      // readyState 0=NOTHING, 1=METADATA, 2=CURRENT_DATA (frozen frame).
+      // All three mean the video can't advance to the next frame.
+      // Only restart if fragments have ALSO stopped — cameras with long
+      // GOPs may sit at readyState=2 between segments while still receiving
+      // new segments. Restarting during that gap just creates a loop.
+      const fragsStopped = Date.now() - lastFragTime > stuckBackoffMs
+      if (!element.paused && element.readyState <= 2 && lastFragTime > 0 && fragsStopped) {
         if (lowReadyStateSince === 0) {
           lowReadyStateSince = Date.now()
         } else if (Date.now() - lowReadyStateSince > stuckBackoffMs) {
@@ -239,30 +264,28 @@ export function useHls(
             currentTime: element.currentTime,
             liveSyncPosition: hls?.liveSyncPosition,
             backoffMs: stuckBackoffMs,
+            timeSinceLastFragMs: Date.now() - lastFragTime,
           })
           lowReadyStateSince = 0
           stuckBackoffMs = Math.min(stuckBackoffMs * 2, 10000)
-          restartStream()
+          restartStream('stuck')
           return
         }
       } else {
         lowReadyStateSince = 0
-        if (element.readyState >= 3) stuckBackoffMs = 3000
       }
 
       if (lastFragTime === 0) {
-        // Initial connection — show spinner while waiting for first fragment
+        // Initial connection — show spinner while waiting for first fragment.
+        // Use a fixed short timeout (no backoff) so cameras that are still
+        // starting up retry quickly instead of waiting 10→20→30s.
         const sinceLaunch = Date.now() - streamStartTime
         showSpinner.value = true
         connectionLost.value = false
-        if (sinceLaunch > HLS_RESTART_TIMEOUT_MS) {
-          connectionLost.value = true
-          showSpinner.value = false
-          if (!restartInProgress) {
-            diag.stats.stallCount++
-            diag.log('initialTimeout', { sinceLaunchMs: sinceLaunch })
-            restartStream()
-          }
+        if (sinceLaunch > HLS_INITIAL_TIMEOUT_MS && !restartInProgress) {
+          diag.stats.stallCount++
+          diag.log('initialTimeout', { sinceLaunchMs: sinceLaunch })
+          restartStream('initialTimeout')
         }
         return
       }
@@ -275,12 +298,13 @@ export function useHls(
         connectionLost.value = false
       } else {
         // Fragments stopped — show spinner briefly, then connection lost
-        showSpinner.value = elapsed <= HLS_RESTART_TIMEOUT_MS
-        connectionLost.value = elapsed > HLS_RESTART_TIMEOUT_MS
-        if (elapsed > HLS_RESTART_TIMEOUT_MS && !restartInProgress) {
+        showSpinner.value = elapsed <= restartBackoffMs
+        connectionLost.value = elapsed > restartBackoffMs
+        if (elapsed > restartBackoffMs && !restartInProgress) {
           diag.stats.stallCount++
-          diag.log('stall', { timeSinceLastFragMs: elapsed })
-          restartStream()
+          diag.log('stall', { timeSinceLastFragMs: elapsed, backoffMs: restartBackoffMs })
+          restartBackoffMs = Math.min(restartBackoffMs * 2, 30000)
+          restartStream('stall')
         }
       }
     }, HLS_WATCHDOG_INTERVAL_MS)

@@ -29,7 +29,7 @@ This document outlines the plan to modernize the Witness surveillance system —
 
 - **C++ video pipeline** (WitnessCamera) — high performance, well-isolated DLL boundary, FFmpeg-based. Nearly cross-platform already (just `Sleep()` and string types to fix).
 - **Filter architecture** — plugin-based `IRecordFilter` chain with `OnSuccess()`/`OnFailure()` callbacks. New detection backends slot in with no pipeline changes.
-- **HLS live streaming** — low-latency LL-HLS with fMP4 partials, battle-tested client-side watchdog.
+- **HLS live streaming** — standard HLS with fMP4 segments, reliable client-side watchdog with exponential backoff. ~4-6s latency (see [Low-Latency Streaming](#low-latency-streaming-future) for sub-second plans).
 - **SQLite database** — portable, zero-config, parameterized queries (no SQL injection risk).
 - **libsodium auth** — argon2 password hashing, cryptographically random sessions.
 
@@ -316,10 +316,11 @@ Replaced the 166MB .NET Installer with a built-in web setup wizard.
   - Modern responsive grid
 - [x] **Drop jQuery** — all new code uses native `fetch` API and Vue reactivity
 - [x] **Port HLS client architecture to Vue**
-  - `useHlsPlayer` composable wrapping HLS.js lifecycle
-  - Poll-based watchdog with exponential backoff
-  - StreamDiagnostics preserved
-  - "Never seek from outside HLS.js" rule maintained
+  - `useHls` composable wrapping HLS.js lifecycle
+  - Standard HLS mode (not LL-HLS — see [Low-Latency Streaming](#low-latency-streaming-future))
+  - Poll-based watchdog: stuck detection (readyState ≤ 2 + frags stopped), stall detection, exponential backoff
+  - StreamDiagnostics preserved (`window._witnessDiag`, `window._witnessDumpDiag()`)
+  - Fatal network errors trigger immediate restart; non-fatal stalls left to HLS.js internal recovery
 - [x] **Vue pages implemented:**
   - Dashboard — live camera grid with HLS streams
   - Clips browser — paginated grid with filters, tag display, player modal
@@ -336,6 +337,8 @@ Replaced the 166MB .NET Installer with a built-in web setup wizard.
 
 - [ ] **Add PWA support** — manifest + service worker for installable web app
 - [ ] **Mobile-responsive UI** — ensure all views work well on phone/tablet screens
+  - ⚠️ Known issue: current web UI is unusable on mobile — menu/sidebar not accessible without switching to desktop mode
+  - Need hamburger menu, touch-friendly controls, responsive layout breakpoints
 - [ ] **Evaluate Flutter/Android projects** — PWA may replace native apps entirely
 
 ---
@@ -356,6 +359,54 @@ Completed incrementally across Phase 1 and 2:
 | Cross-platform | ✅ | ✅ | ✅ | ✅ |
 | Header-only | ✅ | ❌ | ✅ | ✅ |
 | WebSocket | ✅ | ✅ | ❌ | ✅ |
+
+### Low-Latency Streaming (Future)
+
+**Current state:** Standard HLS with ~4-6s latency. The old JPEG streaming route had <0.5s round-trip.
+
+**Why LL-HLS was abandoned:** Low-Latency HLS (with `#EXT-X-PART` partial segments) was attempted but caused reliability issues on all cameras:
+
+1. **Timestamp alignment:** HLS.js calculates the playback timeline from cumulative `#EXTINF` / `#EXT-X-PART:DURATION` values in the playlist. The MSE SourceBuffer positions data based on `baseMediaDecodeTime` in the fMP4 `moof` atoms. These diverged because segment/partial durations were computed from accumulated `AVPacket.duration` values, which don't perfectly match the actual DTS spans — especially with variable frame rate cameras or packets with `duration=0`.
+2. **PART-HOLD-BACK too aggressive:** `PART-HOLD-BACK=0.99s` (3× partial target) gave <1s of buffer before playing. Any timestamp misalignment caused immediate `bufferStalledError` → restart loops.
+3. **`recoverMediaError()` destructive:** Calling this on non-fatal `bufferStalledError` reset the video element to `readyState=0`, killing playback entirely.
+4. **Trailing partials:** The in-progress segment emitted `#EXT-X-PART` tags without a closing `#EXTINF`, causing `levelParsingError` in non-LL mode.
+
+**Proposed solution: WebSocket + MSE (bypass HLS entirely)**
+
+Push fMP4 fragments directly from server to client over WebSocket, appending to MSE SourceBuffer. This eliminates playlist polling overhead entirely.
+
+Target latency: **~0.3-0.5s** (partial duration + network time).
+
+**Server side:**
+- Add binary WebSocket route: `/ws/stream/{cameraId}`
+- On connect: send init segment (ftyp+moov) as first binary frame
+- Subscribe to `LiveOutputStream`'s partial production (the existing `FlushPartialSegment` already produces fMP4 fragments)
+- Push each partial as a binary WebSocket frame immediately
+- Handle camera reconnect: send new init segment with a "reset" control message so client can recreate its SourceBuffer
+- Backpressure: if the WebSocket send buffer grows too large (slow client), drop non-keyframe partials
+
+**Client side:**
+- Open WebSocket connection to `/ws/stream/{cameraId}`
+- Create `MediaSource` + `SourceBuffer` (codec from init segment's moov atom, or hardcode `video/mp4; codecs="avc1.4d0029"` and update on connect)
+- First binary message = init segment → append to SourceBuffer
+- Subsequent binary messages = moof+mdat partials → append to SourceBuffer
+- Buffer management: remove old data when buffer exceeds threshold (e.g., keep last 10s)
+- Handle `SourceBuffer.updating` state — queue appends while updating
+- Reconnect with exponential backoff on WebSocket close/error
+- Reuse existing watchdog pattern (spinner/connection-lost indicators)
+- Keep HLS.js as fallback for iOS Safari (no MSE support) or when WebSocket unavailable
+
+**Key risks:**
+- MSE `SourceBuffer.appendBuffer()` is async — need to queue fragments and process sequentially
+- Browser may reject fragments if codec parameters change mid-stream (camera reconnect)
+- No built-in seeking/DVR — this is live-only (DVR already uses native `<video>` with MP4s)
+- Need to handle tab backgrounding (browsers throttle timers/WebSocket in background tabs)
+
+**Alternative (simpler, higher latency): Fix LL-HLS properly**
+- Compute `#EXTINF` / `#EXT-X-PART:DURATION` from DTS spans instead of accumulated packet durations
+- Increase `PART-HOLD-BACK` to 2-3s (compromise between latency and reliability)
+- Achievable latency: ~1.5-2s (limited by playlist polling overhead)
+- Lower risk but can't match WebSocket's sub-second latency
 | Routing DSL | ✅ Simple | ✅ Rich | ❌ Manual | ❌ Manual |
 | vcpkg | ✅ | ✅ | ✅ | ✅ (Boost) |
 | Learning curve | Low | Medium | Low | High |
@@ -417,16 +468,31 @@ The tag system has been fully redesigned from semicolon-delimited strings to a p
 - Tag grouping: tags with same display name filter together and show as one entry
 - Per-camera tag exclusion management in admin UI
 
-### Detection Highlight Collages
+### Detection Focus & Artefact Grid
 
-Capture cropped images of detected objects (people, animals, vehicles) during recording and assemble them into a visual collage thumbnail for each clip. This gives an at-a-glance summary of what was detected without watching the full clip.
+Extract highlighted objects (faces, people, vehicles, animals) from detection frames into individual cropped images ("artefacts"), stored alongside clips. These feed into two views:
 
+**Per-clip collage:**
 - During recording, crop bounding boxes from detection results and save as small JPEGs
 - Select the best/most diverse crops (highest confidence, different classes, different timestamps)
 - Compose into a grid collage image stored alongside the clip thumbnail
 - On hover over a clip card, animate through the sequence of crops as a mini slideshow
-- Especially valuable for person/face highlights — immediately shows who triggered the recording
-- Could extend to face detection/recognition in the future (cluster faces across clips)
+
+**Artefact grid (new view):**
+- Standalone page showing all detected object crops across all clips, filterable by tag/time/camera
+- Masonry or uniform grid layout — users quickly scan dozens of faces, people, vehicles at a glance
+- Each artefact links back to its source clip at the exact timestamp
+- Filter by detection type: "Show me all people", "Show me all vehicles"
+- Time-based browsing: artefacts grouped by hour/day, scrollable
+- Search/sort by confidence score, size, camera
+- Pairs naturally with face recognition (Phase: Face Detection) — clicking a face artefact could show all matches
+- Useful for forensics: "who was on the property today?" → scan the people artefact grid instead of watching hours of video
+
+**Pipeline integration:**
+- Runs as part of the existing detection filter chain — crops extracted when bounding boxes are already available
+- Storage: `CachePath/artefacts/{ClipUID}/{timestamp}_{class}_{index}.jpg` (~5-20KB each)
+- DB: `Artefact` table — `ArtefactUID, ClipUID, TagUID, Timestamp, BBox (x,y,w,h), Confidence, FilePath`
+- Background reprocessor can regenerate artefacts for existing clips
 
 ### Event Bisection Search
 
@@ -450,6 +516,19 @@ Tag and track motion at specific locations within a camera's field of view, enab
 - Could use existing detection bounding boxes to determine spatial overlap
 - Enables use cases like: monitoring a specific parking spot, doorway, or gate
 - Could generate per-zone activity heatmaps over time
+
+### Face Detection & Recognition
+
+Detect and recognize faces across clips, enabling search by person and alerting on known/unknown faces.
+
+- **Face detection:** use a lightweight face detection model (e.g. SCRFD, RetinaFace, or MediaPipe) to locate faces in detection frames
+- **Face embeddings:** extract face embeddings (128/512-dim vectors) using a recognition model (e.g. ArcFace via ONNX Runtime — same infrastructure as YOLO)
+- **Face clustering:** group unknown faces by similarity (cosine distance) into auto-generated "Person 1", "Person 2" clusters
+- **Named faces:** user can label clusters with names — future detections auto-match
+- **Integration with existing pipeline:** runs as an additional `IRecordFilter` after person detection (only process frames where a person was detected)
+- **Search:** "show all clips containing [person]" — filters clip browser by face cluster
+- **Alerts:** optional notification when an unknown face is detected, or when a specific known person appears
+- **Privacy considerations:** face data should be deletable per-person, and face recognition should be an opt-in feature
 
 ---
 

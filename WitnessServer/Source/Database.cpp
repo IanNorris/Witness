@@ -111,6 +111,17 @@ namespace Database
 			FOREIGN KEY (TagUID) REFERENCES Tag(TagUID)
 		);
 
+		CREATE TABLE IF NOT EXISTS ContinuousSegment(
+			SegmentUID		INTEGER PRIMARY KEY AUTOINCREMENT,
+			CameraUID		INTEGER					NOT NULL,
+			StartTimestamp	INTEGER					NOT NULL,
+			EndTimestamp	INTEGER					NOT NULL,
+			Duration		INTEGER					NOT NULL,
+			FilePath		TEXT					NOT NULL
+		);
+
+		CREATE INDEX IF NOT EXISTS ContinuousSegmentByCameraTime ON ContinuousSegment (CameraUID, StartTimestamp);
+
 		CREATE TABLE IF NOT EXISTS Action(
 			ActionUID		INTEGER PRIMARY KEY	AUTOINCREMENT,
 			Name			CHAR(64)							NOT NULL,
@@ -273,7 +284,8 @@ namespace Database
 			MDThreshold = @MDThreshold,
 			MotionFilter = @MotionFilter,
 			BlackoutMaskPath = @BlackoutMaskPath,
-			FocusMaskPath = @FocusMaskPath
+			FocusMaskPath = @FocusMaskPath,
+			ContinuousRecording = @ContinuousRecording
 		WHERE CameraUID = @CameraId;
 	)RAW";
 
@@ -616,6 +628,49 @@ namespace Database
 		AND `Group` = @Group;
 	)RAW";
 
+	// Continuous recording segment queries
+	std::string CreateContinuousSegment = R"RAW(
+		INSERT INTO ContinuousSegment (CameraUID, StartTimestamp, EndTimestamp, Duration, FilePath)
+		VALUES(@CameraUID, @StartTimestamp, @EndTimestamp, @Duration, @FilePath);
+	)RAW";
+
+	std::string SelectContinuousSegments = R"RAW(
+		SELECT * FROM ContinuousSegment
+		WHERE CameraUID = @CameraUID
+			AND StartTimestamp <= @TimestampTo
+			AND EndTimestamp >= @TimestampFrom
+		ORDER BY StartTimestamp ASC;
+	)RAW";
+
+	std::string SelectContinuousSegmentsToDelete = R"RAW(
+		SELECT SegmentUID, FilePath FROM ContinuousSegment
+		WHERE EndTimestamp < @Timestamp
+		ORDER BY EndTimestamp ASC
+		LIMIT 100;
+	)RAW";
+
+	std::string DeleteContinuousSegment = R"RAW(
+		DELETE FROM ContinuousSegment WHERE SegmentUID = @SegmentUID;
+	)RAW";
+
+	std::string SelectContinuousTotalSize = R"RAW(
+		SELECT COUNT(*), COALESCE(SUM(Duration), 0) FROM ContinuousSegment;
+	)RAW";
+
+	std::string SelectOldestContinuousSegment = R"RAW(
+		SELECT SegmentUID, FilePath FROM ContinuousSegment
+		ORDER BY StartTimestamp ASC
+		LIMIT 1;
+	)RAW";
+
+	std::string SelectContinuousCoverage = R"RAW(
+		SELECT StartTimestamp, EndTimestamp FROM ContinuousSegment
+		WHERE CameraUID = @CameraUID
+			AND StartTimestamp <= @TimestampTo
+			AND EndTimestamp >= @TimestampFrom
+		ORDER BY StartTimestamp ASC;
+	)RAW";
+
 #define CREATE_QUERY( X ) DB->CreateQuery( #X, X )
 
 	std::shared_ptr<SQLiteDatabase> InitializeDatabase( std::string Filename )
@@ -631,6 +686,7 @@ namespace Database
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Clip ADD COLUMN DetectionVersion INT DEFAULT 0;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Clip ADD COLUMN Lighting INT DEFAULT 0;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Clip ADD COLUMN Reviewed INT DEFAULT 0;", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN ContinuousRecording INT DEFAULT 0;", nullptr, nullptr, nullptr );
 
 		// Migrate old Tag table schema — drop and recreate if it has the old schema
 		// (old schema had Name CHAR(64), Description TEXT; new needs Name TEXT UNIQUE, Display, Icon, etc.)
@@ -760,6 +816,14 @@ namespace Database
 
 		CREATE_QUERY( FindActions );
 		CREATE_QUERY( GetAction );
+
+		CREATE_QUERY( CreateContinuousSegment );
+		CREATE_QUERY( SelectContinuousSegments );
+		CREATE_QUERY( SelectContinuousSegmentsToDelete );
+		CREATE_QUERY( DeleteContinuousSegment );
+		CREATE_QUERY( SelectContinuousTotalSize );
+		CREATE_QUERY( SelectOldestContinuousSegment );
+		CREATE_QUERY( SelectContinuousCoverage );
 
 		return DB;
 	}

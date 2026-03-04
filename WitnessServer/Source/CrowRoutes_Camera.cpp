@@ -118,6 +118,9 @@ void CrowListener::HandleCameraEnum( const crow::request& req, crow::response& r
 							Camera["motionFilter"] = MotionFilter ? MotionFilter : "";
 							Camera["blackoutMaskPath"] = BlackoutMaskPath ? BlackoutMaskPath : "";
 							Camera["focusMaskPath"] = FocusMaskPath ? FocusMaskPath : "";
+
+							int ContinuousRecording = query.GetColumnValueInt( 12 );
+							Camera["continuousRecording"] = ContinuousRecording;
 						}
 
 						Camera["groups"] = std::move( Groups );
@@ -532,6 +535,7 @@ void CrowListener::HandleCameraUpdate( const crow::request& req, crow::response&
 	std::string MotionFilter = body.has("motionFilter") ? std::string(body["motionFilter"].s()) : "";
 	std::string BlackoutMaskPath = body.has("blackoutMaskPath") ? std::string(body["blackoutMaskPath"].s()) : "";
 	std::string FocusMaskPath = body.has("focusMaskPath") ? std::string(body["focusMaskPath"].s()) : "";
+	int ContinuousRecording = body.has("continuousRecording") ? (int)body["continuousRecording"].i() : 0;
 
 	SQLiteDatabaseQueryInstance UpdateCamera( m_GlobalContext->Database, "UpdateCamera" );
 	UpdateCamera->Bind( "@CameraId", CameraID );
@@ -546,6 +550,7 @@ void CrowListener::HandleCameraUpdate( const crow::request& req, crow::response&
 	UpdateCamera->Bind( "@MotionFilter", MotionFilter.empty() ? nullptr : MotionFilter.c_str() );
 	UpdateCamera->Bind( "@BlackoutMaskPath", BlackoutMaskPath.empty() ? nullptr : BlackoutMaskPath.c_str() );
 	UpdateCamera->Bind( "@FocusMaskPath", FocusMaskPath.empty() ? nullptr : FocusMaskPath.c_str() );
+	UpdateCamera->Bind( "@ContinuousRecording", ContinuousRecording );
 
 	if( UpdateCamera->Execute( nullptr ) < 0 )
 	{

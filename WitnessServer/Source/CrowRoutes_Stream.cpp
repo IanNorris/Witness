@@ -58,11 +58,6 @@ void CrowListener::HandlePlaylist( const crow::request& req, crow::response& res
 			}
 		}
 
-		double PartialTarget = LiveStream->GetPartialTargetDuration();
-		double HoldbackLength = PartialTarget * 3.0;
-		Playlist << "#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=NO,PART-HOLD-BACK=" << HoldbackLength << "\n";
-		Playlist << "#EXT-X-PART-INF:PART-TARGET=" << PartialTarget << "\n";
-
 		double TargetDuration = MaxLength * 1.18;
 		if( TargetDuration < 1.0 ) TargetDuration = 1.0;
 
@@ -77,46 +72,20 @@ void CrowListener::HandlePlaylist( const crow::request& req, crow::response& res
 		for( int segment = startAtSegment; segment < (int)bufferSegments; segment++ )
 		{
 			LiveStreamSegment& Seg = Segments[segment];
-			if( Seg.Ready )
+			if( !Seg.Ready )
+				continue; // Skip in-progress segment — non-LL clients can't use trailing partials
+
+			if( Seg.Discontinuity )
 			{
-				if( Seg.Discontinuity )
-				{
-					Playlist << "#EXT-X-DISCONTINUITY\n";
-					Playlist << "#EXT-X-MAP:URI=\"" << cameraId << "/0/i?g=" << InitGeneration << "\"\n";
-				}
-
-				std::string dateTimeFormat = std::format( "{:%Y-%m-%dT%H:%M:%S}", Seg.SegmentTime );
-				Playlist << "#EXT-X-PROGRAM-DATE-TIME:" << dateTimeFormat << "\n";
-
-				for( auto& Partial : Seg.Partials )
-				{
-					Playlist << "#EXT-X-PART:DURATION=" << Partial.Duration
-						<< ",URI=\"" << cameraId << "/" << Seg.SegmentIndex << "/" << Partial.PartIndex << "\"";
-					if( Partial.Independent )
-						Playlist << ",INDEPENDENT=YES";
-					Playlist << "\n";
-				}
-
-				Playlist << "#EXTINF:" << Seg.Duration << ",\n";
-				Playlist << cameraId << "/" << Seg.SegmentIndex << "/f\n";
+				Playlist << "#EXT-X-DISCONTINUITY\n";
+				Playlist << "#EXT-X-MAP:URI=\"" << cameraId << "/0/i?g=" << InitGeneration << "\"\n";
 			}
-			else
-			{
-				if( Seg.Discontinuity )
-				{
-					Playlist << "#EXT-X-DISCONTINUITY\n";
-					Playlist << "#EXT-X-MAP:URI=\"" << cameraId << "/0/i?g=" << InitGeneration << "\"\n";
-				}
 
-				for( auto& Partial : Seg.Partials )
-				{
-					Playlist << "#EXT-X-PART:DURATION=" << Partial.Duration
-						<< ",URI=\"" << cameraId << "/" << Seg.SegmentIndex << "/" << Partial.PartIndex << "\"";
-					if( Partial.Independent )
-						Playlist << ",INDEPENDENT=YES";
-					Playlist << "\n";
-				}
-			}
+			std::string dateTimeFormat = std::format( "{:%Y-%m-%dT%H:%M:%S}", Seg.SegmentTime );
+			Playlist << "#EXT-X-PROGRAM-DATE-TIME:" << dateTimeFormat << "\n";
+
+			Playlist << "#EXTINF:" << Seg.Duration << ",\n";
+			Playlist << cameraId << "/" << Seg.SegmentIndex << "/f\n";
 		}
 	}
 

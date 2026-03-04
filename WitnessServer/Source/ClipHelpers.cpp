@@ -136,3 +136,50 @@ void DeleteOldClips( const GlobalContext& Context, int DaysToDelete )
 	}
 	*/
 }
+
+void DeleteOldContinuousSegments( const GlobalContext& Context, int DaysToDelete )
+{
+	const static int SecondsInDay = 60 * 60 * 24;
+	int64_t Timestamp = static_cast<int64_t>(GetUnixTimestamp()) - (DaysToDelete * SecondsInDay);
+
+	SQLiteDatabaseQueryInstance SelectSegments( Context.Database, "SelectContinuousSegmentsToDelete" );
+	SelectSegments->Bind( "@Timestamp", Timestamp );
+
+	struct SegmentToDelete
+	{
+		int64_t SegmentUID;
+		std::string FilePath;
+	};
+
+	std::vector<SegmentToDelete> SegmentsToDelete;
+
+	SelectSegments->Execute(
+		[&]( const SQLiteDatabaseQuery& query )
+		{
+			SegmentToDelete Seg;
+			Seg.SegmentUID = query.GetColumnValueInt64(0);
+			const char* path = query.GetColumnValueText(1);
+			Seg.FilePath = path ? path : "";
+			SegmentsToDelete.push_back(Seg);
+			return true;
+		}
+	);
+
+	for( auto& Seg : SegmentsToDelete )
+	{
+		std::error_code ec;
+		if( !Seg.FilePath.empty() )
+		{
+			fs::remove( Seg.FilePath, ec );
+		}
+
+		SQLiteDatabaseQueryInstance DeleteSeg( Context.Database, "DeleteContinuousSegment" );
+		DeleteSeg->Bind( "@SegmentUID", Seg.SegmentUID );
+		DeleteSeg->Execute( [](const SQLiteDatabaseQuery&) { return true; } );
+	}
+
+	if( SegmentsToDelete.size() )
+	{
+		LOG_INFO( "Deleted %zu continuous segments older than %d days.", SegmentsToDelete.size(), DaysToDelete );
+	}
+}

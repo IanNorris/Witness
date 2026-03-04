@@ -3,6 +3,8 @@
 #include "Stream.h"
 #include "ImageProcessingJob.h"
 
+#include <functional>
+
 struct AVRational;
 
 namespace Witness{
@@ -71,6 +73,11 @@ public:
 
 	double GetFramerateDouble();
 
+	// Optional callback invoked for every video packet (before unref).
+	// Used by ContinuousOutputStream to receive packets without modifying the Stream interface.
+	using PacketCallback = std::function<void(const AVPacket*)>;
+	void SetPacketCallback(PacketCallback callback) { m_PacketCallback = std::move(callback); }
+
 	StreamStats GetStats() { return Stats; }
 
 	int GetSourceId() const { return UniqueSourceID; }
@@ -92,6 +99,8 @@ private:
 	int FrameIndex;
 	int64_t TimeStarted;
 	bool IsConnecting;
+
+	PacketCallback m_PacketCallback;
 };
 
 }}

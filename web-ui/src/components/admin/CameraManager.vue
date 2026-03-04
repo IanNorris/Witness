@@ -29,6 +29,7 @@ interface AdminCamera {
   motionFilter: string
   blackoutMaskPath: string
   focusMaskPath: string
+  continuousRecording: number
   groups: number[]
   frameCount?: number
   processingTimeOfEachMS?: number
@@ -107,6 +108,7 @@ function openEdit(cam: AdminCamera) {
     motionFilter: cam.motionFilter ?? '',
     blackoutMaskPath: cam.blackoutMaskPath ?? '',
     focusMaskPath: cam.focusMaskPath ?? '',
+    continuousRecording: cam.continuousRecording ?? 0,
     groups: [...(cam.groups ?? [])],
   }
   showEditor.value = true
