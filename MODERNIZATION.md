@@ -29,7 +29,7 @@ This document outlines the plan to modernize the Witness surveillance system —
 
 - **C++ video pipeline** (WitnessCamera) — high performance, well-isolated DLL boundary, FFmpeg-based. Nearly cross-platform already (just `Sleep()` and string types to fix).
 - **Filter architecture** — plugin-based `IRecordFilter` chain with `OnSuccess()`/`OnFailure()` callbacks. New detection backends slot in with no pipeline changes.
-- **HLS live streaming** — low-latency LL-HLS with fMP4 partials, battle-tested client-side watchdog.
+- **HLS live streaming** — standard HLS with fMP4 segments, reliable client-side watchdog with exponential backoff. ~4-6s latency (see [Low-Latency Streaming](#low-latency-streaming-future) for sub-second plans).
 - **SQLite database** — portable, zero-config, parameterized queries (no SQL injection risk).
 - **libsodium auth** — argon2 password hashing, cryptographically random sessions.
 
@@ -316,10 +316,11 @@ Replaced the 166MB .NET Installer with a built-in web setup wizard.
   - Modern responsive grid
 - [x] **Drop jQuery** — all new code uses native `fetch` API and Vue reactivity
 - [x] **Port HLS client architecture to Vue**
-  - `useHlsPlayer` composable wrapping HLS.js lifecycle
-  - Poll-based watchdog with exponential backoff
-  - StreamDiagnostics preserved
-  - "Never seek from outside HLS.js" rule maintained
+  - `useHls` composable wrapping HLS.js lifecycle
+  - Standard HLS mode (not LL-HLS — see [Low-Latency Streaming](#low-latency-streaming-future))
+  - Poll-based watchdog: stuck detection (readyState ≤ 2 + frags stopped), stall detection, exponential backoff
+  - StreamDiagnostics preserved (`window._witnessDiag`, `window._witnessDumpDiag()`)
+  - Fatal network errors trigger immediate restart; non-fatal stalls left to HLS.js internal recovery
 - [x] **Vue pages implemented:**
   - Dashboard — live camera grid with HLS streams
   - Clips browser — paginated grid with filters, tag display, player modal
@@ -358,6 +359,54 @@ Completed incrementally across Phase 1 and 2:
 | Cross-platform | ✅ | ✅ | ✅ | ✅ |
 | Header-only | ✅ | ❌ | ✅ | ✅ |
 | WebSocket | ✅ | ✅ | ❌ | ✅ |
+
+### Low-Latency Streaming (Future)
+
+**Current state:** Standard HLS with ~4-6s latency. The old JPEG streaming route had <0.5s round-trip.
+
+**Why LL-HLS was abandoned:** Low-Latency HLS (with `#EXT-X-PART` partial segments) was attempted but caused reliability issues on all cameras:
+
+1. **Timestamp alignment:** HLS.js calculates the playback timeline from cumulative `#EXTINF` / `#EXT-X-PART:DURATION` values in the playlist. The MSE SourceBuffer positions data based on `baseMediaDecodeTime` in the fMP4 `moof` atoms. These diverged because segment/partial durations were computed from accumulated `AVPacket.duration` values, which don't perfectly match the actual DTS spans — especially with variable frame rate cameras or packets with `duration=0`.
+2. **PART-HOLD-BACK too aggressive:** `PART-HOLD-BACK=0.99s` (3× partial target) gave <1s of buffer before playing. Any timestamp misalignment caused immediate `bufferStalledError` → restart loops.
+3. **`recoverMediaError()` destructive:** Calling this on non-fatal `bufferStalledError` reset the video element to `readyState=0`, killing playback entirely.
+4. **Trailing partials:** The in-progress segment emitted `#EXT-X-PART` tags without a closing `#EXTINF`, causing `levelParsingError` in non-LL mode.
+
+**Proposed solution: WebSocket + MSE (bypass HLS entirely)**
+
+Push fMP4 fragments directly from server to client over WebSocket, appending to MSE SourceBuffer. This eliminates playlist polling overhead entirely.
+
+Target latency: **~0.3-0.5s** (partial duration + network time).
+
+**Server side:**
+- Add binary WebSocket route: `/ws/stream/{cameraId}`
+- On connect: send init segment (ftyp+moov) as first binary frame
+- Subscribe to `LiveOutputStream`'s partial production (the existing `FlushPartialSegment` already produces fMP4 fragments)
+- Push each partial as a binary WebSocket frame immediately
+- Handle camera reconnect: send new init segment with a "reset" control message so client can recreate its SourceBuffer
+- Backpressure: if the WebSocket send buffer grows too large (slow client), drop non-keyframe partials
+
+**Client side:**
+- Open WebSocket connection to `/ws/stream/{cameraId}`
+- Create `MediaSource` + `SourceBuffer` (codec from init segment's moov atom, or hardcode `video/mp4; codecs="avc1.4d0029"` and update on connect)
+- First binary message = init segment → append to SourceBuffer
+- Subsequent binary messages = moof+mdat partials → append to SourceBuffer
+- Buffer management: remove old data when buffer exceeds threshold (e.g., keep last 10s)
+- Handle `SourceBuffer.updating` state — queue appends while updating
+- Reconnect with exponential backoff on WebSocket close/error
+- Reuse existing watchdog pattern (spinner/connection-lost indicators)
+- Keep HLS.js as fallback for iOS Safari (no MSE support) or when WebSocket unavailable
+
+**Key risks:**
+- MSE `SourceBuffer.appendBuffer()` is async — need to queue fragments and process sequentially
+- Browser may reject fragments if codec parameters change mid-stream (camera reconnect)
+- No built-in seeking/DVR — this is live-only (DVR already uses native `<video>` with MP4s)
+- Need to handle tab backgrounding (browsers throttle timers/WebSocket in background tabs)
+
+**Alternative (simpler, higher latency): Fix LL-HLS properly**
+- Compute `#EXTINF` / `#EXT-X-PART:DURATION` from DTS spans instead of accumulated packet durations
+- Increase `PART-HOLD-BACK` to 2-3s (compromise between latency and reliability)
+- Achievable latency: ~1.5-2s (limited by playlist polling overhead)
+- Lower risk but can't match WebSocket's sub-second latency
 | Routing DSL | ✅ Simple | ✅ Rich | ❌ Manual | ❌ Manual |
 | vcpkg | ✅ | ✅ | ✅ | ✅ (Boost) |
 | Learning curve | Low | Medium | Low | High |
