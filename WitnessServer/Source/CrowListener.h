@@ -132,6 +132,12 @@ private:
 	void HandleSetupApply( const crow::request& req, crow::response& res );
 	void HandleSetupTestCuda( const crow::request& req, crow::response& res );
 
+	// DVR (continuous recording playback)
+	void HandleDvrCoverage( const crow::request& req, crow::response& res, int cameraId, const std::string& fromStr, const std::string& toStr );
+	void HandleDvrSegment( const crow::request& req, crow::response& res, int segmentId );
+	void HandleDvrPlaylist( const crow::request& req, crow::response& res, int cameraId, const std::string& fromStr, const std::string& toStr );
+	void HandleDvrSegments( const crow::request& req, crow::response& res, int cameraId, const std::string& fromStr, const std::string& toStr );
+
 	bool ConfigureSSL();
 
 	WitnessApp m_App;

@@ -5,6 +5,7 @@
 #include <InputStream.h>
 #include <OutputStream.h>
 #include <LiveOutputStream.h>
+#include <ContinuousOutputStream.h>
 #include <MotionFilter.h>
 
 class GlobalContext;
@@ -60,6 +61,7 @@ struct CameraSettings
 	, Enabled( 1 )
 	, SkipFrames( 1 )
 	, MDFrameHeight( 720 )
+	, ContinuousRecording( 0 )
 	{}
 
 	ImageProcessingJobQueue* JobQueue;
@@ -77,6 +79,7 @@ struct CameraSettings
 	int Enabled;
 	int SkipFrames;
 	int MDFrameHeight;
+	int ContinuousRecording;
 };
 
 class CameraWorker : public WorkerBase
@@ -124,6 +127,7 @@ private:
 
 	std::shared_ptr<OutputStream> RecordStream;
 	std::shared_ptr<LiveOutputStream> LiveStream;
+	std::shared_ptr<ContinuousOutputStream> ContinuousStream;
 
 	std::shared_ptr<InputStream> CameraStream;
 	std::shared_ptr<IRecordFilter> Filter;

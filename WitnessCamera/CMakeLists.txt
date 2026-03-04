@@ -6,6 +6,7 @@ find_path(ONNXRUNTIME_INCLUDE_DIR onnxruntime_cxx_api.h)
 find_library(ONNXRUNTIME_LIB onnxruntime)
 
 set(CAMERA_SOURCES
+    Source/ContinuousOutputStream.cpp
     Source/DebugBind.cpp
     Source/FilterFrame.cpp
     Source/InMemoryIOContext.cpp
@@ -23,6 +24,7 @@ set(CAMERA_SOURCES
 )
 
 set(CAMERA_HEADERS
+    Include/ContinuousOutputStream.h
     Include/DebugBind.h
     Include/Export.h
     Include/ImageProcessingJob.h

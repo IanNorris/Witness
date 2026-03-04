@@ -14,6 +14,7 @@ export interface CameraFormData {
   motionFilter: string
   blackoutMaskPath: string
   focusMaskPath: string
+  continuousRecording: number
   groups: number[]
 }
 
@@ -47,6 +48,7 @@ function defaultForm(): CameraFormData {
     motionFilter: '',
     blackoutMaskPath: '',
     focusMaskPath: '',
+    continuousRecording: 0,
     groups: [],
   }
 }
@@ -109,6 +111,12 @@ function toggleGroup(groupId: number) {
                   <div class="form-check mt-2">
                     <input class="form-check-input" type="checkbox" id="cam-enabled" :checked="!!form.enabled" @change="form.enabled = form.enabled ? 0 : 1" />
                     <label class="form-check-label small" for="cam-enabled">Enabled</label>
+                  </div>
+                </div>
+                <div class="col-auto">
+                  <div class="form-check mt-2">
+                    <input class="form-check-input" type="checkbox" id="cam-continuous" :checked="!!form.continuousRecording" @change="form.continuousRecording = form.continuousRecording ? 0 : 1" />
+                    <label class="form-check-label small" for="cam-continuous">Continuous Recording</label>
                   </div>
                 </div>
               </div>

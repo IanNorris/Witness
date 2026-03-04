@@ -241,7 +241,12 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 				return WriteError;
 			}
 		}
-		
+
+		// Invoke packet callback (used by ContinuousOutputStream)
+		if (m_PacketCallback)
+		{
+			m_PacketCallback(&ID.Packet);
+		}
 
 		{
 			//Copy packet to the backlog

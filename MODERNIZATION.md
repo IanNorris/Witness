@@ -336,6 +336,8 @@ Replaced the 166MB .NET Installer with a built-in web setup wizard.
 
 - [ ] **Add PWA support** — manifest + service worker for installable web app
 - [ ] **Mobile-responsive UI** — ensure all views work well on phone/tablet screens
+  - ⚠️ Known issue: current web UI is unusable on mobile — menu/sidebar not accessible without switching to desktop mode
+  - Need hamburger menu, touch-friendly controls, responsive layout breakpoints
 - [ ] **Evaluate Flutter/Android projects** — PWA may replace native apps entirely
 
 ---
@@ -417,16 +419,31 @@ The tag system has been fully redesigned from semicolon-delimited strings to a p
 - Tag grouping: tags with same display name filter together and show as one entry
 - Per-camera tag exclusion management in admin UI
 
-### Detection Highlight Collages
+### Detection Focus & Artefact Grid
 
-Capture cropped images of detected objects (people, animals, vehicles) during recording and assemble them into a visual collage thumbnail for each clip. This gives an at-a-glance summary of what was detected without watching the full clip.
+Extract highlighted objects (faces, people, vehicles, animals) from detection frames into individual cropped images ("artefacts"), stored alongside clips. These feed into two views:
 
+**Per-clip collage:**
 - During recording, crop bounding boxes from detection results and save as small JPEGs
 - Select the best/most diverse crops (highest confidence, different classes, different timestamps)
 - Compose into a grid collage image stored alongside the clip thumbnail
 - On hover over a clip card, animate through the sequence of crops as a mini slideshow
-- Especially valuable for person/face highlights — immediately shows who triggered the recording
-- Could extend to face detection/recognition in the future (cluster faces across clips)
+
+**Artefact grid (new view):**
+- Standalone page showing all detected object crops across all clips, filterable by tag/time/camera
+- Masonry or uniform grid layout — users quickly scan dozens of faces, people, vehicles at a glance
+- Each artefact links back to its source clip at the exact timestamp
+- Filter by detection type: "Show me all people", "Show me all vehicles"
+- Time-based browsing: artefacts grouped by hour/day, scrollable
+- Search/sort by confidence score, size, camera
+- Pairs naturally with face recognition (Phase: Face Detection) — clicking a face artefact could show all matches
+- Useful for forensics: "who was on the property today?" → scan the people artefact grid instead of watching hours of video
+
+**Pipeline integration:**
+- Runs as part of the existing detection filter chain — crops extracted when bounding boxes are already available
+- Storage: `CachePath/artefacts/{ClipUID}/{timestamp}_{class}_{index}.jpg` (~5-20KB each)
+- DB: `Artefact` table — `ArtefactUID, ClipUID, TagUID, Timestamp, BBox (x,y,w,h), Confidence, FilePath`
+- Background reprocessor can regenerate artefacts for existing clips
 
 ### Event Bisection Search
 
@@ -450,6 +467,19 @@ Tag and track motion at specific locations within a camera's field of view, enab
 - Could use existing detection bounding boxes to determine spatial overlap
 - Enables use cases like: monitoring a specific parking spot, doorway, or gate
 - Could generate per-zone activity heatmaps over time
+
+### Face Detection & Recognition
+
+Detect and recognize faces across clips, enabling search by person and alerting on known/unknown faces.
+
+- **Face detection:** use a lightweight face detection model (e.g. SCRFD, RetinaFace, or MediaPipe) to locate faces in detection frames
+- **Face embeddings:** extract face embeddings (128/512-dim vectors) using a recognition model (e.g. ArcFace via ONNX Runtime — same infrastructure as YOLO)
+- **Face clustering:** group unknown faces by similarity (cosine distance) into auto-generated "Person 1", "Person 2" clusters
+- **Named faces:** user can label clusters with names — future detections auto-match
+- **Integration with existing pipeline:** runs as an additional `IRecordFilter` after person detection (only process frames where a person was detected)
+- **Search:** "show all clips containing [person]" — filters clip browser by face cluster
+- **Alerts:** optional notification when an unknown face is detected, or when a specific known person appears
+- **Privacy considerations:** face data should be deletable per-person, and face recognition should be an opt-in feature
 
 ---
 

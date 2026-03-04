@@ -4,10 +4,14 @@
 #include "ObservingMotionFilter.h"
 #include "PersonRecognitionFilter.h"
 #include "ONNXDetectionFilter.h"
+#include "SQLite.h"
+#include "EventBroadcaster.h"
+#include "crow/json.h"
 
 #include <Log.h>
 #include <chrono>
 #include <thread>
+#include <filesystem>
 
 void CameraWorker::CreateInputStream()
 {
@@ -32,6 +36,51 @@ void CameraWorker::CreateInputStream()
 	else
 	{
 		LiveStream = std::make_shared<LiveOutputStream>(CachePath, CameraStream.get(), 1);
+	}
+
+	// Continuous recording
+	if (Camera.ContinuousRecording)
+	{
+		std::string continuousPath = (std::filesystem::path(CachePath) / "continuous" / std::to_string(Camera.ID)).string();
+
+		if (ContinuousStream)
+		{
+			ContinuousStream->ResetForReconnect(CameraStream.get());
+		}
+		else
+		{
+			ContinuousStream = std::make_shared<ContinuousOutputStream>(continuousPath, Camera.ID, CameraStream.get());
+			ContinuousStream->SetSegmentCompleteCallback(
+				[this](int cameraUID, int64_t startTimestamp, int64_t endTimestamp, int duration, const std::string& filePath)
+				{
+					// Register completed segment in database
+					SQLiteDatabaseQueryInstance query(Context->Database, "CreateContinuousSegment");
+					query->Bind("@CameraUID", cameraUID);
+					query->Bind("@StartTimestamp", startTimestamp);
+					query->Bind("@EndTimestamp", endTimestamp);
+					query->Bind("@Duration", duration);
+					query->Bind("@FilePath", filePath.c_str());
+					query->Execute([](const SQLiteDatabaseQuery&) { return true; });
+
+					LOG_INFO("Continuous segment registered: camera %d, %ds, %s", cameraUID, duration, filePath.c_str());
+
+					// Broadcast to WebSocket clients
+					crow::json::wvalue ev;
+					ev["cameraId"] = cameraUID;
+					ev["from"] = startTimestamp;
+					ev["to"] = endTimestamp;
+					ev["duration"] = duration;
+					Context->Events->Broadcast("dvr:segment", std::move(ev));
+				}
+			);
+		}
+
+		// Wire packet callback so ContinuousStream receives every video packet
+		auto contStream = ContinuousStream;
+		CameraStream->SetPacketCallback([contStream](const AVPacket* pkt)
+		{
+			contStream->WritePacket(pkt);
+		});
 	}
 
 	if (_strnicmp(CamPath.c_str(), "rtsp://", 7) == 0)
@@ -107,6 +156,7 @@ void CameraWorker::WorkerShutdown()
 {
 	//Ensure destruction is done on the worker thread
 	Filter = nullptr;
+	ContinuousStream = nullptr;
 	LiveStream = nullptr;
 	CameraStream = nullptr;
 
