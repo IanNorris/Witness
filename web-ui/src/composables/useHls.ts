@@ -6,6 +6,7 @@ import Hls from 'hls.js'
 // exceed the segment interval to avoid flickering between deliveries.
 // Cameras with long GOPs (5s+) need more time before declaring a stall.
 const HLS_SPINNER_TIMEOUT_MS = 3000
+const HLS_INITIAL_TIMEOUT_MS = 5000
 const HLS_WATCHDOG_INTERVAL_MS = 250
 
 // ── Diagnostics ───────────────────────────────────────────────────────
@@ -275,19 +276,16 @@ export function useHls(
       }
 
       if (lastFragTime === 0) {
-        // Initial connection — show spinner while waiting for first fragment
+        // Initial connection — show spinner while waiting for first fragment.
+        // Use a fixed short timeout (no backoff) so cameras that are still
+        // starting up retry quickly instead of waiting 10→20→30s.
         const sinceLaunch = Date.now() - streamStartTime
         showSpinner.value = true
         connectionLost.value = false
-        if (sinceLaunch > restartBackoffMs) {
-          connectionLost.value = true
-          showSpinner.value = false
-          if (!restartInProgress) {
-            diag.stats.stallCount++
-            diag.log('initialTimeout', { sinceLaunchMs: sinceLaunch, backoffMs: restartBackoffMs })
-            restartBackoffMs = Math.min(restartBackoffMs * 2, 30000)
-            restartStream('initialTimeout')
-          }
+        if (sinceLaunch > HLS_INITIAL_TIMEOUT_MS && !restartInProgress) {
+          diag.stats.stallCount++
+          diag.log('initialTimeout', { sinceLaunchMs: sinceLaunch })
+          restartStream('initialTimeout')
         }
         return
       }
