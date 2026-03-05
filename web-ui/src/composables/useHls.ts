@@ -207,6 +207,7 @@ export function useHls(
   let watchdog: ReturnType<typeof setInterval> | null = null
   let lowReadyStateSince = 0
   let gapStuckSince = 0
+  let gapSkipCooldownUntil = 0
   let stuckBackoffMs = 3000
   let restartBackoffMs = 10000
   let destroyed = false
@@ -270,6 +271,8 @@ export function useHls(
     attachEvents(hls, element)
     lastFragTime = 0
     streamStartTime = Date.now()
+    gapStuckSince = 0
+    gapSkipCooldownUntil = 0
     hls.loadSource(sourceUrl)
     hls.attachMedia(element)
   }
@@ -313,7 +316,7 @@ export function useHls(
       // fragments are still arriving, the playhead is at a timestamp gap the
       // browser can't cross. Debounce to avoid fighting HLS.js during normal
       // segment boundary transitions where readyState drops briefly.
-      if (!element.paused && element.readyState <= 1 && lastFragTime > 0 && Date.now() - lastFragTime < HLS_SPINNER_TIMEOUT_MS) {
+      if (!element.paused && element.readyState <= 1 && lastFragTime > 0 && Date.now() - lastFragTime < HLS_SPINNER_TIMEOUT_MS && Date.now() > gapSkipCooldownUntil) {
         if (gapStuckSince === 0) {
           gapStuckSince = Date.now()
         } else if (Date.now() - gapStuckSince > 1000) {
@@ -333,6 +336,7 @@ export function useHls(
             }
           }
           // Playhead is beyond all buffered data — seek to live sync position
+          // then cooldown for 5s to let HLS.js refill the buffer
           if (!seeked && hls?.liveSyncPosition != null && buf.length > 0 && element.currentTime > buf.end(buf.length - 1)) {
             diag.log('gapSkip', {
               from: element.currentTime,
@@ -340,6 +344,7 @@ export function useHls(
               reason: 'beyondBuffer',
             })
             element.currentTime = hls.liveSyncPosition
+            gapSkipCooldownUntil = Date.now() + 5000
           }
         }
       } else {

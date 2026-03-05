@@ -534,7 +534,12 @@ void LiveOutputStream::FinishCurrentSegment(int64_t NextKeyframeDTS)
 		{
 			auto& Seg = _StreamBacklog->back();
 			Seg.Data = _CurrentBuffer;
-			Seg.Duration = DtsDuration; // Use DTS-based duration for EXTINF
+			// Use accumulated packet duration for EXTINF — this matches the
+			// actual sample durations in the fMP4 container. Using DTS span
+			// causes playlist/media divergence: DTS may differ from packet
+			// duration sums by ~0.002s/segment, which over thousands of
+			// segments makes the playhead outrun buffered media.
+			Seg.Duration = _CurrentSegmentDuration;
 			Seg.Ready = true;
 		}
 	}
