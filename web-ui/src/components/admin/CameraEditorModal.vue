@@ -15,6 +15,7 @@ export interface CameraFormData {
   blackoutMaskPath: string
   focusMaskPath: string
   continuousRecording: number
+  lowLatencyHLS: number
   groups: number[]
 }
 
@@ -49,6 +50,7 @@ function defaultForm(): CameraFormData {
     blackoutMaskPath: '',
     focusMaskPath: '',
     continuousRecording: 0,
+    lowLatencyHLS: 0,
     groups: [],
   }
 }
@@ -117,6 +119,12 @@ function toggleGroup(groupId: number) {
                   <div class="form-check mt-2">
                     <input class="form-check-input" type="checkbox" id="cam-continuous" :checked="!!form.continuousRecording" @change="form.continuousRecording = form.continuousRecording ? 0 : 1" />
                     <label class="form-check-label small" for="cam-continuous">Continuous Recording</label>
+                  </div>
+                </div>
+                <div class="col-auto">
+                  <div class="form-check mt-2">
+                    <input class="form-check-input" type="checkbox" id="cam-llhls" :checked="!!form.lowLatencyHLS" @change="form.lowLatencyHLS = form.lowLatencyHLS ? 0 : 1" />
+                    <label class="form-check-label small" for="cam-llhls">Low-Latency HLS</label>
                   </div>
                 </div>
               </div>

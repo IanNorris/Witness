@@ -85,7 +85,7 @@ private:
 
 	CameraStreamError InitFormatContext();
 	CameraStreamError StartNewSegment(const AVPacket* Packet);
-	void FinishCurrentSegment();
+	void FinishCurrentSegment(int64_t NextKeyframeDTS);
 	void FlushPartialSegment(bool IsIndependent);
 
 	void SetupMemoryIO();
@@ -135,6 +135,42 @@ private:
 	std::chrono::time_point<std::chrono::system_clock> _CurrentSegmentWallTime;
 
 	std::mutex* _SegmentsMutex;
+
+	// ── Streaming diagnostics ──────────────────────────────────────
+public:
+	struct SegmentDiagEntry
+	{
+		int SegmentIndex;
+		double DtsDuration;        // computed from DTS span (what goes into EXTINF)
+		double AccumulatedDuration; // sum of packet durations (old method)
+		double DriftMs;            // (accumulated - dts) * 1000
+	};
+
+	struct StreamingDiagnostics
+	{
+		int TotalSegments = 0;
+		int ReconnectCount = 0;
+		double TotalDtsDuration = 0.0;
+		double TotalAccumulatedDuration = 0.0;
+		double MaxDriftMs = 0.0;
+		int CurrentSegmentIndex = 0;
+		int BacklogSize = 0;
+		int InitGeneration = 0;
+		std::vector<SegmentDiagEntry> RecentSegments; // last 30
+	};
+
+	StreamingDiagnostics GetStreamingDiagnostics() const;
+
+private:
+	// Ring buffer of recent segment diagnostics
+	static const int DIAG_RING_SIZE = 30;
+	SegmentDiagEntry _DiagRing[DIAG_RING_SIZE] = {};
+	int _DiagRingPos = 0;
+	int _DiagRingCount = 0;
+	int _DiagTotalSegments = 0;
+	double _DiagTotalDtsDuration = 0.0;
+	double _DiagTotalAccumulatedDuration = 0.0;
+	double _DiagMaxDriftMs = 0.0;
 };
 
 }}

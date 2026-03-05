@@ -29,7 +29,7 @@ onMounted(async () => {
     </template>
 
     <div v-if="camera" class="stream-container" @click="cameraStore.toggleRecording(cameraId)">
-      <HlsPlayer :camera-id="cameraId" suffix="_stream" :debug="true" />
+      <HlsPlayer :camera-id="cameraId" suffix="_stream" :debug="true" :low-latency="camera.lowLatencyHLS" />
       <div v-if="camera.isRecording" class="rec-overlay">
         <span class="rec-dot" /> REC
       </div>

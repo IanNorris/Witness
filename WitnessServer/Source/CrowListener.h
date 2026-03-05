@@ -125,6 +125,7 @@ private:
 	void HandleDebugSet( const crow::request& req, crow::response& res );
 	void HandleDebugReset( const crow::request& req, crow::response& res );
 	void HandleDebugReloadTLS( const crow::request& req, crow::response& res );
+	void HandleDebugStreamingDiag( const crow::request& req, crow::response& res );
 
 	// Setup (reconfiguration)
 	void HandleSetupPage( const crow::request& req, crow::response& res );

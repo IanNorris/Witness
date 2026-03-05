@@ -121,6 +121,15 @@ void CrowListener::HandleCameraEnum( const crow::request& req, crow::response& r
 
 							int ContinuousRecording = query.GetColumnValueInt( 12 );
 							Camera["continuousRecording"] = ContinuousRecording;
+
+							int LowLatencyHLS = query.GetColumnValueInt( 13 );
+							Camera["lowLatencyHLS"] = LowLatencyHLS;
+						}
+						else
+						{
+							// Non-admin users still need streaming config
+							int LowLatencyHLS = query.GetColumnValueInt( 13 );
+							Camera["lowLatencyHLS"] = LowLatencyHLS;
 						}
 
 						Camera["groups"] = std::move( Groups );
@@ -536,6 +545,7 @@ void CrowListener::HandleCameraUpdate( const crow::request& req, crow::response&
 	std::string BlackoutMaskPath = body.has("blackoutMaskPath") ? std::string(body["blackoutMaskPath"].s()) : "";
 	std::string FocusMaskPath = body.has("focusMaskPath") ? std::string(body["focusMaskPath"].s()) : "";
 	int ContinuousRecording = body.has("continuousRecording") ? (int)body["continuousRecording"].i() : 0;
+	int LowLatencyHLS = body.has("lowLatencyHLS") ? (int)body["lowLatencyHLS"].i() : 0;
 
 	SQLiteDatabaseQueryInstance UpdateCamera( m_GlobalContext->Database, "UpdateCamera" );
 	UpdateCamera->Bind( "@CameraId", CameraID );
@@ -551,6 +561,7 @@ void CrowListener::HandleCameraUpdate( const crow::request& req, crow::response&
 	UpdateCamera->Bind( "@BlackoutMaskPath", BlackoutMaskPath.empty() ? nullptr : BlackoutMaskPath.c_str() );
 	UpdateCamera->Bind( "@FocusMaskPath", FocusMaskPath.empty() ? nullptr : FocusMaskPath.c_str() );
 	UpdateCamera->Bind( "@ContinuousRecording", ContinuousRecording );
+	UpdateCamera->Bind( "@LowLatencyHLS", LowLatencyHLS );
 
 	if( UpdateCamera->Execute( nullptr ) < 0 )
 	{
@@ -561,6 +572,13 @@ void CrowListener::HandleCameraUpdate( const crow::request& req, crow::response&
 		res.code = 400;
 		res.end();
 		return;
+	}
+
+	// Update in-memory setting so it takes effect immediately
+	auto CameraState = m_GlobalContext->FindCameraById( CameraID );
+	if( CameraState && CameraState->Worker )
+	{
+		CameraState->Worker->SetLowLatencyHLS( LowLatencyHLS );
 	}
 
 	m_GlobalContext->LongPoll->NotifyAll();

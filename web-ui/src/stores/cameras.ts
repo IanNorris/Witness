@@ -17,6 +17,7 @@ export const useCameraStore = defineStore('cameras', () => {
       groups: Array.isArray(c.groups) ? c.groups : [],
       previewUrl: `/camera/preview/${c.id}`,
       streamUrl: `/stream/${c.id}/playlist`,
+      lowLatencyHLS: !!c.lowLatencyHLS,
       stats: {
         fps: 0,
         bitrate: 0,

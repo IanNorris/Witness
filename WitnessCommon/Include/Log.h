@@ -36,6 +36,9 @@ COMMON_API void LogShutdown();
 // Core logging function (printf-style)
 COMMON_API void Log( LogLevel level, const char* fmt, ... );
 
+// Get the current log directory path
+COMMON_API std::string LogGetDirectory();
+
 // Convenience macros
 #define LOG_DEBUG( fmt, ... )   ::Witness::Log( ::Witness::LogLevel::Debug,   fmt, ##__VA_ARGS__ )
 #define LOG_INFO( fmt, ... )    ::Witness::Log( ::Witness::LogLevel::Info,    fmt, ##__VA_ARGS__ )

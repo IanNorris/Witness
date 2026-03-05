@@ -413,6 +413,12 @@ void CrowListener::RegisterRoutes()
 		HandleDebugReloadTLS( req, res );
 	});
 
+	CROW_ROUTE( m_App, "/debug/streaming" )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleDebugStreamingDiag( req, res );
+	});
+
 	// Setup / Reconfiguration (admin-only)
 	CROW_ROUTE( m_App, "/setup" )
 	([this]( const crow::request& req, crow::response& res )

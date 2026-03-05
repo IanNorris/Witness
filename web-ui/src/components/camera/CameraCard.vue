@@ -100,6 +100,7 @@ onUnmounted(() => {
         <HlsPlayer
           v-if="settings.streamingMode === 'hls' && isConnected"
           :camera-id="camera.id"
+          :low-latency="camera.lowLatencyHLS"
         />
 
         <!-- JPEG preview mode -->

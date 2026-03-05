@@ -113,21 +113,58 @@ const diagMap = ((window as unknown as Record<string, unknown>)._witnessDiag ??=
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
 }
+// Download both client and server streaming diagnostics as a single JSON
+;(window as unknown as Record<string, unknown>)._witnessDumpAll = async function () {
+  const clientDump = {
+    timestamp: new Date().toISOString(),
+    userAgent: navigator.userAgent,
+    cameras: {} as Record<string, unknown>,
+  }
+  for (const id in diagMap) {
+    clientDump.cameras[id] = diagMap[id]!.snapshot()
+  }
+  let serverDump = null
+  try {
+    const resp = await fetch('/debug/streaming')
+    if (resp.ok) serverDump = await resp.json()
+  } catch { /* ignore */ }
+  const combined = { client: clientDump, server: serverDump }
+  const blob = new Blob([JSON.stringify(combined, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'witness-full-debug-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
 
 // ── HLS Config ────────────────────────────────────────────────────────
-function createHlsConfig(debug: boolean): Partial<Hls['config']> {
+function createHlsConfig(debug: boolean, lowLatency: boolean): Partial<Hls['config']> {
+  if (lowLatency) {
+    return {
+      debug,
+      enableWorker: true,
+      lowLatencyMode: true,
+      liveDurationInfinity: true,
+      backBufferLength: 5,
+      // In LL mode, PART-HOLD-BACK from the playlist controls sync position.
+      // These are fallbacks if the playlist doesn't specify them.
+      liveSyncDuration: 1,
+      liveMaxLatencyDuration: 4,
+      maxLiveSyncPlaybackRate: 1.5,
+    }
+  }
   return {
     debug,
     enableWorker: true,
-    // Disable low-latency mode: LL-HLS partial loading uses aggressive
-    // PART-HOLD-BACK sync that causes timestamp alignment issues between
-    // the playlist timeline and actual fMP4 media timestamps. Standard
-    // mode loads full segments and is far more reliable. Adds ~2-4s latency.
+    // Standard HLS: loads full segments only. More reliable but higher latency.
     lowLatencyMode: false,
     liveDurationInfinity: true,
     backBufferLength: 5,
-    liveSyncDuration: 4,
-    liveMaxLatencyDuration: 12,
+    liveSyncDuration: 2,
+    liveMaxLatencyDuration: 6,
     maxLiveSyncPlaybackRate: 1.05,
   }
 }
@@ -144,6 +181,7 @@ export function useHls(
   videoRef: Ref<HTMLVideoElement | null>,
   suffix: string = '',
   debug: boolean = false,
+  lowLatency: boolean = false,
 ): HlsStreamState {
   const showSpinner = ref(false)
   const connectionLost = ref(false)
@@ -202,7 +240,9 @@ export function useHls(
 
     h.on(Hls.Events.MEDIA_ATTACHED, () => {
       element.muted = true
-      element.play()
+      // Use catch to suppress AbortError when document is hidden/minimized.
+      // Autoplay with muted is allowed by browsers without user gesture.
+      element.play().catch(() => {})
       diag.log('mediaAttached')
       restartInProgress = false
     })
@@ -215,7 +255,7 @@ export function useHls(
     diag.stats.restartCount++
     diag.log('restart', { reason, nextBackoffMs: restartBackoffMs })
     hls?.destroy()
-    hls = new Hls(createHlsConfig(debug))
+    hls = new Hls(createHlsConfig(debug, lowLatency))
     diag.setRefs(element, hls)
     attachEvents(hls, element)
     lastFragTime = 0
@@ -228,7 +268,7 @@ export function useHls(
     const element = videoRef.value
     if (!element || !Hls.isSupported() || destroyed) return
 
-    hls = new Hls(createHlsConfig(debug))
+    hls = new Hls(createHlsConfig(debug, lowLatency))
     diag.setRefs(element, hls)
     diag.log('start')
     attachEvents(hls, element)
@@ -246,6 +286,22 @@ export function useHls(
       if (element.readyState >= 3 && lastFragTime > 0 && Date.now() - lastFragTime < HLS_SPINNER_TIMEOUT_MS) {
         stuckBackoffMs = 3000
         restartBackoffMs = 10000
+
+        // Latency cap: if playback falls too far behind the live sync position,
+        // seek forward to catch up. This is a safety net for any residual
+        // duration drift that causes the timeline to diverge over long uptimes.
+        if (hls?.liveSyncPosition != null && element.currentTime > 0) {
+          const latency = hls.liveSyncPosition - element.currentTime
+          if (latency > 8) {
+            const seekTarget = hls.liveSyncPosition - 1
+            diag.log('latencySeek', {
+              from: element.currentTime,
+              to: seekTarget,
+              latency: Math.round(latency * 1000),
+            })
+            element.currentTime = seekTarget
+          }
+        }
       }
 
       // Detect sustained low readyState with exponential backoff.
