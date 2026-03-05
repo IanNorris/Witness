@@ -9,6 +9,7 @@ const auth = useAuthStore()
 const events = useEventStream()
 
 function startEventStream() {
+  events.installBuildHashHandler()
   events.installCameraHandler()
   events.installClipHandler()
   events.connect()

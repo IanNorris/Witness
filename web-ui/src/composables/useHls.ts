@@ -113,22 +113,65 @@ const diagMap = ((window as unknown as Record<string, unknown>)._witnessDiag ??=
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
 }
+// Download both client and server streaming diagnostics as a single JSON
+;(window as unknown as Record<string, unknown>)._witnessDumpAll = async function () {
+  const clientDump = {
+    timestamp: new Date().toISOString(),
+    userAgent: navigator.userAgent,
+    cameras: {} as Record<string, unknown>,
+  }
+  for (const id in diagMap) {
+    clientDump.cameras[id] = diagMap[id]!.snapshot()
+  }
+  let serverDump = null
+  try {
+    const resp = await fetch('/debug/streaming')
+    if (resp.ok) serverDump = await resp.json()
+  } catch { /* ignore */ }
+  const combined = { client: clientDump, server: serverDump }
+  const blob = new Blob([JSON.stringify(combined, null, 2)], { type: 'application/json' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = 'witness-full-debug-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json'
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
 
 // ── HLS Config ────────────────────────────────────────────────────────
-function createHlsConfig(debug: boolean): Partial<Hls['config']> {
+function createHlsConfig(debug: boolean, lowLatency: boolean): Partial<Hls['config']> {
+  if (lowLatency) {
+    return {
+      debug,
+      enableWorker: true,
+      lowLatencyMode: true,
+      liveDurationInfinity: true,
+      backBufferLength: 5,
+      // In LL mode, PART-HOLD-BACK from the playlist controls sync position.
+      // These are fallbacks if the playlist doesn't specify them.
+      liveSyncDuration: 1,
+      liveMaxLatencyDuration: 4,
+      maxLiveSyncPlaybackRate: 1.5,
+      // Tolerate timestamp gaps between fMP4 fragments without triggering
+      // bufferStalledError. Gaps arise because AVPacket.duration doesn't
+      // always match the DTS delta between consecutive packets.
+      // Gap pattern: 0.2, 0.56, 0.92, 1.28, 1.64 (multiples of partial dur).
+      maxBufferHole: 0.5,
+    }
+  }
   return {
     debug,
     enableWorker: true,
-    // Disable low-latency mode: LL-HLS partial loading uses aggressive
-    // PART-HOLD-BACK sync that causes timestamp alignment issues between
-    // the playlist timeline and actual fMP4 media timestamps. Standard
-    // mode loads full segments and is far more reliable. Adds ~2-4s latency.
+    // Standard HLS: loads full segments only. More reliable but higher latency.
     lowLatencyMode: false,
     liveDurationInfinity: true,
     backBufferLength: 5,
-    liveSyncDuration: 4,
-    liveMaxLatencyDuration: 12,
+    liveSyncDuration: 2,
+    liveMaxLatencyDuration: 6,
     maxLiveSyncPlaybackRate: 1.05,
+    maxBufferHole: 0.5,
   }
 }
 
@@ -137,6 +180,7 @@ export interface HlsStreamState {
   showSpinner: Ref<boolean>
   connectionLost: Ref<boolean>
   isActive: Ref<boolean>
+  latencyMs: Ref<number>
 }
 
 export function useHls(
@@ -144,10 +188,12 @@ export function useHls(
   videoRef: Ref<HTMLVideoElement | null>,
   suffix: string = '',
   debug: boolean = false,
+  lowLatency: boolean = false,
 ): HlsStreamState {
   const showSpinner = ref(false)
   const connectionLost = ref(false)
   const isActive = ref(false)
+  const latencyMs = ref(0)
 
   const diagId = String(cameraId) + suffix
   const sourceUrl = `/stream/${cameraId}`
@@ -160,6 +206,7 @@ export function useHls(
   let restartInProgress = false
   let watchdog: ReturnType<typeof setInterval> | null = null
   let lowReadyStateSince = 0
+  let gapStuckSince = 0
   let stuckBackoffMs = 3000
   let restartBackoffMs = 10000
   let destroyed = false
@@ -168,12 +215,13 @@ export function useHls(
     h.on(Hls.Events.FRAG_BUFFERED, () => {
       lastFragTime = Date.now()
       diag.stats.totalFragments++
-      let latencyMs: number | null = null
-      if (h.liveSyncPosition != null) {
-        latencyMs = Math.round((h.liveSyncPosition - element.currentTime) * 1000)
-        diag.recordLatency(latencyMs)
+      let latMs: number | null = null
+      if (h.latency != null && h.latency > 0) {
+        latMs = Math.round(h.latency * 1000)
+        diag.recordLatency(latMs)
+        latencyMs.value = latMs
       }
-      diag.log('frag', { latencyMs })
+      diag.log('frag', { latencyMs: latMs })
       isActive.value = true
     })
 
@@ -202,7 +250,9 @@ export function useHls(
 
     h.on(Hls.Events.MEDIA_ATTACHED, () => {
       element.muted = true
-      element.play()
+      // Use catch to suppress AbortError when document is hidden/minimized.
+      // Autoplay with muted is allowed by browsers without user gesture.
+      element.play().catch(() => {})
       diag.log('mediaAttached')
       restartInProgress = false
     })
@@ -215,7 +265,7 @@ export function useHls(
     diag.stats.restartCount++
     diag.log('restart', { reason, nextBackoffMs: restartBackoffMs })
     hls?.destroy()
-    hls = new Hls(createHlsConfig(debug))
+    hls = new Hls(createHlsConfig(debug, lowLatency))
     diag.setRefs(element, hls)
     attachEvents(hls, element)
     lastFragTime = 0
@@ -228,7 +278,7 @@ export function useHls(
     const element = videoRef.value
     if (!element || !Hls.isSupported() || destroyed) return
 
-    hls = new Hls(createHlsConfig(debug))
+    hls = new Hls(createHlsConfig(debug, lowLatency))
     diag.setRefs(element, hls)
     diag.log('start')
     attachEvents(hls, element)
@@ -236,9 +286,6 @@ export function useHls(
     hls.attachMedia(element)
 
     // Poll-based watchdog: drives spinner, connection-lost, and restart.
-    // We do NOT seek the playhead — HLS.js has its own recovery for
-    // buffer gaps (bufferSeekOverHole, nudgeOnStall). Seeking from
-    // outside fights those mechanisms and causes thrashing loops.
     watchdog = setInterval(() => {
       if (!element) return
 
@@ -246,6 +293,57 @@ export function useHls(
       if (element.readyState >= 3 && lastFragTime > 0 && Date.now() - lastFragTime < HLS_SPINNER_TIMEOUT_MS) {
         stuckBackoffMs = 3000
         restartBackoffMs = 10000
+
+        // Latency cap: if playback falls too far behind the live edge,
+        // seek forward to catch up. Uses hls.latency which measures from
+        // the actual live edge, not liveSyncPosition (which can be behind
+        // currentTime in LL-HLS mode).
+        if (hls && hls.latency > 8 && hls.liveSyncPosition != null) {
+          const seekTarget = hls.liveSyncPosition - 1
+          diag.log('latencySeek', {
+            from: element.currentTime,
+            to: seekTarget,
+            latency: Math.round(hls.latency * 1000),
+          })
+          element.currentTime = seekTarget
+        }
+      }
+
+      // Gap-skip: if the playhead is stuck (readyState <= 1) for over 1s but
+      // fragments are still arriving, the playhead is at a timestamp gap the
+      // browser can't cross. Debounce to avoid fighting HLS.js during normal
+      // segment boundary transitions where readyState drops briefly.
+      if (!element.paused && element.readyState <= 1 && lastFragTime > 0 && Date.now() - lastFragTime < HLS_SPINNER_TIMEOUT_MS) {
+        if (gapStuckSince === 0) {
+          gapStuckSince = Date.now()
+        } else if (Date.now() - gapStuckSince > 1000) {
+          gapStuckSince = 0
+          const buf = element.buffered
+          let seeked = false
+          for (let i = 0; i < buf.length; i++) {
+            if (buf.start(i) > element.currentTime + 0.1) {
+              diag.log('gapSkip', {
+                from: element.currentTime,
+                to: buf.start(i),
+                gapSize: Math.round((buf.start(i) - element.currentTime) * 1000),
+              })
+              element.currentTime = buf.start(i) + 0.05
+              seeked = true
+              break
+            }
+          }
+          // Playhead is beyond all buffered data — seek to live sync position
+          if (!seeked && hls?.liveSyncPosition != null && buf.length > 0 && element.currentTime > buf.end(buf.length - 1)) {
+            diag.log('gapSkip', {
+              from: element.currentTime,
+              to: hls.liveSyncPosition,
+              reason: 'beyondBuffer',
+            })
+            element.currentTime = hls.liveSyncPosition
+          }
+        }
+      } else {
+        gapStuckSince = 0
       }
 
       // Detect sustained low readyState with exponential backoff.
@@ -330,5 +428,5 @@ export function useHls(
 
   onUnmounted(() => clearInterval(checkInterval))
 
-  return { showSpinner, connectionLost, isActive }
+  return { showSpinner, connectionLost, isActive, latencyMs }
 }

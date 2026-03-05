@@ -2,6 +2,7 @@
 #include "CrowAuth.h"
 #include "GlobalContext.h"
 
+#include <Log.h>
 #include <format>
 #include <cmath>
 
@@ -22,6 +23,9 @@ void CrowListener::HandlePlaylist( const crow::request& req, crow::response& res
 		res.end();
 		return;
 	}
+
+	bool LowLatency = CameraState->Worker->GetCameraSettings().LowLatencyHLS != 0;
+	double PartialTarget = LiveStream->GetPartialTargetDuration();
 
 	std::vector<LiveStreamSegment> Segments;
 	LiveStream->GetSegments( Segments );
@@ -64,6 +68,15 @@ void CrowListener::HandlePlaylist( const crow::request& req, crow::response& res
 		Playlist << "#EXT-X-MEDIA-SEQUENCE:" << Segments[startAtSegment].SegmentIndex << "\n";
 		Playlist << "#EXT-X-INDEPENDENT-SEGMENTS\n";
 		Playlist << "#EXT-X-TARGETDURATION:" << (int)std::ceil( TargetDuration ) << "\n";
+
+		if( LowLatency )
+		{
+			Playlist << "#EXT-X-PART-INF:PART-TARGET=" << PartialTarget << "\n";
+			double PartHoldBack = PartialTarget * 3.0;
+			if( PartHoldBack < 1.0 ) PartHoldBack = 1.0;
+			Playlist << "#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,PART-HOLD-BACK=" << PartHoldBack << "\n";
+		}
+
 		Playlist << "#EXT-X-MAP:URI=\"" << cameraId << "/0/i?g=" << InitGeneration << "\"\n";
 		Playlist << "\n";
 
@@ -72,7 +85,8 @@ void CrowListener::HandlePlaylist( const crow::request& req, crow::response& res
 		for( int segment = startAtSegment; segment < (int)bufferSegments; segment++ )
 		{
 			LiveStreamSegment& Seg = Segments[segment];
-			if( !Seg.Ready )
+
+			if( !Seg.Ready && !LowLatency )
 				continue; // Skip in-progress segment — non-LL clients can't use trailing partials
 
 			if( Seg.Discontinuity )
@@ -84,8 +98,24 @@ void CrowListener::HandlePlaylist( const crow::request& req, crow::response& res
 			std::string dateTimeFormat = std::format( "{:%Y-%m-%dT%H:%M:%S}", Seg.SegmentTime );
 			Playlist << "#EXT-X-PROGRAM-DATE-TIME:" << dateTimeFormat << "\n";
 
-			Playlist << "#EXTINF:" << Seg.Duration << ",\n";
-			Playlist << cameraId << "/" << Seg.SegmentIndex << "/f\n";
+			if( LowLatency && !Seg.Partials.empty() )
+			{
+				// Emit partial segment tags
+				for( auto& Partial : Seg.Partials )
+				{
+					Playlist << "#EXT-X-PART:DURATION=" << Partial.Duration;
+					Playlist << ",URI=\"" << cameraId << "/" << Seg.SegmentIndex << "/" << Partial.PartIndex << "\"";
+					if( Partial.Independent )
+						Playlist << ",INDEPENDENT=YES";
+					Playlist << "\n";
+				}
+			}
+
+			if( Seg.Ready )
+			{
+				Playlist << "#EXTINF:" << Seg.Duration << ",\n";
+				Playlist << cameraId << "/" << Seg.SegmentIndex << "/f\n";
+			}
 		}
 	}
 
@@ -94,6 +124,9 @@ void CrowListener::HandlePlaylist( const crow::request& req, crow::response& res
 	res.body = Playlist.str();
 	res.code = 200;
 	res.end();
+
+	LOG_DEBUG("[HLS] Playlist cam=%d segs=%d startIdx=%d", cameraId, (int)bufferSegments,
+		bufferSegments > 0 ? Segments[startAtSegment].SegmentIndex : -1);
 }
 
 void CrowListener::HandleSegment( const crow::request& req, crow::response& res, int cameraId, int segmentId, const std::string& partId )
@@ -180,4 +213,6 @@ void CrowListener::HandleSegment( const crow::request& req, crow::response& res,
 
 	res.code = 404;
 	res.end();
+
+	LOG_WARNING("[HLS] Segment 404: cam=%d seg=%d part=%s", cameraId, segmentId, partId.c_str());
 }

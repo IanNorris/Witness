@@ -302,6 +302,21 @@ html, body, #app {
     z-index: 2;
   }
 
+  .latency-overlay {
+    position: absolute;
+    bottom: 8px;
+    right: 8px;
+    color: rgba(255, 255, 255, 0.7);
+    font-size: 0.7rem;
+    font-weight: 400;
+    background: rgba(0, 0, 0, 0.5);
+    padding: 1px 6px;
+    border-radius: 3px;
+    pointer-events: none;
+    z-index: 2;
+    font-variant-numeric: tabular-nums;
+  }
+
   .camera-info {
     padding: 0.65rem 0.85rem;
     display: flex;

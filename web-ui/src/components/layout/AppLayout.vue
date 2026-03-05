@@ -21,7 +21,7 @@ function updateClock() {
 }
 
 function downloadDiag() {
-  const fn = (window as unknown as Record<string, unknown>)._witnessDumpDiag as (() => void) | undefined
+  const fn = (window as unknown as Record<string, unknown>)._witnessDumpAll as (() => void) | undefined
   if (fn) fn()
 }
 

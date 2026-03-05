@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import type { Camera } from '../../types/camera'
 import { useSettingsStore } from '../../stores/settings'
 import { useCameraStore } from '../../stores/cameras'
@@ -19,9 +19,17 @@ const cameraStore = useCameraStore()
 const imgSrc = ref('')
 const isConnected = ref(false)
 const imgRef = ref<HTMLImageElement | null>(null)
+const hlsPlayerRef = ref<InstanceType<typeof HlsPlayer> | null>(null)
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 let jpegRunning = false
 let clickTimer: ReturnType<typeof setTimeout> | null = null
+
+const latencyLabel = computed(() => {
+  const ms = hlsPlayerRef.value?.latencyMs ?? 0
+  if (ms === 0) return ''
+  const sec = ms / 1000
+  return sec >= 0 ? `+${sec.toFixed(1)}s` : `${sec.toFixed(1)}s`
+})
 
 function refreshPreview() {
   if (props.camera.status === 'Connected') {
@@ -99,7 +107,9 @@ onUnmounted(() => {
         <!-- HLS preview mode -->
         <HlsPlayer
           v-if="settings.streamingMode === 'hls' && isConnected"
+          ref="hlsPlayerRef"
           :camera-id="camera.id"
+          :low-latency="camera.lowLatencyHLS"
         />
 
         <!-- JPEG preview mode -->
@@ -130,6 +140,11 @@ onUnmounted(() => {
         <!-- Camera name overlay in fullscreen -->
         <div v-if="settings.fullscreenMode" class="camera-name-overlay">
           {{ camera.name }}
+        </div>
+
+        <!-- Latency overlay -->
+        <div v-if="latencyLabel && settings.streamingMode === 'hls'" class="latency-overlay">
+          {{ latencyLabel }}
         </div>
       </div>
     </div>

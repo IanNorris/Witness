@@ -62,6 +62,7 @@ struct CameraSettings
 	, SkipFrames( 1 )
 	, MDFrameHeight( 720 )
 	, ContinuousRecording( 0 )
+	, LowLatencyHLS( 0 )
 	{}
 
 	ImageProcessingJobQueue* JobQueue;
@@ -80,6 +81,7 @@ struct CameraSettings
 	int SkipFrames;
 	int MDFrameHeight;
 	int ContinuousRecording;
+	int LowLatencyHLS;
 };
 
 class CameraWorker : public WorkerBase
@@ -113,6 +115,16 @@ public:
 	std::shared_ptr<LiveOutputStream>& GetLiveStream()
 	{
 		return LiveStream;
+	}
+
+	const CameraSettings& GetCameraSettings() const
+	{
+		return Camera;
+	}
+
+	void SetLowLatencyHLS( int Value )
+	{
+		Camera.LowLatencyHLS = Value;
 	}
 
 private:

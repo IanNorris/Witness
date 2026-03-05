@@ -7,6 +7,7 @@ export interface Camera {
   previewUrl: string
   streamUrl: string
   stats: CameraStats
+  lowLatencyHLS?: boolean
 }
 
 export interface CameraStats {
@@ -32,4 +33,5 @@ export interface CameraData {
   frameCount: number
   connectionString?: string
   connectionStringSub?: string
+  lowLatencyHLS?: number
 }

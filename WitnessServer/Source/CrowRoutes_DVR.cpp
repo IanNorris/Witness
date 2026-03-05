@@ -109,6 +109,7 @@ void CrowListener::HandleDvrSegment( const crow::request& req, crow::response& r
 
 	if( filePath.empty() || !fs::exists( filePath ) )
 	{
+		LOG_WARNING("[DVR] Segment 404: uid=%d path=%s", segmentId, filePath.empty() ? "(not found)" : filePath.c_str());
 		res.code = 404;
 		res.end();
 		return;
@@ -257,6 +258,7 @@ void CrowListener::HandleDvrPlaylist( const crow::request& req, crow::response& 
 
 	if( segments.empty() )
 	{
+		LOG_WARNING("[DVR] Playlist empty: cam=%d from=%lld to=%lld", cameraId, from, to);
 		res.code = 404;
 		res.body = "No segments found";
 		res.end();
@@ -289,4 +291,6 @@ void CrowListener::HandleDvrPlaylist( const crow::request& req, crow::response& 
 	res.body = m3u8.str();
 	res.code = 200;
 	res.end();
+
+	LOG_DEBUG("[DVR] Playlist cam=%d segs=%d from=%lld to=%lld maxDur=%d", cameraId, (int)segments.size(), from, to, maxDuration);
 }

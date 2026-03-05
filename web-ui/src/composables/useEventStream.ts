@@ -81,6 +81,30 @@ function disconnect() {
   connected.value = false
 }
 
+// Auto-refresh: reload page when server has a newer web build
+function installBuildHashHandler() {
+  console.log(`[Witness] Build hash: ${__BUILD_HASH__}`)
+  // Check if we just reloaded due to hash mismatch
+  const reloadReason = sessionStorage.getItem('witness_reload_reason')
+  if (reloadReason) {
+    console.log(`[Witness] Page was reloaded: ${reloadReason}`)
+    sessionStorage.removeItem('witness_reload_reason')
+  }
+  onEvent((evt) => {
+    const hash = (evt.event === 'init' && evt.data.buildHash)
+      ? evt.data.buildHash as string
+      : (evt.event === 'build:hash' && evt.data.hash)
+        ? evt.data.hash as string
+        : null
+    if (hash && hash !== __BUILD_HASH__) {
+      const reason = `Build hash mismatch (local=${__BUILD_HASH__}, server=${hash}) via ${evt.event}`
+      console.log(`[Witness] ${reason}, reloading...`)
+      sessionStorage.setItem('witness_reload_reason', reason)
+      location.reload()
+    }
+  })
+}
+
 // Built-in handler: update camera store on camera events
 function installCameraHandler() {
   onEvent((evt) => {
@@ -138,6 +162,7 @@ export function useEventStream() {
     disconnect,
     connected,
     onEvent,
+    installBuildHashHandler,
     installCameraHandler,
     installClipHandler,
   }

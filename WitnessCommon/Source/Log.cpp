@@ -179,4 +179,10 @@ void Log( LogLevel level, const char* fmt, ... )
 	}
 }
 
+std::string LogGetDirectory()
+{
+	std::lock_guard<std::mutex> lock( s_LogMutex );
+	return s_LogDirectory;
+}
+
 }

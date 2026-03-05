@@ -285,7 +285,8 @@ namespace Database
 			MotionFilter = @MotionFilter,
 			BlackoutMaskPath = @BlackoutMaskPath,
 			FocusMaskPath = @FocusMaskPath,
-			ContinuousRecording = @ContinuousRecording
+			ContinuousRecording = @ContinuousRecording,
+			LowLatencyHLS = @LowLatencyHLS
 		WHERE CameraUID = @CameraId;
 	)RAW";
 
@@ -687,6 +688,7 @@ namespace Database
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Clip ADD COLUMN Lighting INT DEFAULT 0;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Clip ADD COLUMN Reviewed INT DEFAULT 0;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN ContinuousRecording INT DEFAULT 0;", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN LowLatencyHLS INT DEFAULT 0;", nullptr, nullptr, nullptr );
 
 		// Migrate old Tag table schema — drop and recreate if it has the old schema
 		// (old schema had Name CHAR(64), Description TEXT; new needs Name TEXT UNIQUE, Display, Icon, etc.)

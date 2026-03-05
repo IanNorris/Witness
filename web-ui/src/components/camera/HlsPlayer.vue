@@ -6,15 +6,19 @@ const props = defineProps<{
   cameraId: number
   suffix?: string
   debug?: boolean
+  lowLatency?: boolean
 }>()
 
 const videoRef = ref<HTMLVideoElement | null>(null)
-const { showSpinner, connectionLost } = useHls(
+const { showSpinner, connectionLost, latencyMs } = useHls(
   props.cameraId,
   videoRef,
   props.suffix ?? '',
   props.debug ?? false,
+  props.lowLatency ?? false,
 )
+
+defineExpose({ latencyMs })
 </script>
 
 <template>

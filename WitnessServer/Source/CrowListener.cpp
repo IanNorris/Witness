@@ -128,6 +128,9 @@ void CrowListener::Initialise( const std::unordered_map< std::string, std::strin
 
 	LOG_INFO( "Static root: %s (%zu files)", m_StaticRoot.c_str(), m_StaticFiles.size() );
 
+	// Read build hash for auto-refresh detection
+	ReadBuildHash();
+
 	RegisterRoutes();
 }
 
@@ -413,6 +416,12 @@ void CrowListener::RegisterRoutes()
 		HandleDebugReloadTLS( req, res );
 	});
 
+	CROW_ROUTE( m_App, "/debug/streaming" )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleDebugStreamingDiag( req, res );
+	});
+
 	// Setup / Reconfiguration (admin-only)
 	CROW_ROUTE( m_App, "/setup" )
 	([this]( const crow::request& req, crow::response& res )
@@ -498,6 +507,8 @@ void CrowListener::RegisterRoutes()
 				}
 			}
 			initData["cameras"] = std::move( cams );
+			if( !m_GlobalContext->BuildHash.empty() )
+				initData["buildHash"] = m_GlobalContext->BuildHash;
 
 			crow::json::wvalue envelope;
 			envelope["event"] = "init";
@@ -604,4 +615,27 @@ void CrowListener::ServeStaticFile( const crow::request& req, crow::response& re
 	}
 
 	res.code = 404;
+}
+
+void CrowListener::ReadBuildHash()
+{
+	auto hashPath = fs::path( m_StaticRoot ) / "build-hash.txt";
+	std::ifstream file( hashPath );
+	if( file )
+	{
+		std::string hash;
+		std::getline( file, hash );
+		// Trim whitespace
+		while( !hash.empty() && (hash.back() == '\r' || hash.back() == '\n' || hash.back() == ' ') )
+			hash.pop_back();
+		if( !hash.empty() )
+		{
+			m_GlobalContext->BuildHash = hash;
+			LOG_INFO( "Build hash: %s", hash.c_str() );
+		}
+	}
+	else
+	{
+		LOG_WARNING( "No build-hash.txt found — auto-refresh disabled" );
+	}
 }

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppLayout from '../components/layout/AppLayout.vue'
 import HlsPlayer from '../components/camera/HlsPlayer.vue'
@@ -11,6 +11,14 @@ const cameraStore = useCameraStore()
 
 const cameraId = computed(() => Number(route.params.cameraId))
 const camera = computed(() => cameraStore.getCameraById(cameraId.value))
+const hlsPlayerRef = ref<InstanceType<typeof HlsPlayer> | null>(null)
+
+const latencyLabel = computed(() => {
+  const ms = hlsPlayerRef.value?.latencyMs ?? 0
+  if (ms === 0) return ''
+  const sec = ms / 1000
+  return sec >= 0 ? `+${sec.toFixed(1)}s` : `${sec.toFixed(1)}s`
+})
 
 onMounted(async () => {
   if (cameraStore.cameras.length === 0) {
@@ -29,9 +37,12 @@ onMounted(async () => {
     </template>
 
     <div v-if="camera" class="stream-container" @click="cameraStore.toggleRecording(cameraId)">
-      <HlsPlayer :camera-id="cameraId" suffix="_stream" :debug="true" />
+      <HlsPlayer ref="hlsPlayerRef" :camera-id="cameraId" suffix="_stream" :debug="true" :low-latency="camera.lowLatencyHLS" />
       <div v-if="camera.isRecording" class="rec-overlay">
         <span class="rec-dot" /> REC
+      </div>
+      <div v-if="latencyLabel" class="latency-overlay">
+        {{ latencyLabel }}
       </div>
     </div>
     <div v-else class="text-muted-custom text-center py-5">
@@ -78,5 +89,19 @@ onMounted(async () => {
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }
+}
+.latency-overlay {
+  position: absolute;
+  bottom: 8px;
+  right: 8px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.75rem;
+  font-weight: 400;
+  background: rgba(0, 0, 0, 0.5);
+  padding: 1px 8px;
+  border-radius: 3px;
+  pointer-events: none;
+  z-index: 2;
+  font-variant-numeric: tabular-nums;
 }
 </style>

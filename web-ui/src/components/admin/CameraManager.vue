@@ -30,6 +30,7 @@ interface AdminCamera {
   blackoutMaskPath: string
   focusMaskPath: string
   continuousRecording: number
+  lowLatencyHLS: number
   groups: number[]
   frameCount?: number
   processingTimeOfEachMS?: number
@@ -109,6 +110,7 @@ function openEdit(cam: AdminCamera) {
     blackoutMaskPath: cam.blackoutMaskPath ?? '',
     focusMaskPath: cam.focusMaskPath ?? '',
     continuousRecording: cam.continuousRecording ?? 0,
+    lowLatencyHLS: cam.lowLatencyHLS ?? 0,
     groups: [...(cam.groups ?? [])],
   }
   showEditor.value = true

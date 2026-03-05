@@ -234,6 +234,9 @@ void CameraWorker::WorkerMain()
 		{
 			IsConnected = true;
 
+			LOG_INFO("[HLS] Camera %d connected, live stream generation %d",
+				Camera.ID, LiveStream ? LiveStream->GetInitGeneration() : 0);
+
 			MessageBusObject->SendToClient( nullptr, std::make_shared<CameraConnectedMessage>( Camera.ID ) );
 		}
 	}
@@ -250,6 +253,8 @@ void CameraWorker::WorkerMain()
 			ErrorStrA += CameraStream->GetFFMPEGErrorMessage();
 		}
 		std::string ErrorStr(ErrorStrA.begin(), ErrorStrA.end());
+
+		LOG_WARNING("[HLS] Camera %d disconnected: %s", Camera.ID, ErrorStrA.c_str());
 
 		MessageBusObject->SendToClient( nullptr, std::make_shared<CameraReconnectMessage>( Camera.ID, ErrorStr ) );
 

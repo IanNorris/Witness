@@ -5,6 +5,7 @@
 #include <Log.h>
 #include <filesystem>
 #include <iostream>
+#include <fstream>
 #include <chrono>
 
 #ifdef CROW_ENABLE_SSL
@@ -167,6 +168,118 @@ void CrowListener::HandleDebugReloadTLS( const crow::request& req, crow::respons
 	res.set_header( "Content-Type", "application/json" );
 	res.body = Data.dump();
 	res.code = Success ? 200 : 500;
+	res.end();
+}
+
+void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::response& res )
+{
+	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, nullptr,
+		CrowAuth::Action::Read, CrowAuth::Privilege::Administrator );
+	if( UserUID < 0 )
+	{
+		res.code = 400;
+		res.end();
+		return;
+	}
+
+	std::vector<crow::json::wvalue> CameraArray;
+
+	{
+		std::lock_guard<std::mutex> lock( m_GlobalContext->Mutex );
+		for( auto& [id, state] : m_GlobalContext->GetCameraMap() )
+		{
+			crow::json::wvalue CamData;
+			CamData["id"] = id;
+			CamData["name"] = state.Name;
+			CamData["status"] = state.Status;
+
+			if( state.Worker )
+			{
+				CamData["lowLatencyHLS"] = state.Worker->GetCameraSettings().LowLatencyHLS;
+
+				auto& LiveStream = state.Worker->GetLiveStream();
+				if( LiveStream )
+				{
+					auto Diag = LiveStream->GetStreamingDiagnostics();
+
+					crow::json::wvalue StreamData;
+					StreamData["totalSegments"] = Diag.TotalSegments;
+					StreamData["reconnectCount"] = Diag.ReconnectCount;
+					StreamData["totalDtsDuration"] = Diag.TotalDtsDuration;
+					StreamData["totalAccumulatedDuration"] = Diag.TotalAccumulatedDuration;
+					StreamData["cumulativeDriftMs"] = (Diag.TotalAccumulatedDuration - Diag.TotalDtsDuration) * 1000.0;
+					StreamData["maxSingleSegmentDriftMs"] = Diag.MaxDriftMs;
+					StreamData["currentSegmentIndex"] = Diag.CurrentSegmentIndex;
+					StreamData["backlogSize"] = Diag.BacklogSize;
+					StreamData["initGeneration"] = Diag.InitGeneration;
+
+					if( Diag.TotalSegments > 0 )
+					{
+						StreamData["avgDtsDuration"] = Diag.TotalDtsDuration / Diag.TotalSegments;
+						StreamData["avgAccumulatedDuration"] = Diag.TotalAccumulatedDuration / Diag.TotalSegments;
+					}
+
+					std::vector<crow::json::wvalue> Segments;
+					for( auto& Seg : Diag.RecentSegments )
+					{
+						crow::json::wvalue S;
+						S["idx"] = Seg.SegmentIndex;
+						S["dtsDur"] = Seg.DtsDuration;
+						S["accDur"] = Seg.AccumulatedDuration;
+						S["driftMs"] = Seg.DriftMs;
+						Segments.push_back( std::move( S ) );
+					}
+					StreamData["recentSegments"] = std::move( Segments );
+
+					CamData["streaming"] = std::move( StreamData );
+				}
+			}
+
+			CameraArray.push_back( std::move( CamData ) );
+		}
+	}
+
+	crow::json::wvalue Data;
+	Data["timestamp"] = std::format( "{:%Y-%m-%dT%H:%M:%S}", std::chrono::system_clock::now() );
+	Data["cameras"] = std::move( CameraArray );
+
+	// Read today's log file and filter for [HLS] and [DVR] lines
+	std::string logDir = ::Witness::LogGetDirectory();
+	if( !logDir.empty() )
+	{
+		auto now = std::chrono::system_clock::now();
+		auto time_t = std::chrono::system_clock::to_time_t( now );
+		struct tm tm_buf;
+#ifdef _WIN32
+		localtime_s( &tm_buf, &time_t );
+#else
+		localtime_r( &time_t, &tm_buf );
+#endif
+		char dateBuf[16];
+		snprintf( dateBuf, sizeof(dateBuf), "%04d-%02d-%02d",
+			tm_buf.tm_year + 1900, tm_buf.tm_mon + 1, tm_buf.tm_mday );
+
+		std::string logPath = logDir + "/witness-" + dateBuf + ".log";
+		std::ifstream logFile( logPath );
+		if( logFile.is_open() )
+		{
+			std::vector<crow::json::wvalue> LogLines;
+			std::string line;
+			while( std::getline( logFile, line ) )
+			{
+				if( line.find( "[HLS]" ) != std::string::npos ||
+					line.find( "[DVR]" ) != std::string::npos )
+				{
+					LogLines.push_back( line );
+				}
+			}
+			Data["serverLog"] = std::move( LogLines );
+		}
+	}
+
+	res.set_header( "Content-Type", "application/json" );
+	res.body = Data.dump();
+	res.code = 200;
 	res.end();
 }
 

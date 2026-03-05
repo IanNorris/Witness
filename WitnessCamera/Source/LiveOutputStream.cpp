@@ -3,8 +3,10 @@
 #include "InputStream.h"
 #include "StreamData.h"
 
+#include <Log.h>
 #include <sstream>
 #include <chrono>
+#include <cmath>
 
 namespace Witness{
 namespace Camera{
@@ -130,6 +132,10 @@ void LiveOutputStream::ResetForReconnect(InputStream* NewInputStream)
 	_CurrentPartialIsIndependent = false;
 	_DiscontinuityPending = true;
 	_InitGeneration++;
+
+	LOG_INFO("[HLS] Live stream reconnect (generation %d), segments so far: %d, cumulative drift: %.1fms",
+		_InitGeneration, _DiagTotalSegments,
+		(_DiagTotalAccumulatedDuration - _DiagTotalDtsDuration) * 1000.0);
 
 	// Remove any orphaned incomplete segment from the backlog —
 	// otherwise HLS.js will try to load it and get a 404.
@@ -262,7 +268,7 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 		{
 			if (_HeaderWritten)
 			{
-				FinishCurrentSegment();
+				FinishCurrentSegment(Packet->dts);
 			}
 
 			CameraStreamError Result = StartNewSegment(Packet);
@@ -470,7 +476,7 @@ CameraStreamError LiveOutputStream::StartNewSegment(const AVPacket* Packet)
 	return CameraStreamError::Success;
 }
 
-void LiveOutputStream::FinishCurrentSegment()
+void LiveOutputStream::FinishCurrentSegment(int64_t NextKeyframeDTS)
 {
 	if (!_FormatContext || !_CurrentBuffer)
 	{
@@ -480,6 +486,47 @@ void LiveOutputStream::FinishCurrentSegment()
 	// Flush remaining data as the final partial of this segment
 	FlushPartialSegment(_CurrentPartialIsIndependent);
 
+	// Compute accurate segment duration from DTS span instead of
+	// accumulated packet durations. Accumulated durations drift over
+	// thousands of segments because AVPacket.duration values don't
+	// exactly match the DTS delta between keyframes.
+	AVRational TimeBase = _FormatContext->streams[0]->time_base;
+	double DtsDuration = (double)(NextKeyframeDTS - _SegmentStartDTS) * TimeBase.num / TimeBase.den;
+
+	// Sanity: if DTS duration is clearly wrong, fall back to accumulated
+	if (DtsDuration <= 0.0 || DtsDuration > 30.0)
+		DtsDuration = _CurrentSegmentDuration;
+
+	// Record diagnostics
+	double DriftMs = (_CurrentSegmentDuration - DtsDuration) * 1000.0;
+	SegmentDiagEntry Entry;
+	Entry.SegmentIndex = _CurrentSegmentIndex;
+	Entry.DtsDuration = DtsDuration;
+	Entry.AccumulatedDuration = _CurrentSegmentDuration;
+	Entry.DriftMs = DriftMs;
+	_DiagRing[_DiagRingPos % DIAG_RING_SIZE] = Entry;
+	_DiagRingPos++;
+	if (_DiagRingCount < DIAG_RING_SIZE) _DiagRingCount++;
+	_DiagTotalSegments++;
+	_DiagTotalDtsDuration += DtsDuration;
+	_DiagTotalAccumulatedDuration += _CurrentSegmentDuration;
+	if (std::abs(DriftMs) > std::abs(_DiagMaxDriftMs))
+		_DiagMaxDriftMs = DriftMs;
+
+	// Log segment completion — every segment for now to validate the fix.
+	// Also warn if per-segment drift exceeds 5ms (indicates unusual stream).
+	double CumulativeDriftMs = (_DiagTotalAccumulatedDuration - _DiagTotalDtsDuration) * 1000.0;
+	if (std::abs(DriftMs) > 5.0)
+	{
+		LOG_WARNING("[HLS] Segment %d: dts=%.3fs acc=%.3fs drift=%.1fms cumDrift=%.1fms",
+			_CurrentSegmentIndex, DtsDuration, _CurrentSegmentDuration, DriftMs, CumulativeDriftMs);
+	}
+	else
+	{
+		LOG_DEBUG("[HLS] Segment %d: dts=%.3fs acc=%.3fs drift=%.1fms cumDrift=%.1fms",
+			_CurrentSegmentIndex, DtsDuration, _CurrentSegmentDuration, DriftMs, CumulativeDriftMs);
+	}
+
 	{
 		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
 
@@ -487,18 +534,41 @@ void LiveOutputStream::FinishCurrentSegment()
 		{
 			auto& Seg = _StreamBacklog->back();
 			Seg.Data = _CurrentBuffer;
-			Seg.Duration = _CurrentSegmentDuration;
+			Seg.Duration = DtsDuration; // Use DTS-based duration for EXTINF
 			Seg.Ready = true;
-
-			// Keep partial data buffers alive — HLS.js in lowLatencyMode
-			// requests partials even for completed segments. The partial
-			// buffers are slices of _CurrentBuffer which we retain anyway,
-			// so there's no additional memory cost.
 		}
 	}
 
 	_CurrentBuffer.reset();
 	_CurrentSegmentIndex++;
+}
+
+LiveOutputStream::StreamingDiagnostics LiveOutputStream::GetStreamingDiagnostics() const
+{
+	StreamingDiagnostics Diag;
+	Diag.TotalSegments = _DiagTotalSegments;
+	Diag.ReconnectCount = _InitGeneration;
+	Diag.TotalDtsDuration = _DiagTotalDtsDuration;
+	Diag.TotalAccumulatedDuration = _DiagTotalAccumulatedDuration;
+	Diag.MaxDriftMs = _DiagMaxDriftMs;
+	Diag.CurrentSegmentIndex = _CurrentSegmentIndex;
+	Diag.InitGeneration = _InitGeneration;
+
+	{
+		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
+		Diag.BacklogSize = (int)_StreamBacklog->size();
+	}
+
+	// Copy recent segment entries from ring buffer
+	int count = _DiagRingCount;
+	int start = (_DiagRingPos - count);
+	if (start < 0) start += DIAG_RING_SIZE;
+	for (int i = 0; i < count; i++)
+	{
+		Diag.RecentSegments.push_back(_DiagRing[(start + i) % DIAG_RING_SIZE]);
+	}
+
+	return Diag;
 }
 
 }}
