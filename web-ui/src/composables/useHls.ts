@@ -154,6 +154,11 @@ function createHlsConfig(debug: boolean, lowLatency: boolean): Partial<Hls['conf
       liveSyncDuration: 1,
       liveMaxLatencyDuration: 4,
       maxLiveSyncPlaybackRate: 1.5,
+      // Tolerate timestamp gaps between fMP4 fragments without triggering
+      // bufferStalledError. Gaps arise because AVPacket.duration doesn't
+      // always match the DTS delta between consecutive packets.
+      // Gap pattern: 0.2, 0.56, 0.92, 1.28, 1.64 (multiples of partial dur).
+      maxBufferHole: 0.5,
     }
   }
   return {
@@ -166,6 +171,7 @@ function createHlsConfig(debug: boolean, lowLatency: boolean): Partial<Hls['conf
     liveSyncDuration: 2,
     liveMaxLatencyDuration: 6,
     maxLiveSyncPlaybackRate: 1.05,
+    maxBufferHole: 0.5,
   }
 }
 
@@ -174,6 +180,7 @@ export interface HlsStreamState {
   showSpinner: Ref<boolean>
   connectionLost: Ref<boolean>
   isActive: Ref<boolean>
+  latencyMs: Ref<number>
 }
 
 export function useHls(
@@ -186,6 +193,7 @@ export function useHls(
   const showSpinner = ref(false)
   const connectionLost = ref(false)
   const isActive = ref(false)
+  const latencyMs = ref(0)
 
   const diagId = String(cameraId) + suffix
   const sourceUrl = `/stream/${cameraId}`
@@ -198,6 +206,7 @@ export function useHls(
   let restartInProgress = false
   let watchdog: ReturnType<typeof setInterval> | null = null
   let lowReadyStateSince = 0
+  let gapStuckSince = 0
   let stuckBackoffMs = 3000
   let restartBackoffMs = 10000
   let destroyed = false
@@ -206,12 +215,13 @@ export function useHls(
     h.on(Hls.Events.FRAG_BUFFERED, () => {
       lastFragTime = Date.now()
       diag.stats.totalFragments++
-      let latencyMs: number | null = null
+      let latMs: number | null = null
       if (h.liveSyncPosition != null) {
-        latencyMs = Math.round((h.liveSyncPosition - element.currentTime) * 1000)
-        diag.recordLatency(latencyMs)
+        latMs = Math.round((h.liveSyncPosition - element.currentTime) * 1000)
+        diag.recordLatency(latMs)
+        latencyMs.value = latMs
       }
-      diag.log('frag', { latencyMs })
+      diag.log('frag', { latencyMs: latMs })
       isActive.value = true
     })
 
@@ -276,9 +286,6 @@ export function useHls(
     hls.attachMedia(element)
 
     // Poll-based watchdog: drives spinner, connection-lost, and restart.
-    // We do NOT seek the playhead — HLS.js has its own recovery for
-    // buffer gaps (bufferSeekOverHole, nudgeOnStall). Seeking from
-    // outside fights those mechanisms and causes thrashing loops.
     watchdog = setInterval(() => {
       if (!element) return
 
@@ -302,6 +309,44 @@ export function useHls(
             element.currentTime = seekTarget
           }
         }
+      }
+
+      // Gap-skip: if the playhead is stuck (readyState <= 1) for over 1s but
+      // fragments are still arriving, the playhead is at a timestamp gap the
+      // browser can't cross. Debounce to avoid fighting HLS.js during normal
+      // segment boundary transitions where readyState drops briefly.
+      if (!element.paused && element.readyState <= 1 && lastFragTime > 0 && Date.now() - lastFragTime < HLS_SPINNER_TIMEOUT_MS) {
+        if (gapStuckSince === 0) {
+          gapStuckSince = Date.now()
+        } else if (Date.now() - gapStuckSince > 1000) {
+          gapStuckSince = 0
+          const buf = element.buffered
+          let seeked = false
+          for (let i = 0; i < buf.length; i++) {
+            if (buf.start(i) > element.currentTime + 0.1) {
+              diag.log('gapSkip', {
+                from: element.currentTime,
+                to: buf.start(i),
+                gapSize: Math.round((buf.start(i) - element.currentTime) * 1000),
+              })
+              element.currentTime = buf.start(i) + 0.05
+              seeked = true
+              break
+            }
+          }
+          // Playhead is beyond all buffered data — seek back to buffer end
+          if (!seeked && hls?.liveSyncPosition != null && buf.length > 0 && element.currentTime > buf.end(buf.length - 1)) {
+            const target = buf.end(buf.length - 1) - 0.5
+            diag.log('gapSkip', {
+              from: element.currentTime,
+              to: target,
+              reason: 'beyondBuffer',
+            })
+            element.currentTime = target
+          }
+        }
+      } else {
+        gapStuckSince = 0
       }
 
       // Detect sustained low readyState with exponential backoff.
@@ -386,5 +431,5 @@ export function useHls(
 
   onUnmounted(() => clearInterval(checkInterval))
 
-  return { showSpinner, connectionLost, isActive }
+  return { showSpinner, connectionLost, isActive, latencyMs }
 }
