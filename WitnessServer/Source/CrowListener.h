@@ -64,6 +64,9 @@ public:
 
 	const std::string& GetBaseUri() { return m_BaseUri; }
 
+	// Re-read build hash from disk (for auto-refresh detection)
+	void ReadBuildHash();
+
 private:
 
 	void RegisterRoutes();

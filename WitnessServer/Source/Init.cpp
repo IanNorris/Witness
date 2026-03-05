@@ -230,6 +230,18 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 		}, 5 * 60 );
 	}
 
+	// Build hash broadcast — re-read hash file every 30s, broadcast on change
+	Timer->AddTimer( [this](){
+		Server->ReadBuildHash();
+		auto& ctx = *Context;
+		if( !ctx.BuildHash.empty() )
+		{
+			crow::json::wvalue data;
+			data["hash"] = ctx.BuildHash;
+			ctx.Events->Broadcast( "build:hash", std::move( data ) );
+		}
+	}, 30 );
+
 	try
 	{
 		Server->Start();

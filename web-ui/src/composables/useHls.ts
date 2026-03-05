@@ -216,8 +216,8 @@ export function useHls(
       lastFragTime = Date.now()
       diag.stats.totalFragments++
       let latMs: number | null = null
-      if (h.liveSyncPosition != null) {
-        latMs = Math.round((h.liveSyncPosition - element.currentTime) * 1000)
+      if (h.latency != null && h.latency > 0) {
+        latMs = Math.round(h.latency * 1000)
         diag.recordLatency(latMs)
         latencyMs.value = latMs
       }
@@ -294,20 +294,18 @@ export function useHls(
         stuckBackoffMs = 3000
         restartBackoffMs = 10000
 
-        // Latency cap: if playback falls too far behind the live sync position,
-        // seek forward to catch up. This is a safety net for any residual
-        // duration drift that causes the timeline to diverge over long uptimes.
-        if (hls?.liveSyncPosition != null && element.currentTime > 0) {
-          const latency = hls.liveSyncPosition - element.currentTime
-          if (latency > 8) {
-            const seekTarget = hls.liveSyncPosition - 1
-            diag.log('latencySeek', {
-              from: element.currentTime,
-              to: seekTarget,
-              latency: Math.round(latency * 1000),
-            })
-            element.currentTime = seekTarget
-          }
+        // Latency cap: if playback falls too far behind the live edge,
+        // seek forward to catch up. Uses hls.latency which measures from
+        // the actual live edge, not liveSyncPosition (which can be behind
+        // currentTime in LL-HLS mode).
+        if (hls && hls.latency > 8 && hls.liveSyncPosition != null) {
+          const seekTarget = hls.liveSyncPosition - 1
+          diag.log('latencySeek', {
+            from: element.currentTime,
+            to: seekTarget,
+            latency: Math.round(hls.latency * 1000),
+          })
+          element.currentTime = seekTarget
         }
       }
 
@@ -334,15 +332,14 @@ export function useHls(
               break
             }
           }
-          // Playhead is beyond all buffered data — seek back to buffer end
+          // Playhead is beyond all buffered data — seek to live sync position
           if (!seeked && hls?.liveSyncPosition != null && buf.length > 0 && element.currentTime > buf.end(buf.length - 1)) {
-            const target = buf.end(buf.length - 1) - 0.5
             diag.log('gapSkip', {
               from: element.currentTime,
-              to: target,
+              to: hls.liveSyncPosition,
               reason: 'beyondBuffer',
             })
-            element.currentTime = target
+            element.currentTime = hls.liveSyncPosition
           }
         }
       } else {

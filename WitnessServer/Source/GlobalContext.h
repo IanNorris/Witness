@@ -82,6 +82,8 @@ public:
 
 	std::shared_ptr<EventBroadcaster> Events;
 
+	std::string BuildHash;
+
 private:
 	std::unordered_map< int, CameraState> Cameras;
 };

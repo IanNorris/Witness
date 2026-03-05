@@ -1,8 +1,24 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import { writeFileSync } from 'fs'
+import { resolve } from 'path'
+import { randomUUID } from 'crypto'
+
+const buildHash = randomUUID().replace(/-/g, '').slice(0, 12)
 
 export default defineConfig({
-  plugins: [vue()],
+  plugins: [
+    vue(),
+    {
+      name: 'write-build-hash',
+      closeBundle() {
+        writeFileSync(resolve(__dirname, '../WitnessServer/Web/build-hash.txt'), buildHash)
+      },
+    },
+  ],
+  define: {
+    __BUILD_HASH__: JSON.stringify(buildHash),
+  },
   base: '/',
   build: {
     outDir: '../WitnessServer/Web',
