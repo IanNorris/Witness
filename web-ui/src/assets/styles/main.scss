@@ -28,15 +28,8 @@ html, body, #app {
   height: 100vh;
 }
 
-.app-sidebar {
-  width: 240px;
-  background: $dark;
-  border-right: 1px solid $border-color;
-  display: flex;
-  flex-direction: column;
-  flex-shrink: 0;
-  overflow-y: auto;
-
+// Shared sidebar/drawer nav styles
+@mixin sidebar-styles {
   .sidebar-brand {
     padding: 1rem 1.25rem;
     font-size: 1.25rem;
@@ -72,6 +65,7 @@ html, body, #app {
       font-size: 0.9rem;
       border-left: 3px solid transparent;
       transition: all 0.15s;
+      text-decoration: none;
 
       &:hover {
         color: $body-color;
@@ -111,6 +105,17 @@ html, body, #app {
       &.unknown { background: #8b949e; }
     }
   }
+}
+
+.app-sidebar {
+  @include sidebar-styles;
+  width: 240px;
+  background: $dark;
+  border-right: 1px solid $border-color;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  overflow-y: auto;
 }
 
 .app-main {
@@ -558,6 +563,7 @@ html, body, #app {
   }
 
   .mobile-drawer {
+    @include sidebar-styles;
     display: flex;
     flex-direction: column;
     position: fixed;
@@ -593,17 +599,10 @@ html, body, #app {
       justify-content: center;
     }
 
-    .sidebar-nav {
-      flex: 1;
-      padding: 0.5rem 0;
-    }
-
+    // Override nav link sizes for better touch targets
     .nav-item .nav-link {
       padding: 0.75rem 1.25rem;
       min-height: 44px;
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
     }
 
     .sidebar-camera .nav-link {
