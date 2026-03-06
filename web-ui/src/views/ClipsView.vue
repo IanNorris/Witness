@@ -21,6 +21,7 @@ const filterStore = useFilterStore()
 
 const playingClip = ref<Clip | null>(null)
 const confirmDelete = ref<Clip | null>(null)
+const mobileFiltersOpen = ref(false)
 
 const cameraId = computed(() =>
   route.params.cameraId ? Number(route.params.cameraId) : null
@@ -110,7 +111,7 @@ function handleTagClick(_tag: string) {
     <template #actions>
       <div class="d-flex align-items-center gap-3">
         <button class="btn btn-sm btn-outline-secondary" @click="loadClips" title="Refresh">↻</button>
-        <div class="form-check form-switch mb-0">
+        <div class="form-check form-switch mb-0 mobile-hide">
           <input
             class="form-check-input"
             type="checkbox"
@@ -122,15 +123,22 @@ function handleTagClick(_tag: string) {
           </label>
         </div>
         <select
-          class="form-select form-select-sm page-size-select"
+          class="form-select form-select-sm page-size-select mobile-hide"
           :value="settings.clipsPerPage"
           @change="changePageSize"
         >
           <option v-for="n in pageSizeOptions" :key="n" :value="n">{{ n }} per page</option>
         </select>
-        <span v-if="clipStore.totalCount" class="text-muted-custom small">
+        <span v-if="clipStore.totalCount" class="text-muted-custom small mobile-hide">
           {{ clipStore.totalCount }} clips
         </span>
+        <button
+          class="btn btn-sm btn-outline-secondary mobile-filter-btn"
+          @click="mobileFiltersOpen = !mobileFiltersOpen"
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+          <span v-if="filterStore.activeFilterCount > 0" class="filter-badge">{{ filterStore.activeFilterCount }}</span>
+        </button>
       </div>
     </template>
 
@@ -199,10 +207,25 @@ function handleTagClick(_tag: string) {
         </div>
       </div>
 
-      <aside class="clips-sidebar">
+      <aside class="clips-sidebar clips-sidebar-desktop">
         <ClipFilters />
       </aside>
     </div>
+
+    <!-- Mobile filter drawer -->
+    <Teleport to="body">
+      <Transition name="filter-drawer">
+        <div v-if="mobileFiltersOpen" class="mobile-filter-overlay" @click.self="mobileFiltersOpen = false">
+          <div class="mobile-filter-sheet">
+            <div class="mobile-filter-sheet-header">
+              <span class="fw-semibold">Filters</span>
+              <button class="btn btn-sm btn-outline-secondary" @click="mobileFiltersOpen = false">✕</button>
+            </div>
+            <ClipFilters hide-title />
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
 
     <!-- Video player modal -->
     <ClipPlayer v-if="playingClip" :clip="playingClip" @close="playingClip = null" />
@@ -250,6 +273,85 @@ function handleTagClick(_tag: string) {
   background-color: var(--bs-dark, #1e1e2e);
   color: var(--bs-body-color, #e1e4e8);
   border-color: var(--bs-border-color, #333);
+}
+
+.mobile-filter-btn {
+  display: none;
+  position: relative;
+}
+.filter-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 0.6rem;
+  min-width: 16px;
+  height: 16px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+}
+
+.mobile-filter-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9000;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.mobile-filter-sheet {
+  background: var(--bs-dark, #1e1e2e);
+  border-top: 1px solid var(--bs-border-color, #333);
+  border-radius: 1rem 1rem 0 0;
+  width: 100%;
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 1rem;
+}
+.mobile-filter-sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.filter-drawer-enter-active, .filter-drawer-leave-active {
+  transition: opacity 0.2s ease;
+}
+.filter-drawer-enter-active .mobile-filter-sheet,
+.filter-drawer-leave-active .mobile-filter-sheet {
+  transition: transform 0.25s ease;
+}
+.filter-drawer-enter-from, .filter-drawer-leave-to {
+  opacity: 0;
+}
+.filter-drawer-enter-from .mobile-filter-sheet,
+.filter-drawer-leave-to .mobile-filter-sheet {
+  transform: translateY(100%);
+}
+
+@media (max-width: 768px) {
+  .clips-sidebar-desktop {
+    display: none;
+  }
+
+  .mobile-filter-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 36px;
+    min-height: 36px;
+  }
+
+  .clip-grid {
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 0.5rem;
+  }
 }
 
 .clip-modal-overlay {

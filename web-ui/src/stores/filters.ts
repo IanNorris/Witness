@@ -52,6 +52,18 @@ export const useFilterStore = defineStore('filters', () => {
       f.tags.length > 0
   })
 
+  const activeFilterCount = computed(() => {
+    const f = activeFilters.value
+    let count = 0
+    if (f.reviewed !== undefined) count++
+    if (f.saved !== undefined) count++
+    if (f.mode !== undefined) count++
+    if (f.lighting !== undefined) count++
+    if (f.minDuration !== undefined && f.minDuration > 0) count++
+    count += f.tags.length
+    return count
+  })
+
   // Time range — used by clip store for path params, not query params
   const timeRange = computed(() => {
     const f = activeFilters.value
@@ -119,6 +131,7 @@ export const useFilterStore = defineStore('filters', () => {
     activePreset,
     filterQueryString,
     hasActiveFilters,
+    activeFilterCount,
     timeRange,
     setPreset,
     clearFilters,

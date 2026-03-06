@@ -26,13 +26,15 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/auth': 'https://localhost:443',
-      '/camera': 'https://localhost:443',
-      '/clip': 'https://localhost:443',
-      '/stream': 'https://localhost:443',
-      '/group': 'https://localhost:443',
-      '/debug': 'https://localhost:443',
-      '/setup': 'https://localhost:443',
+      '/auth': { target: 'https://localhost:11236', secure: false },
+      '/camera': { target: 'https://localhost:11236', secure: false },
+      '/clip': { target: 'https://localhost:11236', secure: false },
+      '/stream': { target: 'https://localhost:11236', secure: false },
+      '/group': { target: 'https://localhost:11236', secure: false },
+      '/debug': { target: 'https://localhost:11236', secure: false },
+      '/setup': { target: 'https://localhost:11236', secure: false },
+      '/dvr': { target: 'https://localhost:11236', secure: false },
+      '/ws': { target: 'wss://localhost:11236', secure: false, ws: true },
     },
   },
 })
