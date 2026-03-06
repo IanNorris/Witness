@@ -54,6 +54,9 @@ const dragEndX = ref(0)
 const selectionFrom = ref<number | null>(null)
 const selectionTo = ref<number | null>(null)
 
+// Zoom history — stores range before drag-zoom so we can zoom back out
+const zoomHistory = ref<{ from: number; to: number }[]>([])
+
 // Tooltip
 const tooltipEvent = ref<TimelineEvent | null>(null)
 const tooltipX = ref(0)
@@ -94,26 +97,45 @@ const rangeLabel = computed(() => {
 })
 
 function prevPeriod() {
+  // If zoomed into a drag selection, just zoom out
+  if (zoomHistory.value.length > 0) {
+    zoomOut()
+    return
+  }
   const dur = rangeDuration.value
-  filterStore.setFilter('timeFrom', rangeFrom.value - dur)
-  filterStore.setFilter('timeTo', rangeTo.value - dur)
+  filterStore.setTimeRange(rangeFrom.value - dur, rangeTo.value - dur)
 }
 
 function nextPeriod() {
+  // If zoomed into a drag selection, just zoom out
+  if (zoomHistory.value.length > 0) {
+    zoomOut()
+    return
+  }
   const dur = rangeDuration.value
   const newTo = rangeTo.value + dur
   const now = Math.floor(Date.now() / 1000) + SECONDS_PER_DAY
   if (newTo <= now) {
-    filterStore.setFilter('timeFrom', rangeFrom.value + dur)
-    filterStore.setFilter('timeTo', newTo)
+    filterStore.setTimeRange(rangeFrom.value + dur, newTo)
   }
 }
 
 function goToday() {
   const todayStart = Math.floor(startOfDay(new Date()).getTime() / 1000)
-  filterStore.setFilter('timeFrom', todayStart)
-  filterStore.setFilter('timeTo', todayStart + SECONDS_PER_DAY)
+  zoomHistory.value = []
+  filterStore.setTimeRange(todayStart, todayStart + SECONDS_PER_DAY)
 }
+
+function zoomOut() {
+  const prev = zoomHistory.value.pop()
+  if (prev) {
+    filterStore.setTimeRange(prev.from, prev.to)
+  } else {
+    goToday()
+  }
+}
+
+const isZoomed = computed(() => zoomHistory.value.length > 0)
 
 const canGoNext = computed(() => {
   const now = Math.floor(Date.now() / 1000) + SECONDS_PER_DAY
@@ -248,8 +270,7 @@ function calendarNextMonth() {
 function selectCalendarDay(dateStr: string) {
   const d = new Date(dateStr + 'T00:00:00')
   const from = Math.floor(d.getTime() / 1000)
-  filterStore.setFilter('timeFrom', from)
-  filterStore.setFilter('timeTo', from + SECONDS_PER_DAY)
+  filterStore.setTimeRange(from, from + SECONDS_PER_DAY)
   showCalendar.value = false
 }
 
@@ -393,8 +414,8 @@ function onDragEnd() {
   if (tsEnd - tsStart > 300) {
     selectionFrom.value = tsStart
     selectionTo.value = tsEnd
-    filterStore.setFilter('timeFrom', tsStart)
-    filterStore.setFilter('timeTo', tsEnd)
+    zoomHistory.value.push({ from: rangeFrom.value, to: rangeTo.value })
+    filterStore.setTimeRange(tsStart, tsEnd)
   }
 }
 
@@ -589,36 +610,29 @@ function onPresetChange(e: Event) {
   const todayEnd = todayStart + DAY
   switch (preset) {
     case 'today':
-      filterStore.setFilter('timeFrom', todayStart)
-      filterStore.setFilter('timeTo', todayEnd)
+      filterStore.setTimeRange(todayStart, todayEnd)
       break
     case 'yesterday':
-      filterStore.setFilter('timeFrom', todayStart - DAY)
-      filterStore.setFilter('timeTo', todayStart)
+      filterStore.setTimeRange(todayStart - DAY, todayStart)
       break
     case 'thisWeek':
-      filterStore.setFilter('timeFrom', Math.floor(startOfWeek(now, { weekStartsOn: 1 }).getTime() / 1000))
-      filterStore.setFilter('timeTo', todayEnd)
+      filterStore.setTimeRange(Math.floor(startOfWeek(now, { weekStartsOn: 1 }).getTime() / 1000), todayEnd)
       break
     case 'lastWeek': {
       const lwStart = Math.floor(startOfWeek(subWeeks(now, 1), { weekStartsOn: 1 }).getTime() / 1000)
-      filterStore.setFilter('timeFrom', lwStart)
-      filterStore.setFilter('timeTo', Math.floor(startOfWeek(now, { weekStartsOn: 1 }).getTime() / 1000))
+      filterStore.setTimeRange(lwStart, Math.floor(startOfWeek(now, { weekStartsOn: 1 }).getTime() / 1000))
       break
     }
     case 'thisMonth':
-      filterStore.setFilter('timeFrom', Math.floor(startOfMonth(now).getTime() / 1000))
-      filterStore.setFilter('timeTo', todayEnd)
+      filterStore.setTimeRange(Math.floor(startOfMonth(now).getTime() / 1000), todayEnd)
       break
     case 'lastMonth': {
       const lmStart = Math.floor(startOfMonth(subMonths(now, 1)).getTime() / 1000)
-      filterStore.setFilter('timeFrom', lmStart)
-      filterStore.setFilter('timeTo', Math.floor(startOfMonth(now).getTime() / 1000))
+      filterStore.setTimeRange(lmStart, Math.floor(startOfMonth(now).getTime() / 1000))
       break
     }
     case 'older':
-      filterStore.setFilter('timeFrom', 0)
-      filterStore.setFilter('timeTo', Math.floor(startOfMonth(subMonths(now, 1)).getTime() / 1000))
+      filterStore.setTimeRange(0, Math.floor(startOfMonth(subMonths(now, 1)).getTime() / 1000))
       break
     case 'custom':
       showCustomPopup.value = true
@@ -638,8 +652,7 @@ function applyCustomRange() {
   const from = Math.floor(new Date(customFrom.value + 'T00:00:00').getTime() / 1000)
   const to = Math.floor(new Date(customTo.value + 'T00:00:00').getTime() / 1000) + DAY
   if (from < to) {
-    filterStore.setFilter('timeFrom', from)
-    filterStore.setFilter('timeTo', to)
+    filterStore.setTimeRange(from, to)
   }
 }
 
@@ -728,6 +741,7 @@ onUnmounted(() => {
       <div class="timeline-date-group">
         <button class="timeline-date-label" @click="toggleCalendar">{{ rangeLabel }}</button>
         <span v-if="timeRangeLabel" class="timeline-time-range">{{ timeRangeLabel }}</span>
+        <button v-if="isZoomed" class="timeline-zoom-out" @click="zoomOut" title="Zoom out (or double-click timeline)">✕</button>
       </div>
       <button class="timeline-nav-btn" @click="nextPeriod" :disabled="!canGoNext" title="Next period">→</button>
     </div>
@@ -774,6 +788,7 @@ onUnmounted(() => {
         @mousedown="onMouseDown"
         @mouseup="onMouseUp"
         @mouseleave="onMouseLeave"
+        @dblclick.prevent="zoomOut"
       >
         <!-- Axis ticks -->
         <div class="timeline-hours">
@@ -944,6 +959,21 @@ onUnmounted(() => {
   font-size: 0.7rem;
   color: rgba(255,255,255,0.45);
   white-space: nowrap;
+}
+.timeline-zoom-out {
+  background: none;
+  border: 1px solid rgba(255,255,255,0.2);
+  color: rgba(255,255,255,0.5);
+  font-size: 0.6rem;
+  padding: 0 4px;
+  border-radius: 3px;
+  cursor: pointer;
+  margin-left: 4px;
+  line-height: 1.2;
+}
+.timeline-zoom-out:hover {
+  color: rgba(255,255,255,0.9);
+  border-color: rgba(255,255,255,0.5);
 }
 .timeline-nav-spacer { flex: 1; }
 
