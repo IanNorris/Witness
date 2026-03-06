@@ -3,6 +3,8 @@ import { computed, onMounted } from 'vue'
 import { useFilterStore } from '../../stores/filters'
 import { useTagStore } from '../../stores/tags'
 
+const props = defineProps<{ hideTitle?: boolean }>()
+
 const filterStore = useFilterStore()
 const tagStore = useTagStore()
 
@@ -34,13 +36,17 @@ function toggleGroup(names: string[]) {
 
 <template>
   <div class="filter-panel">
-    <div class="filter-panel-header">
+    <div v-if="!hideTitle" class="filter-panel-header">
       <span class="filter-panel-title">Filters</span>
       <button
         v-if="filterStore.hasActiveFilters"
         class="filter-clear-btn"
         @click="filterStore.clearFilters()"
       >Clear all</button>
+    </div>
+    <div v-else-if="filterStore.hasActiveFilters" class="filter-panel-header">
+      <span />
+      <button class="filter-clear-btn" @click="filterStore.clearFilters()">Clear all</button>
     </div>
 
     <!-- Status -->
@@ -173,11 +179,15 @@ function toggleGroup(names: string[]) {
   color: var(--bs-body-color, #c9d1d9);
   border: 1px solid var(--bs-border-color, #333);
   border-radius: 0.3rem;
-  padding: 0.25rem 0.5rem;
-  font-size: 0.75rem;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.8rem;
   cursor: pointer;
   transition: all 0.15s;
   text-align: center;
+  min-height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 .filter-opt:hover {
   border-color: #555;
@@ -196,7 +206,7 @@ function toggleGroup(names: string[]) {
 .duration-slider {
   flex: 1;
   accent-color: #2563eb;
-  height: 4px;
+  height: 6px;
 }
 .duration-value {
   font-size: 0.75rem;
@@ -217,10 +227,11 @@ function toggleGroup(names: string[]) {
   color: var(--bs-body-color, #c9d1d9);
   border: 1px solid var(--bs-border-color, #333);
   border-radius: 1rem;
-  padding: 0.15rem 0.5rem;
-  font-size: 0.7rem;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8rem;
   cursor: pointer;
   transition: all 0.15s;
+  min-height: 32px;
 }
 .tag-chip:hover {
   border-color: #555;

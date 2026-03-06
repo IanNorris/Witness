@@ -19,15 +19,15 @@ onMounted(async () => {
     <template #actions>
       <div class="d-flex align-items-center gap-2">
         <button
-          class="btn btn-sm btn-outline-secondary"
+          class="btn btn-sm btn-outline-secondary mobile-hide"
           @click="settings.decreaseScale"
           title="Zoom out"
         >−</button>
-        <span class="small text-muted-custom" style="min-width: 3rem; text-align: center;">
+        <span class="small text-muted-custom mobile-hide" style="min-width: 3rem; text-align: center;">
           {{ settings.cameraPreviewScale }}%
         </span>
         <button
-          class="btn btn-sm btn-outline-secondary"
+          class="btn btn-sm btn-outline-secondary mobile-hide"
           @click="settings.increaseScale"
           title="Zoom in"
         >+</button>
@@ -42,9 +42,9 @@ onMounted(async () => {
             <line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>
           </svg>
         </button>
-        <div class="vr mx-1" style="border-color: var(--bs-border-color);"></div>
+        <div class="vr mx-1 mobile-hide" style="border-color: var(--bs-border-color);"></div>
         <button
-          class="btn btn-sm"
+          class="btn btn-sm mobile-hide"
           :class="settings.streamingMode === 'hls' ? 'btn-outline-primary' : 'btn-outline-secondary'"
           @click="settings.toggleStreamingMode"
           :title="'Mode: ' + settings.streamingMode.toUpperCase()"
