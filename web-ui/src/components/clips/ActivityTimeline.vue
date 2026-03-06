@@ -59,6 +59,13 @@ const tooltipEvent = ref<TimelineEvent | null>(null)
 const tooltipX = ref(0)
 const tooltipY = ref(0)
 
+// DVR thumbnail preview
+const dvrThumbs = ref<{ camId: number; url: string; name: string }[]>([])
+const dvrThumbTime = ref<string | null>(null)
+const dvrThumbLeft = ref(0)
+const dvrThumbY = ref(0)
+let dvrThumbTimer: ReturnType<typeof setTimeout> | null = null
+
 const SECONDS_PER_DAY = 86400
 
 // Derived from filter store
@@ -481,6 +488,48 @@ function onEventLeave() {
   tooltipEvent.value = null
 }
 
+// DVR bar hover → thumbnail preview
+function camerasAtTimestamp(ts: number): number[] {
+  const result: number[] = []
+  for (const [camId, ranges] of dvrCoverage.value) {
+    for (const r of ranges) {
+      if (ts >= r.from && ts <= r.to) { result.push(camId); break }
+    }
+  }
+  return result.sort((a, b) => a - b)
+}
+
+function onDvrHover(seg: { from: number; to: number }, e: MouseEvent) {
+  const bar = e.currentTarget as HTMLElement
+  const rect = bar.getBoundingClientRect()
+  const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+  const ts = Math.floor(seg.from + pct * (seg.to - seg.from))
+
+  dvrThumbY.value = rect.top
+  dvrThumbTime.value = formatTimestamp(ts)
+
+  if (dvrThumbTimer) clearTimeout(dvrThumbTimer)
+  dvrThumbTimer = setTimeout(() => {
+    const camIds = camerasAtTimestamp(ts)
+    dvrThumbs.value = camIds.map(id => ({
+      camId: id,
+      url: `/dvr/thumbnail/${id}/${ts}`,
+      name: cameraStore.cameras.find(c => c.id === id)?.name ?? `Camera ${id}`,
+    }))
+    // Compute clamped left so tooltip doesn't overflow viewport
+    const cellW = 164 // 160px img + 4px gap
+    const tooltipW = camIds.length * cellW + 12
+    const left = e.clientX - tooltipW / 2
+    dvrThumbLeft.value = Math.max(8, Math.min(window.innerWidth - tooltipW - 8, left))
+  }, 100)
+}
+
+function onDvrLeave() {
+  if (dvrThumbTimer) { clearTimeout(dvrThumbTimer); dvrThumbTimer = null }
+  dvrThumbs.value = []
+  dvrThumbTime.value = null
+}
+
 // Time presets dropdown
 const DAY = 86400
 
@@ -751,6 +800,8 @@ onUnmounted(() => {
             }"
             :title="`DVR: ${formatTimestamp(seg.from)} — ${formatTimestamp(seg.to)}`"
             @click.stop="onDvrClick(seg, $event)"
+            @mousemove="onDvrHover(seg, $event)"
+            @mouseleave="onDvrLeave"
           ></div>
         </div>
 
@@ -818,6 +869,24 @@ onUnmounted(() => {
         · {{ tooltipEvent.clipCount }} clip{{ tooltipEvent.clipCount > 1 ? 's' : '' }}
       </div>
       <div v-if="getEventEmojis(tooltipEvent)" class="tt-tags">{{ getEventEmojis(tooltipEvent) }}</div>
+    </div>
+
+    <!-- DVR thumbnail preview -->
+    <div
+      v-if="dvrThumbTime && dvrThumbs.length"
+      class="dvr-thumb-tooltip"
+      :style="{ left: `${dvrThumbLeft}px`, top: `${dvrThumbY}px` }"
+    >
+      <div class="dvr-thumb-grid">
+        <div v-for="t in dvrThumbs" :key="t.camId" class="dvr-thumb-cell">
+          <img :src="t.url" class="dvr-thumb-img" alt=""
+            @error="($event.target as HTMLImageElement).style.display='none';
+              (($event.target as HTMLElement).nextElementSibling as HTMLElement).style.display='flex'" />
+          <div class="dvr-thumb-offline" style="display:none">Offline</div>
+          <div class="dvr-thumb-cam">{{ t.name }}</div>
+        </div>
+      </div>
+      <div class="dvr-thumb-time">{{ dvrThumbTime }}</div>
     </div>
 
     <!-- DVR multi-camera player -->
@@ -1218,5 +1287,62 @@ onUnmounted(() => {
 .tt-tags {
   font-size: 0.85rem;
   margin-top: 2px;
+}
+
+/* DVR thumbnail hover preview */
+.dvr-thumb-tooltip {
+  position: fixed;
+  transform: translateY(-100%);
+  margin-top: -8px;
+  z-index: 1001;
+  background: rgba(0, 0, 0, 0.92);
+  border: 1px solid #555;
+  border-radius: 6px;
+  padding: 6px;
+  pointer-events: none;
+  text-align: center;
+  white-space: nowrap;
+}
+.dvr-thumb-grid {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.dvr-thumb-cell {
+  text-align: center;
+}
+.dvr-thumb-img {
+  display: block;
+  width: 160px;
+  height: auto;
+  border-radius: 3px;
+}
+.dvr-thumb-offline {
+  width: 160px;
+  height: 90px;
+  border-radius: 3px;
+  background: #1a1a2e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+}
+.dvr-thumb-cam {
+  font-size: 0.6rem;
+  color: rgba(255, 255, 255, 0.7);
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+.dvr-thumb-time {
+  font-size: 0.7rem;
+  color: rgba(255, 255, 255, 0.85);
+  margin-top: 3px;
 }
 </style>

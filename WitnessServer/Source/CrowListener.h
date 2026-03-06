@@ -141,6 +141,7 @@ private:
 	void HandleDvrSegment( const crow::request& req, crow::response& res, int segmentId );
 	void HandleDvrPlaylist( const crow::request& req, crow::response& res, int cameraId, const std::string& fromStr, const std::string& toStr );
 	void HandleDvrSegments( const crow::request& req, crow::response& res, int cameraId, const std::string& fromStr, const std::string& toStr );
+	void HandleDvrThumbnail( const crow::request& req, crow::response& res, int cameraId, const std::string& timestampStr );
 
 	bool ConfigureSSL();
 
