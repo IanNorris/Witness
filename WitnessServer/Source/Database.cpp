@@ -672,6 +672,15 @@ namespace Database
 		ORDER BY StartTimestamp ASC;
 	)RAW";
 
+	std::string SelectContinuousSegmentAtTimestamp = R"RAW(
+		SELECT SegmentUID, FilePath, StartTimestamp, EndTimestamp FROM ContinuousSegment
+		WHERE CameraUID = @CameraUID
+			AND StartTimestamp <= @Timestamp
+			AND EndTimestamp >= @Timestamp
+		ORDER BY StartTimestamp DESC
+		LIMIT 1;
+	)RAW";
+
 #define CREATE_QUERY( X ) DB->CreateQuery( #X, X )
 
 	std::shared_ptr<SQLiteDatabase> InitializeDatabase( std::string Filename )
@@ -826,6 +835,7 @@ namespace Database
 		CREATE_QUERY( SelectContinuousTotalSize );
 		CREATE_QUERY( SelectOldestContinuousSegment );
 		CREATE_QUERY( SelectContinuousCoverage );
+		CREATE_QUERY( SelectContinuousSegmentAtTimestamp );
 
 		return DB;
 	}

@@ -478,6 +478,12 @@ void CrowListener::RegisterRoutes()
 		HandleDvrSegments( req, res, cameraId, from, to );
 	});
 
+	CROW_ROUTE( m_App, "/dvr/thumbnail/<int>/<string>" )
+	([this]( const crow::request& req, crow::response& res, int cameraId, const std::string& timestamp )
+	{
+		HandleDvrThumbnail( req, res, cameraId, timestamp );
+	});
+
 	// WebSocket event stream
 	CROW_WEBSOCKET_ROUTE( m_App, "/ws/events" )
 		.onaccept([this]( const crow::request& req, void** ) -> bool

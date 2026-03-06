@@ -59,6 +59,14 @@ public:
 	{
 		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
 
+		// Prune segments older than 10s so clients don't loop stale data.
+		auto now = std::chrono::system_clock::now();
+		std::erase_if( *_StreamBacklog, [&now]( const LiveStreamSegment& seg )
+		{
+			return std::chrono::duration_cast<std::chrono::seconds>(
+				now - seg.SegmentTime ).count() > 10;
+		});
+
 		OutSegments = *_StreamBacklog;
 	}
 

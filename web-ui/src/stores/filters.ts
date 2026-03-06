@@ -99,6 +99,12 @@ export const useFilterStore = defineStore('filters', () => {
     activePreset.value = null
   }
 
+  function setTimeRange(from: number, to: number) {
+    activeFilters.value.timeFrom = from
+    activeFilters.value.timeTo = to
+    activePreset.value = null
+  }
+
   function clearFilter(key: keyof ActiveFilters) {
     if (key === 'tags') {
       activeFilters.value.tags = []
@@ -118,6 +124,7 @@ export const useFilterStore = defineStore('filters', () => {
     clearFilters,
     toggleTag,
     setFilter,
+    setTimeRange,
     clearFilter,
   }
 })

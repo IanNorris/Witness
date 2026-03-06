@@ -294,3 +294,274 @@ void CrowListener::HandleDvrPlaylist( const crow::request& req, crow::response& 
 
 	LOG_DEBUG("[DVR] Playlist cam=%d segs=%d from=%lld to=%lld maxDur=%d", cameraId, (int)segments.size(), from, to, maxDuration);
 }
+
+// --- DVR Thumbnail ---
+
+#include <mutex>
+#include <list>
+
+extern "C" {
+#include <libavformat/avformat.h>
+#include <libavcodec/avcodec.h>
+#include <libswscale/swscale.h>
+#include <libavutil/imgutils.h>
+}
+
+#include <opencv2/core/core.hpp>
+#include <opencv2/imgproc.hpp>
+#include <opencv2/imgcodecs.hpp>
+
+namespace
+{
+	struct ThumbnailCacheEntry
+	{
+		std::string Key;
+		std::vector<uint8_t> JpegData;
+	};
+
+	std::mutex g_ThumbnailCacheMutex;
+	std::list<ThumbnailCacheEntry> g_ThumbnailCache;
+	const size_t THUMBNAIL_CACHE_MAX = 50;
+
+	std::vector<uint8_t>* FindCachedThumbnail( const std::string& key )
+	{
+		for( auto it = g_ThumbnailCache.begin(); it != g_ThumbnailCache.end(); ++it )
+		{
+			if( it->Key == key )
+			{
+				// Move to front (MRU)
+				if( it != g_ThumbnailCache.begin() )
+					g_ThumbnailCache.splice( g_ThumbnailCache.begin(), g_ThumbnailCache, it );
+				return &g_ThumbnailCache.front().JpegData;
+			}
+		}
+		return nullptr;
+	}
+
+	void InsertCachedThumbnail( const std::string& key, std::vector<uint8_t> jpeg )
+	{
+		if( g_ThumbnailCache.size() >= THUMBNAIL_CACHE_MAX )
+			g_ThumbnailCache.pop_back();
+
+		g_ThumbnailCache.push_front( { key, std::move( jpeg ) } );
+	}
+}
+
+void CrowListener::HandleDvrThumbnail( const crow::request& req, crow::response& res, int cameraId, const std::string& timestampStr )
+{
+	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, nullptr,
+		CrowAuth::Action::Read, CrowAuth::Privilege::Normal );
+	if( UserUID < 0 )
+	{
+		res.code = 401;
+		res.end();
+		return;
+	}
+
+	int64_t timestamp = 0;
+	try { timestamp = std::stoll( timestampStr ); }
+	catch( ... )
+	{
+		res.code = 400;
+		res.end();
+		return;
+	}
+
+	// Find the segment containing this timestamp
+	std::string filePath;
+	int64_t segStart = 0;
+
+	SQLiteDatabaseQueryInstance query( m_GlobalContext->Database, "SelectContinuousSegmentAtTimestamp" );
+	query->Bind( "@CameraUID", cameraId );
+	query->Bind( "@Timestamp", timestamp );
+	query->Execute(
+		[&]( const SQLiteDatabaseQuery& q )
+		{
+			const char* path = q.GetColumnValueText( 1 );
+			if( path ) filePath = path;
+			segStart = q.GetColumnValueInt64( 2 );
+			return false; // only need first result
+		}
+	);
+
+	if( filePath.empty() || !fs::exists( filePath ) )
+	{
+		res.code = 404;
+		res.end();
+		return;
+	}
+
+	// Check LRU cache
+	std::string cacheKey = std::to_string( cameraId ) + ":" + std::to_string( timestamp );
+	{
+		const std::lock_guard<std::mutex> lock( g_ThumbnailCacheMutex );
+		auto* cached = FindCachedThumbnail( cacheKey );
+		if( cached )
+		{
+			res.set_header( "Content-Type", "image/jpeg" );
+			res.set_header( "Cache-Control", "public, max-age=3600" );
+			res.body.assign( (const char*)cached->data(), cached->size() );
+			res.code = 200;
+			res.end();
+			return;
+		}
+	}
+
+	// Open the MP4 with FFmpeg and extract a frame
+	AVFormatContext* fmtCtx = nullptr;
+	if( avformat_open_input( &fmtCtx, filePath.c_str(), nullptr, nullptr ) < 0 )
+	{
+		LOG_ERROR( "[DVR] Thumbnail: Failed to open %s", filePath.c_str() );
+		res.code = 500;
+		res.end();
+		return;
+	}
+
+	if( avformat_find_stream_info( fmtCtx, nullptr ) < 0 )
+	{
+		avformat_close_input( &fmtCtx );
+		res.code = 500;
+		res.end();
+		return;
+	}
+
+	int videoIdx = -1;
+	for( unsigned i = 0; i < fmtCtx->nb_streams; i++ )
+	{
+		if( fmtCtx->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO )
+		{
+			videoIdx = i;
+			break;
+		}
+	}
+
+	if( videoIdx < 0 )
+	{
+		avformat_close_input( &fmtCtx );
+		res.code = 500;
+		res.end();
+		return;
+	}
+
+	auto codecpar = fmtCtx->streams[videoIdx]->codecpar;
+	auto codec = avcodec_find_decoder( codecpar->codec_id );
+	if( !codec )
+	{
+		avformat_close_input( &fmtCtx );
+		res.code = 500;
+		res.end();
+		return;
+	}
+
+	auto codecCtx = avcodec_alloc_context3( codec );
+	avcodec_parameters_to_context( codecCtx, codecpar );
+	if( avcodec_open2( codecCtx, codec, nullptr ) < 0 )
+	{
+		avcodec_free_context( &codecCtx );
+		avformat_close_input( &fmtCtx );
+		res.code = 500;
+		res.end();
+		return;
+	}
+
+	// Seek to the requested position within the segment
+	double seekSec = (double)( timestamp - segStart );
+	if( seekSec < 0 ) seekSec = 0;
+	int64_t seekTarget = (int64_t)( seekSec * AV_TIME_BASE );
+	av_seek_frame( fmtCtx, -1, seekTarget, AVSEEK_FLAG_BACKWARD );
+	avcodec_flush_buffers( codecCtx );
+
+	// Decode one frame
+	AVPacket* pkt = av_packet_alloc();
+	AVFrame* frame = av_frame_alloc();
+	bool gotFrame = false;
+
+	while( av_read_frame( fmtCtx, pkt ) >= 0 )
+	{
+		if( pkt->stream_index == videoIdx )
+		{
+			avcodec_send_packet( codecCtx, pkt );
+			if( avcodec_receive_frame( codecCtx, frame ) == 0 )
+			{
+				gotFrame = true;
+				av_packet_unref( pkt );
+				break;
+			}
+		}
+		av_packet_unref( pkt );
+	}
+
+	if( !gotFrame )
+	{
+		av_frame_free( &frame );
+		av_packet_free( &pkt );
+		avcodec_free_context( &codecCtx );
+		avformat_close_input( &fmtCtx );
+		res.code = 404;
+		res.end();
+		return;
+	}
+
+	// Convert to BGR24
+	int w = codecCtx->width;
+	int h = codecCtx->height;
+
+	SwsContext* swsCtx = sws_getContext(
+		w, h, codecCtx->pix_fmt,
+		w, h, AV_PIX_FMT_BGR24,
+		SWS_BILINEAR, nullptr, nullptr, nullptr );
+
+	if( !swsCtx )
+	{
+		av_frame_free( &frame );
+		av_packet_free( &pkt );
+		avcodec_free_context( &codecCtx );
+		avformat_close_input( &fmtCtx );
+		res.code = 500;
+		res.end();
+		return;
+	}
+
+	AVFrame* bgrFrame = av_frame_alloc();
+	int bgrBufSize = av_image_get_buffer_size( AV_PIX_FMT_BGR24, w, h, 1 );
+	std::vector<uint8_t> bgrBuffer( bgrBufSize );
+	av_image_fill_arrays( bgrFrame->data, bgrFrame->linesize, bgrBuffer.data(),
+		AV_PIX_FMT_BGR24, w, h, 1 );
+
+	sws_scale( swsCtx, frame->data, frame->linesize, 0, h,
+		bgrFrame->data, bgrFrame->linesize );
+
+	cv::Mat mat( h, w, CV_8UC3, bgrFrame->data[0], bgrFrame->linesize[0] );
+
+	// Resize to 300px wide
+	int thumbW = 300;
+	int thumbH = (int)( (double)h / w * thumbW );
+	cv::Mat thumb;
+	cv::resize( mat, thumb, cv::Size( thumbW, thumbH ), 0, 0, cv::INTER_AREA );
+
+	// Encode to JPEG
+	std::vector<uint8_t> jpegBuf;
+	std::vector<int> params = { cv::IMWRITE_JPEG_QUALITY, 70 };
+	cv::imencode( ".jpg", thumb, jpegBuf, params );
+
+	// Cleanup FFmpeg
+	av_frame_free( &bgrFrame );
+	av_frame_free( &frame );
+	av_packet_free( &pkt );
+	sws_freeContext( swsCtx );
+	avcodec_free_context( &codecCtx );
+	avformat_close_input( &fmtCtx );
+
+	// Cache it
+	{
+		const std::lock_guard<std::mutex> lock( g_ThumbnailCacheMutex );
+		InsertCachedThumbnail( cacheKey, jpegBuf );
+	}
+
+	// Return JPEG
+	res.set_header( "Content-Type", "image/jpeg" );
+	res.set_header( "Cache-Control", "public, max-age=3600" );
+	res.body.assign( (const char*)jpegBuf.data(), jpegBuf.size() );
+	res.code = 200;
+	res.end();
+}

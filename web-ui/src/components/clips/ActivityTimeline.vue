@@ -54,10 +54,20 @@ const dragEndX = ref(0)
 const selectionFrom = ref<number | null>(null)
 const selectionTo = ref<number | null>(null)
 
+// Zoom history — stores range before drag-zoom so we can zoom back out
+const zoomHistory = ref<{ from: number; to: number }[]>([])
+
 // Tooltip
 const tooltipEvent = ref<TimelineEvent | null>(null)
 const tooltipX = ref(0)
 const tooltipY = ref(0)
+
+// DVR thumbnail preview
+const dvrThumbs = ref<{ camId: number; url: string; name: string }[]>([])
+const dvrThumbTime = ref<string | null>(null)
+const dvrThumbLeft = ref(0)
+const dvrThumbY = ref(0)
+let dvrThumbTimer: ReturnType<typeof setTimeout> | null = null
 
 const SECONDS_PER_DAY = 86400
 
@@ -87,26 +97,45 @@ const rangeLabel = computed(() => {
 })
 
 function prevPeriod() {
+  // If zoomed into a drag selection, just zoom out
+  if (zoomHistory.value.length > 0) {
+    zoomOut()
+    return
+  }
   const dur = rangeDuration.value
-  filterStore.setFilter('timeFrom', rangeFrom.value - dur)
-  filterStore.setFilter('timeTo', rangeTo.value - dur)
+  filterStore.setTimeRange(rangeFrom.value - dur, rangeTo.value - dur)
 }
 
 function nextPeriod() {
+  // If zoomed into a drag selection, just zoom out
+  if (zoomHistory.value.length > 0) {
+    zoomOut()
+    return
+  }
   const dur = rangeDuration.value
   const newTo = rangeTo.value + dur
   const now = Math.floor(Date.now() / 1000) + SECONDS_PER_DAY
   if (newTo <= now) {
-    filterStore.setFilter('timeFrom', rangeFrom.value + dur)
-    filterStore.setFilter('timeTo', newTo)
+    filterStore.setTimeRange(rangeFrom.value + dur, newTo)
   }
 }
 
 function goToday() {
   const todayStart = Math.floor(startOfDay(new Date()).getTime() / 1000)
-  filterStore.setFilter('timeFrom', todayStart)
-  filterStore.setFilter('timeTo', todayStart + SECONDS_PER_DAY)
+  zoomHistory.value = []
+  filterStore.setTimeRange(todayStart, todayStart + SECONDS_PER_DAY)
 }
+
+function zoomOut() {
+  const prev = zoomHistory.value.pop()
+  if (prev) {
+    filterStore.setTimeRange(prev.from, prev.to)
+  } else {
+    goToday()
+  }
+}
+
+const isZoomed = computed(() => zoomHistory.value.length > 0)
 
 const canGoNext = computed(() => {
   const now = Math.floor(Date.now() / 1000) + SECONDS_PER_DAY
@@ -241,8 +270,7 @@ function calendarNextMonth() {
 function selectCalendarDay(dateStr: string) {
   const d = new Date(dateStr + 'T00:00:00')
   const from = Math.floor(d.getTime() / 1000)
-  filterStore.setFilter('timeFrom', from)
-  filterStore.setFilter('timeTo', from + SECONDS_PER_DAY)
+  filterStore.setTimeRange(from, from + SECONDS_PER_DAY)
   showCalendar.value = false
 }
 
@@ -386,8 +414,8 @@ function onDragEnd() {
   if (tsEnd - tsStart > 300) {
     selectionFrom.value = tsStart
     selectionTo.value = tsEnd
-    filterStore.setFilter('timeFrom', tsStart)
-    filterStore.setFilter('timeTo', tsEnd)
+    zoomHistory.value.push({ from: rangeFrom.value, to: rangeTo.value })
+    filterStore.setTimeRange(tsStart, tsEnd)
   }
 }
 
@@ -481,6 +509,48 @@ function onEventLeave() {
   tooltipEvent.value = null
 }
 
+// DVR bar hover → thumbnail preview
+function camerasAtTimestamp(ts: number): number[] {
+  const result: number[] = []
+  for (const [camId, ranges] of dvrCoverage.value) {
+    for (const r of ranges) {
+      if (ts >= r.from && ts <= r.to) { result.push(camId); break }
+    }
+  }
+  return result.sort((a, b) => a - b)
+}
+
+function onDvrHover(seg: { from: number; to: number }, e: MouseEvent) {
+  const bar = e.currentTarget as HTMLElement
+  const rect = bar.getBoundingClientRect()
+  const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+  const ts = Math.floor(seg.from + pct * (seg.to - seg.from))
+
+  dvrThumbY.value = rect.top
+  dvrThumbTime.value = formatTimestamp(ts)
+
+  if (dvrThumbTimer) clearTimeout(dvrThumbTimer)
+  dvrThumbTimer = setTimeout(() => {
+    const camIds = camerasAtTimestamp(ts)
+    dvrThumbs.value = camIds.map(id => ({
+      camId: id,
+      url: `/dvr/thumbnail/${id}/${ts}`,
+      name: cameraStore.cameras.find(c => c.id === id)?.name ?? `Camera ${id}`,
+    }))
+    // Compute clamped left so tooltip doesn't overflow viewport
+    const cellW = 164 // 160px img + 4px gap
+    const tooltipW = camIds.length * cellW + 12
+    const left = e.clientX - tooltipW / 2
+    dvrThumbLeft.value = Math.max(8, Math.min(window.innerWidth - tooltipW - 8, left))
+  }, 100)
+}
+
+function onDvrLeave() {
+  if (dvrThumbTimer) { clearTimeout(dvrThumbTimer); dvrThumbTimer = null }
+  dvrThumbs.value = []
+  dvrThumbTime.value = null
+}
+
 // Time presets dropdown
 const DAY = 86400
 
@@ -540,36 +610,29 @@ function onPresetChange(e: Event) {
   const todayEnd = todayStart + DAY
   switch (preset) {
     case 'today':
-      filterStore.setFilter('timeFrom', todayStart)
-      filterStore.setFilter('timeTo', todayEnd)
+      filterStore.setTimeRange(todayStart, todayEnd)
       break
     case 'yesterday':
-      filterStore.setFilter('timeFrom', todayStart - DAY)
-      filterStore.setFilter('timeTo', todayStart)
+      filterStore.setTimeRange(todayStart - DAY, todayStart)
       break
     case 'thisWeek':
-      filterStore.setFilter('timeFrom', Math.floor(startOfWeek(now, { weekStartsOn: 1 }).getTime() / 1000))
-      filterStore.setFilter('timeTo', todayEnd)
+      filterStore.setTimeRange(Math.floor(startOfWeek(now, { weekStartsOn: 1 }).getTime() / 1000), todayEnd)
       break
     case 'lastWeek': {
       const lwStart = Math.floor(startOfWeek(subWeeks(now, 1), { weekStartsOn: 1 }).getTime() / 1000)
-      filterStore.setFilter('timeFrom', lwStart)
-      filterStore.setFilter('timeTo', Math.floor(startOfWeek(now, { weekStartsOn: 1 }).getTime() / 1000))
+      filterStore.setTimeRange(lwStart, Math.floor(startOfWeek(now, { weekStartsOn: 1 }).getTime() / 1000))
       break
     }
     case 'thisMonth':
-      filterStore.setFilter('timeFrom', Math.floor(startOfMonth(now).getTime() / 1000))
-      filterStore.setFilter('timeTo', todayEnd)
+      filterStore.setTimeRange(Math.floor(startOfMonth(now).getTime() / 1000), todayEnd)
       break
     case 'lastMonth': {
       const lmStart = Math.floor(startOfMonth(subMonths(now, 1)).getTime() / 1000)
-      filterStore.setFilter('timeFrom', lmStart)
-      filterStore.setFilter('timeTo', Math.floor(startOfMonth(now).getTime() / 1000))
+      filterStore.setTimeRange(lmStart, Math.floor(startOfMonth(now).getTime() / 1000))
       break
     }
     case 'older':
-      filterStore.setFilter('timeFrom', 0)
-      filterStore.setFilter('timeTo', Math.floor(startOfMonth(subMonths(now, 1)).getTime() / 1000))
+      filterStore.setTimeRange(0, Math.floor(startOfMonth(subMonths(now, 1)).getTime() / 1000))
       break
     case 'custom':
       showCustomPopup.value = true
@@ -589,8 +652,7 @@ function applyCustomRange() {
   const from = Math.floor(new Date(customFrom.value + 'T00:00:00').getTime() / 1000)
   const to = Math.floor(new Date(customTo.value + 'T00:00:00').getTime() / 1000) + DAY
   if (from < to) {
-    filterStore.setFilter('timeFrom', from)
-    filterStore.setFilter('timeTo', to)
+    filterStore.setTimeRange(from, to)
   }
 }
 
@@ -679,6 +741,7 @@ onUnmounted(() => {
       <div class="timeline-date-group">
         <button class="timeline-date-label" @click="toggleCalendar">{{ rangeLabel }}</button>
         <span v-if="timeRangeLabel" class="timeline-time-range">{{ timeRangeLabel }}</span>
+        <button v-if="isZoomed" class="timeline-zoom-out" @click="zoomOut" title="Zoom out (or double-click timeline)">✕</button>
       </div>
       <button class="timeline-nav-btn" @click="nextPeriod" :disabled="!canGoNext" title="Next period">→</button>
     </div>
@@ -725,6 +788,7 @@ onUnmounted(() => {
         @mousedown="onMouseDown"
         @mouseup="onMouseUp"
         @mouseleave="onMouseLeave"
+        @dblclick.prevent="zoomOut"
       >
         <!-- Axis ticks -->
         <div class="timeline-hours">
@@ -751,6 +815,8 @@ onUnmounted(() => {
             }"
             :title="`DVR: ${formatTimestamp(seg.from)} — ${formatTimestamp(seg.to)}`"
             @click.stop="onDvrClick(seg, $event)"
+            @mousemove="onDvrHover(seg, $event)"
+            @mouseleave="onDvrLeave"
           ></div>
         </div>
 
@@ -820,6 +886,24 @@ onUnmounted(() => {
       <div v-if="getEventEmojis(tooltipEvent)" class="tt-tags">{{ getEventEmojis(tooltipEvent) }}</div>
     </div>
 
+    <!-- DVR thumbnail preview -->
+    <div
+      v-if="dvrThumbTime && dvrThumbs.length"
+      class="dvr-thumb-tooltip"
+      :style="{ left: `${dvrThumbLeft}px`, top: `${dvrThumbY}px` }"
+    >
+      <div class="dvr-thumb-grid">
+        <div v-for="t in dvrThumbs" :key="t.camId" class="dvr-thumb-cell">
+          <img :src="t.url" class="dvr-thumb-img" alt=""
+            @error="($event.target as HTMLImageElement).style.display='none';
+              (($event.target as HTMLElement).nextElementSibling as HTMLElement).style.display='flex'" />
+          <div class="dvr-thumb-offline" style="display:none">Offline</div>
+          <div class="dvr-thumb-cam">{{ t.name }}</div>
+        </div>
+      </div>
+      <div class="dvr-thumb-time">{{ dvrThumbTime }}</div>
+    </div>
+
     <!-- DVR multi-camera player -->
     <DvrMultiPlayer
       v-if="dvrPlayback"
@@ -875,6 +959,21 @@ onUnmounted(() => {
   font-size: 0.7rem;
   color: rgba(255,255,255,0.45);
   white-space: nowrap;
+}
+.timeline-zoom-out {
+  background: none;
+  border: 1px solid rgba(255,255,255,0.2);
+  color: rgba(255,255,255,0.5);
+  font-size: 0.6rem;
+  padding: 0 4px;
+  border-radius: 3px;
+  cursor: pointer;
+  margin-left: 4px;
+  line-height: 1.2;
+}
+.timeline-zoom-out:hover {
+  color: rgba(255,255,255,0.9);
+  border-color: rgba(255,255,255,0.5);
 }
 .timeline-nav-spacer { flex: 1; }
 
@@ -1218,5 +1317,62 @@ onUnmounted(() => {
 .tt-tags {
   font-size: 0.85rem;
   margin-top: 2px;
+}
+
+/* DVR thumbnail hover preview */
+.dvr-thumb-tooltip {
+  position: fixed;
+  transform: translateY(-100%);
+  margin-top: -8px;
+  z-index: 1001;
+  background: rgba(0, 0, 0, 0.92);
+  border: 1px solid #555;
+  border-radius: 6px;
+  padding: 6px;
+  pointer-events: none;
+  text-align: center;
+  white-space: nowrap;
+}
+.dvr-thumb-grid {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.dvr-thumb-cell {
+  text-align: center;
+}
+.dvr-thumb-img {
+  display: block;
+  width: 160px;
+  height: auto;
+  border-radius: 3px;
+}
+.dvr-thumb-offline {
+  width: 160px;
+  height: 90px;
+  border-radius: 3px;
+  background: #1a1a2e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+}
+.dvr-thumb-cam {
+  font-size: 0.6rem;
+  color: rgba(255, 255, 255, 0.7);
+  margin-top: 1px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+.dvr-thumb-time {
+  font-size: 0.7rem;
+  color: rgba(255, 255, 255, 0.85);
+  margin-top: 3px;
 }
 </style>

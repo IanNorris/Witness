@@ -30,6 +30,14 @@ void CrowListener::HandlePlaylist( const crow::request& req, crow::response& res
 	std::vector<LiveStreamSegment> Segments;
 	LiveStream->GetSegments( Segments );
 
+	if( Segments.empty() )
+	{
+		// No segments available (stale or not started) — 503 tells HLS.js to retry
+		res.code = 503;
+		res.end();
+		return;
+	}
+
 	int CurrentSegment = LiveStream->GetCurrentSegment();
 	int InitGeneration = LiveStream->GetInitGeneration();
 

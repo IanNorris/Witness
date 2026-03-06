@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { api } from '../../composables/useApi'
 import { format } from 'date-fns'
 
@@ -38,6 +38,13 @@ const loading = ref(true)
 let swapPending = false
 
 const rates = [1, 2, 4, 8]
+
+// Seek bar scrub preview
+const scrubThumbUrl = ref<string | null>(null)
+const scrubThumbX = ref(0)
+const scrubThumbY = ref(0)
+const scrubThumbTime = ref<string | null>(null)
+let scrubTimer: ReturnType<typeof setTimeout> | null = null
 
 function getActive(): HTMLVideoElement | null {
   return activeSlot.value === 'a' ? videoA.value : videoB.value
@@ -334,6 +341,100 @@ watch(() => props.startAt, (newTs) => {
   seekToTimestamp(newTs)
 })
 
+// Seek bar scrub preview
+function onScrubMove(event: MouseEvent) {
+  if (totalDuration.value <= 0) return
+  const bar = event.currentTarget as HTMLElement
+  const rect = bar.getBoundingClientRect()
+  const pct = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width))
+  scrubThumbX.value = event.clientX
+  scrubThumbY.value = rect.top
+
+  // Calculate timestamp at scrub position
+  const targetTime = pct * totalDuration.value
+  let accumulated = 0
+  let ts = props.from
+  for (const seg of segments.value) {
+    if (accumulated + seg.duration >= targetTime) {
+      ts = seg.from + (targetTime - accumulated)
+      break
+    }
+    accumulated += seg.duration
+  }
+  scrubThumbTime.value = format(new Date(ts * 1000), 'HH:mm:ss')
+
+  if (scrubTimer) clearTimeout(scrubTimer)
+  scrubTimer = setTimeout(() => {
+    scrubThumbUrl.value = `/dvr/thumbnail/${props.cameraId}/${Math.floor(ts)}`
+  }, 100)
+}
+
+function onScrubLeave() {
+  if (scrubTimer) { clearTimeout(scrubTimer); scrubTimer = null }
+  scrubThumbUrl.value = null
+  scrubThumbTime.value = null
+}
+
+// Download current segment
+function downloadSegment() {
+  const seg = currentSeg.value
+  if (!seg) return
+  const a = document.createElement('a')
+  a.href = `/dvr/segment/${seg.id}`
+  a.download = `dvr_cam${props.cameraId}_${seg.from}.mp4`
+  a.click()
+}
+
+// Keyboard shortcuts
+function onKeyDown(e: KeyboardEvent) {
+  if (props.compact) return
+  // Ignore if user is typing in an input
+  if ((e.target as HTMLElement)?.tagName === 'INPUT' || (e.target as HTMLElement)?.tagName === 'TEXTAREA') return
+
+  switch (e.key) {
+    case ' ':
+      e.preventDefault()
+      togglePlay()
+      break
+    case 'ArrowLeft':
+      e.preventDefault()
+      seekRelative(-5)
+      break
+    case 'ArrowRight':
+      e.preventDefault()
+      seekRelative(5)
+      break
+    case '1': setRate(1); break
+    case '2': setRate(2); break
+    case '4': setRate(4); break
+    case '8': setRate(8); break
+  }
+}
+
+function seekRelative(delta: number) {
+  const vid = getActive()
+  if (!vid) return
+  const newTime = vid.currentTime + delta
+  if (newTime < 0 && currentSegIdx.value > 0) {
+    // Seek into previous segment
+    const prevSeg = segments.value[currentSegIdx.value - 1]!
+    loadSegment(currentSegIdx.value - 1, Math.max(0, prevSeg.duration + newTime))
+  } else if (newTime >= (currentSeg.value?.duration ?? 0) && currentSegIdx.value < segments.value.length - 1) {
+    const overflow = newTime - (currentSeg.value?.duration ?? 0)
+    loadSegment(currentSegIdx.value + 1, overflow)
+  } else {
+    vid.currentTime = Math.max(0, newTime)
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', onKeyDown)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeyDown)
+})
+
 defineExpose({
   currentTimestamp,
   elapsedTime,
@@ -358,8 +459,16 @@ defineExpose({
       <button class="dvr-btn" @click="togglePlay" :title="playing ? 'Pause' : 'Play'">
         {{ playing ? '⏸' : '▶' }}
       </button>
-      <div class="dvr-progress" @click="seek">
+      <div class="dvr-progress" @click="seek" @mousemove="onScrubMove" @mouseleave="onScrubLeave">
         <div class="dvr-progress-fill" :style="{ width: `${progressPct}%` }"></div>
+        <!-- Scrub thumbnail preview -->
+        <div v-if="scrubThumbTime" class="dvr-scrub-tooltip" :style="{ left: `${scrubThumbX}px`, top: `${scrubThumbY}px` }">
+          <img v-if="scrubThumbUrl" :src="scrubThumbUrl" class="dvr-scrub-img" alt=""
+            @error="($event.target as HTMLImageElement).style.display='none';
+              (($event.target as HTMLElement).nextElementSibling as HTMLElement).style.display='flex'" />
+          <div class="dvr-scrub-offline" style="display:none">Offline</div>
+          <div class="dvr-scrub-time">{{ scrubThumbTime }}</div>
+        </div>
       </div>
       <span class="dvr-time">{{ formattedTimestamp }} · {{ formattedElapsed }} / {{ formattedTotal }}</span>
       <span v-if="segments.length > 1" class="dvr-seg-info">seg {{ currentSegIdx + 1 }}/{{ segments.length }}</span>
@@ -372,6 +481,7 @@ defineExpose({
           @click="setRate(r)"
         >{{ r }}x</button>
       </div>
+      <button class="dvr-btn dvr-download" @click="downloadSegment" title="Download current segment">⬇</button>
     </div>
   </div>
 </template>
@@ -535,5 +645,49 @@ defineExpose({
 }
 .dvr-rate-btn:hover {
   color: rgba(255,255,255,0.8);
+}
+
+/* Download button */
+.dvr-download {
+  margin-left: 0.3rem;
+  font-size: 0.75rem;
+}
+
+/* Scrub thumbnail preview */
+.dvr-scrub-tooltip {
+  position: fixed;
+  transform: translate(-50%, -100%);
+  margin-top: -8px;
+  z-index: 1001;
+  background: rgba(0, 0, 0, 0.92);
+  border: 1px solid #555;
+  border-radius: 6px;
+  padding: 4px;
+  pointer-events: none;
+  text-align: center;
+}
+.dvr-scrub-img {
+  display: block;
+  width: 200px;
+  height: auto;
+  border-radius: 3px;
+}
+.dvr-scrub-offline {
+  width: 200px;
+  height: 112px;
+  border-radius: 3px;
+  background: #1a1a2e;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.05em;
+}
+.dvr-scrub-time {
+  font-size: 0.7rem;
+  color: rgba(255, 255, 255, 0.85);
+  margin-top: 3px;
 }
 </style>
