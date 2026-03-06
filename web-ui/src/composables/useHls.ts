@@ -336,8 +336,10 @@ export function useHls(
             }
           }
           // Playhead is beyond all buffered data — seek to live sync position
-          // then cooldown for 5s to let HLS.js refill the buffer
-          if (!seeked && hls?.liveSyncPosition != null && buf.length > 0 && element.currentTime > buf.end(buf.length - 1)) {
+          // then cooldown for 5s to let HLS.js refill the buffer.
+          // Only trigger if meaningfully past buffer end (>2s) to avoid
+          // false positives in LL-HLS where playhead runs close to live edge.
+          if (!seeked && hls?.liveSyncPosition != null && buf.length > 0 && element.currentTime > buf.end(buf.length - 1) + 2) {
             diag.log('gapSkip', {
               from: element.currentTime,
               to: hls.liveSyncPosition,
