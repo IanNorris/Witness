@@ -13,6 +13,9 @@ This document outlines the plan to modernize the Witness surveillance system —
 | Web Frontend | Vue 3 + Bootstrap 5 (new), Knockout.js (legacy) | 🔄 New UI in progress |
 | CSS Framework | Bootstrap 5 (new), Bootstrap 3.3.5 (legacy) | 🔄 New UI in progress |
 | jQuery | Removed from new UI; 2.1.4 in legacy | 🔄 Legacy only |
+| Live Streaming | HLS + LL-HLS (per-camera), auto-refresh on deploy | ✅ Client watchdog, gap-skip, latency cap |
+| Continuous Recording | 24/7 MP4 segments, per-camera toggle, retention | ✅ Backend + frontend |
+| DVR Playback | Multi-camera player, thumbnail scrubbing, keyboard controls | ✅ Full playback + scrub preview |
 | OpenCV | 4.10.0 (vcpkg) | ✅ Updated from 4.0.0-pre |
 | Object Recognition | ONNX Runtime + YOLO26n (local), background reprocessor | ✅ Local ML, GPU optional |
 | Build System | CMake + vcpkg | ✅ Migrated from .vcxproj |
@@ -29,7 +32,7 @@ This document outlines the plan to modernize the Witness surveillance system —
 
 - **C++ video pipeline** (WitnessCamera) — high performance, well-isolated DLL boundary, FFmpeg-based. Nearly cross-platform already (just `Sleep()` and string types to fix).
 - **Filter architecture** — plugin-based `IRecordFilter` chain with `OnSuccess()`/`OnFailure()` callbacks. New detection backends slot in with no pipeline changes.
-- **HLS live streaming** — standard HLS with fMP4 segments, reliable client-side watchdog with exponential backoff. ~4-6s latency (see [Low-Latency Streaming](#low-latency-streaming-future) for sub-second plans).
+- **HLS live streaming** — standard HLS with fMP4 segments, LL-HLS partial segments optional per camera, client-side watchdog with gap-skip debouncing, latency cap, beyondBuffer recovery, and exponential backoff. Auto-refresh on deploy via build hash mechanism.
 - **SQLite database** — portable, zero-config, parameterized queries (no SQL injection risk).
 - **libsodium auth** — argon2 password hashing, cryptographically random sessions.
 
@@ -105,9 +108,11 @@ Web Frontend (new Vue 3):       🔄
 ├── Pinia state management      ✅
 ├── Bootstrap 5                 ✅
 ├── HLS.js composable           ✅
+├── Auto-refresh (build hash)   ✅
 ├── Dashboard (live cameras)    ✅
 ├── Clips browser + filters     ✅
-├── Activity timeline           ✅
+├── Activity timeline + zoom    ✅
+├── DVR playback + thumbnails   ✅
 ├── Tag management admin        ✅
 ├── Camera management admin     ✅
 ├── Detection settings admin    ✅
@@ -295,12 +300,18 @@ Replaced the 166MB .NET Installer with a built-in web setup wizard.
 - [ ] **Camera setup UI** — finish the new camera creation/editing interface so cameras can be fully configured from the web UI without manual DB edits
 - [ ] **Zone/mask editing UI** — draw regions of interest and ignore zones per camera in the web UI. Reduces false positives and allows focusing detection on specific areas (e.g. driveway, not the street)
 - [x] **Activity timeline** — visual timeline showing detected activity across cameras with server-side aggregated events, adaptive time bucketing (5min → 1week based on range), camera color-coding, emoji tag markers, drag-to-select time ranges, calendar date picker, and clip retention cutoff marker
-- [x] **Clip date filter** — unified time presets (Today/Yesterday/This Week/Last Week/This Month/Last Month/Older/Custom range) integrated into the timeline nav bar, driving both timeline and clip grid
+- [x] **Timeline zoom** — drag-to-select zooms into sub-range with zoom history stack, ✕ button and double-click to zoom back out, arrows zoom out first when zoomed
+- [x] **Clip date filter** — unified time presets (Today/Yesterday/This Week/Last Week/This Month/Last Month/Older/Custom range) integrated into the timeline nav bar, driving both timeline and clip grid. Atomic `setTimeRange()` prevents race conditions from split filter updates.
 - [x] **Tag search + timeline icons** — searchable tags with emoji icons shown on the activity timeline per event, tag-based filtering in the clip browser sidebar
+- [x] **24/7 continuous recording** — per-camera toggle, 60s MP4 segments with configurable retention, real-time WebSocket `dvr:segment` events, coverage API for timeline
+- [x] **DVR playback** — multi-camera synchronized player with HLS playlist generation from continuous segments, segment-by-segment seek, A/B video slot swapping for gapless playback
+- [x] **DVR thumbnail scrubbing** — server-side on-demand thumbnail endpoint (`GET /dvr/thumbnail/<cameraId>/<timestamp>`) with FFmpeg keyframe decode, OpenCV JPEG encode at 300px/q70, LRU cache (50 entries). Timeline hover shows all cameras with coverage at that timestamp. DVR player seek bar shows scrub preview on hover.
+- [x] **DVR controls polish** — download current segment button, keyboard shortcuts (Space=play/pause, ←/→=±5s, 1/2/4/8=playback rate), cross-segment seeking
 - [ ] **Clip interestingness scoring** — compare clip preview images against baseline frames captured at the start of each clip (during lead-in period). Calculate a visual difference score to rank clips by "interestingness" and highlight what changed in the frame. *(Design still evolving — needs further ideation on baseline selection, diff algorithm, and UI presentation)*
 - [ ] **Clip export/download** — download individual clips or bulk-export date ranges as MP4/ZIP from the web UI
 - [ ] **Viewer role** — non-admin users who can view live streams and clips but cannot configure cameras or server settings
-- [ ] **24/7 continuous recording** — optional always-on recording mode alongside event-driven clips, with configurable retention policies and tiered storage (hot/cold)
+- [ ] **DVR quota management** — `continuous_recording_quota_gb` and `clip_quota_gb` settings, disk space safety pruning, crash recovery for unfinalized segments
+- [ ] **DVR pins/bookmarks** — mark points on the timeline with labels, pin CRUD API, export video between pins
 - [ ] **WebSocket disconnect overlay** — full-screen overlay with disconnected logo when WebSocket connection is lost
 
 ### Phase 7: Web Frontend Modernization 🔄 IN PROGRESS
@@ -317,16 +328,20 @@ Replaced the 166MB .NET Installer with a built-in web setup wizard.
 - [x] **Drop jQuery** — all new code uses native `fetch` API and Vue reactivity
 - [x] **Port HLS client architecture to Vue**
   - `useHls` composable wrapping HLS.js lifecycle
-  - Standard HLS mode (not LL-HLS — see [Low-Latency Streaming](#low-latency-streaming-future))
+  - Standard HLS and LL-HLS modes (per-camera toggle)
   - Poll-based watchdog: stuck detection (readyState ≤ 2 + frags stopped), stall detection, exponential backoff
-  - StreamDiagnostics preserved (`window._witnessDiag`, `window._witnessDumpDiag()`)
+  - Gap-skip with 1s debounce, beyondBuffer recovery with 5s cooldown and 2s tolerance
+  - Latency cap using `hls.latency` (seeks to live edge when >8s behind)
+  - StreamDiagnostics preserved (`window._witnessDiag`, `window._witnessDumpAll()`)
   - Fatal network errors trigger immediate restart; non-fatal stalls left to HLS.js internal recovery
+- [x] **Auto-refresh on deploy** — Vite plugin generates random build hash, server broadcasts via WebSocket, client auto-reloads on mismatch with sessionStorage reload tracking
 - [x] **Vue pages implemented:**
-  - Dashboard — live camera grid with HLS streams
+  - Dashboard — live camera grid with HLS streams, LL-HLS per-camera toggle
   - Clips browser — paginated grid with filters, tag display, player modal
   - Admin — camera management, user management, tag management, detection settings, debug values
   - Login page
-- [x] **Activity timeline** — aggregated event timeline with emoji markers, drag-to-select, calendar picker, time presets, retention cutoff line
+- [x] **Activity timeline** — aggregated event timeline with emoji markers, drag-to-select with zoom history, calendar picker, time presets, retention cutoff line, DVR coverage bars with multi-camera thumbnail hover preview
+- [x] **DVR playback** — multi-camera synchronized player, seek bar scrub preview, download segment, keyboard shortcuts, A/B video slot swapping
 - [x] **Tag system UI** — filter sidebar with tag toggles (grouped by display name), tag admin with emoji/display editing, per-camera exclusions
 - [x] **WebSocket integration** — real-time clip creation and reprocessing events update the clip grid live
 - [ ] **Port remaining legacy pages** — some legacy Knockout.js pages may still be in use
@@ -360,18 +375,31 @@ Completed incrementally across Phase 1 and 2:
 | Header-only | ✅ | ❌ | ✅ | ✅ |
 | WebSocket | ✅ | ✅ | ❌ | ✅ |
 
-### Low-Latency Streaming (Future)
+### Low-Latency Streaming 🔄 PARTIALLY WORKING
 
-**Current state:** Standard HLS with ~4-6s latency. The old JPEG streaming route had <0.5s round-trip.
+**Current state:** Standard HLS (~4-6s latency) is the default. LL-HLS (~1-2s latency) is available as a per-camera toggle but has known reliability issues under extended operation.
 
-**Why LL-HLS was abandoned:** Low-Latency HLS (with `#EXT-X-PART` partial segments) was attempted but caused reliability issues on all cameras:
+**LL-HLS implementation (done):**
+- Server: `#EXT-X-PART` partial segments, `CAN-BLOCK-RELOAD`, `PART-HOLD-BACK`, per-camera toggle in admin UI
+- Client: HLS.js LL-HLS mode with `liveSyncPosition` tracking, `hls.latency` measurement
+- Latency overlay in debug diagnostics
 
-1. **Timestamp alignment:** HLS.js calculates the playback timeline from cumulative `#EXTINF` / `#EXT-X-PART:DURATION` values in the playlist. The MSE SourceBuffer positions data based on `baseMediaDecodeTime` in the fMP4 `moof` atoms. These diverged because segment/partial durations were computed from accumulated `AVPacket.duration` values, which don't perfectly match the actual DTS spans — especially with variable frame rate cameras or packets with `duration=0`.
-2. **PART-HOLD-BACK too aggressive:** `PART-HOLD-BACK=0.99s` (3× partial target) gave <1s of buffer before playing. Any timestamp misalignment caused immediate `bufferStalledError` → restart loops.
-3. **`recoverMediaError()` destructive:** Calling this on non-fatal `bufferStalledError` reset the video element to `readyState=0`, killing playback entirely.
-4. **Trailing partials:** The in-progress segment emitted `#EXT-X-PART` tags without a closing `#EXTINF`, causing `levelParsingError` in non-LL mode.
+**LL-HLS fixes applied:**
+- **EXTINF duration mismatch fix:** `#EXTINF` now uses accumulated `AVPacket.duration` instead of DTS span — eliminates the 0.002s/segment divergence that caused 47s drift over 24h (cam9 stuck loop root cause)
+- **Segment staleness expiry:** `GetSegments()` prunes individual segments older than 10s — prevents stale backlog replay loops
+- **503 on empty playlist:** returns HTTP 503 instead of unparseable empty M3U8 when all segments are stale — HLS.js retries gracefully instead of entering manifestParsingError loop
+- **Gap-skip debounce:** 1s debounce window prevents false positive seeks during normal segment transitions
+- **beyondBuffer tolerance:** only triggers when playhead is >2s past buffer end (was 0s, causing 3000+ false positives in LL-HLS where playhead naturally sits at buffer edge)
+- **beyondBuffer cooldown:** 5s cooldown after beyondBuffer seeks prevents seek loops in LL-HLS
+- **Latency cap:** seeks to live edge when `hls.latency > 8s` (uses HLS.js built-in latency, not broken `liveSyncPosition - currentTime` formula)
+- **Auto-refresh on deploy:** build hash mechanism — Vite generates random hash per build, server broadcasts via WebSocket, client auto-reloads on mismatch
 
-**Proposed solution: WebSocket + MSE (bypass HLS entirely)**
+**Remaining LL-HLS issues:**
+- cam8/cam9 still accumulate negative drift (non-standard GOP / variable frame rates) — partially mitigated by staleness expiry + latency cap
+- Browser HTTP connection pool exhaustion when 7+ LL-HLS cameras poll simultaneously — all cameras lose fragments at once
+- Needs extended soak testing before enabling on production
+
+**Alternative approach (WebSocket + MSE):**
 
 Push fMP4 fragments directly from server to client over WebSocket, appending to MSE SourceBuffer. This eliminates playlist polling overhead entirely.
 
@@ -450,7 +478,7 @@ These are longer-term ideas that don't fit neatly into existing phases — they 
 Implemented as part of the Vue 3 clip browser:
 - Time presets in timeline nav: **Today**, **Yesterday**, **This Week**, **Last Week**, **This Month**, **Last Month**, **Older**, **Custom Range** (date picker popup)
 - Filter sidebar with: reviewed/saved/unsaved status, lighting mode (day/night), minimum duration slider, tag toggles (grouped by display name)
-- Drag-to-select time range on the activity timeline
+- Drag-to-select time range on the activity timeline with zoom history stack (zoom out via ✕ button, double-click, or arrow keys)
 - All filters stored in Pinia filter store and applied via API query params
 
 ### Tag Database Redesign ✅ COMPLETE
