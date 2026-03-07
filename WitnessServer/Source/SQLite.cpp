@@ -100,24 +100,29 @@ int SQLiteDatabaseQuery::Execute( const std::function< bool(const SQLiteDatabase
 	for( auto& statement : m_statements )
 	{
 		int result;
+		bool earlyBreak = false;
 		while( (result = sqlite3_step( statement )) == SQLITE_ROW )
 		{
 			count++;
 
 			if( callback && !callback(*this) )
 			{
+				earlyBreak = true;
 				break;
 			}
 		}
 
-		AssertQuery( result == SQLITE_DONE, "Error while reading rows: %s", sqlite3_errmsg( m_database->GetDatabase() ) );
-		if (result != SQLITE_DONE)
+		if( !earlyBreak )
 		{
-			std::string ErrorString(sqlite3_errmsg( m_database->GetDatabase() ));
+			AssertQuery( result == SQLITE_DONE, "Error while reading rows: %s", sqlite3_errmsg( m_database->GetDatabase() ) );
+			if (result != SQLITE_DONE)
+			{
+				std::string ErrorString(sqlite3_errmsg( m_database->GetDatabase() ));
 
 
-			m_lastError = std::string( ErrorString.begin(), ErrorString.end() );
-			return -1;
+				m_lastError = std::string( ErrorString.begin(), ErrorString.end() );
+				return -1;
+			}
 		}
 	}
 
