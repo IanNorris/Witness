@@ -3,15 +3,18 @@ import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppLayout from '../components/layout/AppLayout.vue'
 import HlsPlayer from '../components/camera/HlsPlayer.vue'
+import MsePlayer from '../components/camera/MsePlayer.vue'
 import { useCameraStore } from '../stores/cameras'
+import { useSettingsStore } from '../stores/settings'
 
 const route = useRoute()
 const router = useRouter()
 const cameraStore = useCameraStore()
+const settings = useSettingsStore()
 
 const cameraId = computed(() => Number(route.params.cameraId))
 const camera = computed(() => cameraStore.getCameraById(cameraId.value))
-const hlsPlayerRef = ref<InstanceType<typeof HlsPlayer> | null>(null)
+const hlsPlayerRef = ref<InstanceType<typeof HlsPlayer> | InstanceType<typeof MsePlayer> | null>(null)
 const detectionOverlayActive = ref(false)
 
 const latencyLabel = computed(() => {
@@ -64,7 +67,8 @@ watch(hlsPlayerRef, (player) => {
     </template>
 
     <div v-if="camera" class="stream-container" @click="cameraStore.toggleRecording(cameraId)">
-      <HlsPlayer ref="hlsPlayerRef" :camera-id="cameraId" suffix="_stream" :debug="true" :low-latency="camera.lowLatencyHLS" />
+      <MsePlayer v-if="settings.streamingMode === 'mse'" ref="hlsPlayerRef" :camera-id="cameraId" suffix="_stream" />
+      <HlsPlayer v-else ref="hlsPlayerRef" :camera-id="cameraId" suffix="_stream" :debug="true" :low-latency="camera.lowLatencyHLS" />
       <div v-if="camera.isRecording" class="rec-overlay">
         <span class="rec-dot" /> REC
       </div>

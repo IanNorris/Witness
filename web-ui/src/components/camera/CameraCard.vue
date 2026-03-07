@@ -4,6 +4,7 @@ import type { Camera } from '../../types/camera'
 import { useSettingsStore } from '../../stores/settings'
 import { useCameraStore } from '../../stores/cameras'
 import HlsPlayer from './HlsPlayer.vue'
+import MsePlayer from './MsePlayer.vue'
 
 const props = defineProps<{
   camera: Camera
@@ -19,7 +20,7 @@ const cameraStore = useCameraStore()
 const imgSrc = ref('')
 const isConnected = ref(false)
 const imgRef = ref<HTMLImageElement | null>(null)
-const hlsPlayerRef = ref<InstanceType<typeof HlsPlayer> | null>(null)
+const hlsPlayerRef = ref<InstanceType<typeof HlsPlayer> | InstanceType<typeof MsePlayer> | null>(null)
 const detectionOverlayActive = ref(false)
 const detectionStorageKey = `witness-detection-overlay-${props.camera.id}`
 let refreshTimer: ReturnType<typeof setInterval> | null = null
@@ -136,6 +137,13 @@ onUnmounted(() => {
           :low-latency="camera.lowLatencyHLS"
         />
 
+        <!-- MSE preview mode -->
+        <MsePlayer
+          v-else-if="settings.streamingMode === 'mse' && isConnected"
+          ref="hlsPlayerRef"
+          :camera-id="camera.id"
+        />
+
         <!-- JPEG preview mode -->
         <img
           v-else-if="imgSrc && settings.streamingMode === 'jpeg'"
@@ -167,13 +175,13 @@ onUnmounted(() => {
         </div>
 
         <!-- Latency overlay -->
-        <div v-if="latencyLabel && settings.streamingMode === 'hls'" class="latency-overlay">
+        <div v-if="latencyLabel && (settings.streamingMode === 'hls' || settings.streamingMode === 'mse')" class="latency-overlay">
           {{ latencyLabel }}
         </div>
 
         <!-- Detection overlay toggle -->
         <button
-          v-if="settings.streamingMode === 'hls' && isConnected"
+          v-if="(settings.streamingMode === 'hls' || settings.streamingMode === 'mse') && isConnected"
           class="btn btn-sm detection-toggle"
           :class="detectionOverlayActive ? 'btn-success' : 'btn-outline-secondary'"
           @click.stop="toggleDetectionOverlay"
