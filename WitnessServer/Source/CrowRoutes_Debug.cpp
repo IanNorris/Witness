@@ -318,7 +318,7 @@ void CrowListener::HandleDebugDisk( const crow::request& req, crow::response& re
 			Data["segmentTotalDuration"] = q.GetColumnValueInt64(1);
 			Data["segmentTotalBytes"] = q.GetColumnValueInt64(2);
 			Data["segmentTotalGB"] = static_cast<double>(q.GetColumnValueInt64(2)) / (1024.0 * 1024 * 1024);
-			return false;
+			return true;
 		});
 	}
 

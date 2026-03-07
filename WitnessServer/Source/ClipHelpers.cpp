@@ -249,7 +249,7 @@ void CleanupOrphanedContinuousSegments( const GlobalContext& Context )
 			query->Bind( "@FilePath", filePath.c_str() );
 
 			bool found = false;
-			query->Execute( [&]( const SQLiteDatabaseQuery& ) { found = true; return false; } );
+			query->Execute( [&]( const SQLiteDatabaseQuery& ) { found = true; return true; } );
 
 			if( !found )
 			{
@@ -313,7 +313,7 @@ void EnforceQuotaContinuousSegments( const GlobalContext& Context, int64_t quota
 	sizeQuery->Execute( [&]( const SQLiteDatabaseQuery& q )
 	{
 		totalSize = q.GetColumnValueInt64(2); // column 2 = SUM(FileSize)
-		return false;
+		return true;
 	});
 
 	int deleted = 0;
@@ -330,7 +330,7 @@ void EnforceQuotaContinuousSegments( const GlobalContext& Context, int64_t quota
 			const char* path = q.GetColumnValueText(1);
 			filePath = path ? path : "";
 			found = true;
-			return false;
+			return true;
 		});
 
 		if( !found ) break;
@@ -391,7 +391,7 @@ void CheckDiskSpaceSafety( const GlobalContext& Context )
 				const char* path = q.GetColumnValueText(1);
 				filePath = path ? path : "";
 				found = true;
-				return false;
+				return true;
 			});
 
 			if( !found ) break;
