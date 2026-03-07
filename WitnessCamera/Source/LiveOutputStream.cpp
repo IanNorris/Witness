@@ -32,7 +32,7 @@ LiveOutputStream::LiveOutputStream(const std::string& LiveCachePath, InputStream
 	, _CurrentPartialIndex(0)
 	, _PartialStartDTS(AV_NOPTS_VALUE)
 	, _CurrentPartialDuration(0.0)
-	, _PartialTargetDuration(0.33)
+	, _PartialTargetDuration(0.15)
 	, _CurrentPartialIsIndependent(false)
 	, _PartialBufferOffset(0)
 	, _DiscontinuityPending(false)

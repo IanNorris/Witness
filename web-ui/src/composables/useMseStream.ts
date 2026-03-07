@@ -480,7 +480,7 @@ export function useMseStream(
         restartBackoffMs = 3000
       }
 
-      // Live edge tracking — just measure latency (no seeking or rate changes)
+      // Live edge tracking — gentle playback rate adjustment to minimize latency
       if (video.readyState >= 3 && !video.paused && sourceBuffer) {
         const buf = video.buffered
         if (buf.length > 0) {
@@ -488,6 +488,12 @@ export function useMseStream(
           const lag = end - video.currentTime
           latencyMs.value = Math.round(lag * 1000)
           diag.recordLatency(latencyMs.value)
+
+          // Adjust playback rate to stay near live edge
+          const targetRate = lag > 0.1 ? 1.1 : lag < 0.05 ? 0.9 : 1.0
+          if (video.playbackRate !== targetRate) {
+            video.playbackRate = targetRate
+          }
         }
       }
     }, MSE_WATCHDOG_INTERVAL_MS)
