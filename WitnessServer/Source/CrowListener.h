@@ -136,6 +136,7 @@ private:
 	void HandleSetupSettings( const crow::request& req, crow::response& res );
 	void HandleSetupApply( const crow::request& req, crow::response& res );
 	void HandleSetupTestCuda( const crow::request& req, crow::response& res );
+	void HandleSettingsSet( const crow::request& req, crow::response& res );
 
 	// DVR (continuous recording playback)
 	void HandleDvrCoverage( const crow::request& req, crow::response& res, int cameraId, const std::string& fromStr, const std::string& toStr );

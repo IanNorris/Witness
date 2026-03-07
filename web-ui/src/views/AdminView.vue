@@ -17,6 +17,7 @@ const tabs = [
   { path: '/admin/users', label: 'Users' },
   { path: '/admin/groups', label: 'Groups' },
   { path: '/admin/detection', label: 'Detection' },
+  { path: '/admin/storage', label: 'Storage' },
   { path: '/admin/tags', label: 'Tags' },
   { path: '/admin/debug', label: 'Debug' },
 ]

@@ -459,6 +459,12 @@ void CrowListener::RegisterRoutes()
 		HandleSetupTestCuda( req, res );
 	});
 
+	CROW_ROUTE( m_App, "/api/settings/set" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleSettingsSet( req, res );
+	});
+
 	// DVR (continuous recording playback)
 	CROW_ROUTE( m_App, "/dvr/coverage/<int>/<string>/<string>" )
 	([this]( const crow::request& req, crow::response& res, int cameraId, const std::string& from, const std::string& to )

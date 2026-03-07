@@ -32,7 +32,7 @@ async function fetchSettings() {
 }
 
 async function saveSetting(name: string) {
-  await api('/debug/set', {
+  await api('/api/settings/set', {
     method: 'POST',
     body: { name, value: detectionSettings.value[name] ?? '' },
   })
