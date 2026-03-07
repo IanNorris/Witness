@@ -297,6 +297,8 @@ void CrowListener::HandleDebugDisk( const crow::request& req, crow::response& re
 
 	crow::json::wvalue Data;
 
+	try
+	{
 	// Disk space info
 	std::error_code ec;
 	auto spaceInfo = std::filesystem::space( m_GlobalContext->CachePath, ec );
@@ -340,6 +342,13 @@ void CrowListener::HandleDebugDisk( const crow::request& req, crow::response& re
 	}
 
 	Data["cachePath"] = m_GlobalContext->CachePath;
+
+	}
+	catch( const std::exception& e )
+	{
+		LOG_ERROR( "HandleDebugDisk exception: %s", e.what() );
+		Data["error"] = std::string( e.what() );
+	}
 
 	res.set_header( "Content-Type", "application/json" );
 	res.body = Data.dump();
