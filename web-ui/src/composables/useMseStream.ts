@@ -150,6 +150,8 @@ export function useMseStream(
   let destroyed = false
   let initGeneration = -1
   let expectingBinary: 'init' | 'partial' | null = null
+  let waitingForKeyframe = true  // Skip partials until first independent (keyframe)
+  let hasInitialBuffer = false   // Seek to buffered range after first append
 
   function getWsUrl(): string {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -227,9 +229,21 @@ export function useMseStream(
 
     try {
       sourceBuffer = mediaSource.addSourceBuffer(mimeType)
-      sourceBuffer.mode = 'segments'
+      sourceBuffer.mode = 'sequence'
       sourceBuffer.addEventListener('updateend', () => {
         processAppendQueue()
+
+        // After first real data is buffered, seek to it and start playing
+        if (!hasInitialBuffer) {
+          const video = videoRef.value
+          if (video && video.buffered.length > 0) {
+            hasInitialBuffer = true
+            video.currentTime = video.buffered.start(0)
+            video.play().catch(() => {})
+            diag.log('initialSeek', { time: video.currentTime })
+          }
+        }
+
         // Periodically trim back buffer
         const video = videoRef.value
         if (video && video.currentTime > MSE_BACK_BUFFER_SECONDS + 2) {
@@ -260,6 +274,23 @@ export function useMseStream(
           break
 
         case 'partial':
+          // Skip non-independent partials until first keyframe
+          if (waitingForKeyframe && !msg.independent) {
+            expectingBinary = null // Will discard the binary frame
+            diag.log('skippedPartial', {
+              segmentIndex: msg.segmentIndex,
+              partIndex: msg.partIndex,
+              reason: 'waitingForKeyframe',
+            })
+            break
+          }
+          if (waitingForKeyframe && msg.independent) {
+            waitingForKeyframe = false
+            diag.log('keyframeFound', {
+              segmentIndex: msg.segmentIndex,
+              partIndex: msg.partIndex,
+            })
+          }
           expectingBinary = 'partial'
           diag.log('partial', {
             segmentIndex: msg.segmentIndex,
@@ -306,8 +337,7 @@ export function useMseStream(
       }
       expectingBinary = null
     } else {
-      // Unexpected binary frame
-      diag.log('unexpectedBinary', { size: data.byteLength })
+      // Binary frame for a skipped partial (no keyframe yet) — discard silently
     }
   }
 
@@ -322,6 +352,8 @@ export function useMseStream(
       sourceBuffer = null
       appendQueue = []
     }
+    waitingForKeyframe = true
+    hasInitialBuffer = false
   }
 
   function connectWebSocket() {
@@ -401,6 +433,8 @@ export function useMseStream(
     lastFragTime = 0
     streamStartTime = Date.now()
     expectingBinary = null
+    waitingForKeyframe = true
+    hasInitialBuffer = false
 
     // Reconnect
     setTimeout(() => connectWebSocket(), restartBackoffMs)
