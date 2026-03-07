@@ -161,6 +161,7 @@ namespace Database
 			Y				REAL,
 			W				REAL,
 			H				REAL,
+			IsBaseline		INTEGER					DEFAULT 0,
 			FOREIGN KEY(FrameUID) REFERENCES DetectionFrame(FrameUID) ON DELETE CASCADE
 		);
 
@@ -728,13 +729,13 @@ namespace Database
 	)RAW";
 
 	std::string InsertDetectionBox = R"RAW(
-		INSERT INTO DetectionBox (FrameUID, TrackingID, ClassID, ClassName, Confidence, X, Y, W, H)
-		VALUES(@FrameUID, @TrackingID, @ClassID, @ClassName, @Confidence, @X, @Y, @W, @H);
+		INSERT INTO DetectionBox (FrameUID, TrackingID, ClassID, ClassName, Confidence, X, Y, W, H, IsBaseline)
+		VALUES(@FrameUID, @TrackingID, @ClassID, @ClassName, @Confidence, @X, @Y, @W, @H, @IsBaseline);
 	)RAW";
 
 	std::string SelectDetectionFramesWithBoxes = R"RAW(
 		SELECT f.FrameUID, f.Timestamp, f.FrameWidth, f.FrameHeight,
-			   b.TrackingID, b.ClassID, b.ClassName, b.Confidence, b.X, b.Y, b.W, b.H
+			   b.TrackingID, b.ClassID, b.ClassName, b.Confidence, b.X, b.Y, b.W, b.H, b.IsBaseline
 		FROM DetectionFrame f
 		LEFT JOIN DetectionBox b ON f.FrameUID = b.FrameUID
 		WHERE f.CameraID = @CameraID
@@ -784,6 +785,7 @@ namespace Database
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN ContinuousRecording INT DEFAULT 0;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN LowLatencyHLS INT DEFAULT 0;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE ContinuousSegment ADD COLUMN FileSize INTEGER DEFAULT 0;", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE DetectionBox ADD COLUMN IsBaseline INTEGER DEFAULT 0;", nullptr, nullptr, nullptr );
 
 		// Migrate old Tag table schema — drop and recreate if it has the old schema
 		// (old schema had Name CHAR(64), Description TEXT; new needs Name TEXT UNIQUE, Display, Icon, etc.)

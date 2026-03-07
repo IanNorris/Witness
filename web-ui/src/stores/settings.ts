@@ -8,6 +8,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const darkMode = useLocalStorage('darkMode', false)
   const clipsPerPage = useLocalStorage('clipsPerPage', 24)
   const hideShortClips = useLocalStorage('hideShortClips', false)
+  const detectionMinConfidence = useLocalStorage('detectionMinConfidence', 45)
 
   function increaseScale() {
     cameraPreviewScale.value = Math.min(100, cameraPreviewScale.value + 5)
@@ -32,6 +33,7 @@ export const useSettingsStore = defineStore('settings', () => {
     darkMode,
     clipsPerPage,
     hideShortClips,
+    detectionMinConfidence,
     increaseScale,
     decreaseScale,
     toggleFullscreen,

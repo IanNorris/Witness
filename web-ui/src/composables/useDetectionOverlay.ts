@@ -1,5 +1,6 @@
-import { ref, onUnmounted, type Ref } from 'vue'
+import { ref, onUnmounted, type Ref, computed } from 'vue'
 import { useEventStream } from './useEventStream'
+import { useSettingsStore } from '../stores/settings'
 
 interface DetectionBox {
   id: number
@@ -9,6 +10,7 @@ interface DetectionBox {
   y: number
   w: number
   h: number
+  baseline?: boolean
 }
 
 interface DetectionFrame {
@@ -82,9 +84,11 @@ function syncCanvasSize(canvas: HTMLCanvasElement, video: HTMLVideoElement) {
   }
 }
 
+const BASELINE_COLOR = '#44aa44'
+
 function drawBox(
   ctx: CanvasRenderingContext2D,
-  box: { x: number; y: number; w: number; h: number; cls: string; conf: number },
+  box: { x: number; y: number; w: number; h: number; cls: string; conf: number; baseline?: boolean },
   vr: { drawW: number; drawH: number; offsetX: number; offsetY: number },
   alpha = 1,
 ) {
@@ -92,17 +96,18 @@ function drawBox(
   const py = vr.offsetY + box.y * vr.drawH
   const pw = box.w * vr.drawW
   const ph = box.h * vr.drawH
-  const color = getClassColor(box.cls)
+  const color = box.baseline ? BASELINE_COLOR : getClassColor(box.cls)
 
   ctx.strokeStyle = color
   ctx.globalAlpha = alpha
-  ctx.lineWidth = 2
+  ctx.lineWidth = box.baseline ? 1 : 2
+  if (box.baseline) ctx.setLineDash([4, 4])
   ctx.strokeRect(px, py, pw, ph)
+  ctx.setLineDash([])
 
   const label = `${box.cls} ${Math.round(box.conf * 100)}%`
   ctx.font = '12px sans-serif'
   const textW = ctx.measureText(label).width
-  // Label always inside the box, top-left corner
   ctx.fillStyle = color
   ctx.globalAlpha = alpha * 0.7
   ctx.fillRect(px, py, textW + 8, 18)
@@ -120,6 +125,8 @@ export function useDetectionOverlay(
   const tracked = new Map<number, TrackedBox>()
   let animFrame = 0
   let removeListener: (() => void) | null = null
+  const settings = useSettingsStore()
+  const minConf = computed(() => settings.detectionMinConfidence / 100)
 
   const FADE_MS = 500
   const LERP_SPEED = 0.3
@@ -197,7 +204,9 @@ export function useDetectionOverlay(
       box.ih += (box.th - box.ih) * LERP_SPEED
 
       const alpha = age < FADE_MS * 0.5 ? 1 : 1 - (age - FADE_MS * 0.5) / (FADE_MS * 0.5)
-      drawBox(ctx, { x: box.ix, y: box.iy, w: box.iw, h: box.ih, cls: box.cls, conf: box.conf }, vr, alpha)
+      if (box.conf >= minConf.value) {
+        drawBox(ctx, { x: box.ix, y: box.iy, w: box.iw, h: box.ih, cls: box.cls, conf: box.conf }, vr, alpha)
+      }
     }
 
     ctx.globalAlpha = 1
@@ -254,6 +263,8 @@ export function useDetectionPlayback(
   const enabled = ref(false)
   const frames = ref<Array<{ t: number; boxes: DetectionBox[] }>>([])
   let animFrame = 0
+  const settings = useSettingsStore()
+  const minConf = computed(() => settings.detectionMinConfidence / 100)
 
   function getTimeOffset(): number {
     return typeof timeOffset === 'number' ? timeOffset : timeOffset.value
@@ -324,7 +335,9 @@ export function useDetectionPlayback(
     }
 
     for (const box of frame.boxes) {
-      drawBox(ctx, box, vr)
+      if (box.conf >= minConf.value) {
+        drawBox(ctx, box, vr)
+      }
     }
 
     ctx.globalAlpha = 1

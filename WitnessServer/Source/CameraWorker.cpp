@@ -159,6 +159,7 @@ void CameraWorker::WorkerInit()
 					query->Bind( "@Y", static_cast<double>( box.Y ) );
 					query->Bind( "@W", static_cast<double>( box.W ) );
 					query->Bind( "@H", static_cast<double>( box.H ) );
+					query->Bind( "@IsBaseline", 0 );
 					query->Execute( nullptr );
 				}
 
