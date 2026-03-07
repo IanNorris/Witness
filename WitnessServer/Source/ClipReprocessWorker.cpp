@@ -208,6 +208,17 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 	int frameWidth = codecCtx->width;
 	int frameHeight = codecCtx->height;
 
+	// Clear old detection overlay data for this clip's time range before re-generating
+	{
+		double fromTs = static_cast<double>( timestamp );
+		double toTs = static_cast<double>( timestamp ) + durationSec + 1.0;
+		SQLiteDatabaseQueryInstance delDet( Database, "DeleteDetectionFramesInRange" );
+		delDet->Bind( "@CameraID", camera );
+		delDet->Bind( "@TimestampFrom", fromTs );
+		delDet->Bind( "@TimestampTo", toTs );
+		delDet->Execute( nullptr );
+	}
+
 	// Allocate BGR frame buffer
 	int bgrBufSize = av_image_get_buffer_size( AV_PIX_FMT_BGR24, frameWidth, frameHeight, 1 );
 	std::vector<uint8_t> bgrBuffer( bgrBufSize );
@@ -268,6 +279,7 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 					else
 					{
 						// Subsequent frames: filter out detections matching baseline by class + IoU
+						std::vector<Witness::Camera::DetectionResult> newDetections;
 						for( auto& det : detections )
 						{
 							bool isBaseline = false;
@@ -294,7 +306,40 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 								}
 							}
 							if( !isBaseline )
+							{
 								detectedTags.insert( det.ClassName );
+								newDetections.push_back( det );
+							}
+						}
+
+						// Store detection boxes for overlay playback
+						if( !newDetections.empty() )
+						{
+							double frameTimestamp = static_cast<double>( timestamp ) + currentTime;
+							int64_t frameUID = 0;
+							{
+								SQLiteDatabaseQueryInstance q( Database, "InsertDetectionFrame" );
+								q->Bind( "@CameraID", camera );
+								q->Bind( "@Timestamp", frameTimestamp );
+								q->Bind( "@FrameWidth", frameWidth );
+								q->Bind( "@FrameHeight", frameHeight );
+								q->Execute( nullptr );
+								frameUID = q->GetLastInsertionId();
+							}
+							for( auto& det : newDetections )
+							{
+								SQLiteDatabaseQueryInstance q( Database, "InsertDetectionBox" );
+								q->Bind( "@FrameUID", frameUID );
+								q->Bind( "@TrackingID", 0 );
+								q->Bind( "@ClassID", det.ClassId );
+								q->Bind( "@ClassName", det.ClassName.c_str() );
+								q->Bind( "@Confidence", static_cast<double>( det.Confidence ) );
+								q->Bind( "@X", static_cast<double>( det.X1 ) );
+								q->Bind( "@Y", static_cast<double>( det.Y1 ) );
+								q->Bind( "@W", static_cast<double>( det.X2 - det.X1 ) );
+								q->Bind( "@H", static_cast<double>( det.Y2 - det.Y1 ) );
+								q->Execute( nullptr );
+							}
 						}
 					}
 

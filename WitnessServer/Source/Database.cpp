@@ -758,6 +758,14 @@ namespace Database
 		DELETE FROM DetectionFrame WHERE CameraID = @CameraID;
 	)RAW";
 
+	std::string DeleteDetectionFramesInRange = R"RAW(
+		DELETE FROM DetectionBox WHERE FrameUID IN (
+			SELECT FrameUID FROM DetectionFrame WHERE CameraID = @CameraID AND Timestamp >= @TimestampFrom AND Timestamp <= @TimestampTo
+		);
+		DELETE FROM DetectionFrame
+		WHERE CameraID = @CameraID AND Timestamp >= @TimestampFrom AND Timestamp <= @TimestampTo;
+	)RAW";
+
 #define CREATE_QUERY( X ) DB->CreateQuery( #X, X )
 
 	std::shared_ptr<SQLiteDatabase> InitializeDatabase( std::string Filename )
@@ -924,6 +932,7 @@ namespace Database
 		CREATE_QUERY( SelectDetectionFramesWithBoxes );
 		CREATE_QUERY( DeleteDetectionFramesBefore );
 		CREATE_QUERY( DeleteAllDetectionFrames );
+		CREATE_QUERY( DeleteDetectionFramesInRange );
 
 		return DB;
 	}
