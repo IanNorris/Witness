@@ -7,6 +7,9 @@ void WitnessServer::Shutdown()
 	if( Context && Context->Events )
 		Context->Events->Stop();
 
+	if( Context && Context->Streams )
+		Context->Streams->Stop();
+
 	Worker = nullptr;
 
 	Watchdog = nullptr;

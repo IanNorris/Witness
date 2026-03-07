@@ -4,6 +4,7 @@ import type { Camera } from '../../types/camera'
 import { useSettingsStore } from '../../stores/settings'
 import { useCameraStore } from '../../stores/cameras'
 import HlsPlayer from './HlsPlayer.vue'
+import MsePlayer from './MsePlayer.vue'
 
 const props = defineProps<{
   camera: Camera
@@ -16,10 +17,20 @@ const emit = defineEmits<{
 
 const settings = useSettingsStore()
 const cameraStore = useCameraStore()
+
+// MSE requires MediaSource API — fall back to HLS if unavailable
+const effectiveMode = computed(() => {
+  if (settings.streamingMode === 'mse') {
+    if (typeof MediaSource === 'undefined' || !MediaSource.isTypeSupported('video/mp4; codecs="avc1.42001e"')) {
+      return 'hls'
+    }
+  }
+  return settings.streamingMode
+})
 const imgSrc = ref('')
 const isConnected = ref(false)
 const imgRef = ref<HTMLImageElement | null>(null)
-const hlsPlayerRef = ref<InstanceType<typeof HlsPlayer> | null>(null)
+const hlsPlayerRef = ref<InstanceType<typeof HlsPlayer> | InstanceType<typeof MsePlayer> | null>(null)
 const detectionOverlayActive = ref(false)
 const detectionStorageKey = `witness-detection-overlay-${props.camera.id}`
 let refreshTimer: ReturnType<typeof setInterval> | null = null
@@ -99,7 +110,7 @@ function toggleDetectionOverlay() {
 
 onMounted(() => {
   refreshPreview()
-  if (settings.streamingMode === 'jpeg') {
+  if (effectiveMode.value === 'jpeg') {
     startJpegLoop()
   }
   // Default to on; restore per-camera preference from localStorage
@@ -130,15 +141,22 @@ onUnmounted(() => {
       <div class="camera-video-wrap" @click.prevent="onSingleClick" @dblclick.prevent="onDoubleClick">
         <!-- HLS preview mode -->
         <HlsPlayer
-          v-if="settings.streamingMode === 'hls' && isConnected"
+          v-if="effectiveMode === 'hls' && isConnected"
           ref="hlsPlayerRef"
           :camera-id="camera.id"
           :low-latency="camera.lowLatencyHLS"
         />
 
+        <!-- MSE preview mode -->
+        <MsePlayer
+          v-else-if="effectiveMode === 'mse' && isConnected"
+          ref="hlsPlayerRef"
+          :camera-id="camera.id"
+        />
+
         <!-- JPEG preview mode -->
         <img
-          v-else-if="imgSrc && settings.streamingMode === 'jpeg'"
+          v-else-if="imgSrc && effectiveMode === 'jpeg'"
           ref="imgRef"
           :src="imgSrc"
           :alt="camera.name"
@@ -167,13 +185,13 @@ onUnmounted(() => {
         </div>
 
         <!-- Latency overlay -->
-        <div v-if="latencyLabel && settings.streamingMode === 'hls'" class="latency-overlay">
+        <div v-if="latencyLabel && effectiveMode !== 'jpeg'" class="latency-overlay">
           {{ latencyLabel }}
         </div>
 
         <!-- Detection overlay toggle -->
         <button
-          v-if="settings.streamingMode === 'hls' && isConnected"
+          v-if="effectiveMode !== 'jpeg' && isConnected"
           class="btn btn-sm detection-toggle"
           :class="detectionOverlayActive ? 'btn-success' : 'btn-outline-secondary'"
           @click.stop="toggleDetectionOverlay"

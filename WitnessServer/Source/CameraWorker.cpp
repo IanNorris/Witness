@@ -7,6 +7,7 @@
 #include "ObjectTracker.h"
 #include "SQLite.h"
 #include "EventBroadcaster.h"
+#include "StreamBroadcaster.h"
 #include "crow/json.h"
 
 #include <Log.h>
@@ -37,6 +38,49 @@ void CameraWorker::CreateInputStream()
 	else
 	{
 		LiveStream = std::make_shared<LiveOutputStream>(CachePath, CameraStream.get(), 1);
+
+		// Wire up MSE WebSocket notifications
+		int cameraId = Camera.ID;
+		auto streams = Context->Streams;
+		LiveStream->SetEventCallback([cameraId, streams](const Witness::Camera::LiveStreamEvent& ev)
+		{
+			if (!streams->HasViewers(cameraId))
+				return;
+
+			crow::json::wvalue ctrl;
+			switch (ev.EventType)
+			{
+			case Witness::Camera::LiveStreamEvent::InitSegmentReady:
+				ctrl["type"] = "initSegment";
+				ctrl["generation"] = ev.Generation;
+				streams->SendControl(cameraId, ctrl.dump());
+				streams->SendBinary(cameraId, ev.Data);
+				break;
+
+			case Witness::Camera::LiveStreamEvent::PartialReady:
+				ctrl["type"] = "partial";
+				ctrl["segmentIndex"] = ev.SegmentIndex;
+				ctrl["partIndex"] = ev.PartIndex;
+				ctrl["duration"] = ev.Duration;
+				ctrl["independent"] = ev.Independent;
+				streams->SendControl(cameraId, ctrl.dump());
+				streams->SendBinary(cameraId, ev.Data);
+				break;
+
+			case Witness::Camera::LiveStreamEvent::SegmentReady:
+				ctrl["type"] = "segment";
+				ctrl["segmentIndex"] = ev.SegmentIndex;
+				ctrl["duration"] = ev.Duration;
+				streams->SendControl(cameraId, ctrl.dump());
+				break;
+
+			case Witness::Camera::LiveStreamEvent::Discontinuity:
+				ctrl["type"] = "discontinuity";
+				ctrl["generation"] = ev.Generation;
+				streams->SendControl(cameraId, ctrl.dump());
+				break;
+			}
+		});
 	}
 
 	// Continuous recording

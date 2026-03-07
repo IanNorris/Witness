@@ -508,6 +508,65 @@ void CrowListener::RegisterRoutes()
 		HandleDvrThumbnail( req, res, cameraId, timestamp );
 	});
 
+	// WebSocket MSE stream
+	CROW_WEBSOCKET_ROUTE( m_App, "/ws/stream/<int>" )
+		.onaccept([this]( const crow::request& req, void** userdata ) -> bool
+		{
+			// Authenticate
+			int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, nullptr,
+				CrowAuth::Action::Read, CrowAuth::Privilege::Normal );
+			if( UserUID < 0 ) return false;
+
+			// Extract camera ID from URL (last path segment)
+			std::string url = req.url;
+			auto lastSlash = url.rfind('/');
+			if( lastSlash == std::string::npos ) return false;
+			int cameraId = std::atoi( url.substr( lastSlash + 1 ).c_str() );
+
+			auto* state = m_GlobalContext->FindCameraById( cameraId );
+			if( !state || !state->Worker || !state->Worker->GetLiveStream() )
+				return false;
+
+			// Pass camera ID via userdata
+			*userdata = reinterpret_cast<void*>( static_cast<intptr_t>( cameraId ) );
+			return true;
+		})
+		.onopen([this]( crow::websocket::connection& conn )
+		{
+			int cameraId = static_cast<int>( reinterpret_cast<intptr_t>( conn.userdata() ) );
+
+			m_GlobalContext->Streams->Subscribe( cameraId, &conn );
+
+			auto* state = m_GlobalContext->FindCameraById( cameraId );
+			if( !state || !state->Worker ) return;
+
+			auto& liveStream = state->Worker->GetLiveStream();
+			if( !liveStream ) return;
+
+			int generation = liveStream->GetInitGeneration();
+			auto initData = liveStream->GetInitSegment();
+
+			// Send init segment — client waits for next live keyframe to start
+			if( initData && !initData->empty() )
+			{
+				crow::json::wvalue ctrl;
+				ctrl["type"] = "initSegment";
+				ctrl["generation"] = generation;
+				m_GlobalContext->Streams->SendControlDirect( &conn, ctrl.dump() );
+				m_GlobalContext->Streams->SendBinaryDirect( &conn, initData );
+			}
+
+			LOG_INFO( "[MSE] Stream client connected for camera %d", cameraId );
+		})
+		.onclose([this]( crow::websocket::connection& conn, const std::string& /*reason*/ )
+		{
+			m_GlobalContext->Streams->Unsubscribe( &conn );
+		})
+		.onmessage([this]( crow::websocket::connection& /*conn*/, const std::string& /*data*/, bool /*is_binary*/ )
+		{
+			// Client->server messages not used for MSE streaming
+		});
+
 	// WebSocket event stream
 	CROW_WEBSOCKET_ROUTE( m_App, "/ws/events" )
 		.onaccept([this]( const crow::request& req, void** ) -> bool

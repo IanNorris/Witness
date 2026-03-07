@@ -7,6 +7,7 @@
 #include "SettingsMap.h"
 #include "LongPoll.h"
 #include "EventBroadcaster.h"
+#include "StreamBroadcaster.h"
 
 #include <shared_mutex>
 
@@ -26,6 +27,7 @@ public:
 	: Mutex()
 	, LongPoll(std::make_shared<LongPollDispatch>())
 	, Events(std::make_shared<EventBroadcaster>())
+	, Streams(std::make_shared<StreamBroadcaster>())
 	{}
 
 	CameraState* FindCameraById(int Id)
@@ -83,6 +85,8 @@ public:
 	mutable std::shared_ptr<LongPollDispatch> LongPoll;
 
 	std::shared_ptr<EventBroadcaster> Events;
+
+	std::shared_ptr<StreamBroadcaster> Streams;
 
 	std::string BuildHash;
 

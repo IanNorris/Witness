@@ -45,7 +45,7 @@ onMounted(async () => {
         <div class="vr mx-1 mobile-hide" style="border-color: var(--bs-border-color);"></div>
         <button
           class="btn btn-sm mobile-hide"
-          :class="settings.streamingMode === 'hls' ? 'btn-outline-primary' : 'btn-outline-secondary'"
+          :class="settings.streamingMode !== 'jpeg' ? 'btn-outline-primary' : 'btn-outline-secondary'"
           @click="settings.toggleStreamingMode"
           :title="'Mode: ' + settings.streamingMode.toUpperCase()"
         >
