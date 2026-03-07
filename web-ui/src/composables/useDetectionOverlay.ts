@@ -84,7 +84,7 @@ function syncCanvasSize(canvas: HTMLCanvasElement, video: HTMLVideoElement) {
   }
 }
 
-const BASELINE_COLOR = '#44aa44'
+const BASELINE_COLOR = '#6688cc'
 
 function drawBox(
   ctx: CanvasRenderingContext2D,
