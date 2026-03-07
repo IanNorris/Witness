@@ -415,3 +415,28 @@ void CheckDiskSpaceSafety( const GlobalContext& Context )
 		}
 	}
 }
+
+void CleanupOldDetectionFrames( const GlobalContext& Context, int retentionDays )
+{
+	auto now = std::chrono::system_clock::now();
+	auto cutoff = now - std::chrono::hours( 24 * retentionDays );
+	double cutoffEpoch = static_cast<double>(
+		std::chrono::duration_cast<std::chrono::seconds>( cutoff.time_since_epoch() ).count()
+	);
+
+	// Get camera IDs while holding the lock, then release for DB ops
+	std::vector<int> cameraIds;
+	{
+		std::shared_lock<std::shared_mutex> lock( Context.Mutex );
+		for( auto& [id, state] : Context.GetCameraMap() )
+			cameraIds.push_back( id );
+	}
+
+	for( int cameraId : cameraIds )
+	{
+		SQLiteDatabaseQueryInstance query( Context.Database, "DeleteDetectionFramesBefore" );
+		query->Bind( "@CameraID", cameraId );
+		query->Bind( "@Timestamp", cutoffEpoch );
+		query->Execute( nullptr );
+	}
+}

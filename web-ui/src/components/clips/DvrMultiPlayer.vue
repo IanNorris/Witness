@@ -50,6 +50,41 @@ const formattedTimestamp = computed(() =>
   format(new Date(globalTimestamp.value * 1000), 'HH:mm:ss')
 )
 
+// Nudge all active players to next/prev detection
+function nudgeAll(direction: 'next' | 'prev') {
+  for (const id of activeCameras.value) {
+    playerRefs.value[id]?.nudgeDetection(direction)
+  }
+}
+
+function toggleAllOverlay() {
+  for (const id of activeCameras.value) {
+    playerRefs.value[id]?.toggleDetectionWithSave()
+  }
+}
+
+// Any player has overlay enabled?
+const anyOverlayEnabled = computed(() =>
+  activeCameras.value.some(id => playerRefs.value[id]?.overlayEnabled)
+)
+
+function onKeyDown(e: KeyboardEvent) {
+  if ((e.target as HTMLElement)?.tagName === 'INPUT' || (e.target as HTMLElement)?.tagName === 'TEXTAREA') return
+  switch (e.key) {
+    case 'n':
+      e.preventDefault()
+      nudgeAll('next')
+      break
+    case 'p':
+      e.preventDefault()
+      nudgeAll('prev')
+      break
+    case 'd':
+      toggleAllOverlay()
+      break
+  }
+}
+
 // Poll the first active player for time info
 function pollTime() {
   const firstId = activeCameras.value[0]
@@ -61,10 +96,12 @@ function pollTime() {
 
 onMounted(() => {
   pollTimer = setInterval(pollTime, 250)
+  window.addEventListener('keydown', onKeyDown)
 })
 
 onUnmounted(() => {
   if (pollTimer) clearInterval(pollTimer)
+  window.removeEventListener('keydown', onKeyDown)
 })
 </script>
 
@@ -84,6 +121,14 @@ onUnmounted(() => {
         >{{ cameraName(id) }}</button>
       </div>
       <button class="dvr-close" @click="emit('close')" title="Close">✕</button>
+      <button
+        class="dvr-header-btn"
+        :class="anyOverlayEnabled ? 'active' : ''"
+        @click="toggleAllOverlay"
+        title="Toggle detection overlay (D)"
+      >🔲</button>
+      <button class="dvr-header-btn" @click="nudgeAll('prev')" title="Previous detection (P)">⏮</button>
+      <button class="dvr-header-btn" @click="nudgeAll('next')" title="Next detection (N)">⏭</button>
     </div>
     <div class="dvr-carousel">
       <DvrPlayer
@@ -163,6 +208,25 @@ onUnmounted(() => {
 }
 .dvr-close:hover {
   color: rgba(255,255,255,0.9);
+}
+
+.dvr-header-btn {
+  background: none;
+  border: 1px solid rgba(255,255,255,0.15);
+  color: rgba(255,255,255,0.5);
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+.dvr-header-btn:hover {
+  color: rgba(255,255,255,0.8);
+  border-color: rgba(255,255,255,0.3);
+}
+.dvr-header-btn.active {
+  color: #22c55e;
+  border-color: #22c55e44;
 }
 
 .dvr-carousel {

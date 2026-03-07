@@ -247,6 +247,7 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 			DeleteOldContinuousSegments( *Context, contRetentionDays );
 			if( quotaBytes > 0 ) EnforceQuotaContinuousSegments( *Context, quotaBytes );
 			CheckDiskSpaceSafety( *Context );
+			CleanupOldDetectionFrames( *Context, contRetentionDays );
 		}, 5 * 60 );
 	}
 

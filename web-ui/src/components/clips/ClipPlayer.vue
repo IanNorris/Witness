@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import type { Clip } from '../../types/clip'
 import { useClipStore } from '../../stores/clips'
+import { useDetectionPlayback } from '../../composables/useDetectionOverlay'
 
 const props = defineProps<{
   clip: Clip
@@ -11,10 +12,64 @@ const emit = defineEmits<{ close: [] }>()
 
 const clipStore = useClipStore()
 const videoSrc = ref(clipStore.videoUrl(props.clip.camera, props.clip.timestamp))
+const videoRef = ref<HTMLVideoElement | null>(null)
+const canvasRef = ref<HTMLCanvasElement | null>(null)
+
+const { enabled: overlayEnabled, toggle: toggleOverlay, loadDetections, frames: detectionFrames } = useDetectionPlayback(
+  props.clip.camera,
+  canvasRef,
+  videoRef,
+  props.clip.timestamp, // epoch seconds offset — detection timestamps are absolute
+)
+
+const hasDetections = computed(() => detectionFrames.value.length > 0)
+
+function nudgeDetection(direction: 'next' | 'prev') {
+  const video = videoRef.value
+  if (!video || !detectionFrames.value.length) return
+  const absoluteTime = video.currentTime + props.clip.timestamp
+
+  let targetTime: number | null = null
+  if (direction === 'next') {
+    const frame = detectionFrames.value.find(f => f.t > absoluteTime + 0.5)
+    if (frame) targetTime = frame.t - props.clip.timestamp
+  } else {
+    for (let i = detectionFrames.value.length - 1; i >= 0; i--) {
+      if ((detectionFrames.value[i]?.t ?? 0) < absoluteTime - 0.5) {
+        targetTime = detectionFrames.value[i]!.t - props.clip.timestamp
+        break
+      }
+    }
+  }
+
+  if (targetTime !== null && targetTime >= 0) {
+    // Pause first — some browsers can't seek while playing a non-faststart MP4
+    const wasPlaying = !video.paused
+    video.pause()
+    video.currentTime = targetTime
+    if (wasPlaying) {
+      video.addEventListener('seeked', () => video.play().catch(() => {}), { once: true })
+    }
+  }
+}
 
 function handleKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') emit('close')
+  if (e.key === 'n') { e.preventDefault(); nudgeDetection('next') }
+  if (e.key === 'p') { e.preventDefault(); nudgeDetection('prev') }
 }
+
+onMounted(async () => {
+  // Pre-load detection data for this clip's time range
+  const from = props.clip.timestamp
+  const to = from + props.clip.duration
+  await loadDetections(from, to)
+  // Auto-enable overlay based on per-camera preference (default: on)
+  const saved = localStorage.getItem(`witness-detection-overlay-${props.clip.camera}`)
+  if (saved === null || saved === '1') {
+    toggleOverlay()
+  }
+})
 </script>
 
 <template>
@@ -23,10 +78,28 @@ function handleKeydown(e: KeyboardEvent) {
       <div class="clip-modal">
         <div class="clip-modal-header">
           <span>Clip {{ clip.uid }}</span>
-          <button class="btn btn-sm btn-outline-secondary" @click="emit('close')">✕</button>
+          <div class="d-flex gap-2 align-items-center">
+            <button
+              class="btn btn-sm"
+              :class="overlayEnabled ? 'btn-success' : 'btn-outline-secondary'"
+              @click="toggleOverlay"
+              title="Toggle detection overlay"
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+            </button>
+            <button class="btn btn-sm btn-outline-secondary" :disabled="!hasDetections" @click="nudgeDetection('prev')" title="Previous detection">⏮</button>
+            <button class="btn btn-sm btn-outline-secondary" :disabled="!hasDetections" @click="nudgeDetection('next')" title="Next detection">⏭</button>
+            <button class="btn btn-sm btn-outline-secondary" @click="emit('close')">✕</button>
+          </div>
         </div>
         <div class="clip-modal-body">
-          <video :src="videoSrc" controls autoplay class="clip-video" />
+          <div class="clip-video-wrap">
+            <video ref="videoRef" :src="videoSrc" controls autoplay class="clip-video" />
+            <canvas ref="canvasRef" class="detection-overlay" v-show="overlayEnabled" />
+          </div>
         </div>
       </div>
     </div>
@@ -63,9 +136,21 @@ function handleKeydown(e: KeyboardEvent) {
 .clip-modal-body {
   padding: 0;
 }
+.clip-video-wrap {
+  position: relative;
+}
 .clip-video {
   width: 100%;
   max-height: 80vh;
   display: block;
+}
+.detection-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 5;
 }
 </style>

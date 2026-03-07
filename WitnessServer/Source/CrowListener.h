@@ -131,6 +131,7 @@ private:
 	void HandleDebugStreamingDiag( const crow::request& req, crow::response& res );
 	void HandleDebugDisk( const crow::request& req, crow::response& res );
 	void HandleDebugDiskScan( const crow::request& req, crow::response& res );
+	void HandleDetectionQuery( const crow::request& req, crow::response& res, int cameraId );
 
 	// Setup (reconfiguration)
 	void HandleSetupPage( const crow::request& req, crow::response& res );

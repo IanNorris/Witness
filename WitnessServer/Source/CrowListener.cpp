@@ -434,6 +434,12 @@ void CrowListener::RegisterRoutes()
 		HandleDebugDiskScan( req, res );
 	});
 
+	CROW_ROUTE( m_App, "/api/detection/<int>" )
+	([this]( const crow::request& req, crow::response& res, int cameraId )
+	{
+		HandleDetectionQuery( req, res, cameraId );
+	});
+
 	// Setup / Reconfiguration (admin-only)
 	CROW_ROUTE( m_App, "/setup" )
 	([this]( const crow::request& req, crow::response& res )

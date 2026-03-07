@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { api } from '../../composables/useApi'
+import { useSettingsStore } from '../../stores/settings'
 
 const loading = ref(true)
+const settings = useSettingsStore()
 
 const detectionKeys = [
   'detection_backend',
@@ -112,6 +114,16 @@ onMounted(fetchSettings)
         <div class="alert alert-sm py-1 px-2 small" :class="cudaTestResult.startsWith('✓') ? 'alert-success' : 'alert-danger'">
           {{ cudaTestResult }}
         </div>
+      </div>
+
+      <div class="col-12 mt-3">
+        <h6 class="mb-2">Overlay Display</h6>
+      </div>
+
+      <div class="col-md-6">
+        <label class="form-label small">Min Confidence to Display ({{ settings.detectionMinConfidence }}%)</label>
+        <input v-model.number="settings.detectionMinConfidence" type="range" min="0" max="100" step="5" class="form-range" />
+        <div class="form-text small">Detection boxes below this confidence will be hidden in the overlay.</div>
       </div>
     </div>
   </div>

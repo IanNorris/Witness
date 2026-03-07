@@ -158,6 +158,39 @@ bool ObservingMotionFilter::ProcessFrame( SharedClassificationTask TaskData )
 			}
 		}
 
+		// Fire detection callback with normalized coordinates for overlay storage/broadcast
+		if( DetectionCallback && !TaskData->Result.ROI.empty() )
+		{
+			DetectionFrameData frameData;
+			frameData.CameraID = CameraID;
+			frameData.Timestamp = static_cast<double>( TimestampNow );
+			auto& decodedFrame = TaskData->Frame.GetOrDecodeFrame();
+			frameData.FrameWidth = decodedFrame.cols;
+			frameData.FrameHeight = decodedFrame.rows;
+
+			for( auto& ROI : TaskData->Result.ROI )
+			{
+				if( frameData.FrameWidth <= 0 || frameData.FrameHeight <= 0 )
+					continue;
+
+				DetectionFrameData::Box box;
+				box.TrackingID = ROI.TrackingID;
+				box.ClassID = static_cast<int>( ROI.Classification );
+				box.ClassName = ROI.Tags.empty() ? "" : ROI.Tags[0];
+				box.Confidence = ROI.ClassificationConfidence;
+				box.X = static_cast<float>( ROI.Left ) / frameData.FrameWidth;
+				box.Y = static_cast<float>( ROI.Top ) / frameData.FrameHeight;
+				box.W = static_cast<float>( ROI.Width ) / frameData.FrameWidth;
+				box.H = static_cast<float>( ROI.Height ) / frameData.FrameHeight;
+				frameData.Boxes.push_back( std::move( box ) );
+			}
+
+			if( !frameData.Boxes.empty() )
+			{
+				DetectionCallback( frameData );
+			}
+		}
+
 		if( State == MotionState::None )
 		{
 			State = MotionState::Current;

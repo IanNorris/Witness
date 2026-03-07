@@ -17,6 +17,26 @@ class MessageBus;
 
 using namespace Witness::Camera;
 
+// Callback for each detection frame with ROI data (normalized 0-1 coordinates)
+struct DetectionFrameData
+{
+	int CameraID;
+	double Timestamp;  // epoch seconds
+	int FrameWidth;
+	int FrameHeight;
+	struct Box
+	{
+		unsigned int TrackingID;
+		int ClassID;
+		std::string ClassName;
+		float Confidence;
+		float X, Y, W, H;  // normalized 0-1
+	};
+	std::vector<Box> Boxes;
+};
+
+using DetectionFrameCallback = std::function<void( const DetectionFrameData& )>;
+
 class ObservingMotionFilter : public IRecordFilter
 {
 public:
@@ -60,6 +80,11 @@ public:
 		LastSmallPreviewTimestamp = Small;
 	}
 
+	void SetDetectionCallback( DetectionFrameCallback callback )
+	{
+		DetectionCallback = std::move( callback );
+	}
+
 	void CreateJpegPreview( FilterFrame& Frame, std::vector<unsigned char>& OutputBuffer, unsigned int OutputWidth, int OutputQuality, std::function<void(cv::Mat&)> Action );
 
 private:
@@ -86,4 +111,6 @@ private:
 	MotionState				State;
 
 	DebugBind<int> DB_DrawObjectLabels;
+
+	DetectionFrameCallback	DetectionCallback;
 };

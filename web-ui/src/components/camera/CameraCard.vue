@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import type { Camera } from '../../types/camera'
 import { useSettingsStore } from '../../stores/settings'
 import { useCameraStore } from '../../stores/cameras'
@@ -20,6 +20,8 @@ const imgSrc = ref('')
 const isConnected = ref(false)
 const imgRef = ref<HTMLImageElement | null>(null)
 const hlsPlayerRef = ref<InstanceType<typeof HlsPlayer> | null>(null)
+const detectionOverlayActive = ref(false)
+const detectionStorageKey = `witness-detection-overlay-${props.camera.id}`
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 let jpegRunning = false
 let clickTimer: ReturnType<typeof setTimeout> | null = null
@@ -86,10 +88,32 @@ function onDoubleClick() {
   }
 }
 
+function toggleDetectionOverlay() {
+  const player = hlsPlayerRef.value
+  if (player?.toggleOverlay) {
+    player.toggleOverlay()
+    detectionOverlayActive.value = player.overlayEnabled ?? false
+    localStorage.setItem(detectionStorageKey, detectionOverlayActive.value ? '1' : '0')
+  }
+}
+
 onMounted(() => {
   refreshPreview()
   if (settings.streamingMode === 'jpeg') {
     startJpegLoop()
+  }
+  // Default to on; restore per-camera preference from localStorage
+  const saved = localStorage.getItem(detectionStorageKey)
+  const shouldEnable = saved === null || saved === '1'
+  if (shouldEnable) {
+    detectionOverlayActive.value = true
+  }
+})
+
+// Auto-enable overlay when HlsPlayer becomes available
+watch(hlsPlayerRef, (player) => {
+  if (player && detectionOverlayActive.value && !player.overlayEnabled) {
+    player.toggleOverlay()
   }
 })
 
@@ -146,6 +170,20 @@ onUnmounted(() => {
         <div v-if="latencyLabel && settings.streamingMode === 'hls'" class="latency-overlay">
           {{ latencyLabel }}
         </div>
+
+        <!-- Detection overlay toggle -->
+        <button
+          v-if="settings.streamingMode === 'hls' && isConnected"
+          class="btn btn-sm detection-toggle"
+          :class="detectionOverlayActive ? 'btn-success' : 'btn-outline-secondary'"
+          @click.stop="toggleDetectionOverlay"
+          title="Toggle detection overlay"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
+        </button>
       </div>
     </div>
 

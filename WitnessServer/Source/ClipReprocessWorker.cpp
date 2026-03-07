@@ -1,5 +1,6 @@
 #include "ClipReprocessWorker.h"
 #include "TagHelpers.h"
+#include "ObjectTracker.h"
 
 #include <Log.h>
 #include <filesystem>
@@ -208,6 +209,17 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 	int frameWidth = codecCtx->width;
 	int frameHeight = codecCtx->height;
 
+	// Clear old detection overlay data for this clip's time range before re-generating
+	{
+		double fromTs = static_cast<double>( timestamp );
+		double toTs = static_cast<double>( timestamp ) + durationSec + 1.0;
+		SQLiteDatabaseQueryInstance delDet( Database, "DeleteDetectionFramesInRange" );
+		delDet->Bind( "@CameraID", camera );
+		delDet->Bind( "@TimestampFrom", fromTs );
+		delDet->Bind( "@TimestampTo", toTs );
+		delDet->Execute( nullptr );
+	}
+
 	// Allocate BGR frame buffer
 	int bgrBufSize = av_image_get_buffer_size( AV_PIX_FMT_BGR24, frameWidth, frameHeight, 1 );
 	std::vector<uint8_t> bgrBuffer( bgrBufSize );
@@ -221,6 +233,7 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 	double currentTime = 0.0;
 	std::vector<Witness::Camera::DetectionResult> baselineDetections;
 	bool baselineCaptured = false;
+	Witness::ObjectTracker clipTracker;
 
 	while( currentTime <= durationSec || currentTime == 0.0 )
 	{
@@ -265,36 +278,88 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 						baselineDetections = detections;
 						baselineCaptured = true;
 					}
-					else
+
+					// Classify each detection as baseline or new
+					struct ClassifiedDetection
 					{
-						// Subsequent frames: filter out detections matching baseline by class + IoU
-						for( auto& det : detections )
+						Witness::Camera::DetectionResult det;
+						bool isBaseline;
+					};
+					std::vector<ClassifiedDetection> classified;
+
+					for( auto& det : detections )
+					{
+						bool matchesBaseline = false;
+						for( auto& base : baselineDetections )
 						{
-							bool isBaseline = false;
-							for( auto& base : baselineDetections )
+							if( det.ClassId != base.ClassId )
+								continue;
+							float ix1 = std::max( det.X1, base.X1 );
+							float iy1 = std::max( det.Y1, base.Y1 );
+							float ix2 = std::min( det.X2, base.X2 );
+							float iy2 = std::min( det.Y2, base.Y2 );
+							float iw = std::max( 0.0f, ix2 - ix1 );
+							float ih = std::max( 0.0f, iy2 - iy1 );
+							float intersection = iw * ih;
+							float areaA = ( det.X2 - det.X1 ) * ( det.Y2 - det.Y1 );
+							float areaB = ( base.X2 - base.X1 ) * ( base.Y2 - base.Y1 );
+							float unionArea = areaA + areaB - intersection;
+							float iou = unionArea > 0.0f ? intersection / unionArea : 0.0f;
+							if( iou > 0.5f )
 							{
-								if( det.ClassId != base.ClassId )
-									continue;
-								// Compute IoU between detection and baseline bounding boxes
-								float ix1 = std::max( det.X1, base.X1 );
-								float iy1 = std::max( det.Y1, base.Y1 );
-								float ix2 = std::min( det.X2, base.X2 );
-								float iy2 = std::min( det.Y2, base.Y2 );
-								float iw = std::max( 0.0f, ix2 - ix1 );
-								float ih = std::max( 0.0f, iy2 - iy1 );
-								float intersection = iw * ih;
-								float areaA = ( det.X2 - det.X1 ) * ( det.Y2 - det.Y1 );
-								float areaB = ( base.X2 - base.X1 ) * ( base.Y2 - base.Y1 );
-								float unionArea = areaA + areaB - intersection;
-								float iou = unionArea > 0.0f ? intersection / unionArea : 0.0f;
-								if( iou > 0.5f )
-								{
-									isBaseline = true;
-									break;
-								}
+								matchesBaseline = true;
+								break;
 							}
-							if( !isBaseline )
-								detectedTags.insert( det.ClassName );
+						}
+						if( !matchesBaseline )
+							detectedTags.insert( det.ClassName );
+						classified.push_back( { det, matchesBaseline } );
+					}
+
+					// Store all detection boxes (baseline + new) for overlay playback
+					if( !classified.empty() )
+					{
+						// Run tracker for stable IDs
+						std::vector<Witness::TrackedBox> trackInputs;
+						for( auto& c : classified )
+						{
+							Witness::TrackedBox tb;
+							tb.X = c.det.X1; tb.Y = c.det.Y1;
+							tb.W = c.det.X2 - c.det.X1; tb.H = c.det.Y2 - c.det.Y1;
+							tb.ClassID = c.det.ClassId;
+							tb.Confidence = c.det.Confidence;
+							tb.ClassName = c.det.ClassName;
+							trackInputs.push_back( std::move( tb ) );
+						}
+						auto tracked = clipTracker.Update( trackInputs );
+
+						double frameTimestamp = static_cast<double>( timestamp ) + currentTime;
+						int64_t frameUID = 0;
+						{
+							SQLiteDatabaseQueryInstance q( Database, "InsertDetectionFrame" );
+							q->Bind( "@CameraID", camera );
+							q->Bind( "@Timestamp", frameTimestamp );
+							q->Bind( "@FrameWidth", frameWidth );
+							q->Bind( "@FrameHeight", frameHeight );
+							q->Execute( nullptr );
+							frameUID = q->GetLastInsertionId();
+						}
+						for( size_t i = 0; i < tracked.size(); i++ )
+						{
+							auto& [box, trackID] = tracked[i];
+							bool isBase = ( i < classified.size() ) ? classified[i].isBaseline : false;
+							SQLiteDatabaseQueryInstance q( Database, "InsertDetectionBox" );
+							q->Bind( "@FrameUID", frameUID );
+							q->Bind( "@TrackingID", static_cast<int>( trackID ) );
+							q->Bind( "@ClassID", box.ClassID );
+							q->Bind( "@ClassName", box.ClassName.c_str() );
+							q->Bind( "@Confidence", static_cast<double>( box.Confidence ) );
+							q->Bind( "@X", static_cast<double>( box.X ) );
+							q->Bind( "@Y", static_cast<double>( box.Y ) );
+							q->Bind( "@W", static_cast<double>( box.W ) );
+							q->Bind( "@H", static_cast<double>( box.H ) );
+							q->Bind( "@IsBaseline", isBase ? 1 : 0 );
+							q->Execute( nullptr );
 						}
 					}
 

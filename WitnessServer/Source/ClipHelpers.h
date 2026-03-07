@@ -12,3 +12,4 @@ void BackfillContinuousSegmentFileSizes( const GlobalContext& Context );
 void CleanupOrphanedContinuousSegments( const GlobalContext& Context );
 void EnforceQuotaContinuousSegments( const GlobalContext& Context, int64_t quotaBytes );
 void CheckDiskSpaceSafety( const GlobalContext& Context );
+void CleanupOldDetectionFrames( const GlobalContext& Context, int retentionDays );

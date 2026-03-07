@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppLayout from '../components/layout/AppLayout.vue'
 import HlsPlayer from '../components/camera/HlsPlayer.vue'
@@ -12,6 +12,7 @@ const cameraStore = useCameraStore()
 const cameraId = computed(() => Number(route.params.cameraId))
 const camera = computed(() => cameraStore.getCameraById(cameraId.value))
 const hlsPlayerRef = ref<InstanceType<typeof HlsPlayer> | null>(null)
+const detectionOverlayActive = ref(false)
 
 const latencyLabel = computed(() => {
   const ms = hlsPlayerRef.value?.latencyMs ?? 0
@@ -20,9 +21,29 @@ const latencyLabel = computed(() => {
   return sec >= 0 ? `+${sec.toFixed(1)}s` : `${sec.toFixed(1)}s`
 })
 
+function toggleDetectionOverlay() {
+  const player = hlsPlayerRef.value
+  if (player?.toggleOverlay) {
+    player.toggleOverlay()
+    detectionOverlayActive.value = player.overlayEnabled ?? false
+    localStorage.setItem(`witness-detection-overlay-${cameraId.value}`, detectionOverlayActive.value ? '1' : '0')
+  }
+}
+
 onMounted(async () => {
   if (cameraStore.cameras.length === 0) {
     await cameraStore.fetchCameras()
+  }
+  const saved = localStorage.getItem(`witness-detection-overlay-${cameraId.value}`)
+  if (saved === null || saved === '1') {
+    detectionOverlayActive.value = true
+  }
+})
+
+// Auto-enable overlay when HlsPlayer becomes available
+watch(hlsPlayerRef, (player) => {
+  if (player && detectionOverlayActive.value && !player.overlayEnabled) {
+    player.toggleOverlay()
   }
 })
 </script>
@@ -31,6 +52,12 @@ onMounted(async () => {
   <AppLayout>
     <template #title>{{ camera?.name || 'Stream' }}</template>
     <template #actions>
+      <button
+        class="btn btn-sm"
+        :class="detectionOverlayActive ? 'btn-success' : 'btn-outline-secondary'"
+        @click="toggleDetectionOverlay"
+        title="Toggle detection overlay"
+      >🔲</button>
       <button class="btn btn-sm btn-outline-secondary" @click="router.push('/')">
         ← Back
       </button>

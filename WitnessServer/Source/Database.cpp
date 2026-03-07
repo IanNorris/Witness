@@ -140,6 +140,31 @@ namespace Database
 
 		CREATE UNIQUE INDEX IF NOT EXISTS CameraActionIndex ON CameraAction (ActionUID,CameraUID);
 
+		CREATE TABLE IF NOT EXISTS DetectionFrame(
+			FrameUID		INTEGER PRIMARY KEY AUTOINCREMENT,
+			CameraID		INTEGER					NOT NULL,
+			Timestamp		REAL					NOT NULL,
+			FrameWidth		INTEGER,
+			FrameHeight		INTEGER
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_detframe_camera_time ON DetectionFrame(CameraID, Timestamp);
+
+		CREATE TABLE IF NOT EXISTS DetectionBox(
+			BoxUID			INTEGER PRIMARY KEY AUTOINCREMENT,
+			FrameUID		INTEGER					NOT NULL,
+			TrackingID		INTEGER					DEFAULT 0,
+			ClassID			INTEGER,
+			ClassName		TEXT,
+			Confidence		REAL,
+			X				REAL,
+			Y				REAL,
+			W				REAL,
+			H				REAL,
+			IsBaseline		INTEGER					DEFAULT 0,
+			FOREIGN KEY(FrameUID) REFERENCES DetectionFrame(FrameUID) ON DELETE CASCADE
+		);
+
 	)RAW";
 
 	std::string GetSetting = R"RAW(
@@ -697,6 +722,51 @@ namespace Database
 		LIMIT 1;
 	)RAW";
 
+	// Detection overlay queries
+	std::string InsertDetectionFrame = R"RAW(
+		INSERT INTO DetectionFrame (CameraID, Timestamp, FrameWidth, FrameHeight)
+		VALUES(@CameraID, @Timestamp, @FrameWidth, @FrameHeight);
+	)RAW";
+
+	std::string InsertDetectionBox = R"RAW(
+		INSERT INTO DetectionBox (FrameUID, TrackingID, ClassID, ClassName, Confidence, X, Y, W, H, IsBaseline)
+		VALUES(@FrameUID, @TrackingID, @ClassID, @ClassName, @Confidence, @X, @Y, @W, @H, @IsBaseline);
+	)RAW";
+
+	std::string SelectDetectionFramesWithBoxes = R"RAW(
+		SELECT f.FrameUID, f.Timestamp, f.FrameWidth, f.FrameHeight,
+			   b.TrackingID, b.ClassID, b.ClassName, b.Confidence, b.X, b.Y, b.W, b.H, b.IsBaseline
+		FROM DetectionFrame f
+		LEFT JOIN DetectionBox b ON f.FrameUID = b.FrameUID
+		WHERE f.CameraID = @CameraID
+			AND f.Timestamp >= @TimestampFrom
+			AND f.Timestamp <= @TimestampTo
+		ORDER BY f.Timestamp ASC, b.BoxUID ASC;
+	)RAW";
+
+	std::string DeleteDetectionFramesBefore = R"RAW(
+		DELETE FROM DetectionBox WHERE FrameUID IN (
+			SELECT FrameUID FROM DetectionFrame WHERE CameraID = @CameraID AND Timestamp < @Timestamp
+		);
+		DELETE FROM DetectionFrame
+		WHERE CameraID = @CameraID AND Timestamp < @Timestamp;
+	)RAW";
+
+	std::string DeleteAllDetectionFrames = R"RAW(
+		DELETE FROM DetectionBox WHERE FrameUID IN (
+			SELECT FrameUID FROM DetectionFrame WHERE CameraID = @CameraID
+		);
+		DELETE FROM DetectionFrame WHERE CameraID = @CameraID;
+	)RAW";
+
+	std::string DeleteDetectionFramesInRange = R"RAW(
+		DELETE FROM DetectionBox WHERE FrameUID IN (
+			SELECT FrameUID FROM DetectionFrame WHERE CameraID = @CameraID AND Timestamp >= @TimestampFrom AND Timestamp <= @TimestampTo
+		);
+		DELETE FROM DetectionFrame
+		WHERE CameraID = @CameraID AND Timestamp >= @TimestampFrom AND Timestamp <= @TimestampTo;
+	)RAW";
+
 #define CREATE_QUERY( X ) DB->CreateQuery( #X, X )
 
 	std::shared_ptr<SQLiteDatabase> InitializeDatabase( std::string Filename )
@@ -715,6 +785,7 @@ namespace Database
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN ContinuousRecording INT DEFAULT 0;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN LowLatencyHLS INT DEFAULT 0;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE ContinuousSegment ADD COLUMN FileSize INTEGER DEFAULT 0;", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE DetectionBox ADD COLUMN IsBaseline INTEGER DEFAULT 0;", nullptr, nullptr, nullptr );
 
 		// Migrate old Tag table schema — drop and recreate if it has the old schema
 		// (old schema had Name CHAR(64), Description TEXT; new needs Name TEXT UNIQUE, Display, Icon, etc.)
@@ -857,6 +928,13 @@ namespace Database
 		CREATE_QUERY( SelectOldestContinuousSegment );
 		CREATE_QUERY( SelectContinuousCoverage );
 		CREATE_QUERY( SelectContinuousSegmentAtTimestamp );
+
+		CREATE_QUERY( InsertDetectionFrame );
+		CREATE_QUERY( InsertDetectionBox );
+		CREATE_QUERY( SelectDetectionFramesWithBoxes );
+		CREATE_QUERY( DeleteDetectionFramesBefore );
+		CREATE_QUERY( DeleteAllDetectionFrames );
+		CREATE_QUERY( DeleteDetectionFramesInRange );
 
 		return DB;
 	}
