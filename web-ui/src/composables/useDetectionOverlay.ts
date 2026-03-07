@@ -19,16 +19,8 @@ interface DetectionFrame {
 
 // Interpolation state per tracked object
 interface TrackedBox extends DetectionBox {
-  // Current interpolated position
-  ix: number
-  iy: number
-  iw: number
-  ih: number
-  // Target position
-  tx: number
-  ty: number
-  tw: number
-  th: number
+  ix: number; iy: number; iw: number; ih: number
+  tx: number; ty: number; tw: number; th: number
   lastSeen: number
 }
 
@@ -48,6 +40,74 @@ const CLASS_COLORS: Record<string, string> = {
 
 function getClassColor(cls: string): string {
   return CLASS_COLORS[cls.toLowerCase()] || '#ffff44'
+}
+
+/**
+ * Calculate the actual rendered video area inside a container using object-fit: contain.
+ * Returns null if video dimensions aren't available yet.
+ */
+function getVideoContentRect(video: HTMLVideoElement) {
+  if (!video.videoWidth || !video.videoHeight) return null
+
+  const rect = video.getBoundingClientRect()
+  const videoAspect = video.videoWidth / video.videoHeight
+  const containerAspect = rect.width / rect.height
+
+  let drawW: number, drawH: number, offsetX: number, offsetY: number
+
+  if (videoAspect > containerAspect) {
+    // Video is wider than container — letterboxed top/bottom
+    drawW = rect.width
+    drawH = rect.width / videoAspect
+    offsetX = 0
+    offsetY = (rect.height - drawH) / 2
+  } else {
+    // Video is taller than container — pillarboxed left/right
+    drawH = rect.height
+    drawW = rect.height * videoAspect
+    offsetX = (rect.width - drawW) / 2
+    offsetY = 0
+  }
+
+  return { drawW, drawH, offsetX, offsetY, containerW: rect.width, containerH: rect.height }
+}
+
+function syncCanvasSize(canvas: HTMLCanvasElement, video: HTMLVideoElement) {
+  const rect = video.getBoundingClientRect()
+  const w = Math.round(rect.width)
+  const h = Math.round(rect.height)
+  if (canvas.width !== w || canvas.height !== h) {
+    canvas.width = w
+    canvas.height = h
+  }
+}
+
+function drawBox(
+  ctx: CanvasRenderingContext2D,
+  box: { x: number; y: number; w: number; h: number; cls: string; conf: number },
+  vr: { drawW: number; drawH: number; offsetX: number; offsetY: number },
+  alpha = 1,
+) {
+  const px = vr.offsetX + box.x * vr.drawW
+  const py = vr.offsetY + box.y * vr.drawH
+  const pw = box.w * vr.drawW
+  const ph = box.h * vr.drawH
+  const color = getClassColor(box.cls)
+
+  ctx.strokeStyle = color
+  ctx.globalAlpha = alpha
+  ctx.lineWidth = 2
+  ctx.strokeRect(px, py, pw, ph)
+
+  const label = `${box.cls} ${Math.round(box.conf * 100)}%`
+  ctx.font = '12px sans-serif'
+  const textW = ctx.measureText(label).width
+  ctx.fillStyle = color
+  ctx.globalAlpha = alpha * 0.7
+  ctx.fillRect(px, py - 18, textW + 8, 18)
+  ctx.fillStyle = '#000'
+  ctx.globalAlpha = alpha
+  ctx.fillText(label, px + 4, py - 5)
 }
 
 export function useDetectionOverlay(
@@ -104,12 +164,7 @@ export function useDetectionOverlay(
       return
     }
 
-    // Sync canvas size to video display
-    const rect = video.getBoundingClientRect()
-    if (canvas.width !== rect.width || canvas.height !== rect.height) {
-      canvas.width = rect.width
-      canvas.height = rect.height
-    }
+    syncCanvasSize(canvas, video)
 
     const ctx = canvas.getContext('2d')
     if (!ctx) {
@@ -119,21 +174,10 @@ export function useDetectionOverlay(
 
     ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-    // Calculate video content area (object-fit: contain)
-    const videoAspect = video.videoWidth / (video.videoHeight || 1)
-    const containerAspect = rect.width / (rect.height || 1)
-    let drawW: number, drawH: number, offsetX: number, offsetY: number
-
-    if (videoAspect > containerAspect) {
-      drawW = rect.width
-      drawH = rect.width / videoAspect
-      offsetX = 0
-      offsetY = (rect.height - drawH) / 2
-    } else {
-      drawH = rect.height
-      drawW = rect.height * videoAspect
-      offsetX = (rect.width - drawW) / 2
-      offsetY = 0
+    const vr = getVideoContentRect(video)
+    if (!vr) {
+      animFrame = requestAnimationFrame(draw)
+      return
     }
 
     const now = performance.now()
@@ -151,34 +195,8 @@ export function useDetectionOverlay(
       box.iw += (box.tw - box.iw) * LERP_SPEED
       box.ih += (box.th - box.ih) * LERP_SPEED
 
-      // Calculate pixel position within video content area
-      const px = offsetX + box.ix * drawW
-      const py = offsetY + box.iy * drawH
-      const pw = box.iw * drawW
-      const ph = box.ih * drawH
-
-      // Fade opacity
       const alpha = age < FADE_MS * 0.5 ? 1 : 1 - (age - FADE_MS * 0.5) / (FADE_MS * 0.5)
-      const color = getClassColor(box.cls)
-
-      // Draw bounding box
-      ctx.strokeStyle = color
-      ctx.globalAlpha = alpha
-      ctx.lineWidth = 2
-      ctx.strokeRect(px, py, pw, ph)
-
-      // Draw label background
-      const label = `${box.cls} ${Math.round(box.conf * 100)}%`
-      ctx.font = '12px sans-serif'
-      const textW = ctx.measureText(label).width
-      ctx.fillStyle = color
-      ctx.globalAlpha = alpha * 0.7
-      ctx.fillRect(px, py - 18, textW + 8, 18)
-
-      // Draw label text
-      ctx.fillStyle = '#000'
-      ctx.globalAlpha = alpha
-      ctx.fillText(label, px + 4, py - 5)
+      drawBox(ctx, { x: box.ix, y: box.iy, w: box.iw, h: box.ih, cls: box.cls, conf: box.conf }, vr, alpha)
     }
 
     ctx.globalAlpha = 1
@@ -230,6 +248,7 @@ export function useDetectionPlayback(
   cameraId: number,
   canvasRef: Ref<HTMLCanvasElement | null>,
   videoRef: Ref<HTMLVideoElement | null>,
+  timeOffset = 0, // epoch seconds of video start — added to video.currentTime
 ) {
   const enabled = ref(false)
   const frames = ref<Array<{ t: number; boxes: DetectionBox[] }>>([])
@@ -247,27 +266,26 @@ export function useDetectionPlayback(
   }
 
   function findNearestFrame(time: number): { t: number; boxes: DetectionBox[] } | null {
+    const absoluteTime = time + timeOffset
     const arr = frames.value
     if (!arr.length) return null
 
     let lo = 0, hi = arr.length - 1
     while (lo < hi) {
       const mid = (lo + hi) >> 1
-      if ((arr[mid]?.t ?? 0) < time) lo = mid + 1
+      if ((arr[mid]?.t ?? 0) < absoluteTime) lo = mid + 1
       else hi = mid
     }
 
     const candidate = arr[lo]
     if (!candidate) return null
 
-    // Check which of lo-1 and lo is closer
     const prev = lo > 0 ? arr[lo - 1] : undefined
-    if (prev && Math.abs(prev.t - time) < Math.abs(candidate.t - time)) {
-      return Math.abs(prev.t - time) < 1.0 ? prev : null
+    if (prev && Math.abs(prev.t - absoluteTime) < Math.abs(candidate.t - absoluteTime)) {
+      return Math.abs(prev.t - absoluteTime) < 1.0 ? prev : null
     }
 
-    // Only return if within 1 second of current time
-    return Math.abs(candidate.t - time) < 1.0 ? candidate : null
+    return Math.abs(candidate.t - absoluteTime) < 1.0 ? candidate : null
   }
 
   function draw() {
@@ -278,11 +296,7 @@ export function useDetectionPlayback(
       return
     }
 
-    const rect = video.getBoundingClientRect()
-    if (canvas.width !== rect.width || canvas.height !== rect.height) {
-      canvas.width = rect.width
-      canvas.height = rect.height
-    }
+    syncCanvasSize(canvas, video)
 
     const ctx = canvas.getContext('2d')
     if (!ctx) {
@@ -298,45 +312,17 @@ export function useDetectionPlayback(
       return
     }
 
-    // Calculate video content area
-    const videoAspect = video.videoWidth / (video.videoHeight || 1)
-    const containerAspect = rect.width / (rect.height || 1)
-    let drawW: number, drawH: number, offsetX: number, offsetY: number
-
-    if (videoAspect > containerAspect) {
-      drawW = rect.width
-      drawH = rect.width / videoAspect
-      offsetX = 0
-      offsetY = (rect.height - drawH) / 2
-    } else {
-      drawH = rect.height
-      drawW = rect.height * videoAspect
-      offsetX = (rect.width - drawW) / 2
-      offsetY = 0
+    const vr = getVideoContentRect(video)
+    if (!vr) {
+      animFrame = requestAnimationFrame(draw)
+      return
     }
 
     for (const box of frame.boxes) {
-      const px = offsetX + box.x * drawW
-      const py = offsetY + box.y * drawH
-      const pw = box.w * drawW
-      const ph = box.h * drawH
-      const color = getClassColor(box.cls)
-
-      ctx.strokeStyle = color
-      ctx.lineWidth = 2
-      ctx.strokeRect(px, py, pw, ph)
-
-      const label = `${box.cls} ${Math.round(box.conf * 100)}%`
-      ctx.font = '12px sans-serif'
-      const textW = ctx.measureText(label).width
-      ctx.fillStyle = color
-      ctx.globalAlpha = 0.7
-      ctx.fillRect(px, py - 18, textW + 8, 18)
-      ctx.fillStyle = '#000'
-      ctx.globalAlpha = 1
-      ctx.fillText(label, px + 4, py - 5)
+      drawBox(ctx, box, vr)
     }
 
+    ctx.globalAlpha = 1
     animFrame = requestAnimationFrame(draw)
   }
 
