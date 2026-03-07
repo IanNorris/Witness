@@ -546,7 +546,7 @@ void CrowListener::RegisterRoutes()
 			int generation = liveStream->GetInitGeneration();
 			auto initData = liveStream->GetInitSegment();
 
-			// Send init segment
+			// Send init segment — client waits for next live keyframe to start
 			if( initData && !initData->empty() )
 			{
 				crow::json::wvalue ctrl;
@@ -554,36 +554,6 @@ void CrowListener::RegisterRoutes()
 				ctrl["generation"] = generation;
 				m_GlobalContext->Streams->SendControlDirect( &conn, ctrl.dump() );
 				m_GlobalContext->Streams->SendBinaryDirect( &conn, initData );
-			}
-
-			// Send backlog: find the most recent ready segment and send its
-			// partials so the client can start playing immediately instead of
-			// waiting for the next live keyframe.
-			std::vector<Witness::Camera::LiveStreamSegment> segments;
-			liveStream->GetSegments( segments );
-
-			// Find last ready segment (it has partials with keyframe at part 0)
-			for( int i = (int)segments.size() - 1; i >= 0; i-- )
-			{
-				auto& seg = segments[i];
-				if( !seg.Ready || seg.Partials.empty() ) continue;
-
-				// Send all partials from this segment
-				for( auto& partial : seg.Partials )
-				{
-					crow::json::wvalue pCtrl;
-					pCtrl["type"] = "partial";
-					pCtrl["segmentIndex"] = seg.SegmentIndex;
-					pCtrl["partIndex"] = partial.PartIndex;
-					pCtrl["duration"] = partial.Duration;
-					pCtrl["independent"] = partial.Independent;
-					m_GlobalContext->Streams->SendControlDirect( &conn, pCtrl.dump() );
-					m_GlobalContext->Streams->SendBinaryDirect( &conn, partial.Data );
-				}
-
-				LOG_INFO( "[MSE] Sent backlog segment %d (%d partials) to new client for camera %d",
-					seg.SegmentIndex, (int)seg.Partials.size(), cameraId );
-				break; // Only send the most recent segment
 			}
 
 			LOG_INFO( "[MSE] Stream client connected for camera %d", cameraId );

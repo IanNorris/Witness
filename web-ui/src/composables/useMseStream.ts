@@ -2,11 +2,8 @@ import { ref, onUnmounted, type Ref } from 'vue'
 
 // ── Constants ─────────────────────────────────────────────────────────
 const MSE_WATCHDOG_INTERVAL_MS = 250
-const MSE_SPINNER_TIMEOUT_MS = 3000
 const MSE_INITIAL_TIMEOUT_MS = 5000
 const MSE_BACK_BUFFER_SECONDS = 5
-const MSE_LIVE_EDGE_TARGET_SECONDS = 0.5
-const MSE_LATENCY_CAP_SECONDS = 3
 
 // ── Diagnostics ───────────────────────────────────────────────────────
 const DIAG_MAX_AGE_MS = 24 * 60 * 60 * 1000
@@ -233,7 +230,8 @@ export function useMseStream(
       sourceBuffer.addEventListener('updateend', () => {
         processAppendQueue()
 
-        // After first real data is buffered, seek to it and start playing
+        // After first data is buffered, start playback from keyframe at buffer start
+        // The watchdog's seekToLive will catch up to live edge within 250ms
         if (!hasInitialBuffer) {
           const video = videoRef.value
           if (video && video.buffered.length > 0) {
@@ -451,10 +449,9 @@ export function useMseStream(
       const hasFrags = lastFragTime > 0
       const fragAge = hasFrags ? now - lastFragTime : now - streamStartTime
 
-      // Spinner: show while waiting for data
-      showSpinner.value = hasFrags
-        ? fragAge < MSE_SPINNER_TIMEOUT_MS && video.readyState < 3
-        : fragAge < MSE_INITIAL_TIMEOUT_MS
+      // Spinner: show during initial connect only, not during playback
+      // (fragments flowing = stream is healthy, readyState dips are normal near live edge)
+      showSpinner.value = !hasFrags && fragAge < MSE_INITIAL_TIMEOUT_MS
 
       // Connection lost: no fragments for extended period
       connectionLost.value = fragAge > MSE_INITIAL_TIMEOUT_MS
@@ -483,21 +480,14 @@ export function useMseStream(
         restartBackoffMs = 3000
       }
 
-      // Live edge tracking — keep playhead near buffered end
+      // Live edge tracking — just measure latency (no seeking or rate changes)
       if (video.readyState >= 3 && !video.paused && sourceBuffer) {
         const buf = video.buffered
         if (buf.length > 0) {
           const end = buf.end(buf.length - 1)
           const lag = end - video.currentTime
-
-          // Estimate latency
           latencyMs.value = Math.round(lag * 1000)
-
-          // If too far behind, seek to near live edge
-          if (lag > MSE_LATENCY_CAP_SECONDS) {
-            video.currentTime = end - MSE_LIVE_EDGE_TARGET_SECONDS
-            diag.log('seekToLive', { lag, newTime: video.currentTime })
-          }
+          diag.recordLatency(latencyMs.value)
         }
       }
     }, MSE_WATCHDOG_INTERVAL_MS)
