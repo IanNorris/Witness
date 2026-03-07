@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { api } from '../../composables/useApi'
-import { useDetectionPlayback } from '../../composables/useDetectionOverlay'
+import { useDetectionPlayback, CLASS_COLORS } from '../../composables/useDetectionOverlay'
+import { useSettingsStore } from '../../stores/settings'
 import { format } from 'date-fns'
 
 interface DvrSegment {
@@ -94,6 +95,138 @@ const scrubThumbX = ref(0)
 const scrubThumbY = ref(0)
 const scrubThumbTime = ref<string | null>(null)
 let scrubTimer: ReturnType<typeof setTimeout> | null = null
+
+// Pinned scrub thumbnail for detection nudge
+const scrubPinned = ref(false)
+const scrubPinnedTs = ref(0)
+const scrubThumbCanvasRef = ref<HTMLCanvasElement | null>(null)
+
+function findDetectionFrameAt(ts: number): { t: number; boxes: { cls: string; conf: number; x: number; y: number; w: number; h: number; baseline?: boolean }[] } | null {
+  const arr = detectionFrames.value
+  if (!arr.length) return null
+  let lo = 0, hi = arr.length - 1
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if ((arr[mid]?.t ?? 0) < ts) lo = mid + 1
+    else hi = mid
+  }
+  const candidate = arr[lo]
+  if (!candidate) return null
+  const prev = lo > 0 ? arr[lo - 1] : undefined
+  if (prev && Math.abs(prev.t - ts) < Math.abs(candidate.t - ts)) {
+    return Math.abs(prev.t - ts) < 2.0 ? prev : null
+  }
+  return Math.abs(candidate.t - ts) < 2.0 ? candidate : null
+}
+
+function drawScrubDetections() {
+  const canvas = scrubThumbCanvasRef.value
+  if (!canvas) return
+
+  // Size canvas to match the image
+  const img = canvas.previousElementSibling?.previousElementSibling as HTMLImageElement | null
+  if (img && img.naturalWidth > 0) {
+    canvas.width = img.clientWidth || img.naturalWidth
+    canvas.height = img.clientHeight || img.naturalHeight
+  }
+
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+  ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+  const ts = scrubPinned.value ? scrubPinnedTs.value : 0
+  if (!ts) return
+
+  const frame = findDetectionFrameAt(ts)
+  if (!frame) return
+
+  const settings = useSettingsStore()
+  const minConf = settings.detectionMinConfidence / 100
+
+  for (const box of frame.boxes) {
+    if (box.conf < minConf) continue
+    const px = box.x * canvas.width
+    const py = box.y * canvas.height
+    const pw = box.w * canvas.width
+    const ph = box.h * canvas.height
+    const color = box.baseline ? '#6688cc' : (CLASS_COLORS[box.cls.toLowerCase()] || '#ffff44')
+
+    ctx.strokeStyle = color
+    ctx.lineWidth = 1.5
+    if (box.baseline) ctx.setLineDash([3, 3])
+    ctx.strokeRect(px, py, pw, ph)
+    ctx.setLineDash([])
+
+    ctx.font = '10px sans-serif'
+    const label = `${box.cls} ${Math.round(box.conf * 100)}%`
+    const textW = ctx.measureText(label).width
+    ctx.fillStyle = color
+    ctx.globalAlpha = 0.7
+    ctx.fillRect(px, py, textW + 6, 14)
+    ctx.fillStyle = '#000'
+    ctx.globalAlpha = 1
+    ctx.fillText(label, px + 3, py + 11)
+  }
+}
+
+function updateScrubThumb(ts: number) {
+  scrubPinnedTs.value = ts
+  scrubThumbTime.value = format(new Date(ts * 1000), 'HH:mm:ss')
+  scrubThumbUrl.value = `/dvr/thumbnail/${props.cameraId}/${Math.floor(ts)}`
+}
+
+function pinScrub(event: MouseEvent) {
+  if (totalDuration.value <= 0) return
+  const bar = event.currentTarget as HTMLElement
+  const rect = bar.getBoundingClientRect()
+  const pct = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width))
+  scrubThumbX.value = event.clientX
+  scrubThumbY.value = rect.top
+
+  const targetTime = pct * totalDuration.value
+  let accumulated = 0
+  let ts = props.from
+  for (const seg of segments.value) {
+    if (accumulated + seg.duration >= targetTime) {
+      ts = seg.from + (targetTime - accumulated)
+      break
+    }
+    accumulated += seg.duration
+  }
+
+  scrubPinned.value = true
+  updateScrubThumb(ts)
+}
+
+function nudgeScrubDetection(direction: 'next' | 'prev') {
+  if (!scrubPinned.value) return
+  const arr = detectionFrames.value
+  if (!arr.length) return
+  const now = scrubPinnedTs.value
+
+  let target: number | null = null
+  if (direction === 'next') {
+    const frame = arr.find(f => f.t > now + 0.5)
+    if (frame) target = frame.t
+  } else {
+    for (let i = arr.length - 1; i >= 0; i--) {
+      if ((arr[i]?.t ?? 0) < now - 0.5) {
+        target = arr[i]!.t
+        break
+      }
+    }
+  }
+
+  if (target !== null) {
+    updateScrubThumb(target)
+  }
+}
+
+function unpinScrub() {
+  scrubPinned.value = false
+  scrubThumbUrl.value = null
+  scrubThumbTime.value = null
+}
 
 function getActive(): HTMLVideoElement | null {
   return activeSlot.value === 'a' ? videoA.value : videoB.value
@@ -400,7 +533,7 @@ watch(() => props.startAt, (newTs) => {
 
 // Seek bar scrub preview
 function onScrubMove(event: MouseEvent) {
-  if (totalDuration.value <= 0) return
+  if (totalDuration.value <= 0 || scrubPinned.value) return
   const bar = event.currentTarget as HTMLElement
   const rect = bar.getBoundingClientRect()
   const pct = Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width))
@@ -427,6 +560,7 @@ function onScrubMove(event: MouseEvent) {
 }
 
 function onScrubLeave() {
+  if (scrubPinned.value) return
   if (scrubTimer) { clearTimeout(scrubTimer); scrubTimer = null }
   scrubThumbUrl.value = null
   scrubThumbTime.value = null
@@ -455,11 +589,25 @@ function onKeyDown(e: KeyboardEvent) {
       break
     case 'ArrowLeft':
       e.preventDefault()
-      seekRelative(-5)
+      if (scrubPinned.value) {
+        nudgeScrubDetection('prev')
+      } else {
+        seekRelative(-5)
+      }
       break
     case 'ArrowRight':
       e.preventDefault()
-      seekRelative(5)
+      if (scrubPinned.value) {
+        nudgeScrubDetection('next')
+      } else {
+        seekRelative(5)
+      }
+      break
+    case 'Escape':
+      if (scrubPinned.value) {
+        e.preventDefault()
+        unpinScrub()
+      }
       break
     case '1': setRate(1); break
     case '2': setRate(2); break
@@ -531,15 +679,22 @@ defineExpose({
       <button class="dvr-btn" @click="togglePlay" :title="playing ? 'Pause' : 'Play'">
         {{ playing ? '⏸' : '▶' }}
       </button>
-      <div class="dvr-progress" @click="seek" @mousemove="onScrubMove" @mouseleave="onScrubLeave">
+      <div class="dvr-progress" @click="seek" @contextmenu.prevent="pinScrub" @mousemove="onScrubMove" @mouseleave="onScrubLeave">
         <div class="dvr-progress-fill" :style="{ width: `${progressPct}%` }"></div>
         <!-- Scrub thumbnail preview -->
-        <div v-if="scrubThumbTime" class="dvr-scrub-tooltip" :style="{ left: `${scrubThumbX}px`, top: `${scrubThumbY}px` }">
-          <img v-if="scrubThumbUrl" :src="scrubThumbUrl" class="dvr-scrub-img" alt=""
-            @error="($event.target as HTMLImageElement).style.display='none';
-              (($event.target as HTMLElement).nextElementSibling as HTMLElement).style.display='flex'" />
-          <div class="dvr-scrub-offline" style="display:none">Offline</div>
-          <div class="dvr-scrub-time">{{ scrubThumbTime }}</div>
+        <div v-if="scrubThumbTime" class="dvr-scrub-tooltip" :class="{ pinned: scrubPinned }" :style="{ left: `${scrubThumbX}px`, top: `${scrubThumbY}px` }">
+          <div class="dvr-scrub-thumb-wrap">
+            <img v-if="scrubThumbUrl" :src="scrubThumbUrl" class="dvr-scrub-img" alt=""
+              @load="drawScrubDetections"
+              @error="($event.target as HTMLImageElement).style.display='none';
+                (($event.target as HTMLElement).nextElementSibling as HTMLElement).style.display='flex'" />
+            <div class="dvr-scrub-offline" style="display:none">Offline</div>
+            <canvas ref="scrubThumbCanvasRef" class="dvr-scrub-canvas" />
+          </div>
+          <div class="dvr-scrub-time">
+            {{ scrubThumbTime }}
+            <span v-if="scrubPinned" class="dvr-scrub-hint">← → nudge · Esc close</span>
+          </div>
         </div>
       </div>
       <span class="dvr-time">{{ formattedTimestamp }} · {{ formattedElapsed }} / {{ formattedTotal }}</span>
@@ -760,11 +915,27 @@ defineExpose({
   pointer-events: none;
   text-align: center;
 }
+.dvr-scrub-tooltip.pinned {
+  pointer-events: auto;
+  border-color: #4488ff;
+  box-shadow: 0 0 8px rgba(68, 136, 255, 0.4);
+}
+.dvr-scrub-thumb-wrap {
+  position: relative;
+}
 .dvr-scrub-img {
   display: block;
   width: 200px;
   height: auto;
   border-radius: 3px;
+}
+.dvr-scrub-canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
 }
 .dvr-scrub-offline {
   width: 200px;
@@ -783,5 +954,10 @@ defineExpose({
   font-size: 0.7rem;
   color: rgba(255, 255, 255, 0.85);
   margin-top: 3px;
+}
+.dvr-scrub-hint {
+  font-size: 0.6rem;
+  color: rgba(255, 255, 255, 0.5);
+  margin-left: 0.3rem;
 }
 </style>

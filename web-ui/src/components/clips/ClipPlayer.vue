@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import type { Clip } from '../../types/clip'
 import { useClipStore } from '../../stores/clips'
 import { useDetectionPlayback } from '../../composables/useDetectionOverlay'
@@ -22,26 +22,41 @@ const { enabled: overlayEnabled, toggle: toggleOverlay, loadDetections, frames: 
   props.clip.timestamp, // epoch seconds offset — detection timestamps are absolute
 )
 
+const hasDetections = computed(() => detectionFrames.value.length > 0)
+
 function nudgeDetection(direction: 'next' | 'prev') {
   const video = videoRef.value
   if (!video || !detectionFrames.value.length) return
   const absoluteTime = video.currentTime + props.clip.timestamp
 
+  let targetTime: number | null = null
   if (direction === 'next') {
     const frame = detectionFrames.value.find(f => f.t > absoluteTime + 0.5)
-    if (frame) video.currentTime = frame.t - props.clip.timestamp
+    if (frame) targetTime = frame.t - props.clip.timestamp
   } else {
     for (let i = detectionFrames.value.length - 1; i >= 0; i--) {
       if ((detectionFrames.value[i]?.t ?? 0) < absoluteTime - 0.5) {
-        video.currentTime = detectionFrames.value[i]!.t - props.clip.timestamp
+        targetTime = detectionFrames.value[i]!.t - props.clip.timestamp
         break
       }
+    }
+  }
+
+  if (targetTime !== null && targetTime >= 0) {
+    // Pause first — some browsers can't seek while playing a non-faststart MP4
+    const wasPlaying = !video.paused
+    video.pause()
+    video.currentTime = targetTime
+    if (wasPlaying) {
+      video.addEventListener('seeked', () => video.play().catch(() => {}), { once: true })
     }
   }
 }
 
 function handleKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') emit('close')
+  if (e.key === 'n') { e.preventDefault(); nudgeDetection('next') }
+  if (e.key === 'p') { e.preventDefault(); nudgeDetection('prev') }
 }
 
 onMounted(async () => {
@@ -75,8 +90,8 @@ onMounted(async () => {
                 <circle cx="12" cy="12" r="3" />
               </svg>
             </button>
-            <button class="btn btn-sm btn-outline-secondary" @click="nudgeDetection('prev')" title="Previous detection">⏮</button>
-            <button class="btn btn-sm btn-outline-secondary" @click="nudgeDetection('next')" title="Next detection">⏭</button>
+            <button class="btn btn-sm btn-outline-secondary" :disabled="!hasDetections" @click="nudgeDetection('prev')" title="Previous detection">⏮</button>
+            <button class="btn btn-sm btn-outline-secondary" :disabled="!hasDetections" @click="nudgeDetection('next')" title="Next detection">⏭</button>
             <button class="btn btn-sm btn-outline-secondary" @click="emit('close')">✕</button>
           </div>
         </div>

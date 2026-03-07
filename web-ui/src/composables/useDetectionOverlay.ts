@@ -26,7 +26,7 @@ interface TrackedBox extends DetectionBox {
   lastSeen: number
 }
 
-const CLASS_COLORS: Record<string, string> = {
+export const CLASS_COLORS: Record<string, string> = {
   person: '#00ff88',
   car: '#4488ff',
   truck: '#4488ff',
