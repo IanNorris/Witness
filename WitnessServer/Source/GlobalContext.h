@@ -8,6 +8,8 @@
 #include "LongPoll.h"
 #include "EventBroadcaster.h"
 
+#include <shared_mutex>
+
 struct CameraStateToggleRecordMessage : public Message
 {
 	CameraStateToggleRecordMessage( int CamIndex, bool RecordIn ) : Camera( CamIndex ), Record( RecordIn ) {}
@@ -28,7 +30,7 @@ public:
 
 	CameraState* FindCameraById(int Id)
 	{
-		std::lock_guard<std::mutex> lock(Mutex);
+		std::shared_lock<std::shared_mutex> lock(Mutex);
 
 		auto Iter = Cameras.find(Id);
 		if (Iter != Cameras.end())
@@ -43,7 +45,7 @@ public:
 
 	const CameraState* FindCameraById(int Id) const
 	{
-		std::lock_guard<std::mutex> lock(Mutex);
+		std::shared_lock<std::shared_mutex> lock(Mutex);
 
 		auto Iter = Cameras.find(Id);
 		if (Iter != Cameras.end())
@@ -66,7 +68,7 @@ public:
 		return Cameras;
 	}
 
-	mutable std::mutex Mutex;
+	mutable std::shared_mutex Mutex;
 
 	std::string CachePath;
 

@@ -160,6 +160,7 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 
 	Context = Server->GetGlobalContext();
 	Context->CachePath = CachePath;
+	Context->Events->Start();
 
 	if( !InitializeContext(Database) )
 	{
@@ -297,7 +298,7 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 				CachePath,
 				[ctx]() -> bool
 				{
-					std::lock_guard<std::mutex> lock( ctx->Mutex );
+					std::shared_lock<std::shared_mutex> lock( ctx->Mutex );
 					for( auto& [id, state] : ctx->GetCameraMap() )
 					{
 						if( state.IsRecording )
@@ -463,7 +464,7 @@ void WitnessServer::StartCamera(const SQLiteDatabaseQuery& query)
 
 void WitnessServer::StartCameraWorkers()
 {
-	std::lock_guard<std::mutex> Lock( Context->Mutex );
+	std::unique_lock<std::shared_mutex> Lock( Context->Mutex );
 
 	MAKE_QUERY( GetCameras );
 

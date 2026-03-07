@@ -507,7 +507,7 @@ void CrowListener::RegisterRoutes()
 			crow::json::wvalue initData;
 			std::vector<crow::json::wvalue> cams;
 			{
-				std::lock_guard<std::mutex> lock( m_GlobalContext->Mutex );
+				std::shared_lock<std::shared_mutex> lock( m_GlobalContext->Mutex );
 				for( auto& [id, state] : m_GlobalContext->GetCameraMap() )
 				{
 					crow::json::wvalue cam;
@@ -570,27 +570,48 @@ void CrowListener::ServeStaticFile( const crow::request& req, crow::response& re
 	if( lookup.empty() )
 		lookup = "index.html";
 
-	for( int pass = 0; pass < 2; pass++ )
+	auto serveFromCacheOrDisk = [&]( const std::string& key ) -> bool
 	{
-		auto it = m_StaticFiles.find( lookup );
-		if( it != m_StaticFiles.end() )
+		auto it = m_StaticFiles.find( key );
+		if( it == m_StaticFiles.end() ) return false;
+
+		// Check cache first
 		{
-			fs::path fullPath = m_StaticRoot;
-			fullPath /= it->first;
-
-			std::ifstream file( fullPath, std::ios::binary );
-			if( file )
+			std::lock_guard<std::mutex> lock( m_FileCacheMutex );
+			auto cacheIt = m_FileCache.find( key );
+			if( cacheIt != m_FileCache.end() )
 			{
-				std::string body( (std::istreambuf_iterator<char>(file)),
-								  std::istreambuf_iterator<char>() );
-
 				res.set_header( "Content-Type", it->second );
-
-			res.body = std::move( body );
+				res.body = cacheIt->second;
 				res.code = 200;
-				return;
+				return true;
 			}
 		}
+
+		// Read from disk and cache
+		fs::path fullPath = m_StaticRoot;
+		fullPath /= it->first;
+
+		std::ifstream file( fullPath, std::ios::binary );
+		if( !file ) return false;
+
+		std::string body( (std::istreambuf_iterator<char>(file)),
+						  std::istreambuf_iterator<char>() );
+
+		{
+			std::lock_guard<std::mutex> lock( m_FileCacheMutex );
+			m_FileCache[key] = body;
+		}
+
+		res.set_header( "Content-Type", it->second );
+		res.body = std::move( body );
+		res.code = 200;
+		return true;
+	};
+
+	for( int pass = 0; pass < 2; pass++ )
+	{
+		if( serveFromCacheOrDisk( lookup ) ) return;
 
 		if( pass == 0 )
 		{
@@ -599,30 +620,11 @@ void CrowListener::ServeStaticFile( const crow::request& req, crow::response& re
 	}
 
 	// SPA fallback: Vue Router paths should serve index.html
-	// (paths that didn't match a static file or API route)
 	if( !path.empty() && path.find('.') == std::string::npos )
 	{
-		// No file extension = likely a Vue Router path (e.g., /clips, /admin, /login)
-		// Skip setup/ which has its own index.html
 		if( path.substr( 0, 6 ) != "setup/" && path != "setup" )
 		{
-			auto it = m_StaticFiles.find( "index.html" );
-			if( it != m_StaticFiles.end() )
-			{
-				fs::path fullPath = m_StaticRoot;
-				fullPath /= it->first;
-
-				std::ifstream file( fullPath, std::ios::binary );
-				if( file )
-				{
-					std::string body( (std::istreambuf_iterator<char>(file)),
-									  std::istreambuf_iterator<char>() );
-					res.set_header( "Content-Type", it->second );
-					res.body = std::move( body );
-					res.code = 200;
-					return;
-				}
-			}
+			if( serveFromCacheOrDisk( "index.html" ) ) return;
 		}
 	}
 
@@ -642,8 +644,14 @@ void CrowListener::ReadBuildHash()
 			hash.pop_back();
 		if( !hash.empty() )
 		{
+			if( !m_GlobalContext->BuildHash.empty() && m_GlobalContext->BuildHash != hash )
+			{
+				// Build hash changed — invalidate static file cache
+				std::lock_guard<std::mutex> lock( m_FileCacheMutex );
+				m_FileCache.clear();
+				LOG_INFO( "Build hash changed (%s -> %s), static file cache cleared", m_GlobalContext->BuildHash.c_str(), hash.c_str() );
+			}
 			m_GlobalContext->BuildHash = hash;
-			LOG_INFO( "Build hash: %s", hash.c_str() );
 		}
 	}
 	else

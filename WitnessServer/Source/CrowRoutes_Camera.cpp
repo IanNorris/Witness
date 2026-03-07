@@ -490,7 +490,7 @@ void CrowListener::HandleCameraResetStats( const crow::request& req, crow::respo
 	}
 
 	{
-		std::lock_guard<std::mutex> Lock( m_GlobalContext->Mutex );
+		std::unique_lock<std::shared_mutex> Lock( m_GlobalContext->Mutex );
 
 		for( auto Camera : m_GlobalContext->GetCameraMap() )
 		{

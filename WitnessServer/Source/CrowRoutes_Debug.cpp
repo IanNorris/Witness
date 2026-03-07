@@ -186,7 +186,7 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 	std::vector<crow::json::wvalue> CameraArray;
 
 	{
-		std::lock_guard<std::mutex> lock( m_GlobalContext->Mutex );
+		std::shared_lock<std::shared_mutex> lock( m_GlobalContext->Mutex );
 		for( auto& [id, state] : m_GlobalContext->GetCameraMap() )
 		{
 			crow::json::wvalue CamData;
@@ -514,7 +514,7 @@ bool CrowListener::ReloadTLS()
 			try
 			{
 				m_App.loglevel( crow::LogLevel::Warning );
-				m_App.multithreaded().run();
+				m_App.concurrency( m_CrowThreadCount ).run();
 			}
 			catch( const std::exception& e )
 			{
@@ -580,6 +580,9 @@ void CrowListener::Start()
 
 	std::string bindAddr = ResolveBindAddress( m_Hostname );
 
+	m_CrowThreadCount = std::max( 4u, std::thread::hardware_concurrency() * 2 );
+	LOG_INFO( "Crow HTTP server: %u worker threads", m_CrowThreadCount );
+
 	try
 	{
 		m_App.bindaddr( bindAddr ).port( m_Port );
@@ -589,7 +592,7 @@ void CrowListener::Start()
 			try
 			{
 				m_App.loglevel( crow::LogLevel::Warning );
-				m_App.multithreaded().run();
+				m_App.concurrency( m_CrowThreadCount ).run();
 			}
 			catch( const std::exception& e )
 			{

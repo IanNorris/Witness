@@ -1,5 +1,6 @@
 #include "Common.h"
 #include "Database.h"
+#include "GlobalContext.h"
 #include "ObservingMotionFilter.h"
 #include "Witness.h"
 
@@ -86,7 +87,7 @@ void WitnessServer::MessageLoop( bool& ContinueRunning )
 
 		Msg->Handle< CameraAddedMessage>([&](const CameraAddedMessage& Data)
 		{
-			std::lock_guard<std::mutex> Lock(Context->Mutex);
+			std::unique_lock<std::shared_mutex> Lock(Context->Mutex);
 
 			MAKE_QUERY(GetCamera);
 			GetCamera->Bind("@CameraId", Data.Camera);
