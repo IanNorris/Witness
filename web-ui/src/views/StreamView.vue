@@ -12,6 +12,15 @@ const router = useRouter()
 const cameraStore = useCameraStore()
 const settings = useSettingsStore()
 
+const effectiveMode = computed(() => {
+  if (settings.streamingMode === 'mse') {
+    if (typeof MediaSource === 'undefined' || !MediaSource.isTypeSupported('video/mp4; codecs="avc1.42001e"')) {
+      return 'hls'
+    }
+  }
+  return settings.streamingMode
+})
+
 const cameraId = computed(() => Number(route.params.cameraId))
 const camera = computed(() => cameraStore.getCameraById(cameraId.value))
 const hlsPlayerRef = ref<InstanceType<typeof HlsPlayer> | InstanceType<typeof MsePlayer> | null>(null)
@@ -67,7 +76,7 @@ watch(hlsPlayerRef, (player) => {
     </template>
 
     <div v-if="camera" class="stream-container" @click="cameraStore.toggleRecording(cameraId)">
-      <MsePlayer v-if="settings.streamingMode === 'mse'" ref="hlsPlayerRef" :camera-id="cameraId" suffix="_stream" />
+      <MsePlayer v-if="effectiveMode === 'mse'" ref="hlsPlayerRef" :camera-id="cameraId" suffix="_stream" />
       <HlsPlayer v-else ref="hlsPlayerRef" :camera-id="cameraId" suffix="_stream" :debug="true" :low-latency="camera.lowLatencyHLS" />
       <div v-if="camera.isRecording" class="rec-overlay">
         <span class="rec-dot" /> REC
