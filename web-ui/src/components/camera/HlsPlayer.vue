@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { useHls } from '../../composables/useHls'
+import { useDetectionOverlay } from '../../composables/useDetectionOverlay'
 
 const props = defineProps<{
   cameraId: number
@@ -10,6 +11,7 @@ const props = defineProps<{
 }>()
 
 const videoRef = ref<HTMLVideoElement | null>(null)
+const canvasRef = ref<HTMLCanvasElement | null>(null)
 const { showSpinner, connectionLost, latencyMs } = useHls(
   props.cameraId,
   videoRef,
@@ -18,12 +20,19 @@ const { showSpinner, connectionLost, latencyMs } = useHls(
   props.lowLatency ?? false,
 )
 
-defineExpose({ latencyMs })
+const { enabled: overlayEnabled, toggle: toggleOverlay } = useDetectionOverlay(
+  props.cameraId,
+  canvasRef,
+  videoRef,
+)
+
+defineExpose({ latencyMs, overlayEnabled, toggleOverlay })
 </script>
 
 <template>
   <div class="hls-container">
     <video ref="videoRef" playsinline muted />
+    <canvas ref="canvasRef" class="detection-overlay" v-show="overlayEnabled" />
 
     <!-- Spinner: connecting / buffering -->
     <div v-if="showSpinner" class="spinner-indicator">
@@ -60,11 +69,21 @@ defineExpose({ latencyMs })
   background: #000;
 }
 
+.detection-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 5;
+}
+
 .spinner-indicator {
   position: absolute;
   top: 6px;
   right: 8px;
-  z-index: 2;
+  z-index: 10;
   pointer-events: none;
 }
 </style>

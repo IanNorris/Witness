@@ -399,6 +399,119 @@ void CrowListener::HandleDebugDiskScan( const crow::request& req, crow::response
 	res.end();
 }
 
+void CrowListener::HandleDetectionQuery( const crow::request& req, crow::response& res, int cameraId )
+{
+	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, nullptr,
+		CrowAuth::Action::Read, CrowAuth::Privilege::Normal );
+	if( UserUID < 0 )
+	{
+		res.code = 401;
+		res.end();
+		return;
+	}
+
+	// Parse from/to query params (epoch seconds)
+	double from = 0, to = 0;
+	auto fromParam = req.url_params.get( "from" );
+	auto toParam = req.url_params.get( "to" );
+
+	if( !fromParam || !toParam )
+	{
+		res.code = 400;
+		res.body = R"({"error":"Missing from/to query params"})";
+		res.set_header( "Content-Type", "application/json" );
+		res.end();
+		return;
+	}
+
+	from = std::stod( fromParam );
+	to = std::stod( toParam );
+
+	// Query detection frames with boxes
+	crow::json::wvalue result;
+	std::vector<crow::json::wvalue> frames;
+
+	try
+	{
+		SQLiteDatabaseQueryInstance query( m_GlobalContext->Database, "SelectDetectionFramesWithBoxes" );
+		query->Bind( "@CameraID", cameraId );
+		query->Bind( "@TimestampFrom", from );
+		query->Bind( "@TimestampTo", to );
+
+		int64_t currentFrameUID = -1;
+		crow::json::wvalue currentFrame;
+		std::vector<crow::json::wvalue> currentBoxes;
+
+		query->Execute( [&]( const SQLiteDatabaseQuery& q )
+		{
+			int64_t frameUID = q.GetColumnValueInt64( 0 );
+
+			if( frameUID != currentFrameUID )
+			{
+				// Save previous frame
+				if( currentFrameUID >= 0 )
+				{
+					currentFrame["boxes"] = std::move( currentBoxes );
+					frames.push_back( std::move( currentFrame ) );
+					currentBoxes.clear();
+
+					// Limit response size
+					if( frames.size() >= 2000 )
+						return true;
+				}
+
+				currentFrameUID = frameUID;
+				currentFrame = crow::json::wvalue();
+				currentFrame["t"] = q.GetColumnValueDouble( 1 );  // timestamp
+				currentFrame["w"] = q.GetColumnValueInt( 2 );     // frameWidth
+				currentFrame["h"] = q.GetColumnValueInt( 3 );     // frameHeight
+			}
+
+			// Add box (LEFT JOIN may produce NULL box columns if frame has no boxes)
+			const char* className = q.GetColumnValueText( 6 );
+			if( className )
+			{
+				crow::json::wvalue box;
+				box["id"] = q.GetColumnValueInt( 4 );    // TrackingID
+				box["cls"] = std::string( className );
+				box["conf"] = q.GetColumnValueDouble( 7 );
+				box["x"] = q.GetColumnValueDouble( 8 );
+				box["y"] = q.GetColumnValueDouble( 9 );
+				box["w"] = q.GetColumnValueDouble( 10 );
+				box["h"] = q.GetColumnValueDouble( 11 );
+				currentBoxes.push_back( std::move( box ) );
+			}
+
+			return true;
+		});
+
+		// Don't forget the last frame
+		if( currentFrameUID >= 0 && frames.size() < 2000 )
+		{
+			currentFrame["boxes"] = std::move( currentBoxes );
+			frames.push_back( std::move( currentFrame ) );
+		}
+	}
+	catch( const std::exception& e )
+	{
+		res.code = 500;
+		crow::json::wvalue err;
+		err["error"] = std::string( e.what() );
+		res.body = err.dump();
+		res.set_header( "Content-Type", "application/json" );
+		res.end();
+		return;
+	}
+
+	result["frames"] = std::move( frames );
+	result["cameraId"] = cameraId;
+
+	res.set_header( "Content-Type", "application/json" );
+	res.body = result.dump();
+	res.code = 200;
+	res.end();
+}
+
 #ifdef CROW_ENABLE_SSL
 static bool LogCertExpiry( const std::string& certPath )
 {

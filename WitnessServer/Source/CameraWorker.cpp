@@ -4,6 +4,7 @@
 #include "ObservingMotionFilter.h"
 #include "PersonRecognitionFilter.h"
 #include "ONNXDetectionFilter.h"
+#include "ObjectTracker.h"
 #include "SQLite.h"
 #include "EventBroadcaster.h"
 #include "crow/json.h"
@@ -103,6 +104,79 @@ void CameraWorker::WorkerInit()
 	MotionChainNode NoContinuation;
 	
 	Observer = std::make_shared<ObservingMotionFilter>( NoContinuation, Camera.ID, MessageBusObject );
+
+	// Set up detection overlay callback — stores detection boxes and broadcasts via WebSocket
+	if( Context && Context->Database && Context->Events )
+	{
+		auto db = Context->Database;
+		auto events = Context->Events;
+		auto tracker = std::make_shared<Witness::ObjectTracker>();
+
+		Observer->SetDetectionCallback( [db, events, tracker]( const DetectionFrameData& frame )
+		{
+			// Run IoU tracker for stable TrackingIDs
+			std::vector<Witness::TrackedBox> trackInputs;
+			for( auto& box : frame.Boxes )
+			{
+				Witness::TrackedBox tb;
+				tb.X = box.X; tb.Y = box.Y; tb.W = box.W; tb.H = box.H;
+				tb.ClassID = box.ClassID;
+				tb.Confidence = box.Confidence;
+				tb.ClassName = box.ClassName;
+				trackInputs.push_back( std::move( tb ) );
+			}
+
+			auto tracked = tracker->Update( trackInputs );
+
+			// Store in database
+			int64_t frameUID = 0;
+			{
+				SQLiteDatabaseQueryInstance query( db, "InsertDetectionFrame" );
+				query->Bind( "@CameraID", frame.CameraID );
+				query->Bind( "@Timestamp", frame.Timestamp );
+				query->Bind( "@FrameWidth", frame.FrameWidth );
+				query->Bind( "@FrameHeight", frame.FrameHeight );
+				query->Execute( nullptr );
+				frameUID = query->GetLastInsertionId();
+			}
+
+			// Build WebSocket event and store boxes
+			crow::json::wvalue ev;
+			ev["cameraId"] = frame.CameraID;
+			ev["timestamp"] = frame.Timestamp;
+			std::vector<crow::json::wvalue> boxArray;
+
+			for( auto& [box, trackID] : tracked )
+			{
+				{
+					SQLiteDatabaseQueryInstance query( db, "InsertDetectionBox" );
+					query->Bind( "@FrameUID", frameUID );
+					query->Bind( "@TrackingID", static_cast<int>( trackID ) );
+					query->Bind( "@ClassID", box.ClassID );
+					query->Bind( "@ClassName", box.ClassName.c_str() );
+					query->Bind( "@Confidence", static_cast<double>( box.Confidence ) );
+					query->Bind( "@X", static_cast<double>( box.X ) );
+					query->Bind( "@Y", static_cast<double>( box.Y ) );
+					query->Bind( "@W", static_cast<double>( box.W ) );
+					query->Bind( "@H", static_cast<double>( box.H ) );
+					query->Execute( nullptr );
+				}
+
+				crow::json::wvalue boxJson;
+				boxJson["id"] = trackID;
+				boxJson["cls"] = box.ClassName;
+				boxJson["conf"] = static_cast<double>( box.Confidence );
+				boxJson["x"] = static_cast<double>( box.X );
+				boxJson["y"] = static_cast<double>( box.Y );
+				boxJson["w"] = static_cast<double>( box.W );
+				boxJson["h"] = static_cast<double>( box.H );
+				boxArray.push_back( std::move( boxJson ) );
+			}
+
+			ev["boxes"] = std::move( boxArray );
+			events->Broadcast( "detection:frame", std::move( ev ) );
+		});
+	}
 
 	MotionChainNode Observing;
 	Observing.OnSuccess = Observer;

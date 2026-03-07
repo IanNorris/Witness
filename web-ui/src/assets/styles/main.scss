@@ -330,6 +330,20 @@ html, body, #app {
     font-variant-numeric: tabular-nums;
   }
 
+  .detection-toggle {
+    position: absolute;
+    bottom: 8px;
+    left: 8px;
+    z-index: 10;
+    opacity: 0;
+    transition: opacity 0.2s;
+    padding: 2px 5px;
+  }
+
+  &:hover .detection-toggle {
+    opacity: 0.8;
+  }
+
   .camera-info {
     padding: 0.65rem 0.85rem;
     display: flex;

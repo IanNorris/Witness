@@ -20,6 +20,7 @@ const imgSrc = ref('')
 const isConnected = ref(false)
 const imgRef = ref<HTMLImageElement | null>(null)
 const hlsPlayerRef = ref<InstanceType<typeof HlsPlayer> | null>(null)
+const detectionOverlayActive = ref(false)
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 let jpegRunning = false
 let clickTimer: ReturnType<typeof setTimeout> | null = null
@@ -86,6 +87,14 @@ function onDoubleClick() {
   }
 }
 
+function toggleDetectionOverlay() {
+  const player = hlsPlayerRef.value
+  if (player?.toggleOverlay) {
+    player.toggleOverlay()
+    detectionOverlayActive.value = player.overlayEnabled ?? false
+  }
+}
+
 onMounted(() => {
   refreshPreview()
   if (settings.streamingMode === 'jpeg') {
@@ -146,6 +155,20 @@ onUnmounted(() => {
         <div v-if="latencyLabel && settings.streamingMode === 'hls'" class="latency-overlay">
           {{ latencyLabel }}
         </div>
+
+        <!-- Detection overlay toggle -->
+        <button
+          v-if="settings.streamingMode === 'hls' && isConnected"
+          class="btn btn-sm detection-toggle"
+          :class="detectionOverlayActive ? 'btn-success' : 'btn-outline-secondary'"
+          @click.stop="toggleDetectionOverlay"
+          title="Toggle detection overlay"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2" />
+            <circle cx="12" cy="12" r="3" />
+          </svg>
+        </button>
       </div>
     </div>
 
