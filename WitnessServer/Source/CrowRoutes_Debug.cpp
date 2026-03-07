@@ -1,6 +1,7 @@
 #include "CrowListener.h"
 #include "CrowAuth.h"
 #include "GlobalContext.h"
+#include "SQLite.h"
 
 #include <Log.h>
 #include <filesystem>
@@ -185,7 +186,7 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 	std::vector<crow::json::wvalue> CameraArray;
 
 	{
-		std::lock_guard<std::mutex> lock( m_GlobalContext->Mutex );
+		std::shared_lock<std::shared_mutex> lock( m_GlobalContext->Mutex );
 		for( auto& [id, state] : m_GlobalContext->GetCameraMap() )
 		{
 			crow::json::wvalue CamData;
@@ -275,6 +276,121 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 			}
 			Data["serverLog"] = std::move( LogLines );
 		}
+	}
+
+	res.set_header( "Content-Type", "application/json" );
+	res.body = Data.dump();
+	res.code = 200;
+	res.end();
+}
+
+void CrowListener::HandleDebugDisk( const crow::request& req, crow::response& res )
+{
+	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, nullptr,
+		CrowAuth::Action::Read, CrowAuth::Privilege::Administrator );
+	if( UserUID < 0 )
+	{
+		res.code = 400;
+		res.end();
+		return;
+	}
+
+	crow::json::wvalue Data;
+
+	try
+	{
+	// Disk space info
+	std::error_code ec;
+	auto spaceInfo = std::filesystem::space( m_GlobalContext->CachePath, ec );
+	if( !ec )
+	{
+		Data["diskTotal"] = static_cast<int64_t>(spaceInfo.capacity);
+		Data["diskFree"] = static_cast<int64_t>(spaceInfo.available);
+		Data["diskUsed"] = static_cast<int64_t>(spaceInfo.capacity - spaceInfo.available);
+		Data["diskTotalGB"] = static_cast<double>(spaceInfo.capacity) / (1024.0 * 1024 * 1024);
+		Data["diskFreeGB"] = static_cast<double>(spaceInfo.available) / (1024.0 * 1024 * 1024);
+	}
+
+	// Continuous segment totals
+	{
+		SQLiteDatabaseQueryInstance query( m_GlobalContext->Database, "SelectContinuousTotalSize" );
+		query->Execute( [&]( const SQLiteDatabaseQuery& q )
+		{
+			Data["segmentCount"] = q.GetColumnValueInt64(0);
+			Data["segmentTotalDuration"] = q.GetColumnValueInt64(1);
+			Data["segmentTotalBytes"] = q.GetColumnValueInt64(2);
+			Data["segmentTotalGB"] = static_cast<double>(q.GetColumnValueInt64(2)) / (1024.0 * 1024 * 1024);
+			return true;
+		});
+	}
+
+	// Per-camera breakdown
+	{
+		SQLiteDatabaseQueryInstance query( m_GlobalContext->Database, "SelectContinuousSizePerCamera" );
+		std::vector<crow::json::wvalue> cameras;
+		query->Execute( [&]( const SQLiteDatabaseQuery& q )
+		{
+			crow::json::wvalue cam;
+			cam["cameraId"] = q.GetColumnValueInt64(0);
+			cam["segmentCount"] = q.GetColumnValueInt64(1);
+			cam["totalBytes"] = q.GetColumnValueInt64(2);
+			cam["totalGB"] = static_cast<double>(q.GetColumnValueInt64(2)) / (1024.0 * 1024 * 1024);
+			cameras.push_back( std::move(cam) );
+			return true;
+		});
+		Data["cameras"] = std::move(cameras);
+	}
+
+	Data["cachePath"] = m_GlobalContext->CachePath;
+
+	}
+	catch( const std::exception& e )
+	{
+		LOG_ERROR( "HandleDebugDisk exception: %s", e.what() );
+		Data["error"] = std::string( e.what() );
+	}
+
+	res.set_header( "Content-Type", "application/json" );
+	res.body = Data.dump();
+	res.code = 200;
+	res.end();
+}
+
+void CrowListener::HandleDebugDiskScan( const crow::request& req, crow::response& res )
+{
+	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, nullptr,
+		CrowAuth::Action::Read, CrowAuth::Privilege::Administrator );
+	if( UserUID < 0 )
+	{
+		res.code = 401;
+		res.end();
+		return;
+	}
+
+	crow::json::wvalue Data;
+
+	try
+	{
+		int64_t totalBytes = 0;
+		int fileCount = 0;
+		std::error_code ec;
+
+		for( auto& entry : std::filesystem::recursive_directory_iterator( m_GlobalContext->CachePath, ec ) )
+		{
+			if( entry.is_regular_file( ec ) )
+			{
+				totalBytes += static_cast<int64_t>( entry.file_size( ec ) );
+				fileCount++;
+			}
+		}
+
+		Data["totalBytes"] = totalBytes;
+		Data["totalGB"] = static_cast<double>(totalBytes) / (1024.0 * 1024 * 1024);
+		Data["fileCount"] = fileCount;
+	}
+	catch( const std::exception& e )
+	{
+		Data["error"] = std::string( e.what() );
 	}
 
 	res.set_header( "Content-Type", "application/json" );
@@ -450,7 +566,7 @@ bool CrowListener::ReloadTLS()
 			try
 			{
 				m_App.loglevel( crow::LogLevel::Warning );
-				m_App.multithreaded().run();
+				m_App.concurrency( m_CrowThreadCount ).run();
 			}
 			catch( const std::exception& e )
 			{
@@ -516,6 +632,9 @@ void CrowListener::Start()
 
 	std::string bindAddr = ResolveBindAddress( m_Hostname );
 
+	m_CrowThreadCount = std::max( 4u, std::thread::hardware_concurrency() * 2 );
+	LOG_INFO( "Crow HTTP server: %u worker threads", m_CrowThreadCount );
+
 	try
 	{
 		m_App.bindaddr( bindAddr ).port( m_Port );
@@ -525,7 +644,7 @@ void CrowListener::Start()
 			try
 			{
 				m_App.loglevel( crow::LogLevel::Warning );
-				m_App.multithreaded().run();
+				m_App.concurrency( m_CrowThreadCount ).run();
 			}
 			catch( const std::exception& e )
 			{

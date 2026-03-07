@@ -129,12 +129,15 @@ private:
 	void HandleDebugReset( const crow::request& req, crow::response& res );
 	void HandleDebugReloadTLS( const crow::request& req, crow::response& res );
 	void HandleDebugStreamingDiag( const crow::request& req, crow::response& res );
+	void HandleDebugDisk( const crow::request& req, crow::response& res );
+	void HandleDebugDiskScan( const crow::request& req, crow::response& res );
 
 	// Setup (reconfiguration)
 	void HandleSetupPage( const crow::request& req, crow::response& res );
 	void HandleSetupSettings( const crow::request& req, crow::response& res );
 	void HandleSetupApply( const crow::request& req, crow::response& res );
 	void HandleSetupTestCuda( const crow::request& req, crow::response& res );
+	void HandleSettingsSet( const crow::request& req, crow::response& res );
 
 	// DVR (continuous recording playback)
 	void HandleDvrCoverage( const crow::request& req, crow::response& res, int cameraId, const std::string& fromStr, const std::string& toStr );
@@ -152,11 +155,14 @@ private:
 	DebugConsole* m_DebugConsole;
 
 	std::unordered_map<std::string, std::string> m_StaticFiles; // relative path -> content type
+	std::unordered_map<std::string, std::string> m_FileCache;  // relative path -> file content
+	std::mutex m_FileCacheMutex;
 	std::string m_StaticRoot;
 
 	std::string m_BaseUri;
 	std::string m_Hostname;
 	int m_Port;
+	uint32_t m_CrowThreadCount;
 	bool m_Secure;
 	std::string m_CertPath;
 	std::string m_KeyPath;

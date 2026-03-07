@@ -4,6 +4,9 @@
 
 void WitnessServer::Shutdown()
 {
+	if( Context && Context->Events )
+		Context->Events->Stop();
+
 	Worker = nullptr;
 
 	Watchdog = nullptr;
@@ -23,7 +26,7 @@ void WitnessServer::RequestShutdown()
 	Server->Stop();
 
 	{
-		std::lock_guard<std::mutex> Lock(Context->Mutex);
+		std::unique_lock<std::shared_mutex> Lock(Context->Mutex);
 
 		for (auto& Camera : Context->GetCameraMap())
 		{

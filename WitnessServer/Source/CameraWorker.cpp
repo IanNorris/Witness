@@ -53,6 +53,12 @@ void CameraWorker::CreateInputStream()
 			ContinuousStream->SetSegmentCompleteCallback(
 				[this](int cameraUID, int64_t startTimestamp, int64_t endTimestamp, int duration, const std::string& filePath)
 				{
+					// Get file size
+					int64_t fileSize = 0;
+					std::error_code ec;
+					auto fsize = std::filesystem::file_size( filePath, ec );
+					if( !ec ) fileSize = static_cast<int64_t>(fsize);
+
 					// Register completed segment in database
 					SQLiteDatabaseQueryInstance query(Context->Database, "CreateContinuousSegment");
 					query->Bind("@CameraUID", cameraUID);
@@ -60,6 +66,7 @@ void CameraWorker::CreateInputStream()
 					query->Bind("@EndTimestamp", endTimestamp);
 					query->Bind("@Duration", duration);
 					query->Bind("@FilePath", filePath.c_str());
+					query->Bind("@FileSize", fileSize);
 					query->Execute([](const SQLiteDatabaseQuery&) { return true; });
 
 					LOG_INFO("Continuous segment registered: camera %d, %ds, %s", cameraUID, duration, filePath.c_str());

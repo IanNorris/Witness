@@ -40,7 +40,7 @@ void WitnessServer::HandleCameraConnectedMessage(const CameraConnectedMessage& D
 
 	if( !AllCamerasReported )
 	{
-		std::lock_guard<std::mutex> lock( Context->Mutex );
+		std::shared_lock<std::shared_mutex> lock( Context->Mutex );
 		auto& cameras = Context->GetCameraMap();
 		int total = (int)cameras.size();
 		int connected = 0;

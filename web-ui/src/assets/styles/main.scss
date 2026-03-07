@@ -539,8 +539,8 @@ html, body, #app {
   display: none;
 }
 
-// Responsive
-@media (max-width: 768px) {
+// Responsive — mobile styles as mixin for reuse across media queries
+@mixin mobile-layout {
   .app-sidebar {
     display: none;
   }
@@ -651,4 +651,14 @@ html, body, #app {
   .mobile-hide {
     display: none !important;
   }
+}
+
+// Standard width breakpoint
+@media (max-width: 768px) {
+  @include mobile-layout;
+}
+
+// Touch devices in landscape / small tablets (up to 1024px)
+@media (pointer: coarse) and (max-width: 1024px) {
+  @include mobile-layout;
 }

@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <set>
 
 namespace fs = std::filesystem;
 
@@ -196,4 +197,92 @@ void CrowListener::HandleSetupTestCuda( const crow::request& req, crow::response
 	res.body = result.dump();
 	res.code = 200;
 	res.end();
+}
+
+void CrowListener::HandleSettingsSet( const crow::request& req, crow::response& res )
+{
+	try
+	{
+	auto body = crow::json::load( req.body );
+	if( !body )
+	{
+		res.code = 400;
+		res.end();
+		return;
+	}
+
+	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, &body,
+		CrowAuth::Action::ReadWrite, CrowAuth::Privilege::Administrator );
+	if( UserUID < 0 )
+	{
+		res.code = 401;
+		res.end();
+		return;
+	}
+
+	if( !body.has("name") || !body.has("value") )
+	{
+		res.code = 400;
+		res.body = R"({"error":"Missing name or value"})";
+		res.set_header( "Content-Type", "application/json" );
+		res.end();
+		return;
+	}
+
+	std::string name = body["name"].s();
+	std::string value;
+
+	// Handle both string and numeric values from JSON
+	auto& valNode = body["value"];
+	if( valNode.t() == crow::json::type::String )
+		value = valNode.s();
+	else if( valNode.t() == crow::json::type::Number )
+		value = std::to_string( valNode.i() );
+	else
+		value = "";
+
+	// Whitelist of settings that can be changed at runtime
+	static const std::set<std::string> allowedSettings = {
+		"continuous_recording_retention_days",
+		"continuous_recording_quota_gb",
+		"clip_cleanup_enabled",
+		"clip_retention_days",
+		"detection_backend",
+		"detection_provider",
+		"detection_model_path",
+		"detection_confidence",
+		"detection_max_fps",
+		"cudnn_path",
+	};
+
+	if( allowedSettings.find( name ) == allowedSettings.end() )
+	{
+		res.code = 403;
+		res.body = R"({"error":"Setting not modifiable"})";
+		res.set_header( "Content-Type", "application/json" );
+		res.end();
+		return;
+	}
+
+	SQLiteDatabaseQueryInstance query( m_GlobalContext->Database, "SetSetting" );
+	query->Bind( "@Name", name.c_str() );
+	query->Bind( "@Value", value.c_str() );
+	query->Execute( nullptr );
+
+	LOG_INFO( "Setting updated by admin (UserUID=%d): %s = %s", UserUID, name.c_str(), value.c_str() );
+
+	res.set_header( "Content-Type", "application/json" );
+	res.body = R"({"ok":true})";
+	res.code = 200;
+	res.end();
+
+	}
+	catch( const std::exception& e )
+	{
+		LOG_ERROR( "HandleSettingsSet exception: %s", e.what() );
+		res.code = 500;
+		res.body = std::string(R"({"error":")") + e.what() + "\"}";
+		res.set_header( "Content-Type", "application/json" );
+		res.end();
+	}
 }

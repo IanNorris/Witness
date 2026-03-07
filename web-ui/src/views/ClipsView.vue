@@ -335,7 +335,7 @@ function handleTagClick(_tag: string) {
   transform: translateY(100%);
 }
 
-@media (max-width: 768px) {
+@media (max-width: 768px), (pointer: coarse) and (max-width: 1024px) {
   .clips-sidebar-desktop {
     display: none;
   }
