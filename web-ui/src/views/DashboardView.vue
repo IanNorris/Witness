@@ -42,9 +42,9 @@ onMounted(async () => {
             <line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>
           </svg>
         </button>
-        <div class="vr mx-1 mobile-hide" style="border-color: var(--bs-border-color);"></div>
+        <div class="vr mx-1" style="border-color: var(--bs-border-color);"></div>
         <button
-          class="btn btn-sm mobile-hide"
+          class="btn btn-sm"
           :class="settings.streamingMode !== 'jpeg' ? 'btn-outline-primary' : 'btn-outline-secondary'"
           @click="settings.toggleStreamingMode"
           :title="'Mode: ' + settings.streamingMode.toUpperCase()"

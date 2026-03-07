@@ -3,7 +3,7 @@ import { useLocalStorage } from '../composables/useLocalStorage'
 
 export const useSettingsStore = defineStore('settings', () => {
   const cameraPreviewScale = useLocalStorage('cameraPreviewScale', 25)
-  const streamingMode = useLocalStorage<'hls' | 'jpeg' | 'mse'>('streamingMode', 'hls')
+  const streamingMode = useLocalStorage<'hls' | 'jpeg' | 'mse'>('streamingMode', 'mse')
   const fullscreenMode = useLocalStorage('fullscreenMode', false)
   const darkMode = useLocalStorage('darkMode', false)
   const clipsPerPage = useLocalStorage('clipsPerPage', 24)

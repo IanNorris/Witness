@@ -38,6 +38,7 @@ void CameraWorker::CreateInputStream()
 	else
 	{
 		LiveStream = std::make_shared<LiveOutputStream>(CachePath, CameraStream.get(), 1);
+		LiveStream->SetPartialTargetDuration(Video.MsePartialDuration);
 
 		// Wire up MSE WebSocket notifications
 		int cameraId = Camera.ID;

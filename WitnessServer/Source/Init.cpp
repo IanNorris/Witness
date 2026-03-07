@@ -153,6 +153,8 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 		}
 	}
 
+	GetSettingsField( Settings, "mse_partial_duration", Video.MsePartialDuration, Errors );
+
 	if( !CreateListener( Settings ) )
 	{
 		return false;

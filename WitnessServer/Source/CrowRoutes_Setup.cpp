@@ -253,6 +253,7 @@ void CrowListener::HandleSettingsSet( const crow::request& req, crow::response& 
 		"detection_confidence",
 		"detection_max_fps",
 		"cudnn_path",
+		"mse_partial_duration",
 	};
 
 	if( allowedSettings.find( name ) == allowedSettings.end() )

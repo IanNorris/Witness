@@ -110,6 +110,11 @@ public:
 		return _PartialTargetDuration;
 	}
 
+	void SetPartialTargetDuration(double Duration)
+	{
+		_PartialTargetDuration = Duration;
+	}
+
 	void ResetForReconnect(InputStream* NewInputStream);
 
 	// Observer for MSE WebSocket streaming — called on camera worker thread

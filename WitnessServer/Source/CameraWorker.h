@@ -27,6 +27,7 @@ struct VideoSettings
 	, DetectionConfidence( 0.5 )
 	, DetectionMaxFPS( 2.0 )
 	, DetectionUseGPU( false )
+	, MsePartialDuration( 0.15 )
 	{}
 
 	std::string	DataPath;
@@ -42,6 +43,7 @@ struct VideoSettings
 	double		DetectionMaxFPS;
 	bool		DetectionUseGPU;
 	std::string	DetectionCudnnPath;
+	double		MsePartialDuration;
 };
 
 struct CameraSettings
