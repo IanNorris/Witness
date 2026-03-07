@@ -31,6 +31,11 @@ onMounted(async () => {
   const from = props.clip.timestamp
   const to = from + props.clip.duration
   await loadDetections(from, to)
+  // Auto-enable overlay based on per-camera preference (default: on)
+  const saved = localStorage.getItem(`witness-detection-overlay-${props.clip.camera}`)
+  if (saved === null || saved === '1') {
+    toggleOverlay()
+  }
 })
 </script>
 
