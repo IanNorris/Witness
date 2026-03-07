@@ -252,11 +252,15 @@ export function useDetectionPlayback(
   cameraId: number,
   canvasRef: Ref<HTMLCanvasElement | null>,
   videoRef: Ref<HTMLVideoElement | null>,
-  timeOffset = 0, // epoch seconds of video start — added to video.currentTime
+  timeOffset: number | Ref<number> = 0, // epoch seconds of video start — added to video.currentTime
 ) {
   const enabled = ref(false)
   const frames = ref<Array<{ t: number; boxes: DetectionBox[] }>>([])
   let animFrame = 0
+
+  function getTimeOffset(): number {
+    return typeof timeOffset === 'number' ? timeOffset : timeOffset.value
+  }
 
   async function loadDetections(from: number, to: number) {
     try {
@@ -270,7 +274,7 @@ export function useDetectionPlayback(
   }
 
   function findNearestFrame(time: number): { t: number; boxes: DetectionBox[] } | null {
-    const absoluteTime = time + timeOffset
+    const absoluteTime = time + getTimeOffset()
     const arr = frames.value
     if (!arr.length) return null
 

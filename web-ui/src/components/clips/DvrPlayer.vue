@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { api } from '../../composables/useApi'
+import { useDetectionPlayback } from '../../composables/useDetectionOverlay'
 import { format } from 'date-fns'
 
 interface DvrSegment {
@@ -27,6 +28,7 @@ const emit = defineEmits<{
 
 const videoA = ref<HTMLVideoElement | null>(null)
 const videoB = ref<HTMLVideoElement | null>(null)
+const canvasRef = ref<HTMLCanvasElement | null>(null)
 const activeSlot = ref<'a' | 'b'>('a')
 const segments = ref<DvrSegment[]>([])
 const currentSegIdx = ref(0)
@@ -38,6 +40,53 @@ const loading = ref(true)
 let swapPending = false
 
 const rates = [1, 2, 4, 8]
+
+// Detection overlay — use a computed ref that follows the active video
+const activeVideoRef = computed(() => activeSlot.value === 'a' ? videoA.value : videoB.value)
+const detectionVideoRef = ref<HTMLVideoElement | null>(null)
+
+// Keep detectionVideoRef in sync with active slot
+watch(activeVideoRef, (v) => { detectionVideoRef.value = v }, { immediate: true })
+
+// Reactive time offset: current segment's start timestamp
+const segmentTimeOffset = computed(() => currentSeg.value?.from ?? props.from)
+
+const { enabled: overlayEnabled, toggle: toggleOverlay, loadDetections, frames: detectionFrames } = useDetectionPlayback(
+  props.cameraId,
+  canvasRef,
+  detectionVideoRef,
+  segmentTimeOffset,
+)
+
+function toggleDetectionWithSave() {
+  toggleOverlay()
+  localStorage.setItem(`witness-detection-overlay-${props.cameraId}`, overlayEnabled.value ? '1' : '0')
+}
+async function loadDvrDetections() {
+  await loadDetections(props.from, props.to)
+}
+
+// Nudge: find next/prev detection frame relative to currentTimestamp
+function nudgeDetection(direction: 'next' | 'prev') {
+  const arr = detectionFrames.value
+  if (!arr.length) return
+  const now = currentTimestamp.value
+
+  if (direction === 'next') {
+    const frame = arr.find(f => f.t > now + 0.5)
+    if (frame) seekToTimestamp(frame.t)
+  } else {
+    // Find last frame before current time
+    let frame = null
+    for (let i = arr.length - 1; i >= 0; i--) {
+      if ((arr[i]?.t ?? 0) < now - 0.5) {
+        frame = arr[i]!
+        break
+      }
+    }
+    if (frame) seekToTimestamp(frame.t)
+  }
+}
 
 // Seek bar scrub preview
 const scrubThumbUrl = ref<string | null>(null)
@@ -330,10 +379,18 @@ onMounted(() => {
   if (videoA.value) attachHandlers(videoA.value)
   if (videoB.value) attachHandlers(videoB.value)
   fetchSegments()
+
+  // Auto-enable detection overlay based on per-camera preference
+  const saved = localStorage.getItem(`witness-detection-overlay-${props.cameraId}`)
+  if (saved === null || saved === '1') {
+    toggleOverlay()
+  }
+  loadDvrDetections()
 })
 
 watch(() => [props.cameraId, props.from, props.to], () => {
   fetchSegments()
+  loadDvrDetections()
 })
 
 watch(() => props.startAt, (newTs) => {
@@ -408,6 +465,17 @@ function onKeyDown(e: KeyboardEvent) {
     case '2': setRate(2); break
     case '4': setRate(4); break
     case '8': setRate(8); break
+    case 'd':
+      toggleDetectionWithSave()
+      break
+    case 'n':
+      e.preventDefault()
+      nudgeDetection('next')
+      break
+    case 'p':
+      e.preventDefault()
+      nudgeDetection('prev')
+      break
   }
 }
 
@@ -451,6 +519,7 @@ defineExpose({
     <div class="dvr-video-wrap">
       <video ref="videoA" class="dvr-video" :class="{ active: activeSlot === 'a' }" />
       <video ref="videoB" class="dvr-video" :class="{ active: activeSlot === 'b' }" />
+      <canvas ref="canvasRef" class="detection-overlay" v-show="overlayEnabled" />
       <span v-if="compact" class="dvr-cam-label">{{ cameraName }}</span>
       <div v-if="loading" class="dvr-error"><div class="spinner-border spinner-border-sm" /></div>
       <div v-else-if="error" class="dvr-error dvr-error-compact">{{ error }}</div>
@@ -482,6 +551,14 @@ defineExpose({
         >{{ r }}x</button>
       </div>
       <button class="dvr-btn dvr-download" @click="downloadSegment" title="Download current segment">⬇</button>
+      <button
+        class="dvr-btn"
+        :class="overlayEnabled ? 'dvr-btn-active' : ''"
+        @click="toggleDetectionWithSave"
+        title="Toggle detection overlay (D)"
+      >🔲</button>
+      <button class="dvr-btn" @click="nudgeDetection('prev')" title="Previous detection (P)">⏮</button>
+      <button class="dvr-btn" @click="nudgeDetection('next')" title="Next detection (N)">⏭</button>
     </div>
   </div>
 </template>
@@ -545,6 +622,20 @@ defineExpose({
 .dvr-video.active {
   position: relative;
   opacity: 1;
+}
+
+.detection-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.dvr-btn-active {
+  color: #22c55e !important;
 }
 
 .dvr-cam-label {

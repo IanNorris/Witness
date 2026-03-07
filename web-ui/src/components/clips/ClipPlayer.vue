@@ -15,12 +15,30 @@ const videoSrc = ref(clipStore.videoUrl(props.clip.camera, props.clip.timestamp)
 const videoRef = ref<HTMLVideoElement | null>(null)
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 
-const { enabled: overlayEnabled, toggle: toggleOverlay, loadDetections } = useDetectionPlayback(
+const { enabled: overlayEnabled, toggle: toggleOverlay, loadDetections, frames: detectionFrames } = useDetectionPlayback(
   props.clip.camera,
   canvasRef,
   videoRef,
   props.clip.timestamp, // epoch seconds offset — detection timestamps are absolute
 )
+
+function nudgeDetection(direction: 'next' | 'prev') {
+  const video = videoRef.value
+  if (!video || !detectionFrames.value.length) return
+  const absoluteTime = video.currentTime + props.clip.timestamp
+
+  if (direction === 'next') {
+    const frame = detectionFrames.value.find(f => f.t > absoluteTime + 0.5)
+    if (frame) video.currentTime = frame.t - props.clip.timestamp
+  } else {
+    for (let i = detectionFrames.value.length - 1; i >= 0; i--) {
+      if ((detectionFrames.value[i]?.t ?? 0) < absoluteTime - 0.5) {
+        video.currentTime = detectionFrames.value[i]!.t - props.clip.timestamp
+        break
+      }
+    }
+  }
+}
 
 function handleKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') emit('close')
@@ -57,6 +75,8 @@ onMounted(async () => {
                 <circle cx="12" cy="12" r="3" />
               </svg>
             </button>
+            <button class="btn btn-sm btn-outline-secondary" @click="nudgeDetection('prev')" title="Previous detection">⏮</button>
+            <button class="btn btn-sm btn-outline-secondary" @click="nudgeDetection('next')" title="Next detection">⏭</button>
             <button class="btn btn-sm btn-outline-secondary" @click="emit('close')">✕</button>
           </div>
         </div>
