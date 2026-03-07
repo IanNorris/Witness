@@ -102,12 +102,16 @@ function drawBox(
   const label = `${box.cls} ${Math.round(box.conf * 100)}%`
   ctx.font = '12px sans-serif'
   const textW = ctx.measureText(label).width
+  // Place label inside the box if it would overflow the top edge
+  const labelAbove = py - 18 >= 0
+  const labelY = labelAbove ? py - 18 : py
+  const textY = labelAbove ? py - 5 : py + 13
   ctx.fillStyle = color
   ctx.globalAlpha = alpha * 0.7
-  ctx.fillRect(px, py - 18, textW + 8, 18)
+  ctx.fillRect(px, labelY, textW + 8, 18)
   ctx.fillStyle = '#000'
   ctx.globalAlpha = alpha
-  ctx.fillText(label, px + 4, py - 5)
+  ctx.fillText(label, px + 4, textY)
 }
 
 export function useDetectionOverlay(
