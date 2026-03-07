@@ -149,7 +149,7 @@ private:
 			std::shared_ptr<BroadcastMessage> msg;
 			{
 				std::unique_lock<std::mutex> lock( m_QueueMutex );
-				m_Condition.wait_for( lock, std::chrono::milliseconds(50),
+				m_Condition.wait_for( lock, std::chrono::milliseconds(5),
 					[this]{ return !m_OutboundQueue.empty() || !m_Running; } );
 
 				if( !m_Running && m_OutboundQueue.empty() ) break;
