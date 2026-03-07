@@ -507,6 +507,9 @@ defineExpose({
   currentTimestamp,
   elapsedTime,
   totalDuration,
+  nudgeDetection,
+  toggleDetectionWithSave,
+  overlayEnabled,
 })
 </script>
 
