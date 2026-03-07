@@ -34,6 +34,13 @@ interface DiskInfo {
 
 const diskInfo = ref<DiskInfo | null>(null)
 const diskError = ref<string | null>(null)
+const scanResult = ref<{ totalBytes: number; totalGB: number; fileCount: number } | null>(null)
+const scanning = ref(false)
+
+const diskFreePercent = computed(() => {
+  if (!diskInfo.value || !diskInfo.value.diskTotal) return 0
+  return (diskInfo.value.diskFree / diskInfo.value.diskTotal) * 100
+})
 
 const diskUsedPercent = computed(() => {
   if (!diskInfo.value) return 0
@@ -41,10 +48,17 @@ const diskUsedPercent = computed(() => {
 })
 
 const diskBarClass = computed(() => {
-  const pct = diskUsedPercent.value
-  if (pct > 90) return 'bg-danger'
-  if (pct > 75) return 'bg-warning'
+  const free = diskFreePercent.value
+  if (free < 10) return 'bg-danger'
+  if (free < 25) return 'bg-warning'
   return 'bg-success'
+})
+
+const quotaUsedPercent = computed(() => {
+  if (!diskInfo.value) return null
+  const quotaGB = parseFloat(settings.value['continuous_recording_quota_gb'] || '0')
+  if (quotaGB <= 0) return null
+  return (diskInfo.value.segmentTotalGB / quotaGB) * 100
 })
 
 const dvrDurationFormatted = computed(() => {
@@ -86,6 +100,19 @@ async function fetchDiskInfo() {
   }
 }
 
+async function scanTotalStorage() {
+  scanning.value = true
+  try {
+    scanResult.value = await api<{ totalBytes: number; totalGB: number; fileCount: number }>('/debug/disk/scan', {
+      method: 'POST',
+    })
+  } catch (e) {
+    scanResult.value = null
+  } finally {
+    scanning.value = false
+  }
+}
+
 async function saveSetting(name: string) {
   await api('/api/settings/set', {
     method: 'POST',
@@ -120,15 +147,24 @@ onMounted(() => {
           <h6 class="card-title small text-muted mb-2">Disk Usage</h6>
           <div v-if="diskInfo">
             <div class="d-flex justify-content-between small mb-1">
-              <span>{{ diskInfo.diskFreeGB.toFixed(1) }} GB free</span>
+              <span>{{ diskInfo.diskFreeGB.toFixed(1) }} GB free ({{ diskFreePercent.toFixed(1) }}%)</span>
               <span>{{ diskInfo.diskTotalGB.toFixed(1) }} GB total</span>
             </div>
             <div class="progress mb-2" style="height: 8px;">
               <div class="progress-bar" :class="diskBarClass"
                    :style="{ width: diskUsedPercent.toFixed(1) + '%' }" />
             </div>
-            <div class="small text-muted">
+            <div class="small text-muted mb-2">
               Cache path: <code>{{ diskInfo.cachePath }}</code>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+              <button class="btn btn-sm btn-outline-secondary" :disabled="scanning" @click="scanTotalStorage">
+                {{ scanning ? 'Scanning...' : '📁 Scan total Witness storage' }}
+              </button>
+              <span v-if="scanResult" class="small">
+                <strong>{{ formatBytes(scanResult.totalBytes) }}</strong>
+                <span class="text-muted ms-1">({{ scanResult.fileCount.toLocaleString() }} files)</span>
+              </span>
             </div>
           </div>
           <div v-else-if="diskError" class="text-danger small">{{ diskError }}</div>
@@ -152,6 +188,12 @@ onMounted(() => {
             <div class="col-auto">
               <span class="text-muted">Duration:</span>
               <strong class="ms-1">{{ dvrDurationFormatted }}</strong>
+            </div>
+            <div v-if="quotaUsedPercent !== null" class="col-auto">
+              <span class="text-muted">Quota:</span>
+              <strong class="ms-1" :class="quotaUsedPercent > 90 ? 'text-danger' : quotaUsedPercent > 75 ? 'text-warning' : ''">
+                {{ quotaUsedPercent.toFixed(1) }}% used
+              </strong>
             </div>
           </div>
           <div v-if="diskInfo.cameras && diskInfo.cameras.length > 0">

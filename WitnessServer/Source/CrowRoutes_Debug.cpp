@@ -356,6 +356,49 @@ void CrowListener::HandleDebugDisk( const crow::request& req, crow::response& re
 	res.end();
 }
 
+void CrowListener::HandleDebugDiskScan( const crow::request& req, crow::response& res )
+{
+	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, nullptr,
+		CrowAuth::Action::Read, CrowAuth::Privilege::Administrator );
+	if( UserUID < 0 )
+	{
+		res.code = 401;
+		res.end();
+		return;
+	}
+
+	crow::json::wvalue Data;
+
+	try
+	{
+		int64_t totalBytes = 0;
+		int fileCount = 0;
+		std::error_code ec;
+
+		for( auto& entry : std::filesystem::recursive_directory_iterator( m_GlobalContext->CachePath, ec ) )
+		{
+			if( entry.is_regular_file( ec ) )
+			{
+				totalBytes += static_cast<int64_t>( entry.file_size( ec ) );
+				fileCount++;
+			}
+		}
+
+		Data["totalBytes"] = totalBytes;
+		Data["totalGB"] = static_cast<double>(totalBytes) / (1024.0 * 1024 * 1024);
+		Data["fileCount"] = fileCount;
+	}
+	catch( const std::exception& e )
+	{
+		Data["error"] = std::string( e.what() );
+	}
+
+	res.set_header( "Content-Type", "application/json" );
+	res.body = Data.dump();
+	res.code = 200;
+	res.end();
+}
+
 #ifdef CROW_ENABLE_SSL
 static bool LogCertExpiry( const std::string& certPath )
 {
