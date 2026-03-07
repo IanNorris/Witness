@@ -201,6 +201,8 @@ void CrowListener::HandleSetupTestCuda( const crow::request& req, crow::response
 
 void CrowListener::HandleSettingsSet( const crow::request& req, crow::response& res )
 {
+	try
+	{
 	auto body = crow::json::load( req.body );
 	if( !body )
 	{
@@ -228,7 +230,16 @@ void CrowListener::HandleSettingsSet( const crow::request& req, crow::response& 
 	}
 
 	std::string name = body["name"].s();
-	std::string value = body["value"].s();
+	std::string value;
+
+	// Handle both string and numeric values from JSON
+	auto& valNode = body["value"];
+	if( valNode.t() == crow::json::type::String )
+		value = valNode.s();
+	else if( valNode.t() == crow::json::type::Number )
+		value = std::to_string( valNode.i() );
+	else
+		value = "";
 
 	// Whitelist of settings that can be changed at runtime
 	static const std::set<std::string> allowedSettings = {
@@ -264,4 +275,14 @@ void CrowListener::HandleSettingsSet( const crow::request& req, crow::response& 
 	res.body = R"({"ok":true})";
 	res.code = 200;
 	res.end();
+
+	}
+	catch( const std::exception& e )
+	{
+		LOG_ERROR( "HandleSettingsSet exception: %s", e.what() );
+		res.code = 500;
+		res.body = std::string(R"({"error":")") + e.what() + "\"}";
+		res.set_header( "Content-Type", "application/json" );
+		res.end();
+	}
 }
