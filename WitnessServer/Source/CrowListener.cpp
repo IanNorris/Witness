@@ -422,6 +422,12 @@ void CrowListener::RegisterRoutes()
 		HandleDebugStreamingDiag( req, res );
 	});
 
+	CROW_ROUTE( m_App, "/debug/disk" )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleDebugDisk( req, res );
+	});
+
 	// Setup / Reconfiguration (admin-only)
 	CROW_ROUTE( m_App, "/setup" )
 	([this]( const crow::request& req, crow::response& res )

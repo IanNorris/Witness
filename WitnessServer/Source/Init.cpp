@@ -223,10 +223,29 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 			if( parsed > 0 ) contRetentionDays = parsed;
 		}
 
-		LOG_INFO( "Continuous recording cleanup: deleting segments older than %d days.", contRetentionDays );
+		int64_t quotaBytes = 0;
+		std::string quotaStr;
+		if( GetSettingsField( Settings, "continuous_recording_quota_gb", quotaStr, Errors ) && !quotaStr.empty() )
+		{
+			int parsed = std::atoi( quotaStr.c_str() );
+			if( parsed > 0 ) quotaBytes = static_cast<int64_t>(parsed) * 1024LL * 1024 * 1024;
+		}
+
+		// Startup: crash recovery + file size backfill
+		CleanupOrphanedContinuousSegments( *Context );
+		BackfillContinuousSegmentFileSizes( *Context );
+
+		LOG_INFO( "Continuous recording cleanup: retention %d days, quota %s.",
+			contRetentionDays, quotaBytes > 0 ? (quotaStr + " GB").c_str() : "unlimited" );
+
 		DeleteOldContinuousSegments( *Context, contRetentionDays );
-		Timer->AddTimer( [this, contRetentionDays](){
+		if( quotaBytes > 0 ) EnforceQuotaContinuousSegments( *Context, quotaBytes );
+		CheckDiskSpaceSafety( *Context );
+
+		Timer->AddTimer( [this, contRetentionDays, quotaBytes](){
 			DeleteOldContinuousSegments( *Context, contRetentionDays );
+			if( quotaBytes > 0 ) EnforceQuotaContinuousSegments( *Context, quotaBytes );
+			CheckDiskSpaceSafety( *Context );
 		}, 5 * 60 );
 	}
 

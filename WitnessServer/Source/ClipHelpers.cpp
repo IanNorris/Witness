@@ -183,3 +183,235 @@ void DeleteOldContinuousSegments( const GlobalContext& Context, int DaysToDelete
 		LOG_INFO( "Deleted %zu continuous segments older than %d days.", SegmentsToDelete.size(), DaysToDelete );
 	}
 }
+
+void BackfillContinuousSegmentFileSizes( const GlobalContext& Context )
+{
+	SQLiteDatabaseQueryInstance query( Context.Database, "SelectContinuousSegmentsWithNoFileSize" );
+
+	struct SegmentToUpdate
+	{
+		int64_t SegmentUID;
+		std::string FilePath;
+	};
+
+	std::vector<SegmentToUpdate> segments;
+	query->Execute( [&]( const SQLiteDatabaseQuery& q )
+	{
+		SegmentToUpdate s;
+		s.SegmentUID = q.GetColumnValueInt64(0);
+		const char* path = q.GetColumnValueText(1);
+		s.FilePath = path ? path : "";
+		segments.push_back(s);
+		return true;
+	});
+
+	int updated = 0;
+	for( auto& seg : segments )
+	{
+		std::error_code ec;
+		auto fsize = fs::file_size( seg.FilePath, ec );
+		if( ec ) continue;
+
+		SQLiteDatabaseQueryInstance update( Context.Database, "UpdateContinuousSegmentFileSize" );
+		update->Bind( "@FileSize", static_cast<int64_t>(fsize) );
+		update->Bind( "@SegmentUID", seg.SegmentUID );
+		update->Execute( [](const SQLiteDatabaseQuery&) { return true; } );
+		updated++;
+	}
+
+	if( updated > 0 )
+	{
+		LOG_INFO( "Backfilled file sizes for %d continuous segments.", updated );
+	}
+}
+
+void CleanupOrphanedContinuousSegments( const GlobalContext& Context )
+{
+	fs::path continuousDir = fs::path(Context.CachePath) / "continuous";
+	std::error_code ec;
+	if( !fs::exists( continuousDir, ec ) ) return;
+
+	int orphanedFiles = 0;
+	int orphanedRows = 0;
+
+	// Scan disk for files without DB entries
+	for( auto& cameraDir : fs::directory_iterator(continuousDir, ec) )
+	{
+		if( !cameraDir.is_directory() ) continue;
+
+		for( auto& entry : fs::directory_iterator(cameraDir.path(), ec) )
+		{
+			if( !entry.is_regular_file() ) continue;
+			if( entry.path().extension() != ".mp4" ) continue;
+
+			std::string filePath = entry.path().string();
+			SQLiteDatabaseQueryInstance query( Context.Database, "SelectContinuousSegmentByFilePath" );
+			query->Bind( "@FilePath", filePath.c_str() );
+
+			bool found = false;
+			query->Execute( [&]( const SQLiteDatabaseQuery& ) { found = true; return false; } );
+
+			if( !found )
+			{
+				fs::remove( filePath, ec );
+				orphanedFiles++;
+			}
+		}
+	}
+
+	// Scan DB for entries whose files no longer exist
+	struct SegmentToDelete
+	{
+		int64_t SegmentUID;
+		std::string FilePath;
+	};
+
+	std::vector<SegmentToDelete> allSegments;
+	{
+		SQLiteDatabaseQueryInstance query( Context.Database, "SelectContinuousSegmentsToDelete" );
+		// Use a far-future timestamp to get ALL segments
+		query->Bind( "@Timestamp", static_cast<int64_t>(std::numeric_limits<int64_t>::max()) );
+		query->Execute( [&]( const SQLiteDatabaseQuery& q )
+		{
+			SegmentToDelete s;
+			s.SegmentUID = q.GetColumnValueInt64(0);
+			const char* path = q.GetColumnValueText(1);
+			s.FilePath = path ? path : "";
+			allSegments.push_back(s);
+			return true;
+		});
+	}
+
+	for( auto& seg : allSegments )
+	{
+		if( seg.FilePath.empty() || !fs::exists( seg.FilePath, ec ) )
+		{
+			SQLiteDatabaseQueryInstance del( Context.Database, "DeleteContinuousSegment" );
+			del->Bind( "@SegmentUID", seg.SegmentUID );
+			del->Execute( [](const SQLiteDatabaseQuery&) { return true; } );
+			orphanedRows++;
+		}
+	}
+
+	if( orphanedFiles > 0 || orphanedRows > 0 )
+	{
+		LOG_WARNING( "Crash recovery: removed %d orphaned files and %d stale DB entries.", orphanedFiles, orphanedRows );
+	}
+	else
+	{
+		LOG_INFO( "Crash recovery: no orphaned continuous segments found." );
+	}
+}
+
+void EnforceQuotaContinuousSegments( const GlobalContext& Context, int64_t quotaBytes )
+{
+	if( quotaBytes <= 0 ) return;
+
+	// Get current total size
+	SQLiteDatabaseQueryInstance sizeQuery( Context.Database, "SelectContinuousTotalSize" );
+	int64_t totalSize = 0;
+	sizeQuery->Execute( [&]( const SQLiteDatabaseQuery& q )
+	{
+		totalSize = q.GetColumnValueInt64(2); // column 2 = SUM(FileSize)
+		return false;
+	});
+
+	int deleted = 0;
+	while( totalSize > quotaBytes )
+	{
+		SQLiteDatabaseQueryInstance oldest( Context.Database, "SelectOldestContinuousSegment" );
+
+		int64_t segUID = 0;
+		std::string filePath;
+		bool found = false;
+		oldest->Execute( [&]( const SQLiteDatabaseQuery& q )
+		{
+			segUID = q.GetColumnValueInt64(0);
+			const char* path = q.GetColumnValueText(1);
+			filePath = path ? path : "";
+			found = true;
+			return false;
+		});
+
+		if( !found ) break;
+
+		// Get file size before deleting (for accurate tracking)
+		int64_t fileSize = 0;
+		std::error_code ec;
+		if( !filePath.empty() )
+		{
+			auto fsize = fs::file_size( filePath, ec );
+			if( !ec ) fileSize = static_cast<int64_t>(fsize);
+			fs::remove( filePath, ec );
+		}
+
+		SQLiteDatabaseQueryInstance del( Context.Database, "DeleteContinuousSegment" );
+		del->Bind( "@SegmentUID", segUID );
+		del->Execute( [](const SQLiteDatabaseQuery&) { return true; } );
+
+		totalSize -= fileSize;
+		deleted++;
+	}
+
+	if( deleted > 0 )
+	{
+		LOG_INFO( "Quota enforcement: deleted %d oldest continuous segments (quota: %lld MB).", deleted, quotaBytes / (1024*1024) );
+	}
+}
+
+void CheckDiskSpaceSafety( const GlobalContext& Context )
+{
+	std::error_code ec;
+	auto spaceInfo = fs::space( Context.CachePath, ec );
+	if( ec ) return;
+
+	int64_t freeBytes = static_cast<int64_t>(spaceInfo.available);
+	int64_t freeGB = freeBytes / (1024LL * 1024 * 1024);
+	int64_t freeMB = freeBytes / (1024LL * 1024);
+
+	if( freeBytes < 2LL * 1024 * 1024 * 1024 )
+	{
+		LOG_WARNING( "Low disk space: %lld MB free on cache drive.", freeMB );
+	}
+
+	// Emergency: delete oldest continuous segments when below 1GB
+	if( freeBytes < 1LL * 1024 * 1024 * 1024 )
+	{
+		LOG_WARNING( "Emergency disk cleanup: only %lld MB free, pruning continuous segments.", freeMB );
+		int deleted = 0;
+		while( deleted < 50 ) // limit per cycle to avoid locking DB too long
+		{
+			SQLiteDatabaseQueryInstance oldest( Context.Database, "SelectOldestContinuousSegment" );
+			int64_t segUID = 0;
+			std::string filePath;
+			bool found = false;
+			oldest->Execute( [&]( const SQLiteDatabaseQuery& q )
+			{
+				segUID = q.GetColumnValueInt64(0);
+				const char* path = q.GetColumnValueText(1);
+				filePath = path ? path : "";
+				found = true;
+				return false;
+			});
+
+			if( !found ) break;
+
+			std::error_code rmec;
+			if( !filePath.empty() ) fs::remove( filePath, rmec );
+
+			SQLiteDatabaseQueryInstance del( Context.Database, "DeleteContinuousSegment" );
+			del->Bind( "@SegmentUID", segUID );
+			del->Execute( [](const SQLiteDatabaseQuery&) { return true; } );
+			deleted++;
+
+			// Recheck space after batch
+			auto newSpace = fs::space( Context.CachePath, rmec );
+			if( !rmec && static_cast<int64_t>(newSpace.available) >= 1LL * 1024 * 1024 * 1024 ) break;
+		}
+
+		if( deleted > 0 )
+		{
+			LOG_WARNING( "Emergency cleanup: deleted %d continuous segments.", deleted );
+		}
+	}
+}

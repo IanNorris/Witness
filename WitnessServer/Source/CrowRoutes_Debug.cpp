@@ -1,6 +1,7 @@
 #include "CrowListener.h"
 #include "CrowAuth.h"
 #include "GlobalContext.h"
+#include "SQLite.h"
 
 #include <Log.h>
 #include <filesystem>
@@ -276,6 +277,69 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 			Data["serverLog"] = std::move( LogLines );
 		}
 	}
+
+	res.set_header( "Content-Type", "application/json" );
+	res.body = Data.dump();
+	res.code = 200;
+	res.end();
+}
+
+void CrowListener::HandleDebugDisk( const crow::request& req, crow::response& res )
+{
+	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, nullptr,
+		CrowAuth::Action::Read, CrowAuth::Privilege::Administrator );
+	if( UserUID < 0 )
+	{
+		res.code = 400;
+		res.end();
+		return;
+	}
+
+	crow::json::wvalue Data;
+
+	// Disk space info
+	std::error_code ec;
+	auto spaceInfo = std::filesystem::space( m_GlobalContext->CachePath, ec );
+	if( !ec )
+	{
+		Data["diskTotal"] = static_cast<int64_t>(spaceInfo.capacity);
+		Data["diskFree"] = static_cast<int64_t>(spaceInfo.available);
+		Data["diskUsed"] = static_cast<int64_t>(spaceInfo.capacity - spaceInfo.available);
+		Data["diskTotalGB"] = static_cast<double>(spaceInfo.capacity) / (1024.0 * 1024 * 1024);
+		Data["diskFreeGB"] = static_cast<double>(spaceInfo.available) / (1024.0 * 1024 * 1024);
+	}
+
+	// Continuous segment totals
+	{
+		SQLiteDatabaseQueryInstance query( m_GlobalContext->Database, "SelectContinuousTotalSize" );
+		query->Execute( [&]( const SQLiteDatabaseQuery& q )
+		{
+			Data["segmentCount"] = q.GetColumnValueInt64(0);
+			Data["segmentTotalDuration"] = q.GetColumnValueInt64(1);
+			Data["segmentTotalBytes"] = q.GetColumnValueInt64(2);
+			Data["segmentTotalGB"] = static_cast<double>(q.GetColumnValueInt64(2)) / (1024.0 * 1024 * 1024);
+			return false;
+		});
+	}
+
+	// Per-camera breakdown
+	{
+		SQLiteDatabaseQueryInstance query( m_GlobalContext->Database, "SelectContinuousSizePerCamera" );
+		std::vector<crow::json::wvalue> cameras;
+		query->Execute( [&]( const SQLiteDatabaseQuery& q )
+		{
+			crow::json::wvalue cam;
+			cam["cameraId"] = q.GetColumnValueInt64(0);
+			cam["segmentCount"] = q.GetColumnValueInt64(1);
+			cam["totalBytes"] = q.GetColumnValueInt64(2);
+			cam["totalGB"] = static_cast<double>(q.GetColumnValueInt64(2)) / (1024.0 * 1024 * 1024);
+			cameras.push_back( std::move(cam) );
+			return true;
+		});
+		Data["cameras"] = std::move(cameras);
+	}
+
+	Data["cachePath"] = m_GlobalContext->CachePath;
 
 	res.set_header( "Content-Type", "application/json" );
 	res.body = Data.dump();

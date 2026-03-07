@@ -631,8 +631,8 @@ namespace Database
 
 	// Continuous recording segment queries
 	std::string CreateContinuousSegment = R"RAW(
-		INSERT INTO ContinuousSegment (CameraUID, StartTimestamp, EndTimestamp, Duration, FilePath)
-		VALUES(@CameraUID, @StartTimestamp, @EndTimestamp, @Duration, @FilePath);
+		INSERT INTO ContinuousSegment (CameraUID, StartTimestamp, EndTimestamp, Duration, FilePath, FileSize)
+		VALUES(@CameraUID, @StartTimestamp, @EndTimestamp, @Duration, @FilePath, @FileSize);
 	)RAW";
 
 	std::string SelectContinuousSegments = R"RAW(
@@ -655,7 +655,23 @@ namespace Database
 	)RAW";
 
 	std::string SelectContinuousTotalSize = R"RAW(
-		SELECT COUNT(*), COALESCE(SUM(Duration), 0) FROM ContinuousSegment;
+		SELECT COUNT(*), COALESCE(SUM(Duration), 0), COALESCE(SUM(FileSize), 0) FROM ContinuousSegment;
+	)RAW";
+
+	std::string SelectContinuousSizePerCamera = R"RAW(
+		SELECT CameraUID, COUNT(*), COALESCE(SUM(FileSize), 0) FROM ContinuousSegment GROUP BY CameraUID;
+	)RAW";
+
+	std::string SelectContinuousSegmentsWithNoFileSize = R"RAW(
+		SELECT SegmentUID, FilePath FROM ContinuousSegment WHERE FileSize = 0 LIMIT 200;
+	)RAW";
+
+	std::string UpdateContinuousSegmentFileSize = R"RAW(
+		UPDATE ContinuousSegment SET FileSize = @FileSize WHERE SegmentUID = @SegmentUID;
+	)RAW";
+
+	std::string SelectContinuousSegmentByFilePath = R"RAW(
+		SELECT SegmentUID FROM ContinuousSegment WHERE FilePath = @FilePath LIMIT 1;
 	)RAW";
 
 	std::string SelectOldestContinuousSegment = R"RAW(
@@ -698,6 +714,7 @@ namespace Database
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Clip ADD COLUMN Reviewed INT DEFAULT 0;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN ContinuousRecording INT DEFAULT 0;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN LowLatencyHLS INT DEFAULT 0;", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE ContinuousSegment ADD COLUMN FileSize INTEGER DEFAULT 0;", nullptr, nullptr, nullptr );
 
 		// Migrate old Tag table schema — drop and recreate if it has the old schema
 		// (old schema had Name CHAR(64), Description TEXT; new needs Name TEXT UNIQUE, Display, Icon, etc.)
@@ -833,6 +850,10 @@ namespace Database
 		CREATE_QUERY( SelectContinuousSegmentsToDelete );
 		CREATE_QUERY( DeleteContinuousSegment );
 		CREATE_QUERY( SelectContinuousTotalSize );
+		CREATE_QUERY( SelectContinuousSizePerCamera );
+		CREATE_QUERY( SelectContinuousSegmentsWithNoFileSize );
+		CREATE_QUERY( UpdateContinuousSegmentFileSize );
+		CREATE_QUERY( SelectContinuousSegmentByFilePath );
 		CREATE_QUERY( SelectOldestContinuousSegment );
 		CREATE_QUERY( SelectContinuousCoverage );
 		CREATE_QUERY( SelectContinuousSegmentAtTimestamp );
