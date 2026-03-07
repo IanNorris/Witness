@@ -161,6 +161,7 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 	Context = Server->GetGlobalContext();
 	Context->CachePath = CachePath;
 	Context->Events->Start();
+	Context->Streams->Start();
 
 	if( !InitializeContext(Database) )
 	{

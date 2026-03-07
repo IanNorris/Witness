@@ -133,6 +133,15 @@ void LiveOutputStream::ResetForReconnect(InputStream* NewInputStream)
 	_DiscontinuityPending = true;
 	_InitGeneration++;
 
+	// Notify MSE subscribers of discontinuity before new init segment arrives
+	if (_EventCallback)
+	{
+		LiveStreamEvent Event;
+		Event.EventType = LiveStreamEvent::Discontinuity;
+		Event.Generation = _InitGeneration;
+		_EventCallback(Event);
+	}
+
 	LOG_INFO("[HLS] Live stream reconnect (generation %d), segments so far: %d, cumulative drift: %.1fms",
 		_InitGeneration, _DiagTotalSegments,
 		(_DiagTotalAccumulatedDuration - _DiagTotalDtsDuration) * 1000.0);
@@ -408,6 +417,20 @@ void LiveOutputStream::FlushPartialSegment(bool IsIndependent)
 	_CurrentPartialIndex++;
 	_CurrentPartialDuration = 0.0;
 	_CurrentPartialIsIndependent = false;
+
+	// Notify MSE subscribers of new partial
+	if (_EventCallback)
+	{
+		LiveStreamEvent Event;
+		Event.EventType = LiveStreamEvent::PartialReady;
+		Event.SegmentIndex = _CurrentSegmentIndex;
+		Event.PartIndex = Partial.PartIndex;
+		Event.Data = Partial.Data;
+		Event.Duration = Partial.Duration;
+		Event.Independent = Partial.Independent;
+		Event.Generation = _InitGeneration;
+		_EventCallback(Event);
+	}
 }
 
 CameraStreamError LiveOutputStream::StartNewSegment(const AVPacket* Packet)
@@ -439,6 +462,16 @@ CameraStreamError LiveOutputStream::StartNewSegment(const AVPacket* Packet)
 		}
 
 		_InitSegmentCaptured = true;
+
+		// Notify MSE subscribers of init segment
+		if (_EventCallback)
+		{
+			LiveStreamEvent Event;
+			Event.EventType = LiveStreamEvent::InitSegmentReady;
+			Event.Data = _InitSegmentData;
+			Event.Generation = _InitGeneration;
+			_EventCallback(Event);
+		}
 	}
 
 	// Start a fresh buffer for this segment
@@ -546,6 +579,19 @@ void LiveOutputStream::FinishCurrentSegment(int64_t NextKeyframeDTS)
 
 	_CurrentBuffer.reset();
 	_CurrentSegmentIndex++;
+
+	// Notify MSE subscribers that segment is complete
+	// (MSE clients primarily use partials for low latency, but this
+	// signals segment boundaries for buffer management)
+	if (_EventCallback)
+	{
+		LiveStreamEvent Event;
+		Event.EventType = LiveStreamEvent::SegmentReady;
+		Event.SegmentIndex = _CurrentSegmentIndex - 1;
+		Event.Duration = _CurrentSegmentDuration;
+		Event.Generation = _InitGeneration;
+		_EventCallback(Event);
+	}
 }
 
 LiveOutputStream::StreamingDiagnostics LiveOutputStream::GetStreamingDiagnostics() const

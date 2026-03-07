@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <functional>
 
 struct AVPacket;
 struct AVRational;
@@ -18,6 +19,28 @@ namespace Witness{
 namespace Camera{
 
 typedef std::shared_ptr<std::vector<uint8_t>> SegmentBuffer;
+
+// Notification events emitted by LiveOutputStream for MSE WebSocket streaming
+struct CAMERA_API LiveStreamEvent
+{
+	enum Type
+	{
+		InitSegmentReady,    // Init segment (ftyp+moov) captured or recaptured
+		PartialReady,        // A partial segment (~0.33s) has been flushed
+		SegmentReady,        // A full segment is complete and ready
+		Discontinuity        // Camera reconnected — new init segment coming
+	};
+
+	Type EventType;
+	int SegmentIndex = 0;
+	int PartIndex = 0;
+	SegmentBuffer Data;       // Binary fMP4 data (init, partial, or full segment)
+	double Duration = 0.0;
+	bool Independent = false; // True if partial starts with keyframe
+	int Generation = 0;       // Init segment generation counter
+};
+
+using LiveStreamEventCallback = std::function<void(const LiveStreamEvent&)>;
 
 struct LiveStreamPartialSegment
 {
@@ -89,6 +112,13 @@ public:
 
 	void ResetForReconnect(InputStream* NewInputStream);
 
+	// Observer for MSE WebSocket streaming — called on camera worker thread
+	void SetEventCallback(LiveStreamEventCallback Callback)
+	{
+		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
+		_EventCallback = std::move(Callback);
+	}
+
 private:
 
 	CameraStreamError InitFormatContext();
@@ -143,6 +173,9 @@ private:
 	std::chrono::time_point<std::chrono::system_clock> _CurrentSegmentWallTime;
 
 	std::mutex* _SegmentsMutex;
+
+	// MSE WebSocket callback — notifies subscribers of new data
+	LiveStreamEventCallback _EventCallback;
 
 	// ── Streaming diagnostics ──────────────────────────────────────
 public:
