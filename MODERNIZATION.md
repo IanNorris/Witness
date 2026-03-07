@@ -558,6 +558,62 @@ Detect and recognize faces across clips, enabling search by person and alerting 
 - **Alerts:** optional notification when an unknown face is detected, or when a specific known person appears
 - **Privacy considerations:** face data should be deletable per-person, and face recognition should be an opt-in feature
 
+**Feasibility (assessed March 2025):** Fully feasible on-device for small scale (~10 faces). ArcFace MobileFace ONNX model is ~13MB, produces 512-dim embeddings, and comparing against enrolled faces is just N cosine similarity ops (<50ms per face on CPU). Pipeline: YOLO detects "person" → crop face region → SCRFD face detection (~5MB model) → ArcFace embedding → cosine similarity match against enrolled embeddings (threshold ~0.4). Enrollment UI: admin uploads reference photos or captures from live feed, system extracts and stores embeddings. Pairs naturally with the Detection Focus & Artefact Grid feature for browsing face crops.
+
+### Object Tracking Overlay (Realtime Detection Visualization)
+
+Show bounding boxes and detection labels as a live animated overlay on camera streams, and store detection coordinates alongside clips/DVR segments for replay without re-encoding.
+
+**Live overlay:**
+- WebSocket broadcasts detection events with bounding box coordinates (normalized 0-1), class names, confidence scores, and tracking IDs
+- Frontend renders a transparent `<canvas>` element positioned over each HLS `<video>` element
+- Canvas draws bounding boxes with class labels, color-coded by detection type (person=green, vehicle=blue, animal=orange)
+- Boxes animate smoothly between detection frames using interpolation (detections arrive at inference FPS, display at 60fps)
+- Overlay toggleable per-camera via a button in the camera grid
+
+**Detection data storage:**
+- New `DetectionFrame` table: `FrameUID, CameraID, Timestamp, FrameWidth, FrameHeight`
+- New `DetectionBox` table: `FrameUID, TrackingID, ClassID, ClassName, Confidence, X, Y, W, H` (normalized 0-1 coordinates)
+- Stored at inference rate (not every video frame) — typically 2-10 FPS depending on `DetectionMaxFPS`
+- Retention tied to clip/DVR retention — cleaned up when parent clip or DVR segment is deleted
+- Background reprocessor can regenerate detection data for existing clips
+
+**Playback overlay:**
+- Clip and DVR player fetches detection data for the visible time range via API
+- Canvas overlay draws boxes synchronized to video `currentTime`
+- Binary search through detection frames to find nearest frame for current playback position
+- Same canvas rendering code shared between live and playback modes
+- Overlay toggle button in player controls
+
+**Cross-frame tracking:**
+- Implement simple IoU-based tracker: match detections between consecutive frames using bounding box overlap
+- Assign persistent TrackingIDs within a clip/session — enables tracking an object's path through the scene
+- Optional: draw motion trails (last N positions) for tracked objects
+- TrackingID resets per clip — not cross-clip identity tracking (that's face recognition's job)
+
+**Pipeline integration:**
+- Detection coordinates already computed in `ONNXDetectionFilter` as `RegionOfInterest` with `Left, Top, Width, Height`
+- Normalize to 0-1 range before storage (divide by frame dimensions) for resolution independence
+- Broadcast via existing `EventBroadcaster` WebSocket with new event type `detection:frame`
+- Storage writes happen in detection filter callback — minimal overhead (SQLite INSERT batch)
+
+### MSE-Based Streaming
+
+Replace or supplement HLS with Media Source Extensions for lower-latency browser streaming.
+
+- **Approach:** Server generates fMP4 (fragmented MP4) segments and pushes them to browser via WebSocket or fetch
+- **Browser side:** `MediaSource` API with `SourceBuffer.appendBuffer()` — direct buffer append, no playlist polling
+- **Latency advantage:** eliminates HLS playlist round-trip and segment duration floor (~1-4s), can achieve sub-second latency
+- **Architecture:** Camera worker produces fMP4 init segment + media segments → WebSocket binary frames → client MSE SourceBuffer
+- **Fallback:** HLS remains as fallback for browsers/devices without MSE support or when WebSocket is unavailable
+- **Challenges:**
+  - Need to handle codec negotiation (H.264 baseline/main/high profiles)
+  - Buffer management (evict old data, handle gaps)
+  - Reconnection on network interruption (re-send init segment)
+  - May need server-side MP4 muxing (current pipeline outputs raw H.264 NAL units → TS segments)
+- **Benefits:** Lower latency, simpler server (no .m3u8 generation), reduced HTTP requests, better control over buffering
+- **Dependencies:** Requires refactoring `HlsWriter` to produce fMP4 fragments instead of/alongside TS segments
+
 ---
 
 ## Notes
