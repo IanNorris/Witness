@@ -24,6 +24,7 @@ LiveOutputStream::LiveOutputStream(const std::string& LiveCachePath, InputStream
 	, _HeaderWritten( false )
 	, _InitSegmentCaptured( false )
 	, _HasInitialDTS( false )
+	, _HasBFrames( false )
 	, _InitialDTS( 0 )
 	, _LastWrittenDTS( AV_NOPTS_VALUE )
 	, _SegmentStartDTS( 0 )
@@ -125,6 +126,7 @@ void LiveOutputStream::ResetForReconnect(InputStream* NewInputStream)
 	_HeaderWritten = false;
 	_InitSegmentCaptured = false;
 	_HasInitialDTS = false;
+	_HasBFrames = false;
 	_InitialDTS = 0;
 	_LastWrittenDTS = AV_NOPTS_VALUE;
 	_PartialBufferOffset = 0;
@@ -236,6 +238,11 @@ CameraStreamError LiveOutputStream::InitFormatContext()
 		STREAM_ERROR(DecoderReceiverError, Result);
 	}
 
+	// Detect B-frame usage for conditional PTS=DTS handling
+	_HasBFrames = InID.CodecContext->has_b_frames > 0;
+	LOG_INFO("[HLS] Camera stream %s B-frames (has_b_frames=%d)",
+		_HasBFrames ? "has" : "does not have", InID.CodecContext->has_b_frames);
+
 	// Remap deprecated pixel formats
 	switch (OutStream->codecpar->format)
 	{
@@ -324,12 +331,13 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 		return CameraStreamError::Success;
 	}
 
-	// For live HLS passthrough, force PTS = DTS. B-frame streams have
-	// PTS != DTS (display order differs from decode order), which causes
-	// the browser to reorder frames for display — creating visible stutter
-	// in live playback. Forcing PTS=DTS makes frames display in decode
-	// order, which is slightly incorrect but produces smooth playback.
-	PacketCopy.pts = PacketCopy.dts;
+	// For streams without B-frames, PTS naturally equals DTS — force it to
+	// be safe. For B-frame streams, preserve PTS so the browser can
+	// reorder frames correctly (MSE handles this natively).
+	if (!_HasBFrames)
+	{
+		PacketCopy.pts = PacketCopy.dts;
+	}
 
 	PacketCopy.stream_index = 0;
 	PacketCopy.pos = -1;

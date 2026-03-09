@@ -156,6 +156,7 @@ private:
 	bool _HeaderWritten;
 	bool _InitSegmentCaptured;
 	bool _HasInitialDTS;
+	bool _HasBFrames;
 
 	int64_t _InitialDTS;
 	int64_t _LastWrittenDTS;

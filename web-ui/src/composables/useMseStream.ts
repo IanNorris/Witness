@@ -144,6 +144,8 @@ export function useMseStream(
   let restartBackoffMs = 3000
   let stuckBackoffMs = 3000
   let lowReadyStateSince = 0
+  let lastCurrentTime = -1
+  let currentTimeStalledSince = 0
   let destroyed = false
   let initGeneration = -1
   let expectingBinary: 'init' | 'partial' | null = null
@@ -340,18 +342,32 @@ export function useMseStream(
   }
 
   function handleDiscontinuity() {
-    // Clear source buffer for new init segment
+    // Full teardown of media pipeline — removeSourceBuffer alone can leave
+    // MediaSource in a corrupted state after camera reconnects
     if (sourceBuffer && mediaSource && mediaSource.readyState === 'open') {
       try {
         mediaSource.removeSourceBuffer(sourceBuffer)
       } catch {
         // May fail if already closed
       }
-      sourceBuffer = null
-      appendQueue = []
     }
+    sourceBuffer = null
+    appendQueue = []
+
+    const element = videoRef.value
+    if (element && mediaSource) {
+      URL.revokeObjectURL(element.src)
+      element.removeAttribute('src')
+      element.load()
+      mediaSource = null
+      // Re-create MediaSource for fresh start
+      setupMediaSource(element)
+    }
+
     waitingForKeyframe = true
     hasInitialBuffer = false
+    lastCurrentTime = -1
+    currentTimeStalledSince = 0
   }
 
   function connectWebSocket() {
@@ -433,6 +449,8 @@ export function useMseStream(
     expectingBinary = null
     waitingForKeyframe = true
     hasInitialBuffer = false
+    lastCurrentTime = -1
+    currentTimeStalledSince = 0
 
     // Reconnect
     setTimeout(() => connectWebSocket(), restartBackoffMs)
@@ -480,6 +498,28 @@ export function useMseStream(
         restartBackoffMs = 3000
       }
 
+      // Frozen-frame detection: currentTime not advancing while frags are flowing
+      // Catches SourceBuffer corruption, silent decode failures, frozen video element
+      if (hasFrags && !video.paused && video.readyState >= 1) {
+        if (video.currentTime === lastCurrentTime && lastCurrentTime >= 0) {
+          if (currentTimeStalledSince === 0) {
+            currentTimeStalledSince = now
+          } else if (now - currentTimeStalledSince > 3000 && fragAge < 2000) {
+            diag.stats.stallCount++
+            diag.log('frozenRestart', {
+              currentTime: video.currentTime,
+              stalledMs: now - currentTimeStalledSince,
+              fragAge,
+            })
+            restartStream('frozen')
+            return
+          }
+        } else {
+          lastCurrentTime = video.currentTime
+          currentTimeStalledSince = 0
+        }
+      }
+
       // Live edge tracking — gentle playback rate adjustment to minimize latency
       if (video.readyState >= 3 && !video.paused && sourceBuffer) {
         const buf = video.buffered
@@ -493,6 +533,16 @@ export function useMseStream(
           const targetRate = lag > 0.1 ? 1.1 : lag < 0.05 ? 0.9 : 1.0
           if (video.playbackRate !== targetRate) {
             video.playbackRate = targetRate
+          }
+
+          // Drift recovery: if latency exceeds 5s for 3+ seconds, full restart
+          if (lag > 5) {
+            if (currentTimeStalledSince === 0) currentTimeStalledSince = now
+            if (now - currentTimeStalledSince > 3000) {
+              diag.log('driftRestart', { lag, lagMs: latencyMs.value })
+              restartStream('drift')
+              return
+            }
           }
         }
       }
