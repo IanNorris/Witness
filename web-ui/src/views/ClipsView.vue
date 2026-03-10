@@ -180,7 +180,7 @@ function handleTagClick(_tag: string) {
           </div>
 
           <!-- Pagination -->
-          <nav v-if="clipStore.totalPages > 1" class="mt-3 d-flex justify-content-center">
+          <nav v-if="clipStore.totalPages > 1" class="mt-3 mb-5 d-flex justify-content-center">
             <ul class="pagination pagination-sm">
               <li class="page-item" :class="{ disabled: clipStore.currentPage === 0 }">
                 <a class="page-link" href="#" @click.prevent="clipStore.goToPage(0)">«</a>
