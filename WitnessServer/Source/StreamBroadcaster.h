@@ -113,8 +113,12 @@ public:
 	}
 
 	// Send a JSON control message to a single connection (e.g. init on connect)
+	// Must only be called for connections that are subscribed.
 	void SendControlDirect( crow::websocket::connection* conn, const std::string& json )
 	{
+		std::lock_guard<std::mutex> lock( m_Mutex );
+		if( m_ConnectionCamera.find( conn ) == m_ConnectionCamera.end() )
+			return;
 		try
 		{
 			conn->send_text( json );
@@ -126,6 +130,9 @@ public:
 	void SendBinaryDirect( crow::websocket::connection* conn, Witness::Camera::SegmentBuffer data )
 	{
 		if( !data || data->empty() ) return;
+		std::lock_guard<std::mutex> lock( m_Mutex );
+		if( m_ConnectionCamera.find( conn ) == m_ConnectionCamera.end() )
+			return;
 		try
 		{
 			conn->send_binary( std::string( (const char*)data->data(), data->size() ) );
@@ -159,79 +166,65 @@ private:
 				m_OutboundQueue.pop();
 			}
 
-			// Get subscribers for this camera
-			std::vector<crow::websocket::connection*> conns;
-			std::vector<crow::websocket::connection*> toDisconnect;
+			// Prepare the binary string once outside the lock
+			std::string binaryStr;
+			if( msg->IsBinary && msg->BinaryData && !msg->BinaryData->empty() )
 			{
-				std::lock_guard<std::mutex> lock( m_Mutex );
-				auto it = m_Subscriptions.find( msg->CameraId );
-				if( it == m_Subscriptions.end() ) continue;
+				binaryStr.assign( (const char*)msg->BinaryData->data(), msg->BinaryData->size() );
+			}
 
-				for( auto* conn : it->second )
-				{
-					auto& pending = m_PendingCount[conn];
-					if( pending >= MaxPendingPerClient )
-					{
-						toDisconnect.push_back( conn );
-					}
-					else
-					{
-						pending++;
-						conns.push_back( conn );
-					}
-				}
+			// Hold the lock for the entire broadcast to prevent use-after-free
+			// when connections close concurrently. Subscribe/Unsubscribe will
+			// block briefly during sends, which is acceptable for correctness.
+			std::lock_guard<std::mutex> lock( m_Mutex );
 
-				for( auto* conn : toDisconnect )
+			auto subIt = m_Subscriptions.find( msg->CameraId );
+			if( subIt == m_Subscriptions.end() ) continue;
+
+			// Copy the connection set — we may modify m_Subscriptions during iteration
+			std::vector<crow::websocket::connection*> conns( subIt->second.begin(), subIt->second.end() );
+
+			for( auto* conn : conns )
+			{
+				// Verify connection is still subscribed (may have been removed by
+				// concurrent Unsubscribe or slow-client disconnect)
+				if( m_ConnectionCamera.find( conn ) == m_ConnectionCamera.end() )
+					continue;
+
+				// Check for slow client
+				auto& pending = m_PendingCount[conn];
+				if( pending >= MaxPendingPerClient )
 				{
+					// Remove from all maps before closing
 					int camId = m_ConnectionCamera[conn];
 					m_Subscriptions[camId].erase( conn );
 					if( m_Subscriptions[camId].empty() )
 						m_Subscriptions.erase( camId );
 					m_ConnectionCamera.erase( conn );
 					m_PendingCount.erase( conn );
+
+					LOG_WARNING( "[MSE] Disconnecting slow client (>%zu pending)", MaxPendingPerClient );
+					try { conn->close( "slow consumer" ); } catch( ... ) {}
+					continue;
 				}
-			}
 
-			// Disconnect slow clients (outside lock)
-			for( auto* conn : toDisconnect )
-			{
-				LOG_WARNING( "[MSE] Disconnecting slow client (>%zu pending)", MaxPendingPerClient );
-				try { conn->close( "slow consumer" ); } catch( ... ) {}
-			}
+				pending++;
 
-			// Send to healthy clients
-			if( msg->IsBinary && msg->BinaryData && !msg->BinaryData->empty() )
-			{
-				std::string binaryStr( (const char*)msg->BinaryData->data(), msg->BinaryData->size() );
-				for( auto* conn : conns )
+				// Send data — catch exceptions in case connection closed
+				// between our check and the send
+				try
 				{
-					try
-					{
+					if( msg->IsBinary )
 						conn->send_binary( binaryStr );
-					}
-					catch( ... ) {}
-
-					std::lock_guard<std::mutex> lock( m_Mutex );
-					auto it = m_PendingCount.find( conn );
-					if( it != m_PendingCount.end() && it->second > 0 )
-						it->second--;
-				}
-			}
-			else if( !msg->IsBinary )
-			{
-				for( auto* conn : conns )
-				{
-					try
-					{
+					else
 						conn->send_text( msg->TextData );
-					}
-					catch( ... ) {}
-
-					std::lock_guard<std::mutex> lock( m_Mutex );
-					auto it = m_PendingCount.find( conn );
-					if( it != m_PendingCount.end() && it->second > 0 )
-						it->second--;
 				}
+				catch( ... ) {}
+
+				// Re-verify connection still exists before decrementing
+				auto pendIt = m_PendingCount.find( conn );
+				if( pendIt != m_PendingCount.end() && pendIt->second > 0 )
+					pendIt->second--;
 			}
 		}
 	}
