@@ -5,6 +5,8 @@
 #include "PersonRecognitionFilter.h"
 #include "ONNXDetectionFilter.h"
 #include "FaceDetectionFilter.h"
+#include "FaceEmbeddingModel.h"
+#include "FaceRecognitionCache.h"
 #include "ObjectTracker.h"
 #include "SQLite.h"
 #include "EventBroadcaster.h"
@@ -169,8 +171,11 @@ void CameraWorker::WorkerInit()
 		auto cachePath = std::string( Context->CachePath.begin(), Context->CachePath.end() );
 		// Throttle detection-triggered actions: one trigger per class per 30 seconds
 		auto detectionActionThrottle = std::make_shared<std::unordered_map<std::string, double>>();
+		auto faceEmbModel = Context->FaceEmbeddingModel;
+		auto faceCache = Context->FaceCache;
+		double faceRecThreshold = Video.FaceRecognitionConfidence;
 
-		Observer->SetDetectionCallback( [db, events, tracker, cachePath, detectionActionThrottle]( const DetectionFrameData& frame )
+		Observer->SetDetectionCallback( [db, events, tracker, cachePath, detectionActionThrottle, faceEmbModel, faceCache, faceRecThreshold]( const DetectionFrameData& frame )
 		{
 			// Run IoU tracker for stable TrackingIDs
 			std::vector<Witness::TrackedBox> trackInputs;
@@ -204,6 +209,7 @@ void CameraWorker::WorkerInit()
 			auto facesDir = std::filesystem::path( cachePath ) / "faces" / std::to_string( frame.CameraID );
 			bool cropsDirCreated = false;
 			bool facesDirCreated = false;
+			std::unordered_map<uint32_t, std::string> faceRecognitionNames; // trackID -> recognized name
 
 			// Build WebSocket event and store boxes
 			crow::json::wvalue ev;
@@ -342,6 +348,85 @@ void CameraWorker::WorkerInit()
 						query->Bind( "@Landmark4X", static_cast<double>( lmX[4] ) );
 						query->Bind( "@Landmark4Y", static_cast<double>( lmY[4] ) );
 						query->Execute( nullptr );
+						int64_t cropUID = query->GetLastInsertionId();
+
+						// Generate face embedding and match against known faces
+						if( faceEmbModel && faceEmbModel->IsModelLoaded() )
+						{
+							// Align face using landmarks if available
+							bool hasLandmarks = false;
+							for( int li = 0; li < 5; li++ )
+							{
+								if( lmX[li] != 0.0f || lmY[li] != 0.0f ) { hasLandmarks = true; break; }
+							}
+
+							cv::Mat alignedFace;
+							if( hasLandmarks )
+							{
+								// Convert normalized landmarks to crop-relative pixels
+								float cropLmX[5], cropLmY[5];
+								for( int li = 0; li < 5; li++ )
+								{
+									cropLmX[li] = ( lmX[li] - box.X ) / box.W * 112.0f;
+									cropLmY[li] = ( lmY[li] - box.Y ) / box.H * 112.0f;
+								}
+								alignedFace = Witness::Camera::FaceEmbeddingModel::AlignFace( faceCrop, cropLmX, cropLmY );
+							}
+							else
+							{
+								alignedFace = faceCrop;
+							}
+
+							auto embedding = faceEmbModel->GetEmbedding( alignedFace );
+							if( !embedding.empty() )
+							{
+								// Match against known faces
+								int matchedUID = 0;
+								double matchConf = 0.0;
+								int verified = 0;
+								std::string matchedName;
+
+								if( faceCache )
+								{
+									auto match = faceCache->Match( embedding, (float)faceRecThreshold );
+									if( match.Matched )
+									{
+										matchedUID = match.KnownFaceUID;
+										matchConf = match.Similarity;
+										matchedName = match.Name;
+									}
+								}
+
+								// Insert embedding
+								SQLiteDatabaseQueryInstance embQ( db, "InsertFaceEmbedding" );
+								embQ->Bind( "@FaceCropUID", static_cast<int>( cropUID ) );
+								if( matchedUID > 0 )
+									embQ->Bind( "@KnownFaceUID", matchedUID );
+								else
+									embQ->BindNull( "@KnownFaceUID" );
+								embQ->BindBlob( "@Embedding", embedding.data(), static_cast<int>( embedding.size() * sizeof( float ) ) );
+								embQ->Bind( "@Dimension", static_cast<int>( embedding.size() ) );
+								embQ->Bind( "@MatchConfidence", matchConf );
+								embQ->Bind( "@Verified", verified );
+								embQ->Bind( "@CreatedAt", frame.Timestamp );
+								embQ->Execute( nullptr );
+
+								// Broadcast recognition event
+								if( matchedUID > 0 )
+								{
+									faceRecognitionNames[trackID] = matchedName;
+
+									crow::json::wvalue recEv;
+									recEv["cameraId"] = frame.CameraID;
+									recEv["cropUID"] = static_cast<int>( cropUID );
+									recEv["knownFaceUID"] = matchedUID;
+									recEv["name"] = matchedName;
+									recEv["confidence"] = matchConf;
+									recEv["timestamp"] = frame.Timestamp;
+									events->Broadcast( "face:recognized", std::move( recEv ) );
+								}
+							}
+						}
 					}
 				}
 
@@ -353,6 +438,12 @@ void CameraWorker::WorkerInit()
 				boxJson["y"] = static_cast<double>( box.Y );
 				boxJson["w"] = static_cast<double>( box.W );
 				boxJson["h"] = static_cast<double>( box.H );
+				if( box.ClassName == "face" )
+				{
+					auto nameIt = faceRecognitionNames.find( trackID );
+					if( nameIt != faceRecognitionNames.end() )
+						boxJson["name"] = nameIt->second;
+				}
 				boxArray.push_back( std::move( boxJson ) );
 			}
 
