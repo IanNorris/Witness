@@ -1,13 +1,15 @@
 #!/usr/bin/env python3
-"""Download YOLO26 ONNX models for Witness object detection.
+"""Download ONNX models for Witness detection and face recognition.
 
-Downloads pretrained weights from HuggingFace and exports to ONNX format.
-Requires: pip install ultralytics
+Downloads pretrained weights and exports/extracts to ONNX format.
+Requires: pip install ultralytics (for YOLO), pip install insightface (for face recognition)
 """
 
 import argparse
 import os
+import shutil
 import sys
+import zipfile
 
 MODELS = {
     "n": {"filename": "yolo26n.onnx", "pt": "yolo26n.pt", "description": "Nano (~10MB, 39ms CPU)"},
@@ -59,16 +61,84 @@ def export_model(variant, output_dir):
         return False
 
 
+def download_face_recognition(output_dir):
+    """Download MobileFaceNet (w600k_mbf) from InsightFace buffalo_sc pack."""
+    onnx_path = os.path.join(output_dir, "face_recognition.onnx")
+    if os.path.exists(onnx_path):
+        print(f"  face_recognition.onnx already exists, skipping.")
+        return True
+
+    # Try using insightface package (handles caching)
+    try:
+        from insightface.utils import storage
+        import urllib.request
+
+        url = "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_sc.zip"
+        cache_dir = os.path.join(os.path.expanduser("~"), ".insightface", "models")
+        os.makedirs(cache_dir, exist_ok=True)
+        zip_path = os.path.join(cache_dir, "buffalo_sc.zip")
+        extract_dir = os.path.join(cache_dir, "buffalo_sc")
+        mbf_path = os.path.join(extract_dir, "w600k_mbf.onnx")
+
+        if not os.path.exists(mbf_path):
+            if not os.path.exists(zip_path):
+                print(f"  Downloading buffalo_sc.zip (~14MB...")
+                urllib.request.urlretrieve(url, zip_path)
+            print(f"  Extracting w600k_mbf.onnx...")
+            with zipfile.ZipFile(zip_path, "r") as zf:
+                zf.extractall(extract_dir)
+
+        if os.path.exists(mbf_path):
+            shutil.copy2(mbf_path, onnx_path)
+            size_mb = os.path.getsize(onnx_path) / (1024 * 1024)
+            print(f"  Saved: {onnx_path} ({size_mb:.1f} MB)")
+            return True
+        else:
+            print(f"  w600k_mbf.onnx not found in extracted pack.")
+            return False
+
+    except Exception as e:
+        # Fallback: direct download without insightface
+        try:
+            import urllib.request
+
+            url = "https://github.com/deepinsight/insightface/releases/download/v0.7/buffalo_sc.zip"
+            zip_path = os.path.join(output_dir, "buffalo_sc.zip")
+            print(f"  Downloading buffalo_sc.zip (~14MB)...")
+            urllib.request.urlretrieve(url, zip_path)
+            print(f"  Extracting w600k_mbf.onnx...")
+            with zipfile.ZipFile(zip_path, "r") as zf:
+                for name in zf.namelist():
+                    if "w600k_mbf" in name:
+                        data = zf.read(name)
+                        with open(onnx_path, "wb") as f:
+                            f.write(data)
+                        break
+            os.remove(zip_path)
+            if os.path.exists(onnx_path):
+                size_mb = os.path.getsize(onnx_path) / (1024 * 1024)
+                print(f"  Saved: {onnx_path} ({size_mb:.1f} MB)")
+                return True
+            else:
+                print(f"  w600k_mbf.onnx not found in zip.")
+                return False
+        except Exception as e2:
+            print(f"  Download failed: {e2}")
+            return False
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Download YOLO26 ONNX models for Witness")
+    parser = argparse.ArgumentParser(description="Download ONNX models for Witness")
     parser.add_argument("--variants", nargs="+", choices=list(MODELS.keys()), default=["n"],
-                        help="Model variants to download (default: n)")
-    parser.add_argument("--all", action="store_true", help="Download all model variants")
+                        help="YOLO model variants to download (default: n)")
+    parser.add_argument("--all", action="store_true", help="Download all YOLO model variants + face recognition")
+    parser.add_argument("--face", action="store_true", help="Download face recognition model (MobileFaceNet)")
     parser.add_argument("--output", default=None, help="Output directory (default: models/ at repo root)")
     args = parser.parse_args()
 
     if args.all:
         args.variants = list(MODELS.keys())
+        args.face = True
 
     # Default output: models/ directory at repo root
     if args.output:
@@ -81,6 +151,8 @@ def main():
 
     print(f"Exporting YOLO26 models to: {output_dir}")
     print(f"Variants: {', '.join(args.variants)}")
+    if args.face:
+        print(f"Face recognition: MobileFaceNet (w600k_mbf)")
     print()
 
     success = 0
@@ -89,6 +161,14 @@ def main():
         info = MODELS[variant]
         print(f"[{variant}] {info['description']}")
         if export_model(variant, output_dir):
+            success += 1
+        else:
+            failed += 1
+        print()
+
+    if args.face:
+        print("[face] MobileFaceNet w600k_mbf (~13MB, 512-dim, 99.7% LFW)")
+        if download_face_recognition(output_dir):
             success += 1
         else:
             failed += 1
