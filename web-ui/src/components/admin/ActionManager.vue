@@ -52,7 +52,7 @@ const showConfirm = ref(false)
 const confirmMessage = ref('')
 const confirmAction = ref<(() => void) | null>(null)
 
-const detectionClasses = ['person', 'face', 'car', 'truck', 'dog', 'cat', 'bicycle', 'motorcycle']
+const detectionClasses = ['person', 'face', 'known_face', 'unknown_face', 'car', 'truck', 'dog', 'cat', 'bicycle', 'motorcycle']
 
 function assignmentsForAction(actionId: number) {
   return assignments.value.filter(a => a.actionId === actionId)

@@ -461,6 +461,19 @@ void CameraWorker::WorkerInit()
 					detectedClasses.insert( box.ClassName );
 			}
 
+			// Add face recognition synthetic classes for actions
+			if( !faceRecognitionNames.empty() )
+			{
+				detectedClasses.insert( "known_face" );
+				for( auto& [tid, name] : faceRecognitionNames )
+					detectedClasses.insert( "face:" + name );
+			}
+			// If faces detected but none recognized → unknown_face
+			if( detectedClasses.count( "face" ) && faceRecognitionNames.empty() && faceEmbModel && faceEmbModel->IsModelLoaded() )
+			{
+				detectedClasses.insert( "unknown_face" );
+			}
+
 			for( auto& cls : detectedClasses )
 			{
 				// Throttle: skip if this class was triggered recently
