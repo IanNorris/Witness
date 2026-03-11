@@ -12,11 +12,6 @@
 			"svg": "image/svg+xml"
 		}
 	},
-	"android": {
-		"fcm_server_key": "Firebase Server Key",
-		"fcm_user": "User To Send To (Temporary)",
-		"fcm_link": "Image To Send (Temporary)"
-	},
 	"processing": {
 		"thread_count": 2
 	},
@@ -27,12 +22,5 @@
 		"face_recognition_cascade_name": "mallick_haarcascade_frontalface_default",
 		"body_recognition_cascade_name": "haarcascade_fullbody",
 		"export_motion_vectors": 1
-	},
-	"azure": {
-		"vision": {
-			"endpoint": "Endpoint Uri",
-			"key": "API Key",
-			"min_frame_distance": "0.1"
-		}
 	}
 }

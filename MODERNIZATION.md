@@ -56,7 +56,7 @@ The filter architecture is already plugin-based and ready for new backends:
 
 - `IRecordFilter` interface with `OnSuccess()` / `OnFailure()` callback chain
 - `PersonRecognitionFilter` exists (Haar cascades) but is **commented out** in `CameraWorker.cpp`
-- Azure Vision filter sends frames to cloud API via HTTP
+- `ONNXDetectionFilter` runs YOLO models locally via ONNX Runtime (replaced cloud-based Azure Vision)
 - Frames available as `cv::Mat` (BGR24) via lazy decode from `AVFrame`
 - Results use `ClassificationResult` with `RegionOfInterest` bounding boxes + classification enums
 - Filter chain is wired in `CameraWorker::WorkerInit()` — configurable per-camera
@@ -285,7 +285,7 @@ Replaced the 166MB .NET Installer with a built-in web setup wizard.
   - **Option A: Preprocessing** — Apply CLAHE (Contrast Limited Adaptive Histogram Equalization) to IR frames before inference
   - **Option B: Fine-tune on IR data** — Use the [FLIR ADAS Thermal Dataset](https://www.flir.com/oem/adas/adas-dataset-form/)
   - **Option C: Dedicated IR model** — Purpose-built models like CRT-YOLO or MDCFVit-YOLO
-- [ ] Optionally keep Azure Vision as alternative cloud backend
+- [x] ~~Optionally keep Azure Vision as alternative cloud backend~~ — Removed; ONNX fully replaces it
 
 ### Phase 5: Notifications & Integrations
 
@@ -293,7 +293,7 @@ Replaced the 166MB .NET Installer with a built-in web setup wizard.
 - [ ] **Notification triggers** from `ONNXDetectionFilter` results via existing `MessageBus`
 - [ ] **MQTT event publishing** — publish detection events, camera status, and clip creation to MQTT topics. Enables Home Assistant, Node-RED, and other automation platform integration without tight coupling
 - [ ] **Webhook support** — configurable HTTP POST callbacks on events (detection, camera offline, clip saved) for custom integrations
-- [ ] Remove Azure Vision code if ONNX fully replaces it
+- [x] ~~Remove Azure Vision code if ONNX fully replaces it~~ — Done; Azure Vision source, config template entries, and FCM code removed
 
 ### Phase 6: Feature Enhancements 🔄 IN PROGRESS
 
@@ -354,7 +354,7 @@ Replaced the 166MB .NET Installer with a built-in web setup wizard.
 - [ ] **Mobile-responsive UI** — ensure all views work well on phone/tablet screens
   - ⚠️ Known issue: current web UI is unusable on mobile — menu/sidebar not accessible without switching to desktop mode
   - Need hamburger menu, touch-friendly controls, responsive layout breakpoints
-- [ ] **Evaluate Flutter/Android projects** — PWA may replace native apps entirely
+- [x] ~~Evaluate Flutter/Android projects~~ — Legacy AndroidClient and WitnessClient (C# WinForms) removed. MobileClient (Flutter) remains as the native app option; PWA may replace it.
 
 ---
 
@@ -560,7 +560,7 @@ Detect and recognize faces across clips, enabling search by person and alerting 
 
 **Feasibility (assessed March 2025):** Fully feasible on-device for small scale (~10 faces). ArcFace MobileFace ONNX model is ~13MB, produces 512-dim embeddings, and comparing against enrolled faces is just N cosine similarity ops (<50ms per face on CPU). Pipeline: YOLO detects "person" → crop face region → SCRFD face detection (~5MB model) → ArcFace embedding → cosine similarity match against enrolled embeddings (threshold ~0.4). Enrollment UI: admin uploads reference photos or captures from live feed, system extracts and stores embeddings. Pairs naturally with the Detection Focus & Artefact Grid feature for browsing face crops.
 
-### Object Tracking Overlay (Realtime Detection Visualization)
+### Object Tracking Overlay (Realtime Detection Visualization) ✅ COMPLETE
 
 Show bounding boxes and detection labels as a live animated overlay on camera streams, and store detection coordinates alongside clips/DVR segments for replay without re-encoding.
 
@@ -597,22 +597,9 @@ Show bounding boxes and detection labels as a live animated overlay on camera st
 - Broadcast via existing `EventBroadcaster` WebSocket with new event type `detection:frame`
 - Storage writes happen in detection filter callback — minimal overhead (SQLite INSERT batch)
 
-### MSE-Based Streaming
+### MSE-Based Streaming ✅ COMPLETE
 
-Replace or supplement HLS with Media Source Extensions for lower-latency browser streaming.
-
-- **Approach:** Server generates fMP4 (fragmented MP4) segments and pushes them to browser via WebSocket or fetch
-- **Browser side:** `MediaSource` API with `SourceBuffer.appendBuffer()` — direct buffer append, no playlist polling
-- **Latency advantage:** eliminates HLS playlist round-trip and segment duration floor (~1-4s), can achieve sub-second latency
-- **Architecture:** Camera worker produces fMP4 init segment + media segments → WebSocket binary frames → client MSE SourceBuffer
-- **Fallback:** HLS remains as fallback for browsers/devices without MSE support or when WebSocket is unavailable
-- **Challenges:**
-  - Need to handle codec negotiation (H.264 baseline/main/high profiles)
-  - Buffer management (evict old data, handle gaps)
-  - Reconnection on network interruption (re-send init segment)
-  - May need server-side MP4 muxing (current pipeline outputs raw H.264 NAL units → TS segments)
-- **Benefits:** Lower latency, simpler server (no .m3u8 generation), reduced HTTP requests, better control over buffering
-- **Dependencies:** Requires refactoring `HlsWriter` to produce fMP4 fragments instead of/alongside TS segments
+Implemented MSE streaming via WebSocket with ~200ms latency. Server pushes fMP4 init segment + partial segments via WebSocket binary frames. Client uses `MediaSource` API in sequence mode with adaptive playback rate (1.1x/0.9x) for latency control. HLS remains as fallback. MSE is now the default streaming mode. Configurable partial duration (default 0.15s) via admin settings.
 
 ---
 

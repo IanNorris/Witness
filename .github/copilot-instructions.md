@@ -24,10 +24,8 @@ Witness is a video surveillance system with motion-triggered recording, HLS live
 | Project | Type | Language | Purpose |
 |---------|------|----------|---------|
 | **WitnessCamera** | DLL | C++20 | Video capture/encoding via FFmpeg 7.1, frame processing pipeline, HLS segmentation |
-| **WitnessServer** | Console EXE | C++20 | REST API (CppREST SDK), message bus, camera worker threads, serves web UI |
-| **WitnessClient** | WinForms EXE | C# (.NET 4.7.2) | Desktop monitoring app with login and motion notifications |
+| **WitnessServer** | Console EXE | C++20 | REST API (Crow), message bus, camera worker threads, serves web UI |
 | **MobileClient** | Flutter app | Dart | Cross-platform mobile client |
-| **AndroidClient** | Gradle project | Java/Kotlin | Android client with Firebase Cloud Messaging |
 
 ### Data flow
 
@@ -45,7 +43,7 @@ Knockout.js 3.4.2 MVVM app served from `WitnessServer/Web/witness/`. ViewModels 
 
 ### Configuration
 
-- **Server config:** JSON file based on `Server.json.template` — hostname, port, TLS, Azure Vision, FCM, video processing settings
+- **Server config:** JSON file based on `Server.json.template` — hostname, port, TLS, video processing settings
 - **Runtime data:** SQLite database at `%ProgramData%\Witness\server.db`
 
 ## Dependencies
@@ -53,8 +51,7 @@ Knockout.js 3.4.2 MVVM app served from `WitnessServer/Web/witness/`. ViewModels 
 - **FFmpeg 7.1** — pre-built binaries in `ThirdParty/ffmpeg-7.1-win64/` (not a git submodule)
 - **OpenCV 4.0** — git submodule in `ThirdParty/SubModules/opencv/`
 - **libsodium** — git submodule for cryptography/auth
-- **CppREST SDK** — via vcpkg manifest (`vcpkg.json`) and git submodule
-- **bgslibrary** — background subtraction algorithms (submodule)
+- **CppREST SDK** — via vcpkg manifest (`vcpkg.json`) and git submodule- **bgslibrary** — background subtraction algorithms (submodule)
 - **SQLite** — bundled in `ThirdParty/SQLite-20180118/`
 
 ## Conventions
@@ -72,12 +69,6 @@ Knockout.js 3.4.2 MVVM app served from `WitnessServer/Web/witness/`. ViewModels 
 - **Thread safety:** `std::mutex` + `std::lock_guard` for shared state. `std::condition_variable` for queue blocking. Segment access in `LiveOutputStream` is always mutex-locked.
 - **FFmpeg lifecycle:** `avformat_network_init()` called once in `Stream::OneTimeInit()`. Format/codec contexts freed in destructors. Custom log callback via `av_log_set_callback()`.
 - **Raw pointer hazard:** Camera reconnect replaces `InputStream` while `OutputStream` may still hold a reference. Use cached values (e.g., `ID.Timebase`) instead of calling methods on the old stream.
-
-### C# (WitnessClient)
-
-- WinForms with async HTTP via `HttpClient`
-- REST calls through `WitnessRest.SendQuery()` helper
-- Session token + CSRF token authentication
 
 ### Web (Knockout.js)
 
