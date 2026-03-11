@@ -26,6 +26,7 @@ set(SERVER_SOURCES
     Source/CameraWorker.cpp
     Source/Common.cpp
     Source/Database.cpp
+    Source/FaceRecognitionCache.cpp
     Source/ImageProcessorWorker.cpp
     Source/Init.cpp
     Source/JsonHelpers.cpp
@@ -57,6 +58,7 @@ set(SERVER_HEADERS
     Source/CrowAuth.h
     Source/CrowListener.h
     Source/Database.h
+    Source/FaceRecognitionCache.h
     Source/GlobalContext.h
     Source/ImageProcessorWorker.h
     Source/LongPoll.h

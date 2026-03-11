@@ -10,6 +10,7 @@
 #include <Log.h>
 #include <ONNXDetectionFilter.h>
 #include <FaceDetectionFilter.h>
+#include <FaceEmbeddingModel.h>
 
 #include <filesystem>
 #ifdef _WIN32
@@ -187,6 +188,39 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 		}
 	}
 
+	// Face recognition settings
+	{
+		std::string faceRecEnabled;
+		if( GetSettingsField( Settings, "face_recognition_enabled", faceRecEnabled, Errors ) && faceRecEnabled == "1" )
+		{
+			Video.FaceRecognitionEnabled = true;
+		}
+		GetSettingsField( Settings, "face_recognition_confidence", Video.FaceRecognitionConfidence, Errors );
+		GetSettingsField( Settings, "face_recognition_model_path", Video.FaceRecognitionModelPath, Errors );
+
+		if( Video.FaceRecognitionEnabled && Video.FaceRecognitionModelPath.empty() )
+		{
+#ifdef _WIN32
+			wchar_t modelExeBuf[MAX_PATH] = {};
+			GetModuleFileNameW( nullptr, modelExeBuf, MAX_PATH );
+			auto defaultRecModel = std::filesystem::path( modelExeBuf ).parent_path() / "models" / "face_recognition.onnx";
+#else
+			auto defaultRecModel = std::filesystem::canonical( "/proc/self/exe" ).parent_path() / "models" / "face_recognition.onnx";
+#endif
+			if( std::filesystem::exists( defaultRecModel ) )
+			{
+				Video.FaceRecognitionModelPath = defaultRecModel.string();
+			}
+			else
+			{
+				LOG_WARNING( "Face recognition enabled but no model found at: %s", defaultRecModel.string().c_str() );
+				Video.FaceRecognitionEnabled = false;
+			}
+		}
+
+		LOG_INFO( "Face recognition: %s", Video.FaceRecognitionEnabled ? "enabled" : "disabled" );
+	}
+
 	GetSettingsField( Settings, "mse_partial_duration", Video.MsePartialDuration, Errors );
 
 	if( !CreateListener( Settings ) )
@@ -199,9 +233,32 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 	Context->Events->Start();
 	Context->Streams->Start();
 
+	// Initialize face recognition model + cache
+	if( Video.FaceRecognitionEnabled )
+	{
+		auto embModel = std::make_shared<Witness::Camera::FaceEmbeddingModel>();
+		if( embModel->LoadModel( Video.FaceRecognitionModelPath.c_str(), Video.DetectionUseGPU, Video.DetectionCudnnPath.c_str() ) )
+		{
+			Context->FaceEmbeddingModel = embModel;
+			Context->FaceCache = std::make_shared<FaceRecognitionCache>();
+			// Cache will be loaded after database is initialized
+		}
+		else
+		{
+			LOG_WARNING( "Face recognition model failed to load — feature disabled." );
+			Video.FaceRecognitionEnabled = false;
+		}
+	}
+
 	if( !InitializeContext(Database) )
 	{
 		return false;
+	}
+
+	// Load face recognition cache from DB (after DB is ready)
+	if( Context->FaceCache && Context->Database )
+	{
+		Context->FaceCache->LoadFromDatabase( Context->Database );
 	}
 
 	if( !CreateProcessors( Settings ) )

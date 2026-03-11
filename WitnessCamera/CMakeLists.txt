@@ -9,6 +9,7 @@ set(CAMERA_SOURCES
     Source/ContinuousOutputStream.cpp
     Source/DebugBind.cpp
     Source/FaceDetectionFilter.cpp
+    Source/FaceEmbeddingModel.cpp
     Source/FilterFrame.cpp
     Source/InMemoryIOContext.cpp
     Source/LiveOutputStream.cpp
@@ -29,6 +30,7 @@ set(CAMERA_HEADERS
     Include/DebugBind.h
     Include/Export.h
     Include/FaceDetectionFilter.h
+    Include/FaceEmbeddingModel.h
     Include/ImageProcessingJob.h
     Include/InMemoryIOContext.h
     Include/InputStream.h
