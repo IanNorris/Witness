@@ -15,6 +15,9 @@ const detectionKeys = [
   'cudnn_path',
   'face_detection_enabled',
   'face_detection_confidence',
+  'face_recognition_enabled',
+  'face_recognition_model_path',
+  'face_recognition_confidence',
 ]
 
 const detectionSettings = ref<Record<string, string>>({})
@@ -135,6 +138,31 @@ onMounted(fetchSettings)
         <label class="form-label small">Face Confidence</label>
         <input v-model="detectionSettings['face_detection_confidence']" type="number" step="0.05" min="0" max="1" class="form-control form-control-sm" @blur="saveSetting('face_detection_confidence')" />
         <div class="form-text small">Minimum confidence for face detection (default: 0.5).</div>
+      </div>
+
+      <div class="col-12 mt-3">
+        <h6 class="mb-2">Face Recognition</h6>
+      </div>
+
+      <div class="col-md-4">
+        <label class="form-label small">Face Recognition</label>
+        <select v-model="detectionSettings['face_recognition_enabled']" class="form-select form-select-sm" @change="saveSetting('face_recognition_enabled')">
+          <option value="">Disabled</option>
+          <option value="1">Enabled</option>
+        </select>
+        <div class="form-text small">Match detected faces against known identities.</div>
+      </div>
+
+      <div class="col-md-4">
+        <label class="form-label small">Recognition Model Path</label>
+        <input v-model="detectionSettings['face_recognition_model_path']" type="text" class="form-control form-control-sm" placeholder="models/face_recognition.onnx" @blur="saveSetting('face_recognition_model_path')" />
+        <div class="form-text small">ONNX model for face embedding (ArcFace, MobileFaceNet, etc.).</div>
+      </div>
+
+      <div class="col-md-4">
+        <label class="form-label small">Match Threshold</label>
+        <input v-model="detectionSettings['face_recognition_confidence']" type="number" step="0.05" min="0.1" max="0.9" class="form-control form-control-sm" @blur="saveSetting('face_recognition_confidence')" />
+        <div class="form-text small">Cosine similarity threshold for identity match (default: 0.5).</div>
       </div>
 
       <div class="col-12 mt-3">
