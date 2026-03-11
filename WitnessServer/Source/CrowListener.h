@@ -149,6 +149,18 @@ private:
 	void HandleFaceCropImage( const crow::request& req, crow::response& res, int cropUID );
 	void HandleDetectionCropImage( const crow::request& req, crow::response& res, const std::string& cropPath );
 
+	// Face recognition
+	void HandleKnownFaceList( const crow::request& req, crow::response& res );
+	void HandleKnownFaceCreate( const crow::request& req, crow::response& res );
+	void HandleKnownFaceUpdate( const crow::request& req, crow::response& res );
+	void HandleKnownFaceDelete( const crow::request& req, crow::response& res );
+	void HandleFaceAssign( const crow::request& req, crow::response& res );
+	void HandleFaceUnassign( const crow::request& req, crow::response& res );
+	void HandleFaceMerge( const crow::request& req, crow::response& res );
+	void HandleUnidentifiedFaces( const crow::request& req, crow::response& res );
+	void HandleFaceSightings( const crow::request& req, crow::response& res, int knownFaceId );
+	void HandleFaceReprocess( const crow::request& req, crow::response& res );
+
 	// Setup (reconfiguration)
 	void HandleSetupPage( const crow::request& req, crow::response& res );
 	void HandleSetupSettings( const crow::request& req, crow::response& res );
