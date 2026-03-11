@@ -95,11 +95,17 @@ if(NPM_EXECUTABLE)
     add_dependencies(WitnessServer WebUI)
 endif()
 
-# Copy ONNX models to output (if any exist)
+# Copy ONNX models to output at build time
+add_custom_target(CopyModels ALL
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/bin/models"
+    COMMENT "Copying ONNX models..."
+)
 file(GLOB ONNX_MODELS "${CMAKE_SOURCE_DIR}/models/*.onnx")
 foreach(MODEL_FILE ${ONNX_MODELS})
     get_filename_component(MODEL_NAME "${MODEL_FILE}" NAME)
-    configure_file("${MODEL_FILE}" "${CMAKE_BINARY_DIR}/bin/models/${MODEL_NAME}" COPYONLY)
+    add_custom_command(TARGET CopyModels POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different "${MODEL_FILE}" "${CMAKE_BINARY_DIR}/bin/models/${MODEL_NAME}"
+    )
 endforeach()
 
 # Copy notification sounds to output
