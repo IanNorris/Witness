@@ -5,6 +5,7 @@
 
 #include <Log.h>
 #include <future>
+#include <filesystem>
 #include <windows.h>
 #include <mmsystem.h>
 #pragma comment(lib, "Winmm.lib")
@@ -178,8 +179,17 @@ void WitnessServer::TriggerAction( const std::string& Command, const std::string
 {
 	if (Command.compare("PlaySound") == 0)
 	{
-		std::async([=]() {
-			PlaySoundA( Param1.c_str(), nullptr, SND_FILENAME | SND_ASYNC );
+		// Resolve relative paths against exe directory
+		std::filesystem::path soundPath( Param1 );
+		if( soundPath.is_relative() )
+		{
+			wchar_t exeBuf[MAX_PATH] = {};
+			GetModuleFileNameW( nullptr, exeBuf, MAX_PATH );
+			soundPath = std::filesystem::path( exeBuf ).parent_path() / soundPath;
+		}
+		std::string soundFile = soundPath.string();
+		std::async([soundFile]() {
+			PlaySoundA( soundFile.c_str(), nullptr, SND_FILENAME | SND_ASYNC );
 		});
 	}
 	else

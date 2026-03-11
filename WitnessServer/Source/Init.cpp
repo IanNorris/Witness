@@ -9,6 +9,7 @@
 
 #include <Log.h>
 #include <ONNXDetectionFilter.h>
+#include <FaceDetectionFilter.h>
 
 #include <filesystem>
 #ifdef _WIN32
@@ -149,6 +150,39 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 			{
 				LOG_WARNING( "Detection enabled but no model found at: %s", defaultModel.string().c_str() );
 				Video.DetectionEnabled = false;
+			}
+		}
+	}
+
+	// Face detection settings
+	{
+		std::string faceEnabled;
+		if( GetSettingsField( Settings, "face_detection_enabled", faceEnabled, Errors ) && faceEnabled == "1" )
+		{
+			Video.FaceDetectionEnabled = true;
+		}
+		LOG_INFO( "Face detection setting: '%s' -> enabled=%s", faceEnabled.c_str(), Video.FaceDetectionEnabled ? "true" : "false" );
+		GetSettingsField( Settings, "face_detection_confidence", Video.FaceDetectionConfidence, Errors );
+		GetSettingsField( Settings, "face_detection_model_path", Video.FaceDetectionModelPath, Errors );
+
+		// Default face model path if not set
+		if( Video.FaceDetectionEnabled && Video.FaceDetectionModelPath.empty() )
+		{
+#ifdef _WIN32
+			wchar_t modelExeBuf[MAX_PATH] = {};
+			GetModuleFileNameW( nullptr, modelExeBuf, MAX_PATH );
+			auto defaultFaceModel = std::filesystem::path( modelExeBuf ).parent_path() / "models" / "face_detection_yunet_2023mar.onnx";
+#else
+			auto defaultFaceModel = std::filesystem::canonical( "/proc/self/exe" ).parent_path() / "models" / "face_detection_yunet_2023mar.onnx";
+#endif
+			if( std::filesystem::exists( defaultFaceModel ) )
+			{
+				Video.FaceDetectionModelPath = defaultFaceModel.string();
+			}
+			else
+			{
+				LOG_WARNING( "Face detection enabled but no model found at: %s", defaultFaceModel.string().c_str() );
+				Video.FaceDetectionEnabled = false;
 			}
 		}
 	}
@@ -294,11 +328,28 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 
 		if( reprocessFilter->IsModelLoaded() )
 		{
+			// Create face detection filter for reprocessing if enabled
+			std::shared_ptr<Witness::Camera::FaceDetectionFilter> reprocessFaceFilter;
+			if( Video.FaceDetectionEnabled && !Video.FaceDetectionModelPath.empty() )
+			{
+				reprocessFaceFilter = std::make_shared<Witness::Camera::FaceDetectionFilter>(
+					Witness::Camera::MotionChainNode{},
+					Video.FaceDetectionModelPath.c_str(),
+					(float)Video.FaceDetectionConfidence
+				);
+				if( !reprocessFaceFilter->IsModelLoaded() )
+				{
+					LOG_WARNING( "Face detection model failed to load for reprocessor" );
+					reprocessFaceFilter.reset();
+				}
+			}
+
 			auto ctx = Context;
 			ReprocessWorker = std::make_unique<ClipReprocessWorker>(
 				Context->MessageBus,
 				Context->Database,
 				reprocessFilter,
+				reprocessFaceFilter,
 				CachePath,
 				[ctx]() -> bool
 				{
@@ -312,7 +363,8 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 				}
 			);
 			ReprocessWorker->Start( WorkerBase::Priority::LowPriority );
-			LOG_INFO( "Clip reprocessor started (detection version %d)", CURRENT_DETECTION_VERSION );
+			LOG_INFO( "Clip reprocessor started (detection version %d, face detection: %s)", CURRENT_DETECTION_VERSION,
+				reprocessFaceFilter ? "enabled" : "disabled" );
 		}
 	}
 

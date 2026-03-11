@@ -138,7 +138,7 @@ namespace Database
 			MDThreshold		FLOAT
 		);
 
-		CREATE UNIQUE INDEX IF NOT EXISTS CameraActionIndex ON CameraAction (ActionUID,CameraUID);
+		CREATE UNIQUE INDEX IF NOT EXISTS CameraActionIndex ON CameraAction (ActionUID,CameraUID,DetectionClass);
 
 		CREATE TABLE IF NOT EXISTS DetectionFrame(
 			FrameUID		INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -162,8 +162,27 @@ namespace Database
 			W				REAL,
 			H				REAL,
 			IsBaseline		INTEGER					DEFAULT 0,
+			CropPath		TEXT,
 			FOREIGN KEY(FrameUID) REFERENCES DetectionFrame(FrameUID) ON DELETE CASCADE
 		);
+
+		CREATE TABLE IF NOT EXISTS FaceCrop(
+			CropUID			INTEGER PRIMARY KEY AUTOINCREMENT,
+			CameraID		INTEGER					NOT NULL,
+			Timestamp		REAL					NOT NULL,
+			FrameUID		INTEGER,
+			TrackingID		INTEGER					DEFAULT 0,
+			FilePath		TEXT					NOT NULL,
+			Confidence		REAL,
+			Landmark0X		REAL, Landmark0Y		REAL,
+			Landmark1X		REAL, Landmark1Y		REAL,
+			Landmark2X		REAL, Landmark2Y		REAL,
+			Landmark3X		REAL, Landmark3Y		REAL,
+			Landmark4X		REAL, Landmark4Y		REAL,
+			FOREIGN KEY(FrameUID) REFERENCES DetectionFrame(FrameUID) ON DELETE CASCADE
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_facecrop_camera_time ON FaceCrop(CameraID, Timestamp);
 
 	)RAW";
 
@@ -189,6 +208,61 @@ namespace Database
 	std::string GetAction = R"RAW(
 		SELECT * FROM Action
 		WHERE ActionUID = @ActionUID
+	)RAW";
+
+	std::string FindDetectionActions = R"RAW(
+		SELECT ca.ActionUID FROM CameraAction ca
+		WHERE ca.CameraUID = @CameraUID
+		AND ca.DetectionClass = @DetectionClass
+	)RAW";
+
+	std::string SelectAllActions = R"RAW(
+		SELECT ActionUID, Name, Command, Param1, Param2, Param3 FROM Action
+		ORDER BY Name ASC
+	)RAW";
+
+	std::string CreateAction = R"RAW(
+		INSERT INTO Action(Name, Command, Param1, Param2, Param3)
+		VALUES(@Name, @Command, @Param1, @Param2, @Param3)
+	)RAW";
+
+	std::string UpdateAction = R"RAW(
+		UPDATE Action SET Name=@Name, Command=@Command, Param1=@Param1, Param2=@Param2, Param3=@Param3
+		WHERE ActionUID=@ActionUID
+	)RAW";
+
+	std::string DeleteAction = R"RAW(
+		DELETE FROM Action WHERE ActionUID=@ActionUID
+	)RAW";
+
+	std::string DeleteCameraActionsForAction = R"RAW(
+		DELETE FROM CameraAction WHERE ActionUID=@ActionUID
+	)RAW";
+
+	std::string SelectCameraActionsForAction = R"RAW(
+		SELECT ca.CameraActionUID, ca.ActionUID, ca.CameraUID, ca.MDThreshold, ca.DetectionClass
+		FROM CameraAction ca
+		WHERE ca.ActionUID = @ActionUID
+		ORDER BY ca.CameraUID ASC
+	)RAW";
+
+	std::string SelectAllCameraActions = R"RAW(
+		SELECT ca.CameraActionUID, ca.ActionUID, ca.CameraUID, ca.MDThreshold, ca.DetectionClass
+		FROM CameraAction ca
+		ORDER BY ca.ActionUID ASC, ca.CameraUID ASC
+	)RAW";
+
+	std::string CreateCameraAction = R"RAW(
+		INSERT OR REPLACE INTO CameraAction(ActionUID, CameraUID, MDThreshold, DetectionClass)
+		VALUES(@ActionUID, @CameraUID, @MDThreshold, @DetectionClass)
+	)RAW";
+
+	std::string DeleteCameraAction = R"RAW(
+		DELETE FROM CameraAction WHERE CameraActionUID=@CameraActionUID
+	)RAW";
+
+	std::string SelectNotificationSounds = R"RAW(
+		SELECT 1
 	)RAW";
 
 	std::string FindUser = R"RAW(
@@ -729,13 +803,13 @@ namespace Database
 	)RAW";
 
 	std::string InsertDetectionBox = R"RAW(
-		INSERT INTO DetectionBox (FrameUID, TrackingID, ClassID, ClassName, Confidence, X, Y, W, H, IsBaseline)
-		VALUES(@FrameUID, @TrackingID, @ClassID, @ClassName, @Confidence, @X, @Y, @W, @H, @IsBaseline);
+		INSERT INTO DetectionBox (FrameUID, TrackingID, ClassID, ClassName, Confidence, X, Y, W, H, IsBaseline, CropPath)
+		VALUES(@FrameUID, @TrackingID, @ClassID, @ClassName, @Confidence, @X, @Y, @W, @H, @IsBaseline, @CropPath);
 	)RAW";
 
 	std::string SelectDetectionFramesWithBoxes = R"RAW(
 		SELECT f.FrameUID, f.Timestamp, f.FrameWidth, f.FrameHeight,
-			   b.TrackingID, b.ClassID, b.ClassName, b.Confidence, b.X, b.Y, b.W, b.H, b.IsBaseline
+			   b.TrackingID, b.ClassID, b.ClassName, b.Confidence, b.X, b.Y, b.W, b.H, b.IsBaseline, b.CropPath
 		FROM DetectionFrame f
 		LEFT JOIN DetectionBox b ON f.FrameUID = b.FrameUID
 		WHERE f.CameraID = @CameraID
@@ -767,6 +841,51 @@ namespace Database
 		WHERE CameraID = @CameraID AND Timestamp >= @TimestampFrom AND Timestamp <= @TimestampTo;
 	)RAW";
 
+	std::string InsertFaceCrop = R"RAW(
+		INSERT INTO FaceCrop (CameraID, Timestamp, FrameUID, TrackingID, FilePath, Confidence,
+			Landmark0X, Landmark0Y, Landmark1X, Landmark1Y, Landmark2X, Landmark2Y,
+			Landmark3X, Landmark3Y, Landmark4X, Landmark4Y)
+		VALUES(@CameraID, @Timestamp, @FrameUID, @TrackingID, @FilePath, @Confidence,
+			@Landmark0X, @Landmark0Y, @Landmark1X, @Landmark1Y, @Landmark2X, @Landmark2Y,
+			@Landmark3X, @Landmark3Y, @Landmark4X, @Landmark4Y);
+	)RAW";
+
+	std::string SelectFaceCrops = R"RAW(
+		SELECT CropUID, CameraID, Timestamp, FrameUID, TrackingID, FilePath, Confidence,
+			Landmark0X, Landmark0Y, Landmark1X, Landmark1Y, Landmark2X, Landmark2Y,
+			Landmark3X, Landmark3Y, Landmark4X, Landmark4Y
+		FROM FaceCrop
+		WHERE CameraID = @CameraID
+			AND Timestamp >= @TimestampFrom
+			AND Timestamp <= @TimestampTo
+		ORDER BY Timestamp DESC;
+	)RAW";
+
+	std::string SelectRecentFaceCrops = R"RAW(
+		SELECT CropUID, CameraID, Timestamp, FrameUID, TrackingID, FilePath, Confidence
+		FROM FaceCrop
+		ORDER BY Timestamp DESC
+		LIMIT @Limit;
+	)RAW";
+
+	std::string SelectFaceCropByUID = R"RAW(
+		SELECT CropUID, CameraID, Timestamp, FrameUID, TrackingID, FilePath, Confidence,
+			Landmark0X, Landmark0Y, Landmark1X, Landmark1Y, Landmark2X, Landmark2Y,
+			Landmark3X, Landmark3Y, Landmark4X, Landmark4Y
+		FROM FaceCrop
+		WHERE CropUID = @CropUID;
+	)RAW";
+
+	std::string SelectFaceCropFilePaths = R"RAW(
+		SELECT FilePath FROM FaceCrop
+		WHERE CameraID = @CameraID AND Timestamp < @Timestamp;
+	)RAW";
+
+	std::string DeleteFaceCropsBefore = R"RAW(
+		DELETE FROM FaceCrop
+		WHERE CameraID = @CameraID AND Timestamp < @Timestamp;
+	)RAW";
+
 #define CREATE_QUERY( X ) DB->CreateQuery( #X, X )
 
 	std::shared_ptr<SQLiteDatabase> InitializeDatabase( std::string Filename )
@@ -786,6 +905,13 @@ namespace Database
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN LowLatencyHLS INT DEFAULT 0;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE ContinuousSegment ADD COLUMN FileSize INTEGER DEFAULT 0;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE DetectionBox ADD COLUMN IsBaseline INTEGER DEFAULT 0;", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE DetectionBox ADD COLUMN CropPath TEXT;", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE CameraAction ADD COLUMN DetectionClass TEXT DEFAULT '';", nullptr, nullptr, nullptr );
+		// Recreate unique index to include DetectionClass (allows same action on same camera for different classes)
+		sqlite3_exec( DB->GetDatabase(), "DROP INDEX IF EXISTS CameraActionIndex;", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "CREATE UNIQUE INDEX IF NOT EXISTS CameraActionIndex ON CameraAction (ActionUID, CameraUID, DetectionClass);", nullptr, nullptr, nullptr );
+		// Fix any CameraAction rows with MDThreshold=0 (would trigger on any motion)
+		sqlite3_exec( DB->GetDatabase(), "UPDATE CameraAction SET MDThreshold = 0.05 WHERE MDThreshold = 0 OR MDThreshold IS NULL;", nullptr, nullptr, nullptr );
 
 		// Migrate old Tag table schema — drop and recreate if it has the old schema
 		// (old schema had Name CHAR(64), Description TEXT; new needs Name TEXT UNIQUE, Display, Icon, etc.)
@@ -915,6 +1041,16 @@ namespace Database
 
 		CREATE_QUERY( FindActions );
 		CREATE_QUERY( GetAction );
+		CREATE_QUERY( FindDetectionActions );
+		CREATE_QUERY( SelectAllActions );
+		CREATE_QUERY( CreateAction );
+		CREATE_QUERY( UpdateAction );
+		CREATE_QUERY( DeleteAction );
+		CREATE_QUERY( DeleteCameraActionsForAction );
+		CREATE_QUERY( SelectCameraActionsForAction );
+		CREATE_QUERY( SelectAllCameraActions );
+		CREATE_QUERY( CreateCameraAction );
+		CREATE_QUERY( DeleteCameraAction );
 
 		CREATE_QUERY( CreateContinuousSegment );
 		CREATE_QUERY( SelectContinuousSegments );
@@ -935,6 +1071,13 @@ namespace Database
 		CREATE_QUERY( DeleteDetectionFramesBefore );
 		CREATE_QUERY( DeleteAllDetectionFrames );
 		CREATE_QUERY( DeleteDetectionFramesInRange );
+
+		CREATE_QUERY( InsertFaceCrop );
+		CREATE_QUERY( SelectFaceCrops );
+		CREATE_QUERY( SelectRecentFaceCrops );
+		CREATE_QUERY( SelectFaceCropByUID );
+		CREATE_QUERY( SelectFaceCropFilePaths );
+		CREATE_QUERY( DeleteFaceCropsBefore );
 
 		return DB;
 	}

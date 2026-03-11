@@ -6,6 +6,7 @@
 #include <filesystem>
 #include <set>
 #include <sstream>
+#include <iomanip>
 
 extern "C" {
 #include <libavformat/avformat.h>
@@ -16,6 +17,7 @@ extern "C" {
 
 #include <opencv2/core/core.hpp>
 #include <opencv2/imgproc.hpp>
+#include <opencv2/imgcodecs.hpp>
 
 namespace fs = std::filesystem;
 
@@ -23,12 +25,14 @@ ClipReprocessWorker::ClipReprocessWorker(
 	const std::shared_ptr<MessageBus>& MessageBus,
 	std::shared_ptr<SQLiteDatabase> Database,
 	std::shared_ptr<Witness::Camera::ONNXDetectionFilter> DetectionFilter,
+	std::shared_ptr<Witness::Camera::FaceDetectionFilter> FaceFilter,
 	std::string CachePath,
 	std::function<bool()> IsIdle
 )
 : WorkerBase( MessageBus )
 , Database( std::move( Database ) )
 , DetectionFilter( std::move( DetectionFilter ) )
+, FaceFilter( std::move( FaceFilter ) )
 , CachePath( std::move( CachePath ) )
 , IsIdle( std::move( IsIdle ) )
 {
@@ -319,6 +323,33 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 					// Store all detection boxes (baseline + new) for overlay playback
 					if( !classified.empty() )
 					{
+						// Run face detection on person crops if face filter available
+						std::vector<Witness::Camera::FaceDetectionResult> faceResults;
+						if( FaceFilter && FaceFilter->IsModelLoaded() )
+						{
+							// Build ROIs from person detections for face detection
+							std::vector<Witness::Camera::ClassificationResult::RegionOfInterest> personROIs;
+							for( auto& c : classified )
+							{
+								if( c.det.ClassName == "person" )
+								{
+									Witness::Camera::ClassificationResult::RegionOfInterest roi;
+									roi.Left = static_cast<unsigned int>( c.det.X1 * frameWidth );
+									roi.Top = static_cast<unsigned int>( c.det.Y1 * frameHeight );
+									roi.Width = static_cast<unsigned int>( ( c.det.X2 - c.det.X1 ) * frameWidth );
+									roi.Height = static_cast<unsigned int>( ( c.det.Y2 - c.det.Y1 ) * frameHeight );
+									roi.Classification = Witness::Camera::ClassificationResult::Motion_Person;
+									personROIs.push_back( roi );
+								}
+							}
+							if( !personROIs.empty() )
+							{
+								faceResults = FaceFilter->DetectFacesInPersonCrops( mat, personROIs );
+								LOG_DEBUG( "ClipReprocess: Face detection on %zu person crops -> %zu faces (clip %lld)",
+									personROIs.size(), faceResults.size(), (long long)clipUID );
+							}
+						}
+
 						// Run tracker for stable IDs
 						std::vector<Witness::TrackedBox> trackInputs;
 						for( auto& c : classified )
@@ -329,6 +360,18 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 							tb.ClassID = c.det.ClassId;
 							tb.Confidence = c.det.Confidence;
 							tb.ClassName = c.det.ClassName;
+							trackInputs.push_back( std::move( tb ) );
+						}
+						// Add face detections to tracker
+						for( auto& face : faceResults )
+						{
+							Witness::TrackedBox tb;
+							tb.X = face.X1 / frameWidth; tb.Y = face.Y1 / frameHeight;
+							tb.W = ( face.X2 - face.X1 ) / frameWidth;
+							tb.H = ( face.Y2 - face.Y1 ) / frameHeight;
+							tb.ClassID = 100;  // FACE_CLASS_ID
+							tb.Confidence = face.Confidence;
+							tb.ClassName = "face";
 							trackInputs.push_back( std::move( tb ) );
 						}
 						auto tracked = clipTracker.Update( trackInputs );
@@ -344,10 +387,56 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 							q->Execute( nullptr );
 							frameUID = q->GetLastInsertionId();
 						}
+
+						// Prepare crop directories
+						auto cropsDir = fs::path( CachePath ) / "crops" / std::to_string( camera );
+						auto facesDir = fs::path( CachePath ) / "faces" / std::to_string( camera );
+						bool cropsDirCreated = false;
+						bool facesDirCreated = false;
+
 						for( size_t i = 0; i < tracked.size(); i++ )
 						{
 							auto& [box, trackID] = tracked[i];
 							bool isBase = ( i < classified.size() ) ? classified[i].isBaseline : false;
+
+							// Crop detection region
+							std::string cropPath;
+							int cropX = static_cast<int>( box.X * frameWidth );
+							int cropY = static_cast<int>( box.Y * frameHeight );
+							int cropW = static_cast<int>( box.W * frameWidth );
+							int cropH = static_cast<int>( box.H * frameHeight );
+							cropX = std::max( 0, cropX );
+							cropY = std::max( 0, cropY );
+							cropW = std::min( cropW, mat.cols - cropX );
+							cropH = std::min( cropH, mat.rows - cropY );
+
+							if( cropW > 10 && cropH > 10 && !box.ClassName.empty() )
+							{
+								if( !cropsDirCreated )
+								{
+									fs::create_directories( cropsDir );
+									cropsDirCreated = true;
+								}
+
+								cv::Rect cropRect( cropX, cropY, cropW, cropH );
+								cv::Mat cropped = mat( cropRect ).clone();
+								int maxDim = std::max( cropped.cols, cropped.rows );
+								if( maxDim > 224 )
+								{
+									double scale = 224.0 / maxDim;
+									cv::resize( cropped, cropped, cv::Size(), scale, scale );
+								}
+
+								std::ostringstream filename;
+								filename << std::fixed << std::setprecision( 3 ) << frameTimestamp
+									<< "_" << trackID << ".jpg";
+								auto filePath = cropsDir / filename.str();
+
+								std::vector<int> params = { cv::IMWRITE_JPEG_QUALITY, 80 };
+								cv::imwrite( filePath.string(), cropped, params );
+								cropPath = filePath.string();
+							}
+
 							SQLiteDatabaseQueryInstance q( Database, "InsertDetectionBox" );
 							q->Bind( "@FrameUID", frameUID );
 							q->Bind( "@TrackingID", static_cast<int>( trackID ) );
@@ -359,7 +448,69 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 							q->Bind( "@W", static_cast<double>( box.W ) );
 							q->Bind( "@H", static_cast<double>( box.H ) );
 							q->Bind( "@IsBaseline", isBase ? 1 : 0 );
+							if( !cropPath.empty() )
+								q->Bind( "@CropPath", cropPath.c_str() );
 							q->Execute( nullptr );
+
+							// Save 112x112 face crop + landmarks
+							if( box.ClassName == "face" && cropW > 10 && cropH > 10 )
+							{
+								if( !facesDirCreated )
+								{
+									fs::create_directories( facesDir );
+									facesDirCreated = true;
+								}
+
+								cv::Rect faceRect( cropX, cropY, cropW, cropH );
+								cv::Mat faceCrop;
+								cv::resize( mat( faceRect ), faceCrop, cv::Size( 112, 112 ) );
+
+								std::ostringstream faceFilename;
+								faceFilename << std::fixed << std::setprecision( 3 ) << frameTimestamp
+									<< "_" << trackID << ".jpg";
+								auto facePath = facesDir / faceFilename.str();
+
+								std::vector<int> faceParams = { cv::IMWRITE_JPEG_QUALITY, 85 };
+								cv::imwrite( facePath.string(), faceCrop, faceParams );
+
+								// Find matching face result for landmarks
+								float lmX[5] = {}, lmY[5] = {};
+								for( auto& fr : faceResults )
+								{
+									float fx = fr.X1 / frameWidth;
+									float fy = fr.Y1 / frameHeight;
+									if( std::abs( fx - box.X ) < 0.01f && std::abs( fy - box.Y ) < 0.01f )
+									{
+										for( int lm = 0; lm < 5; lm++ )
+										{
+											lmX[lm] = fr.LandmarkX[lm] / frameWidth;
+											lmY[lm] = fr.LandmarkY[lm] / frameHeight;
+										}
+										break;
+									}
+								}
+
+								SQLiteDatabaseQueryInstance fq( Database, "InsertFaceCrop" );
+								fq->Bind( "@CameraID", camera );
+								fq->Bind( "@Timestamp", frameTimestamp );
+								fq->Bind( "@FrameUID", frameUID );
+								fq->Bind( "@TrackingID", static_cast<int>( trackID ) );
+								fq->Bind( "@FilePath", facePath.string().c_str() );
+								fq->Bind( "@Confidence", static_cast<double>( box.Confidence ) );
+								fq->Bind( "@Landmark0X", static_cast<double>( lmX[0] ) );
+								fq->Bind( "@Landmark0Y", static_cast<double>( lmY[0] ) );
+								fq->Bind( "@Landmark1X", static_cast<double>( lmX[1] ) );
+								fq->Bind( "@Landmark1Y", static_cast<double>( lmY[1] ) );
+								fq->Bind( "@Landmark2X", static_cast<double>( lmX[2] ) );
+								fq->Bind( "@Landmark2Y", static_cast<double>( lmY[2] ) );
+								fq->Bind( "@Landmark3X", static_cast<double>( lmX[3] ) );
+								fq->Bind( "@Landmark3Y", static_cast<double>( lmY[3] ) );
+								fq->Bind( "@Landmark4X", static_cast<double>( lmX[4] ) );
+								fq->Bind( "@Landmark4Y", static_cast<double>( lmY[4] ) );
+								fq->Execute( nullptr );
+
+								detectedTags.insert( "face" );
+							}
 						}
 					}
 

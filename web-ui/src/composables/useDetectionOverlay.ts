@@ -28,6 +28,7 @@ interface TrackedBox extends DetectionBox {
 
 export const CLASS_COLORS: Record<string, string> = {
   person: '#00ff88',
+  face: '#ff44ff',
   car: '#4488ff',
   truck: '#4488ff',
   bus: '#4488ff',
@@ -72,7 +73,7 @@ function boxesOverlap(a: DetectionBox, b: DetectionBox): boolean {
 
 /**
  * Filter redundant detections:
- * 1. Remove any box fully encapsulated by a larger box
+ * 1. Remove any box fully encapsulated by a larger box (except face boxes — they're inside person boxes by design)
  * 2. Remove unknown-class (yellow) boxes that overlap a larger box
  */
 function filterRedundantBoxes(boxes: DetectionBox[]): DetectionBox[] {
@@ -81,6 +82,12 @@ function filterRedundantBoxes(boxes: DetectionBox[]): DetectionBox[] {
 
   for (const box of sorted) {
     let dominated = false
+
+    // Face boxes are never filtered — they're intentionally inside person boxes
+    if (box.cls.toLowerCase() === 'face') {
+      keep.push(box)
+      continue
+    }
 
     for (const kept of keep) {
       // Rule 1: fully encapsulated by a larger box → remove
@@ -157,7 +164,8 @@ function drawBox(
 
   ctx.strokeStyle = color
   ctx.globalAlpha = alpha
-  ctx.lineWidth = box.baseline ? 1 : 2
+  const isFace = box.cls.toLowerCase() === 'face'
+  ctx.lineWidth = box.baseline ? 1 : isFace ? 1 : 2
   if (box.baseline) ctx.setLineDash([4, 4])
   ctx.strokeRect(px, py, pw, ph)
   ctx.setLineDash([])

@@ -28,6 +28,8 @@ struct VideoSettings
 	, DetectionMaxFPS( 2.0 )
 	, DetectionUseGPU( false )
 	, MsePartialDuration( 0.15 )
+	, FaceDetectionEnabled( false )
+	, FaceDetectionConfidence( 0.7 )
 	{}
 
 	std::string	DataPath;
@@ -44,6 +46,10 @@ struct VideoSettings
 	bool		DetectionUseGPU;
 	std::string	DetectionCudnnPath;
 	double		MsePartialDuration;
+
+	bool		FaceDetectionEnabled;
+	std::string	FaceDetectionModelPath;
+	double		FaceDetectionConfidence;
 };
 
 struct CameraSettings

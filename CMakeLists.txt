@@ -101,3 +101,10 @@ foreach(MODEL_FILE ${ONNX_MODELS})
     get_filename_component(MODEL_NAME "${MODEL_FILE}" NAME)
     configure_file("${MODEL_FILE}" "${CMAKE_BINARY_DIR}/bin/models/${MODEL_NAME}" COPYONLY)
 endforeach()
+
+# Copy notification sounds to output
+file(GLOB NOTIFICATION_SOUNDS "${CMAKE_SOURCE_DIR}/Assets/NotificationSounds/*.wav")
+foreach(SOUND_FILE ${NOTIFICATION_SOUNDS})
+    get_filename_component(SOUND_NAME "${SOUND_FILE}" NAME)
+    configure_file("${SOUND_FILE}" "${CMAKE_BINARY_DIR}/bin/NotificationSounds/${SOUND_NAME}" COPYONLY)
+endforeach()

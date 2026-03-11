@@ -391,6 +391,55 @@ void CrowListener::RegisterRoutes()
 		HandleGroupDelete( req, res );
 	});
 
+	// Actions
+	CROW_ROUTE( m_App, "/action/enum" )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleActionEnum( req, res );
+	});
+
+	CROW_ROUTE( m_App, "/action/create" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleActionCreate( req, res );
+	});
+
+	CROW_ROUTE( m_App, "/action/update" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleActionUpdate( req, res );
+	});
+
+	CROW_ROUTE( m_App, "/action/delete" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleActionDelete( req, res );
+	});
+
+	CROW_ROUTE( m_App, "/action/assign" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleActionAssign( req, res );
+	});
+
+	CROW_ROUTE( m_App, "/action/unassign" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleActionUnassign( req, res );
+	});
+
+	CROW_ROUTE( m_App, "/action/sounds" )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleActionSounds( req, res );
+	});
+
+	CROW_ROUTE( m_App, "/action/test_sound" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleActionTestSound( req, res );
+	});
+
 	// Debug
 	CROW_ROUTE( m_App, "/debug/enum" )
 	([this]( const crow::request& req, crow::response& res )
@@ -438,6 +487,31 @@ void CrowListener::RegisterRoutes()
 	([this]( const crow::request& req, crow::response& res, int cameraId )
 	{
 		HandleDetectionQuery( req, res, cameraId );
+	});
+
+	// Face detection / crops
+	CROW_ROUTE( m_App, "/api/faces/<int>" )
+	([this]( const crow::request& req, crow::response& res, int cameraId )
+	{
+		HandleFaceQuery( req, res, cameraId );
+	});
+
+	CROW_ROUTE( m_App, "/api/faces/recent" )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleFaceRecent( req, res );
+	});
+
+	CROW_ROUTE( m_App, "/api/face/crop/<int>" )
+	([this]( const crow::request& req, crow::response& res, int cropUID )
+	{
+		HandleFaceCropImage( req, res, cropUID );
+	});
+
+	CROW_ROUTE( m_App, "/api/detection/crop/<path>" )
+	([this]( const crow::request& req, crow::response& res, const std::string& cropPath )
+	{
+		HandleDetectionCropImage( req, res, cropPath );
 	});
 
 	// Setup / Reconfiguration (admin-only)

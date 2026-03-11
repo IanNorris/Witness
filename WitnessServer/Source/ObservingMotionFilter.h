@@ -24,6 +24,7 @@ struct DetectionFrameData
 	double Timestamp;  // epoch seconds
 	int FrameWidth;
 	int FrameHeight;
+	bool IsMotion;  // true if this frame triggered or is during active motion
 	struct Box
 	{
 		unsigned int TrackingID;
@@ -31,8 +32,16 @@ struct DetectionFrameData
 		std::string ClassName;
 		float Confidence;
 		float X, Y, W, H;  // normalized 0-1
+		// Face landmarks (normalized 0-1, only valid when HasLandmarks is true)
+		bool HasLandmarks;
+		float LandmarkX[5];
+		float LandmarkY[5];
 	};
 	std::vector<Box> Boxes;
+
+	// Full decoded BGR frame — valid only during callback invocation.
+	// Used by callback to crop detection regions for storage.
+	cv::Mat DecodedFrame;
 };
 
 using DetectionFrameCallback = std::function<void( const DetectionFrameData& )>;

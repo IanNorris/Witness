@@ -48,6 +48,23 @@ Set these in the Witness database settings to enable detection:
 | `detection_confidence` | `0.5` | Minimum confidence threshold (0.0-1.0) |
 | `detection_provider` | `cpu` or `gpu` | Execution provider (gpu = CUDA) |
 
+## Face Detection Model
+
+YuNet is used for face detection, running on person crops from YOLO to detect faces.
+
+| Model | Size | License | Accuracy (WIDER FACE) |
+|-------|------|---------|-----------------------|
+| face_detection_yunet_2023mar.onnx | ~230 KB | MIT | 88.4% Easy, 86.6% Medium, 75.0% Hard |
+
+Download from [OpenCV Zoo](https://github.com/opencv/opencv_zoo/tree/master/models/face_detection_yunet).
+Uses OpenCV's built-in `cv::FaceDetectorYN` — no custom ONNX loading needed.
+
+| Setting | Value | Description |
+|---------|-------|-------------|
+| `face_detection_enabled` | `1` | Enable face detection |
+| `face_detection_confidence` | `0.7` | Minimum confidence threshold (0.0-1.0) |
+
 ## License
 
 YOLO26 model weights are licensed under AGPL-3.0 by Ultralytics, compatible with Witness's GPLv3 license.
+YuNet model is licensed under MIT by OpenCV Zoo — no restrictions for any use.

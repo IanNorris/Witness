@@ -35,6 +35,7 @@ const routes = [
       { path: 'storage', component: () => import('../components/admin/StorageSettings.vue') },
       { path: 'streaming', component: () => import('../components/admin/StreamingSettings.vue') },
       { path: 'tags', component: () => import('../components/admin/TagManager.vue') },
+      { path: 'actions', component: () => import('../components/admin/ActionManager.vue') },
       { path: 'debug', component: () => import('../components/admin/DebugValues.vue') },
     ],
   },

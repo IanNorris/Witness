@@ -4,12 +4,13 @@
 #include "SQLite.h"
 
 #include <ONNXDetectionFilter.h>
+#include <FaceDetectionFilter.h>
 
 #include <functional>
 #include <string>
 #include <memory>
 
-static constexpr int CURRENT_DETECTION_VERSION = 4;
+static constexpr int CURRENT_DETECTION_VERSION = 8;
 
 class ClipReprocessWorker : public WorkerBase
 {
@@ -19,6 +20,7 @@ public:
 		const std::shared_ptr<MessageBus>& MessageBus,
 		std::shared_ptr<SQLiteDatabase> Database,
 		std::shared_ptr<Witness::Camera::ONNXDetectionFilter> DetectionFilter,
+		std::shared_ptr<Witness::Camera::FaceDetectionFilter> FaceFilter,
 		std::string CachePath,
 		std::function<bool()> IsIdle
 	);
@@ -31,6 +33,7 @@ private:
 
 	std::shared_ptr<SQLiteDatabase> Database;
 	std::shared_ptr<Witness::Camera::ONNXDetectionFilter> DetectionFilter;
+	std::shared_ptr<Witness::Camera::FaceDetectionFilter> FaceFilter;
 	std::string CachePath;
 	std::function<bool()> IsIdle;
 	bool LightingBackfillComplete = false;

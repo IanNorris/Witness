@@ -20,6 +20,7 @@ const tabs = [
   { path: '/admin/storage', label: 'Storage' },
   { path: '/admin/streaming', label: 'Streaming' },
   { path: '/admin/tags', label: 'Tags' },
+  { path: '/admin/actions', label: 'Actions' },
   { path: '/admin/debug', label: 'Debug' },
 ]
 </script>

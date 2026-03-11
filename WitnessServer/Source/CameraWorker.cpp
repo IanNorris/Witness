@@ -4,6 +4,7 @@
 #include "ObservingMotionFilter.h"
 #include "PersonRecognitionFilter.h"
 #include "ONNXDetectionFilter.h"
+#include "FaceDetectionFilter.h"
 #include "ObjectTracker.h"
 #include "SQLite.h"
 #include "EventBroadcaster.h"
@@ -14,6 +15,15 @@
 #include <chrono>
 #include <thread>
 #include <filesystem>
+#include <sstream>
+#include <iomanip>
+#include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
+#include <set>
+#include <future>
+#include <windows.h>
+#include <mmsystem.h>
+#pragma comment(lib, "Winmm.lib")
 
 void CameraWorker::CreateInputStream()
 {
@@ -156,8 +166,11 @@ void CameraWorker::WorkerInit()
 		auto db = Context->Database;
 		auto events = Context->Events;
 		auto tracker = std::make_shared<Witness::ObjectTracker>();
+		auto cachePath = std::string( Context->CachePath.begin(), Context->CachePath.end() );
+		// Throttle detection-triggered actions: one trigger per class per 30 seconds
+		auto detectionActionThrottle = std::make_shared<std::unordered_map<std::string, double>>();
 
-		Observer->SetDetectionCallback( [db, events, tracker]( const DetectionFrameData& frame )
+		Observer->SetDetectionCallback( [db, events, tracker, cachePath, detectionActionThrottle]( const DetectionFrameData& frame )
 		{
 			// Run IoU tracker for stable TrackingIDs
 			std::vector<Witness::TrackedBox> trackInputs;
@@ -185,14 +198,69 @@ void CameraWorker::WorkerInit()
 				frameUID = query->GetLastInsertionId();
 			}
 
+			// Prepare crop directory
+			bool canCrop = !frame.DecodedFrame.empty();
+			auto cropsDir = std::filesystem::path( cachePath ) / "crops" / std::to_string( frame.CameraID );
+			auto facesDir = std::filesystem::path( cachePath ) / "faces" / std::to_string( frame.CameraID );
+			bool cropsDirCreated = false;
+			bool facesDirCreated = false;
+
 			// Build WebSocket event and store boxes
 			crow::json::wvalue ev;
 			ev["cameraId"] = frame.CameraID;
 			ev["timestamp"] = frame.Timestamp;
 			std::vector<crow::json::wvalue> boxArray;
 
+			// Map from original box index to tracked result for landmark lookup
+			size_t trackedIdx = 0;
 			for( auto& [box, trackID] : tracked )
 			{
+				std::string cropPath;
+
+				// Crop detection region and save to disk
+				if( canCrop && !box.ClassName.empty() )
+				{
+					int cropX = static_cast<int>( box.X * frame.FrameWidth );
+					int cropY = static_cast<int>( box.Y * frame.FrameHeight );
+					int cropW = static_cast<int>( box.W * frame.FrameWidth );
+					int cropH = static_cast<int>( box.H * frame.FrameHeight );
+
+					// Clamp to frame bounds
+					cropX = std::max( 0, cropX );
+					cropY = std::max( 0, cropY );
+					cropW = std::min( cropW, frame.DecodedFrame.cols - cropX );
+					cropH = std::min( cropH, frame.DecodedFrame.rows - cropY );
+
+					if( cropW > 10 && cropH > 10 )
+					{
+						if( !cropsDirCreated )
+						{
+							std::filesystem::create_directories( cropsDir );
+							cropsDirCreated = true;
+						}
+
+						cv::Rect cropRect( cropX, cropY, cropW, cropH );
+						cv::Mat cropped = frame.DecodedFrame( cropRect ).clone();
+
+						// Resize to a standard thumbnail (max 224px on longest side)
+						int maxDim = std::max( cropped.cols, cropped.rows );
+						if( maxDim > 224 )
+						{
+							double scale = 224.0 / maxDim;
+							cv::resize( cropped, cropped, cv::Size(), scale, scale );
+						}
+
+						std::ostringstream filename;
+						filename << std::fixed << std::setprecision( 3 ) << frame.Timestamp
+							<< "_" << trackID << ".jpg";
+						auto filePath = cropsDir / filename.str();
+
+						std::vector<int> params = { cv::IMWRITE_JPEG_QUALITY, 80 };
+						cv::imwrite( filePath.string(), cropped, params );
+						cropPath = filePath.string();
+					}
+				}
+
 				{
 					SQLiteDatabaseQueryInstance query( db, "InsertDetectionBox" );
 					query->Bind( "@FrameUID", frameUID );
@@ -205,7 +273,76 @@ void CameraWorker::WorkerInit()
 					query->Bind( "@W", static_cast<double>( box.W ) );
 					query->Bind( "@H", static_cast<double>( box.H ) );
 					query->Bind( "@IsBaseline", 0 );
+					if( !cropPath.empty() )
+						query->Bind( "@CropPath", cropPath.c_str() );
 					query->Execute( nullptr );
+				}
+
+				// For face detections, also save 112x112 ArcFace-ready crop + landmarks
+				if( box.ClassName == "face" && canCrop )
+				{
+					int fX = static_cast<int>( box.X * frame.FrameWidth );
+					int fY = static_cast<int>( box.Y * frame.FrameHeight );
+					int fW = static_cast<int>( box.W * frame.FrameWidth );
+					int fH = static_cast<int>( box.H * frame.FrameHeight );
+					fX = std::max( 0, fX );
+					fY = std::max( 0, fY );
+					fW = std::min( fW, frame.DecodedFrame.cols - fX );
+					fH = std::min( fH, frame.DecodedFrame.rows - fY );
+
+					if( fW > 10 && fH > 10 )
+					{
+						if( !facesDirCreated )
+						{
+							std::filesystem::create_directories( facesDir );
+							facesDirCreated = true;
+						}
+
+						cv::Rect faceRect( fX, fY, fW, fH );
+						cv::Mat faceCrop;
+						cv::resize( frame.DecodedFrame( faceRect ), faceCrop, cv::Size( 112, 112 ) );
+
+						std::ostringstream faceFilename;
+						faceFilename << std::fixed << std::setprecision( 3 ) << frame.Timestamp
+							<< "_" << trackID << ".jpg";
+						auto facePath = facesDir / faceFilename.str();
+
+						std::vector<int> faceParams = { cv::IMWRITE_JPEG_QUALITY, 85 };
+						cv::imwrite( facePath.string(), faceCrop, faceParams );
+
+						// Find landmark data from original boxes
+						float lmX[5] = {}, lmY[5] = {};
+						for( auto& origBox : frame.Boxes )
+						{
+							if( origBox.ClassName == "face" && origBox.HasLandmarks
+								&& std::abs( origBox.X - box.X ) < 0.001f
+								&& std::abs( origBox.Y - box.Y ) < 0.001f )
+							{
+								memcpy( lmX, origBox.LandmarkX, sizeof( lmX ) );
+								memcpy( lmY, origBox.LandmarkY, sizeof( lmY ) );
+								break;
+							}
+						}
+
+						SQLiteDatabaseQueryInstance query( db, "InsertFaceCrop" );
+						query->Bind( "@CameraID", frame.CameraID );
+						query->Bind( "@Timestamp", frame.Timestamp );
+						query->Bind( "@FrameUID", frameUID );
+						query->Bind( "@TrackingID", static_cast<int>( trackID ) );
+						query->Bind( "@FilePath", facePath.string().c_str() );
+						query->Bind( "@Confidence", static_cast<double>( box.Confidence ) );
+						query->Bind( "@Landmark0X", static_cast<double>( lmX[0] ) );
+						query->Bind( "@Landmark0Y", static_cast<double>( lmY[0] ) );
+						query->Bind( "@Landmark1X", static_cast<double>( lmX[1] ) );
+						query->Bind( "@Landmark1Y", static_cast<double>( lmY[1] ) );
+						query->Bind( "@Landmark2X", static_cast<double>( lmX[2] ) );
+						query->Bind( "@Landmark2Y", static_cast<double>( lmY[2] ) );
+						query->Bind( "@Landmark3X", static_cast<double>( lmX[3] ) );
+						query->Bind( "@Landmark3Y", static_cast<double>( lmY[3] ) );
+						query->Bind( "@Landmark4X", static_cast<double>( lmX[4] ) );
+						query->Bind( "@Landmark4Y", static_cast<double>( lmY[4] ) );
+						query->Execute( nullptr );
+					}
 				}
 
 				crow::json::wvalue boxJson;
@@ -221,6 +358,70 @@ void CameraWorker::WorkerInit()
 
 			ev["boxes"] = std::move( boxArray );
 			events->Broadcast( "detection:frame", std::move( ev ) );
+
+			// Trigger detection-based actions only during active motion (not baseline/idle)
+			if( frame.IsMotion )
+			{
+			static constexpr double DETECTION_ACTION_COOLDOWN = 30.0;
+			std::set<std::string> detectedClasses;
+			for( auto& [box, trackID] : tracked )
+			{
+				if( !box.ClassName.empty() )
+					detectedClasses.insert( box.ClassName );
+			}
+
+			for( auto& cls : detectedClasses )
+			{
+				// Throttle: skip if this class was triggered recently
+				auto it = detectionActionThrottle->find( cls );
+				if( it != detectionActionThrottle->end() && ( frame.Timestamp - it->second ) < DETECTION_ACTION_COOLDOWN )
+					continue;
+
+				// Look up actions for this camera + detection class
+				SQLiteDatabaseQueryInstance findQ( db, "FindDetectionActions" );
+				findQ->Bind( "@CameraUID", frame.CameraID );
+				findQ->Bind( "@DetectionClass", cls.c_str() );
+
+				std::vector<int> actionUIDs;
+				findQ->Execute( [&]( const SQLiteDatabaseQuery& q ) {
+					actionUIDs.push_back( q.GetColumnValueInt( 0 ) );
+					return true;
+				});
+
+				if( actionUIDs.empty() )
+					continue;
+
+				(*detectionActionThrottle)[cls] = frame.Timestamp;
+
+				for( int uid : actionUIDs )
+				{
+					SQLiteDatabaseQueryInstance getQ( db, "GetAction" );
+					getQ->Bind( "@ActionUID", uid );
+					getQ->Execute( [&]( const SQLiteDatabaseQuery& q ) {
+						std::string command = q.GetColumnValueText( 2 );
+						std::string param1 = q.GetColumnValueText( 3 );
+
+						if( command == "PlaySound" )
+						{
+							// Resolve relative paths against exe directory
+							std::filesystem::path soundPath( param1 );
+							if( soundPath.is_relative() )
+							{
+								wchar_t exeBuf[MAX_PATH] = {};
+								GetModuleFileNameW( nullptr, exeBuf, MAX_PATH );
+								soundPath = std::filesystem::path( exeBuf ).parent_path() / soundPath;
+							}
+							std::string soundFile = soundPath.string();
+							std::async( std::launch::async, [soundFile]() {
+								PlaySoundA( soundFile.c_str(), nullptr, SND_FILENAME | SND_ASYNC );
+							});
+							LOG_INFO( "Detection action: %s on camera %d -> PlaySound(%s)", cls.c_str(), frame.CameraID, soundFile.c_str() );
+						}
+						return true;
+					});
+				}
+			}
+			} // if( frame.IsMotion )
 		});
 	}
 
@@ -235,9 +436,36 @@ void CameraWorker::WorkerInit()
 
 	if( Video.DetectionEnabled && !Video.DetectionModelPath.empty() )
 	{
+		// Determine the final target after detection (face detection if enabled, otherwise observer)
+		std::shared_ptr<IRecordFilter> DetectionTarget = Observer;
+
+		// Insert face detection filter between ONNX detection and observer
+		if( Video.FaceDetectionEnabled && !Video.FaceDetectionModelPath.empty() )
+		{
+			MotionChainNode FaceChain;
+			FaceChain.OnSuccess = Observer;
+			FaceChain.OnFailure = Observer;
+
+			auto FaceFilter = std::make_shared<FaceDetectionFilter>(
+				FaceChain,
+				Video.FaceDetectionModelPath.c_str(),
+				(float)Video.FaceDetectionConfidence
+			);
+
+			if( FaceFilter->IsModelLoaded() )
+			{
+				DetectionTarget = FaceFilter;
+				LOG_INFO( "Camera %d: Face detection enabled (confidence: %.2f)", Camera.ID, Video.FaceDetectionConfidence );
+			}
+			else
+			{
+				LOG_WARNING( "Camera %d: Face detection failed to load, skipping.", Camera.ID );
+			}
+		}
+
 		MotionChainNode DetectionChain;
-		DetectionChain.OnSuccess = Observer;
-		DetectionChain.OnFailure = Observer;
+		DetectionChain.OnSuccess = DetectionTarget;
+		DetectionChain.OnFailure = DetectionTarget;
 
 		auto DetectionFilter = std::make_shared<ONNXDetectionFilter>(
 			DetectionChain,

@@ -480,6 +480,9 @@ void CrowListener::HandleDetectionQuery( const crow::request& req, crow::respons
 				box["w"] = q.GetColumnValueDouble( 10 );
 				box["h"] = q.GetColumnValueDouble( 11 );
 				box["baseline"] = q.GetColumnValueInt( 12 ) != 0;
+				const char* cropPath = q.GetColumnValueText( 13 );
+				if( cropPath )
+					box["crop"] = std::string( cropPath );
 				currentBoxes.push_back( std::move( box ) );
 			}
 
