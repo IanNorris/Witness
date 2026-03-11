@@ -44,6 +44,63 @@ function getClassColor(cls: string): string {
   return CLASS_COLORS[cls.toLowerCase()] || '#ffff44'
 }
 
+function isKnownClass(cls: string): boolean {
+  return cls.toLowerCase() in CLASS_COLORS
+}
+
+function boxArea(b: { w: number; h: number }): number {
+  return b.w * b.h
+}
+
+function isEncapsulated(inner: DetectionBox, outer: DetectionBox): boolean {
+  return (
+    inner.x >= outer.x &&
+    inner.y >= outer.y &&
+    inner.x + inner.w <= outer.x + outer.w &&
+    inner.y + inner.h <= outer.y + outer.h
+  )
+}
+
+function boxesOverlap(a: DetectionBox, b: DetectionBox): boolean {
+  return !(
+    a.x + a.w <= b.x ||
+    b.x + b.w <= a.x ||
+    a.y + a.h <= b.y ||
+    b.y + b.h <= a.y
+  )
+}
+
+/**
+ * Filter redundant detections:
+ * 1. Remove any box fully encapsulated by a larger box
+ * 2. Remove unknown-class (yellow) boxes that overlap a larger box
+ */
+function filterRedundantBoxes(boxes: DetectionBox[]): DetectionBox[] {
+  const sorted = [...boxes].sort((a, b) => boxArea(b) - boxArea(a)) // largest first
+  const keep: DetectionBox[] = []
+
+  for (const box of sorted) {
+    let dominated = false
+
+    for (const kept of keep) {
+      // Rule 1: fully encapsulated by a larger box → remove
+      if (isEncapsulated(box, kept)) {
+        dominated = true
+        break
+      }
+      // Rule 2: unknown-class box overlapping a larger box → remove
+      if (!isKnownClass(box.cls) && boxesOverlap(box, kept) && boxArea(kept) > boxArea(box)) {
+        dominated = true
+        break
+      }
+    }
+
+    if (!dominated) keep.push(box)
+  }
+
+  return keep
+}
+
 /**
  * Calculate the actual rendered video area inside a container using object-fit: contain.
  * Returns null if video dimensions aren't available yet.
@@ -128,7 +185,6 @@ export function useDetectionOverlay(
   const settings = useSettingsStore()
   const minConf = computed(() => settings.detectionMinConfidence / 100)
 
-  const FADE_MS = 500
   const LERP_SPEED = 0.3
 
   function handleDetectionEvent(evt: { event: string; data: Record<string, unknown> }) {
@@ -139,8 +195,9 @@ export function useDetectionOverlay(
 
     const now = performance.now()
     const seen = new Set<number>()
+    const filtered = filterRedundantBoxes(data.boxes)
 
-    for (const box of data.boxes) {
+    for (const box of filtered) {
       seen.add(box.id)
       const existing = tracked.get(box.id)
       if (existing) {
@@ -161,6 +218,11 @@ export function useDetectionOverlay(
           lastSeen: now,
         })
       }
+    }
+
+    // Remove boxes not present in this detection pass
+    for (const [id] of tracked) {
+      if (!seen.has(id)) tracked.delete(id)
     }
   }
 
@@ -188,24 +250,15 @@ export function useDetectionOverlay(
       return
     }
 
-    const now = performance.now()
-
-    for (const [id, box] of tracked) {
-      const age = now - box.lastSeen
-      if (age > FADE_MS) {
-        tracked.delete(id)
-        continue
-      }
-
+    for (const [, box] of tracked) {
       // Lerp toward target
       box.ix += (box.tx - box.ix) * LERP_SPEED
       box.iy += (box.ty - box.iy) * LERP_SPEED
       box.iw += (box.tw - box.iw) * LERP_SPEED
       box.ih += (box.th - box.ih) * LERP_SPEED
 
-      const alpha = age < FADE_MS * 0.5 ? 1 : 1 - (age - FADE_MS * 0.5) / (FADE_MS * 0.5)
       if (box.conf >= minConf.value) {
-        drawBox(ctx, { x: box.ix, y: box.iy, w: box.iw, h: box.ih, cls: box.cls, conf: box.conf }, vr, alpha)
+        drawBox(ctx, { x: box.ix, y: box.iy, w: box.iw, h: box.ih, cls: box.cls, conf: box.conf }, vr)
       }
     }
 
@@ -281,27 +334,29 @@ export function useDetectionPlayback(
     }
   }
 
-  function findNearestFrame(time: number): { t: number; boxes: DetectionBox[] } | null {
+  function findCurrentFrame(time: number): { t: number; boxes: DetectionBox[] } | null {
     const absoluteTime = time + getTimeOffset()
     const arr = frames.value
     if (!arr.length) return null
 
+    // Binary search for the last frame at or before current time
     let lo = 0, hi = arr.length - 1
     while (lo < hi) {
-      const mid = (lo + hi) >> 1
-      if ((arr[mid]?.t ?? 0) < absoluteTime) lo = mid + 1
-      else hi = mid
+      const mid = (lo + hi + 1) >> 1
+      if ((arr[mid]?.t ?? 0) <= absoluteTime) lo = mid
+      else hi = mid - 1
     }
 
     const candidate = arr[lo]
-    if (!candidate) return null
+    if (!candidate || candidate.t > absoluteTime) return null
 
-    const prev = lo > 0 ? arr[lo - 1] : undefined
-    if (prev && Math.abs(prev.t - absoluteTime) < Math.abs(candidate.t - absoluteTime)) {
-      return Math.abs(prev.t - absoluteTime) < 1.0 ? prev : null
-    }
+    // Find the next frame to determine how long this one should persist
+    const next = lo < arr.length - 1 ? arr[lo + 1] : null
+    // Show until next frame arrives, or up to 5s max if no next frame
+    const maxAge = next ? next.t - candidate.t : 5.0
+    if (absoluteTime - candidate.t > maxAge) return null
 
-    return Math.abs(candidate.t - absoluteTime) < 1.0 ? candidate : null
+    return candidate
   }
 
   function draw() {
@@ -322,7 +377,7 @@ export function useDetectionPlayback(
 
     ctx.clearRect(0, 0, canvas.width, canvas.height)
 
-    const frame = findNearestFrame(video.currentTime)
+    const frame = findCurrentFrame(video.currentTime)
     if (!frame) {
       animFrame = requestAnimationFrame(draw)
       return
@@ -334,7 +389,8 @@ export function useDetectionPlayback(
       return
     }
 
-    for (const box of frame.boxes) {
+    const filtered = filterRedundantBoxes(frame.boxes)
+    for (const box of filtered) {
       if (box.conf >= minConf.value) {
         drawBox(ctx, box, vr)
       }
