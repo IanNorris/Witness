@@ -664,6 +664,8 @@ bool ONNXDetectionFilter::ProcessFrame( SharedClassificationTask TaskData )
 		{
 			const float* row = outputData + i * 6;
 			float score = row[4];
+			// Some models output scores as percentages (0-100) instead of probabilities (0-1)
+			if( score > 1.0f ) score /= 100.0f;
 			if( score < ID.ConfidenceThreshold )
 				continue;
 
@@ -1027,6 +1029,8 @@ std::vector<DetectionResult> ONNXDetectionFilter::DetectFrame( const cv::Mat& bg
 		{
 			const float* row = outputData + i * 6;
 			float score = row[4];
+			// Some models output scores as percentages (0-100) instead of probabilities (0-1)
+			if( score > 1.0f ) score /= 100.0f;
 			if( score < ID.ConfidenceThreshold )
 				continue;
 

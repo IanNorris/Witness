@@ -13,6 +13,8 @@ const detectionKeys = [
   'detection_confidence',
   'detection_max_fps',
   'cudnn_path',
+  'face_detection_enabled',
+  'face_detection_confidence',
 ]
 
 const detectionSettings = ref<Record<string, string>>({})
@@ -114,6 +116,25 @@ onMounted(fetchSettings)
         <div class="alert alert-sm py-1 px-2 small" :class="cudaTestResult.startsWith('✓') ? 'alert-success' : 'alert-danger'">
           {{ cudaTestResult }}
         </div>
+      </div>
+
+      <div class="col-12 mt-3">
+        <h6 class="mb-2">Face Detection</h6>
+      </div>
+
+      <div class="col-md-6">
+        <label class="form-label small">Face Detection</label>
+        <select v-model="detectionSettings['face_detection_enabled']" class="form-select form-select-sm" @change="saveSetting('face_detection_enabled')">
+          <option value="">Disabled</option>
+          <option value="1">Enabled</option>
+        </select>
+        <div class="form-text small">Detect faces within person bounding boxes using YuNet.</div>
+      </div>
+
+      <div class="col-md-6">
+        <label class="form-label small">Face Confidence</label>
+        <input v-model="detectionSettings['face_detection_confidence']" type="number" step="0.05" min="0" max="1" class="form-control form-control-sm" @blur="saveSetting('face_detection_confidence')" />
+        <div class="form-text small">Minimum confidence for face detection (default: 0.5).</div>
       </div>
 
       <div class="col-12 mt-3">

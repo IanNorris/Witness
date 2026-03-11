@@ -42,8 +42,14 @@ class MseDiagnostics {
     this.startTime = Date.now()
   }
 
+  private _stateGetter: (() => Record<string, unknown>) | null = null
+
   setRef(element: HTMLVideoElement) {
     this._element = element
+  }
+
+  setStateGetter(getter: () => Record<string, unknown>) {
+    this._stateGetter = getter
   }
 
   log(type: string, extra?: Record<string, unknown>) {
@@ -75,12 +81,14 @@ class MseDiagnostics {
       cameraID: this.cameraID,
       startTime: new Date(this.startTime).toISOString(),
       stats: { ...this.stats },
+      liveState: this._stateGetter ? this._stateGetter() : null,
       currentState: el
         ? {
             readyState: el.readyState,
             currentTime: el.currentTime,
             paused: el.paused,
             ended: el.ended,
+            playbackRate: el.playbackRate,
             buffered:
               el.buffered.length > 0
                 ? Array.from({ length: el.buffered.length }, (_, i) => [
@@ -98,17 +106,28 @@ class MseDiagnostics {
 // Global diagnostics map (shared with HLS diagnostics via window._witnessDiag)
 const diagMap: Record<string, MseDiagnostics> = {}
 
-// Register global dump function
+// Register global dump function — merges MSE data with HLS data and downloads
 if (typeof window !== 'undefined') {
   ;(window as any)._witnessMseDiag = diagMap
   const existingDumpAll = (window as any)._witnessDumpAll
   ;(window as any)._witnessDumpAll = async function () {
-    const result: any = existingDumpAll ? await existingDumpAll() : {}
-    result.mse = {}
+    const result: any = existingDumpAll ? await existingDumpAll() : { client: { timestamp: new Date().toISOString(), cameras: {} }, server: null }
+    // Add MSE diagnostics to client cameras
+    if (!result.client) result.client = { cameras: {} }
+    if (!result.client.cameras) result.client.cameras = {}
     for (const [id, d] of Object.entries(diagMap)) {
-      result.mse[id] = d.snapshot()
+      result.client.cameras[id] = d.snapshot()
     }
-    return result
+    // Download the combined dump
+    const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'witness-full-debug-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json'
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
   }
 }
 
@@ -147,6 +166,7 @@ export function useMseStream(
   let lastCurrentTime = -1
   let currentTimeStalledSince = 0
   let destroyed = false
+  let intentionalClose = false
   let initGeneration = -1
   let expectingBinary: 'init' | 'partial' | null = null
   let waitingForKeyframe = true  // Skip partials until first independent (keyframe)
@@ -409,13 +429,14 @@ export function useMseStream(
       ws = null
       isActive.value = false
 
-      if (!destroyed) {
-        // Reconnect with backoff
+      if (!destroyed && !intentionalClose) {
+        // Unexpected close — reconnect with backoff
         diag.stats.restartCount++
         diag.log('reconnect', { backoffMs: restartBackoffMs })
         setTimeout(() => connectWebSocket(), restartBackoffMs)
         restartBackoffMs = Math.min(restartBackoffMs * 1.5, 30000)
       }
+      intentionalClose = false
     }
   }
 
@@ -425,6 +446,7 @@ export function useMseStream(
     diag.log('restart', { reason, generation: initGeneration })
 
     // Tear down everything
+    intentionalClose = true
     ws?.close()
     ws = null
 
@@ -555,6 +577,17 @@ export function useMseStream(
     if (!element) return
 
     diag.setRef(element)
+    diag.setStateGetter(() => ({
+      showSpinner: showSpinner.value,
+      connectionLost: connectionLost.value,
+      isActive: isActive.value,
+      latencyMs: latencyMs.value,
+      lastFragAge: lastFragTime ? Date.now() - lastFragTime : null,
+      restartBackoffMs,
+      stuckBackoffMs,
+      waitingForKeyframe,
+      initGeneration,
+    }))
     element.muted = true
     element.autoplay = true
 

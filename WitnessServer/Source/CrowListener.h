@@ -123,6 +123,16 @@ private:
 	void HandleGroupUpdate( const crow::request& req, crow::response& res );
 	void HandleGroupDelete( const crow::request& req, crow::response& res );
 
+	// Actions (notification triggers)
+	void HandleActionEnum( const crow::request& req, crow::response& res );
+	void HandleActionCreate( const crow::request& req, crow::response& res );
+	void HandleActionUpdate( const crow::request& req, crow::response& res );
+	void HandleActionDelete( const crow::request& req, crow::response& res );
+	void HandleActionAssign( const crow::request& req, crow::response& res );
+	void HandleActionUnassign( const crow::request& req, crow::response& res );
+	void HandleActionSounds( const crow::request& req, crow::response& res );
+	void HandleActionTestSound( const crow::request& req, crow::response& res );
+
 	// Debug
 	void HandleDebugEnum( const crow::request& req, crow::response& res );
 	void HandleDebugSet( const crow::request& req, crow::response& res );
@@ -132,6 +142,12 @@ private:
 	void HandleDebugDisk( const crow::request& req, crow::response& res );
 	void HandleDebugDiskScan( const crow::request& req, crow::response& res );
 	void HandleDetectionQuery( const crow::request& req, crow::response& res, int cameraId );
+
+	// Face detection / crops
+	void HandleFaceQuery( const crow::request& req, crow::response& res, int cameraId );
+	void HandleFaceRecent( const crow::request& req, crow::response& res );
+	void HandleFaceCropImage( const crow::request& req, crow::response& res, int cropUID );
+	void HandleDetectionCropImage( const crow::request& req, crow::response& res, const std::string& cropPath );
 
 	// Setup (reconfiguration)
 	void HandleSetupPage( const crow::request& req, crow::response& res );

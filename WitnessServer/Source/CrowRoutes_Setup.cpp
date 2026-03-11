@@ -237,7 +237,7 @@ void CrowListener::HandleSettingsSet( const crow::request& req, crow::response& 
 	if( valNode.t() == crow::json::type::String )
 		value = valNode.s();
 	else if( valNode.t() == crow::json::type::Number )
-		value = std::to_string( valNode.i() );
+		value = std::to_string( valNode.d() );
 	else
 		value = "";
 
@@ -254,6 +254,9 @@ void CrowListener::HandleSettingsSet( const crow::request& req, crow::response& 
 		"detection_max_fps",
 		"cudnn_path",
 		"mse_partial_duration",
+		"face_detection_enabled",
+		"face_detection_confidence",
+		"face_detection_model_path",
 	};
 
 	if( allowedSettings.find( name ) == allowedSettings.end() )

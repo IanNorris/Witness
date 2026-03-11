@@ -167,6 +167,8 @@ bool ObservingMotionFilter::ProcessFrame( SharedClassificationTask TaskData )
 			auto& decodedFrame = TaskData->Frame.GetOrDecodeFrame();
 			frameData.FrameWidth = decodedFrame.cols;
 			frameData.FrameHeight = decodedFrame.rows;
+			frameData.DecodedFrame = decodedFrame.clone();
+			frameData.IsMotion = ( State != MotionState::None );
 
 			for( auto& ROI : TaskData->Result.ROI )
 			{
@@ -182,6 +184,23 @@ bool ObservingMotionFilter::ProcessFrame( SharedClassificationTask TaskData )
 				box.Y = static_cast<float>( ROI.Top ) / frameData.FrameHeight;
 				box.W = static_cast<float>( ROI.Width ) / frameData.FrameWidth;
 				box.H = static_cast<float>( ROI.Height ) / frameData.FrameHeight;
+
+				// Pass through face landmarks if present
+				box.HasLandmarks = ROI.HasLandmarks;
+				if( ROI.HasLandmarks )
+				{
+					for( int lm = 0; lm < 5; lm++ )
+					{
+						box.LandmarkX[lm] = ROI.LandmarkX[lm] / frameData.FrameWidth;
+						box.LandmarkY[lm] = ROI.LandmarkY[lm] / frameData.FrameHeight;
+					}
+				}
+				else
+				{
+					memset( box.LandmarkX, 0, sizeof( box.LandmarkX ) );
+					memset( box.LandmarkY, 0, sizeof( box.LandmarkY ) );
+				}
+
 				frameData.Boxes.push_back( std::move( box ) );
 			}
 

@@ -128,16 +128,7 @@ const diagMap = ((window as unknown as Record<string, unknown>)._witnessDiag ??=
     const resp = await fetch('/debug/streaming')
     if (resp.ok) serverDump = await resp.json()
   } catch { /* ignore */ }
-  const combined = { client: clientDump, server: serverDump }
-  const blob = new Blob([JSON.stringify(combined, null, 2)], { type: 'application/json' })
-  const url = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = url
-  a.download = 'witness-full-debug-' + new Date().toISOString().replace(/[:.]/g, '-') + '.json'
-  document.body.appendChild(a)
-  a.click()
-  document.body.removeChild(a)
-  URL.revokeObjectURL(url)
+  return { client: clientDump, server: serverDump }
 }
 
 // ── HLS Config ────────────────────────────────────────────────────────

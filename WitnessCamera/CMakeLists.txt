@@ -8,6 +8,7 @@ find_library(ONNXRUNTIME_LIB onnxruntime)
 set(CAMERA_SOURCES
     Source/ContinuousOutputStream.cpp
     Source/DebugBind.cpp
+    Source/FaceDetectionFilter.cpp
     Source/FilterFrame.cpp
     Source/InMemoryIOContext.cpp
     Source/LiveOutputStream.cpp
@@ -27,6 +28,7 @@ set(CAMERA_HEADERS
     Include/ContinuousOutputStream.h
     Include/DebugBind.h
     Include/Export.h
+    Include/FaceDetectionFilter.h
     Include/ImageProcessingJob.h
     Include/InMemoryIOContext.h
     Include/InputStream.h

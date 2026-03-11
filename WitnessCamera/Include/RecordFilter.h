@@ -126,6 +126,8 @@ struct ClassificationResult
 		Motion_Person_Recognized	= 1 << 17,
 		Motion_Person_HighRisk		= 1 << 18,
 
+		Motion_Face					= 1 << 19,
+
 		Motion_CustomTag			= 1 << 31
 	};
 
@@ -141,6 +143,9 @@ struct ClassificationResult
 		, Classification( 0 )
 		, ClassificationGroup( 0 )
 		, ClassificationConfidence( 0.0 )
+		, HasLandmarks( false )
+		, LandmarkX{}
+		, LandmarkY{}
 		{}
 
 		std::vector<std::string> Tags;
@@ -158,6 +163,11 @@ struct ClassificationResult
 		unsigned int ClassificationGroup;
 
 		float ClassificationConfidence;
+
+		// Face landmarks (5 points in pixel coordinates, only valid when HasLandmarks is true)
+		bool HasLandmarks;
+		float LandmarkX[5];
+		float LandmarkY[5];
 	};
 	
 	ClassificationResult()
