@@ -761,179 +761,165 @@ void CrowListener::HandleFaceUpload( const crow::request& req, crow::response& r
 		return;
 	}
 
-	// Pick the highest-confidence face
-	int bestIdx = 0;
-	float bestScore = 0.0f;
-	for( int i = 0; i < faces.rows; i++ )
-	{
-		float score = faces.at<float>( i, 14 );
-		if( score > bestScore )
-		{
-			bestScore = score;
-			bestIdx = i;
-		}
-	}
-
-	// Extract bounding box and landmarks from OpenCV FaceDetectorYN output
-	// Format: [x, y, w, h, lm0x, lm0y, lm1x, lm1y, lm2x, lm2y, lm3x, lm3y, lm4x, lm4y, score]
-	float bx = faces.at<float>( bestIdx, 0 );
-	float by = faces.at<float>( bestIdx, 1 );
-	float bw = faces.at<float>( bestIdx, 2 );
-	float bh = faces.at<float>( bestIdx, 3 );
-
-	float lmX[5], lmY[5];
-	for( int i = 0; i < 5; i++ )
-	{
-		lmX[i] = faces.at<float>( bestIdx, 4 + i * 2 );
-		lmY[i] = faces.at<float>( bestIdx, 5 + i * 2 );
-	}
-
-	// Clamp bounding box to image bounds
-	int ix = std::max( 0, (int)bx );
-	int iy = std::max( 0, (int)by );
-	int iw = std::min( (int)bw, image.cols - ix );
-	int ih = std::min( (int)bh, image.rows - iy );
-	if( iw <= 0 || ih <= 0 )
-	{
-		res.code = 400;
-		res.body = R"({"error":"Detected face region is invalid"})";
-		res.set_header( "Content-Type", "application/json" );
-		res.end();
-		return;
-	}
-
-	// Crop and resize to 112x112
-	cv::Rect faceRect( ix, iy, iw, ih );
-	cv::Mat faceCrop;
-	cv::resize( image( faceRect ), faceCrop, cv::Size( 112, 112 ) );
-
-	// Normalize landmarks relative to the 112x112 crop
-	float normLmX[5], normLmY[5];
-	for( int i = 0; i < 5; i++ )
-	{
-		normLmX[i] = ( lmX[i] - (float)ix ) / (float)iw;
-		normLmY[i] = ( lmY[i] - (float)iy ) / (float)ih;
-	}
-
-	// Orientation validation — reject profile/side/tilted faces
-	{
-		float cropPx[5], cropPy[5];
-		for( int i = 0; i < 5; i++ )
-		{
-			cropPx[i] = normLmX[i] * 112.0f;
-			cropPy[i] = normLmY[i] * 112.0f;
-		}
-		float eyeAvgY = ( cropPy[0] + cropPy[1] ) * 0.5f;
-		float mouthAvgY = ( cropPy[3] + cropPy[4] ) * 0.5f;
-		float interEyeDist = std::abs( cropPx[1] - cropPx[0] );
-		float eyeMidX = ( cropPx[0] + cropPx[1] ) * 0.5f;
-		float noseOffsetX = std::abs( cropPx[2] - eyeMidX );
-		float eyeHeightDiff = std::abs( cropPy[0] - cropPy[1] );
-
-		// Upload photos can be stricter than surveillance — but still allow moderate angles
-		bool verticalOk = eyeAvgY < cropPy[2] && cropPy[2] < mouthAvgY;
-		if( !verticalOk || interEyeDist < 15.0f || noseOffsetX > 25.0f
-			|| eyeHeightDiff > 20.0f )
-		{
-			std::string reason;
-			if( !verticalOk ) reason = "Face is upside down or heavily rotated";
-			else if( noseOffsetX > 25.0f ) reason = "Face is turned too far to the side";
-			else if( interEyeDist < 15.0f ) reason = "Face appears in extreme profile";
-			else if( eyeHeightDiff > 20.0f ) reason = "Face is too tilted";
-			else reason = "Face orientation is not suitable for recognition";
-
-			crow::json::wvalue err;
-			err["error"] = reason;
-			res.code = 400;
-			res.body = err.dump();
-			res.set_header( "Content-Type", "application/json" );
-			res.end();
-			return;
-		}
-	}
-
-	// Save crop to disk
 	auto facesDir = std::filesystem::path( m_GlobalContext->CachePath ) / "faces" / "uploads";
 	std::filesystem::create_directories( facesDir );
 
 	auto now = std::chrono::duration<double>( std::chrono::system_clock::now().time_since_epoch() ).count();
-	std::ostringstream filenameStr;
-	filenameStr << std::fixed << std::setprecision( 3 ) << now << "_upload.jpg";
-	auto facePath = facesDir / filenameStr.str();
-
 	std::vector<int> jpegParams = { cv::IMWRITE_JPEG_QUALITY, 95 };
-	cv::imwrite( facePath.string(), faceCrop, jpegParams );
 
-	// Insert FaceCrop into database (CameraID=0 for uploads, no FrameUID/TrackingID)
-	int64_t cropUID = 0;
+	// Process ALL detected faces
+	std::vector<crow::json::wvalue> results;
+	int accepted = 0, rejected = 0;
+
+	for( int fi = 0; fi < faces.rows; fi++ )
 	{
-		SQLiteDatabaseQueryInstance q( m_GlobalContext->Database, "InsertFaceCrop" );
-		q->Bind( "@CameraID", 0 );
-		q->Bind( "@Timestamp", now );
-		q->Bind( "@FrameUID", 0 );
-		q->Bind( "@TrackingID", 0 );
-		q->Bind( "@FilePath", facePath.string().c_str() );
-		q->Bind( "@Confidence", (double)bestScore );
+		float score = faces.at<float>( fi, 14 );
+
+		float bx = faces.at<float>( fi, 0 );
+		float by = faces.at<float>( fi, 1 );
+		float bw = faces.at<float>( fi, 2 );
+		float bh = faces.at<float>( fi, 3 );
+
+		float lmX[5], lmY[5];
 		for( int i = 0; i < 5; i++ )
 		{
-			char nameX[32], nameY[32];
-			snprintf( nameX, sizeof( nameX ), "@Landmark%dX", i );
-			snprintf( nameY, sizeof( nameY ), "@Landmark%dY", i );
-			q->Bind( nameX, (double)normLmX[i] );
-			q->Bind( nameY, (double)normLmY[i] );
+			lmX[i] = faces.at<float>( fi, 4 + i * 2 );
+			lmY[i] = faces.at<float>( fi, 5 + i * 2 );
 		}
-		q->Execute( nullptr );
-		cropUID = q->GetLastInsertionId();
+
+		int ix = std::max( 0, (int)bx );
+		int iy = std::max( 0, (int)by );
+		int iw = std::min( (int)bw, image.cols - ix );
+		int ih = std::min( (int)bh, image.rows - iy );
+		if( iw <= 0 || ih <= 0 ) { rejected++; continue; }
+
+		cv::Rect faceRect( ix, iy, iw, ih );
+		cv::Mat faceCrop;
+		cv::resize( image( faceRect ), faceCrop, cv::Size( 112, 112 ) );
+
+		// Normalize landmarks relative to the crop
+		float normLmX[5], normLmY[5];
+		for( int i = 0; i < 5; i++ )
+		{
+			normLmX[i] = ( lmX[i] - (float)ix ) / (float)iw;
+			normLmY[i] = ( lmY[i] - (float)iy ) / (float)ih;
+		}
+
+		// Orientation validation
+		{
+			float cropPx[5], cropPy[5];
+			for( int i = 0; i < 5; i++ )
+			{
+				cropPx[i] = normLmX[i] * 112.0f;
+				cropPy[i] = normLmY[i] * 112.0f;
+			}
+			float eyeAvgY = ( cropPy[0] + cropPy[1] ) * 0.5f;
+			float mouthAvgY = ( cropPy[3] + cropPy[4] ) * 0.5f;
+			float interEyeDist = std::abs( cropPx[1] - cropPx[0] );
+			float eyeMidX = ( cropPx[0] + cropPx[1] ) * 0.5f;
+			float noseOffsetX = std::abs( cropPx[2] - eyeMidX );
+			float eyeHeightDiff = std::abs( cropPy[0] - cropPy[1] );
+
+			bool verticalOk = eyeAvgY < cropPy[2] && cropPy[2] < mouthAvgY;
+			if( !verticalOk || interEyeDist < 15.0f || noseOffsetX > 25.0f
+				|| eyeHeightDiff > 20.0f )
+			{
+				rejected++;
+				continue;
+			}
+		}
+
+		// Save crop to disk
+		std::ostringstream filenameStr;
+		filenameStr << std::fixed << std::setprecision( 3 ) << now << "_upload_" << fi << ".jpg";
+		auto facePath = facesDir / filenameStr.str();
+		cv::imwrite( facePath.string(), faceCrop, jpegParams );
+
+		// Insert FaceCrop into database
+		int64_t cropUID = 0;
+		{
+			SQLiteDatabaseQueryInstance q( m_GlobalContext->Database, "InsertFaceCrop" );
+			q->Bind( "@CameraID", 0 );
+			q->Bind( "@Timestamp", now );
+			q->Bind( "@FrameUID", 0 );
+			q->Bind( "@TrackingID", 0 );
+			q->Bind( "@FilePath", facePath.string().c_str() );
+			q->Bind( "@Confidence", (double)score );
+			for( int i = 0; i < 5; i++ )
+			{
+				char nameX[32], nameY[32];
+				snprintf( nameX, sizeof( nameX ), "@Landmark%dX", i );
+				snprintf( nameY, sizeof( nameY ), "@Landmark%dY", i );
+				q->Bind( nameX, (double)normLmX[i] );
+				q->Bind( nameY, (double)normLmY[i] );
+			}
+			q->Execute( nullptr );
+			cropUID = q->GetLastInsertionId();
+		}
+
+		// Align face and generate embedding
+		float cropLmX[5], cropLmY[5];
+		for( int i = 0; i < 5; i++ )
+		{
+			cropLmX[i] = normLmX[i] * 112.0f;
+			cropLmY[i] = normLmY[i] * 112.0f;
+		}
+		cv::Mat aligned = Witness::Camera::FaceEmbeddingModel::AlignFace( faceCrop, cropLmX, cropLmY );
+
+		auto embedding = embModel->GetEmbedding( aligned );
+		if( embedding.empty() ) { rejected++; continue; }
+
+		// Store embedding
+		{
+			SQLiteDatabaseQueryInstance q( m_GlobalContext->Database, "InsertFaceEmbedding" );
+			q->Bind( "@FaceCropUID", (int)cropUID );
+			if( knownFaceUID > 0 )
+				q->Bind( "@KnownFaceUID", knownFaceUID );
+			else
+				q->BindNull( "@KnownFaceUID" );
+			q->BindBlob( "@Embedding", embedding.data(), static_cast<int>( embedding.size() * sizeof( float ) ) );
+			q->Bind( "@Dimension", static_cast<int>( embedding.size() ) );
+			q->Bind( "@MatchConfidence", knownFaceUID > 0 ? 1.0 : 0.0 );
+			q->Bind( "@Verified", knownFaceUID > 0 ? 1 : 0 );
+			q->Bind( "@CreatedAt", now );
+			q->Execute( nullptr );
+		}
+
+		crow::json::wvalue faceResult;
+		faceResult["cropUID"] = (int)cropUID;
+		faceResult["confidence"] = score;
+		results.push_back( std::move( faceResult ) );
+		accepted++;
 	}
 
-	// Align face using landmarks and generate embedding
-	float cropLmX[5], cropLmY[5];
-	for( int i = 0; i < 5; i++ )
-	{
-		cropLmX[i] = normLmX[i] * 112.0f;
-		cropLmY[i] = normLmY[i] * 112.0f;
-	}
-	cv::Mat aligned = Witness::Camera::FaceEmbeddingModel::AlignFace( faceCrop, cropLmX, cropLmY );
+	// Refresh cache if assigned to a known face
+	if( knownFaceUID > 0 && m_GlobalContext->FaceCache && accepted > 0 )
+		m_GlobalContext->FaceCache->Refresh( m_GlobalContext->Database );
 
-	auto embedding = embModel->GetEmbedding( aligned );
-	if( embedding.empty() )
+	if( accepted == 0 )
 	{
-		res.code = 500;
-		res.body = R"({"error":"Failed to generate face embedding"})";
+		std::string msg = faces.rows == 1
+			? "Face orientation not suitable for recognition — use a front-facing photo"
+			: "No faces passed orientation check (" + std::to_string( faces.rows ) + " detected, all rejected)";
+		crow::json::wvalue err;
+		err["error"] = msg;
+		res.code = 400;
+		res.body = err.dump();
 		res.set_header( "Content-Type", "application/json" );
 		res.end();
 		return;
 	}
 
-	// Store embedding
-	{
-		SQLiteDatabaseQueryInstance q( m_GlobalContext->Database, "InsertFaceEmbedding" );
-		q->Bind( "@FaceCropUID", (int)cropUID );
-		if( knownFaceUID > 0 )
-			q->Bind( "@KnownFaceUID", knownFaceUID );
-		else
-			q->BindNull( "@KnownFaceUID" );
-		q->BindBlob( "@Embedding", embedding.data(), static_cast<int>( embedding.size() * sizeof( float ) ) );
-		q->Bind( "@Dimension", static_cast<int>( embedding.size() ) );
-		q->Bind( "@MatchConfidence", knownFaceUID > 0 ? 1.0 : 0.0 );
-		q->Bind( "@Verified", knownFaceUID > 0 ? 1 : 0 );
-		q->Bind( "@CreatedAt", now );
-		q->Execute( nullptr );
-	}
-
-	// Refresh cache if assigned to a known face
-	if( knownFaceUID > 0 && m_GlobalContext->FaceCache )
-		m_GlobalContext->FaceCache->Refresh( m_GlobalContext->Database );
-
-	LOG_INFO( "FaceUpload: Detected face (%.1f%% confidence), saved crop %lld%s",
-		bestScore * 100.0f, (long long)cropUID,
+	LOG_INFO( "FaceUpload: %d faces accepted, %d rejected from image with %d detections%s",
+		accepted, rejected, faces.rows,
 		knownFaceUID > 0 ? (" assigned to known face " + std::to_string( knownFaceUID )).c_str() : "" );
 
 	crow::json::wvalue result;
 	result["ok"] = true;
-	result["cropUID"] = (int)cropUID;
-	result["confidence"] = bestScore;
+	result["accepted"] = accepted;
+	result["rejected"] = rejected;
 	result["facesDetected"] = faces.rows;
+	result["faces"] = std::move( results );
 	res.code = 200;
 	res.body = result.dump();
 	res.set_header( "Content-Type", "application/json" );

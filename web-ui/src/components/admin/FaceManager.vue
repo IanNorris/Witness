@@ -380,29 +380,47 @@ function triggerUpload(knownFaceUID: number | null) {
   const input = document.createElement('input')
   input.type = 'file'
   input.accept = 'image/*'
+  input.multiple = true
   input.onchange = async () => {
-    const file = input.files?.[0]
-    if (!file) return
+    const files = input.files
+    if (!files || files.length === 0) return
     uploading.value = true
     uploadResult.value = null
-    try {
-      const base64 = await fileToBase64(file)
-      const body: Record<string, unknown> = { image: base64 }
-      if (knownFaceUID) body.knownFaceUID = knownFaceUID
-      const result = await api<{ ok: boolean; confidence: number; facesDetected: number; cropUID: number }>(
-        '/api/face/upload',
-        { method: 'POST', body }
-      )
-      uploadResult.value = {
-        ok: true,
-        message: `Face detected (${Math.round(result.confidence * 100)}% confidence)${result.facesDetected > 1 ? ` — ${result.facesDetected} faces found, used best` : ''}`
+
+    let totalAccepted = 0, totalRejected = 0, totalDetected = 0, errors: string[] = []
+
+    for (let f = 0; f < files.length; f++) {
+      try {
+        const base64 = await fileToBase64(files[f]!)
+        const body: Record<string, unknown> = { image: base64 }
+        if (knownFaceUID) body.knownFaceUID = knownFaceUID
+        const result = await api<{ ok: boolean; accepted: number; rejected: number; facesDetected: number }>(
+          '/api/face/upload',
+          { method: 'POST', body }
+        )
+        totalAccepted += result.accepted
+        totalRejected += result.rejected
+        totalDetected += result.facesDetected
+      } catch (e: any) {
+        errors.push(`${files[f]!.name}: ${e.message || 'failed'}`)
       }
-      await fetchAll()
-    } catch (e: any) {
-      uploadResult.value = { ok: false, message: e.message || 'Upload failed' }
-    } finally {
-      uploading.value = false
     }
+
+    const parts: string[] = []
+    if (totalAccepted > 0) parts.push(`${totalAccepted} face${totalAccepted !== 1 ? 's' : ''} added`)
+    if (totalRejected > 0) parts.push(`${totalRejected} rejected (orientation)`)
+    if (errors.length > 0) parts.push(`${errors.length} file${errors.length !== 1 ? 's' : ''} failed`)
+
+    uploadResult.value = {
+      ok: totalAccepted > 0,
+      message: parts.join(', ') + (totalDetected > 0 ? ` — ${totalDetected} detected across ${files.length} image${files.length !== 1 ? 's' : ''}` : '')
+    }
+    if (errors.length > 0 && totalAccepted === 0) {
+      uploadResult.value.message = errors[0]!
+    }
+
+    await fetchAll()
+    uploading.value = false
   }
   input.click()
 }
