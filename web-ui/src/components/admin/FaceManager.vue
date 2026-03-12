@@ -62,7 +62,7 @@ const confirmAction = ref<(() => void) | null>(null)
 
 // Reprocess
 const reprocessing = ref(false)
-const reprocessResult = ref<{ processed: number; matched: number } | null>(null)
+const reprocessResult = ref<{ processed: number } | null>(null)
 
 // Clip preview
 const previewFace = ref<{ cameraId: number; timestamp: number } | null>(null)
@@ -188,6 +188,15 @@ async function toggleExpand(faceId: number) {
   expandedSightings.value = data.sightings ?? []
 }
 
+async function removeSighting(embeddingUID: number) {
+  await api('/api/face/unassign', {
+    method: 'POST',
+    body: { embeddingUID },
+  })
+  expandedSightings.value = expandedSightings.value.filter(s => s.embeddingUID !== embeddingUID)
+  await fetchAll()
+}
+
 // Merge
 async function doMerge() {
   if (!mergeSourceId.value || !mergeTargetId.value || mergeSourceId.value === mergeTargetId.value) return
@@ -212,11 +221,11 @@ async function reprocess() {
   reprocessing.value = true
   reprocessResult.value = null
   try {
-    const result = await api<{ processed: number; matched: number; remaining: boolean }>('/api/face/reprocess', {
+    const result = await api<{ processed: number; remaining: boolean }>('/api/face/reprocess', {
       method: 'POST',
       body: {},
     })
-    reprocessResult.value = { processed: result.processed, matched: result.matched }
+    reprocessResult.value = { processed: result.processed }
     await fetchAll()
   } finally {
     reprocessing.value = false
@@ -322,7 +331,7 @@ onMounted(fetchAll)
                          title="View original clip"
                          @click="previewFace = { cameraId: s.cameraId, timestamp: s.timestamp }"
                          @error="($event.target as HTMLImageElement).style.display = 'none'" />
-                    <div class="small">
+                    <div class="small flex-grow-1">
                       <div>{{ cameraName(s.cameraId) }}</div>
                       <div class="text-muted-custom">{{ formatTime(s.timestamp) }}</div>
                       <div class="text-muted-custom">
@@ -330,6 +339,8 @@ onMounted(fetchAll)
                         <span v-if="s.verified" class="badge bg-success ms-1">verified</span>
                       </div>
                     </div>
+                    <button class="btn btn-sm btn-outline-danger py-0 ms-2" title="Not this person"
+                            @click="removeSighting(s.embeddingUID)">✕</button>
                   </div>
                   <div v-if="expandedSightings.length === 0" class="small text-muted-custom">No sightings yet</div>
                 </div>
@@ -356,7 +367,7 @@ onMounted(fetchAll)
       </div>
 
       <div v-if="reprocessResult" class="alert alert-info py-1 small">
-        Processed {{ reprocessResult.processed }} crops, matched {{ reprocessResult.matched }} to known faces.
+        Processed {{ reprocessResult.processed }} crops. Faces will appear in the unidentified gallery below.
       </div>
 
       <div class="row g-2">

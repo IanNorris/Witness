@@ -1011,7 +1011,7 @@ namespace Database
 
 	std::string SelectFaceSightings = R"RAW(
 		SELECT fc.CropUID, fc.CameraID, fc.Timestamp, fc.FilePath, fc.Confidence AS DetectionConfidence,
-			fe.MatchConfidence, fe.Verified
+			fe.MatchConfidence, fe.Verified, fe.EmbeddingUID
 		FROM FaceEmbedding fe
 		JOIN FaceCrop fc ON fe.FaceCropUID = fc.CropUID
 		WHERE fe.KnownFaceUID = @KnownFaceUID

@@ -480,6 +480,7 @@ void CrowListener::HandleFaceSightings( const crow::request& req, crow::response
 		s["detectionConfidence"] = row.GetColumnValueDouble( 4 );
 		s["matchConfidence"] = row.GetColumnValueDouble( 5 );
 		s["verified"] = row.GetColumnValueInt( 6 );
+		s["embeddingUID"] = row.GetColumnValueInt( 7 );
 		sightings.push_back( std::move( s ) );
 		return true;
 	});
@@ -552,7 +553,6 @@ void CrowListener::HandleFaceReprocess( const crow::request& req, crow::response
 
 	// Process crops without embeddings in batches
 	int processed = 0;
-	int matched = 0;
 	int batchLimit = 100;
 
 	SQLiteDatabaseQueryInstance q( m_GlobalContext->Database, "SelectFaceCropsWithoutEmbedding" );
@@ -585,10 +585,6 @@ void CrowListener::HandleFaceReprocess( const crow::request& req, crow::response
 		return true;
 	});
 
-	double threshold = 0.5;
-	if( body && body.has( "threshold" ) )
-		threshold = body["threshold"].d();
-
 	for( auto& c : crops )
 	{
 		if( c.FilePath.empty() || !std::filesystem::exists( c.FilePath ) )
@@ -620,29 +616,12 @@ void CrowListener::HandleFaceReprocess( const crow::request& req, crow::response
 		auto embedding = embModel->GetEmbedding( aligned );
 		if( embedding.empty() ) continue;
 
-		int matchedUID = 0;
-		double matchConf = 0.0;
-
-		if( m_GlobalContext->FaceCache )
-		{
-			auto match = m_GlobalContext->FaceCache->Match( embedding, (float)threshold );
-			if( match.Matched )
-			{
-				matchedUID = match.KnownFaceUID;
-				matchConf = match.Similarity;
-				matched++;
-			}
-		}
-
 		SQLiteDatabaseQueryInstance embQ( m_GlobalContext->Database, "InsertFaceEmbedding" );
 		embQ->Bind( "@FaceCropUID", c.CropUID );
-		if( matchedUID > 0 )
-			embQ->Bind( "@KnownFaceUID", matchedUID );
-		else
-			embQ->BindNull( "@KnownFaceUID" );
+		embQ->BindNull( "@KnownFaceUID" );
 		embQ->BindBlob( "@Embedding", embedding.data(), static_cast<int>( embedding.size() * sizeof( float ) ) );
 		embQ->Bind( "@Dimension", static_cast<int>( embedding.size() ) );
-		embQ->Bind( "@MatchConfidence", matchConf );
+		embQ->Bind( "@MatchConfidence", 0.0 );
 		embQ->Bind( "@Verified", 0 );
 		embQ->Bind( "@CreatedAt", c.Timestamp );
 		embQ->Execute( nullptr );
@@ -650,12 +629,11 @@ void CrowListener::HandleFaceReprocess( const crow::request& req, crow::response
 		processed++;
 	}
 
-	LOG_INFO( "FaceReprocess: Processed %d crops, matched %d to known faces.", processed, matched );
+	LOG_INFO( "FaceReprocess: Generated embeddings for %d crops.", processed );
 
 	crow::json::wvalue result;
 	result["processed"] = processed;
-	result["matched"] = matched;
-	result["remaining"] = (int)crops.size() == batchLimit; // true if there may be more
+	result["remaining"] = (int)crops.size() == batchLimit;// true if there may be more
 	res.set_header( "Content-Type", "application/json" );
 	res.body = result.dump();
 	res.code = 200;
