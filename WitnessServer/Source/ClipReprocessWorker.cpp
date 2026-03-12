@@ -30,6 +30,7 @@ ClipReprocessWorker::ClipReprocessWorker(
 	std::shared_ptr<Witness::Camera::FaceDetectionFilter> FaceFilter,
 	std::shared_ptr<Witness::Camera::FaceEmbeddingModel> FaceEmbModel,
 	std::shared_ptr<FaceRecognitionCache> FaceCache,
+	std::shared_ptr<EventBroadcaster> Events,
 	double FaceRecThreshold,
 	std::string CachePath,
 	std::function<bool()> IsIdle
@@ -40,6 +41,7 @@ ClipReprocessWorker::ClipReprocessWorker(
 , FaceFilter( std::move( FaceFilter ) )
 , FaceEmbModel( std::move( FaceEmbModel ) )
 , FaceCache( std::move( FaceCache ) )
+, Events( std::move( Events ) )
 , FaceRecThreshold( FaceRecThreshold )
 , CachePath( std::move( CachePath ) )
 , IsIdle( std::move( IsIdle ) )
@@ -66,6 +68,18 @@ void ClipReprocessWorker::WorkerMain()
 		return;
 	}
 
+	// Count total clips needing reprocessing
+	int totalQueue = 0;
+	{
+		SQLiteDatabaseQueryInstance CountQuery( Database, "CountClipsToReprocess" );
+		CountQuery->Bind( "@DetectionVersion", CURRENT_DETECTION_VERSION );
+		CountQuery->Execute( [&]( const SQLiteDatabaseQuery& query ) -> bool
+		{
+			totalQueue = query.GetColumnValueInt( 0 );
+			return true;
+		});
+	}
+
 	// Fetch a batch of clips needing reprocessing
 	std::vector<ClipToReprocess> batch;
 
@@ -89,26 +103,33 @@ void ClipReprocessWorker::WorkerMain()
 
 	if( batch.empty() )
 	{
+		// Broadcast idle status
+		BroadcastProgress( 0, "idle", 0, 0, 0, 0 );
 		std::this_thread::sleep_for( std::chrono::seconds( 30 ) );
 		return;
 	}
 
 	UpdateLastTimedAction( "Reprocessing clips" );
 
-	for( auto& clip : batch )
+	for( size_t i = 0; i < batch.size(); i++ )
 	{
+		auto& clip = batch[i];
+
 		// Yield if cameras become active mid-batch
 		if( !IsIdle() )
 			break;
 
-		ProcessClip( clip.ClipUID, clip.Timestamp, clip.Camera, clip.RecordMode, clip.ExistingTags );
+		int queuePos = static_cast<int>( i );
+		ProcessClip( clip.ClipUID, clip.Timestamp, clip.Camera, clip.RecordMode, clip.ExistingTags,
+			queuePos, totalQueue );
 
 		// Sleep between clips to stay low-priority
 		std::this_thread::sleep_for( std::chrono::milliseconds( 500 ) );
 	}
 }
 
-void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int camera, int recordMode, const std::string& existingTags )
+void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int camera, int recordMode, const std::string& existingTags,
+	int queuePosition, int queueTotal )
 {
 	// Build clip filename: {Camera}_{Auto|Manual}_{Timestamp}.mp4
 	std::stringstream nameStream;
@@ -246,6 +267,10 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 	std::vector<Witness::Camera::DetectionResult> baselineDetections;
 	bool baselineCaptured = false;
 	Witness::ObjectTracker clipTracker;
+	int totalFrames = std::max( 1, (int)( durationSec / sampleInterval ) + 1 );
+	int frameIndex = 0;
+
+	BroadcastProgress( clipUID, "processing", 0, totalFrames, queuePosition, queueTotal );
 
 	while( currentTime <= durationSec || currentTime == 0.0 )
 	{
@@ -624,6 +649,8 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 		if( !gotFrame )
 			break;
 
+		frameIndex++;
+		BroadcastProgress( clipUID, "processing", frameIndex, totalFrames, queuePosition, queueTotal );
 		currentTime += sampleInterval;
 	}
 
@@ -673,6 +700,22 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 	TagHelpers::SyncClipTags( Database, clipUID, tagString );
 
 	LOG_INFO( "Reprocessed clip %lld: %s", (long long)clipUID, tagString.c_str() );
+	BroadcastProgress( clipUID, "complete", totalFrames, totalFrames, queuePosition, queueTotal );
+}
+
+void ClipReprocessWorker::BroadcastProgress( int64_t clipUID, const std::string& stage, int frame, int totalFrames, int queuePos, int queueTotal )
+{
+	if( !Events )
+		return;
+
+	crow::json::wvalue ev;
+	ev["clipUID"] = clipUID;
+	ev["stage"] = stage;
+	ev["frame"] = frame;
+	ev["totalFrames"] = totalFrames;
+	ev["queuePosition"] = queuePos;
+	ev["queueTotal"] = queueTotal;
+	Events->Broadcast( "reprocess:progress", std::move( ev ) );
 }
 
 void ClipReprocessWorker::BackfillLighting()

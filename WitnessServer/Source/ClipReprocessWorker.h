@@ -3,6 +3,7 @@
 #include "WorkerBase.h"
 #include "SQLite.h"
 #include "FaceRecognitionCache.h"
+#include "EventBroadcaster.h"
 
 #include <ONNXDetectionFilter.h>
 #include <FaceDetectionFilter.h>
@@ -12,7 +13,7 @@
 #include <string>
 #include <memory>
 
-static constexpr int CURRENT_DETECTION_VERSION = 12;
+static constexpr int CURRENT_DETECTION_VERSION = 13;
 
 class ClipReprocessWorker : public WorkerBase
 {
@@ -25,6 +26,7 @@ public:
 		std::shared_ptr<Witness::Camera::FaceDetectionFilter> FaceFilter,
 		std::shared_ptr<Witness::Camera::FaceEmbeddingModel> FaceEmbModel,
 		std::shared_ptr<FaceRecognitionCache> FaceCache,
+		std::shared_ptr<EventBroadcaster> Events,
 		double FaceRecThreshold,
 		std::string CachePath,
 		std::function<bool()> IsIdle
@@ -33,7 +35,9 @@ public:
 private:
 
 	virtual void WorkerMain() override;
-	void ProcessClip( int64_t clipUID, int64_t timestamp, int camera, int recordMode, const std::string& existingTags );
+	void ProcessClip( int64_t clipUID, int64_t timestamp, int camera, int recordMode, const std::string& existingTags,
+		int queuePosition, int queueTotal );
+	void BroadcastProgress( int64_t clipUID, const std::string& stage, int frame, int totalFrames, int queuePos, int queueTotal );
 	void BackfillLighting();
 
 	std::shared_ptr<SQLiteDatabase> Database;
@@ -41,6 +45,7 @@ private:
 	std::shared_ptr<Witness::Camera::FaceDetectionFilter> FaceFilter;
 	std::shared_ptr<Witness::Camera::FaceEmbeddingModel> FaceEmbModel;
 	std::shared_ptr<FaceRecognitionCache> FaceCache;
+	std::shared_ptr<EventBroadcaster> Events;
 	double FaceRecThreshold;
 	std::string CachePath;
 	std::function<bool()> IsIdle;

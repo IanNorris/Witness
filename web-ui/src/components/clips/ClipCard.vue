@@ -26,6 +26,7 @@ const tagStore = useTagStore()
 
 const camera = computed(() => cameraStore.getCameraById(props.clip.camera))
 const thumbUrl = computed(() => clipStore.thumbnailUrl(props.clip.camera, props.clip.timestamp))
+const reprocessProgress = computed(() => clipStore.reprocessStatus.get(props.clip.uid))
 
 const clipDate = computed(() => new Date(props.clip.timestamp * 1000))
 const fullDateTime = computed(() => format(clipDate.value, 'dd MMM yyyy HH:mm:ss'))
@@ -63,6 +64,17 @@ const lightingClass = computed(() => {
   <div class="clip-card" :class="{ 'clip-saved': clip.saved, 'clip-trivial': trivial, 'clip-unreviewed': !clip.reviewed }">
     <div class="clip-thumb" @click="emit('play', clip)">
       <img :src="thumbUrl" :alt="`Clip ${clip.uid}`" loading="lazy" />
+      <div v-if="reprocessProgress" class="clip-reprocess-overlay">
+        <div class="reprocess-text">
+          Reprocessing {{ reprocessProgress.frame }}/{{ reprocessProgress.totalFrames }}
+        </div>
+        <div class="reprocess-bar">
+          <div class="reprocess-bar-fill" :style="{ width: (reprocessProgress.totalFrames ? (reprocessProgress.frame / reprocessProgress.totalFrames * 100) : 0) + '%' }" />
+        </div>
+        <div v-if="reprocessProgress.queueTotal > 1" class="reprocess-queue">
+          {{ reprocessProgress.queuePosition + 1 }} of {{ reprocessProgress.queueTotal }} in queue
+        </div>
+      </div>
       <div class="clip-play-btn">
         <svg width="36" height="36" viewBox="0 0 24 24" fill="currentColor">
           <path d="M8 5v14l11-7z"/>
@@ -216,6 +228,37 @@ const lightingClass = computed(() => {
   top: 4px;
   right: 4px;
   color: var(--bs-warning, #f59e0b);
+}
+.clip-reprocess-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  z-index: 2;
+}
+.reprocess-text {
+  color: #ccc;
+  font-size: 0.75rem;
+}
+.reprocess-bar {
+  width: 70%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.reprocess-bar-fill {
+  height: 100%;
+  background: var(--bs-primary, #7c3aed);
+  transition: width 0.3s ease;
+}
+.reprocess-queue {
+  color: #888;
+  font-size: 0.65rem;
 }
 
 .clip-body {
