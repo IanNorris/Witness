@@ -131,7 +131,8 @@ Build:
 │   ├── WitnessCamera/          ✅
 │   └── WitnessServer/          ✅
 ├── vcpkg.json (all deps)       ✅
-└── GitHub Actions CI                   Pending
+├── GitHub Actions CI                   Pending
+└── Test suite (Phase 4b)               Pending
 ```
 
 ### Target vcpkg Dependencies
@@ -286,6 +287,29 @@ Replaced the 166MB .NET Installer with a built-in web setup wizard.
   - **Option B: Fine-tune on IR data** — Use the [FLIR ADAS Thermal Dataset](https://www.flir.com/oem/adas/adas-dataset-form/)
   - **Option C: Dedicated IR model** — Purpose-built models like CRT-YOLO or MDCFVit-YOLO
 - [x] ~~Optionally keep Azure Vision as alternative cloud backend~~ — Removed; ONNX fully replaces it
+
+### Phase 4b: Testing Infrastructure
+
+No test suite currently exists. Add automated tests to validate ML pipelines and prevent regressions.
+
+- [ ] **Face recognition pipeline tests** — known reference images with expected match/no-match outcomes
+  - Test embedding normalization (ArcFace [-1,1] preprocessing)
+  - Test same-person similarity > threshold (e.g. 0.85)
+  - Test different-person similarity < threshold
+  - Test orientation filter accepts frontal faces, rejects extreme profiles
+  - Test landmark normalization (crop-relative 0-1 values)
+- [ ] **Object detection tests** — run YOLO on known test images, verify expected classes detected
+  - Test person detection on sample frame
+  - Test confidence threshold filtering
+  - Test baseline filtering (exclude permanent scene objects)
+- [ ] **API integration tests** — test REST endpoints with known inputs
+  - Face upload → detect → crop → embed → match round-trip
+  - Face assign/unassign/merge operations
+  - Settings CRUD with whitelist validation
+- [ ] **Test harness** — CLI mode (`/test`) that runs test suite without starting the full server
+  - Load models, run inference on bundled test images, validate outputs
+  - Exit with pass/fail status for CI integration
+- [ ] **Test data** — bundle small set of reference face images (with consent) in `tests/fixtures/`
 
 ### Phase 5: Notifications & Integrations
 
