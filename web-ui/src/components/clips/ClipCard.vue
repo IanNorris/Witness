@@ -98,6 +98,13 @@ const lightingClass = computed(() => {
           >
             <span v-if="dt.icon">{{ dt.icon }}</span> {{ dt.display }}
           </span>
+          <span
+            v-for="name in (clip.recognizedFaces ?? [])"
+            :key="'face-' + name"
+            class="badge bg-primary clip-tag-chip"
+          >
+            👤 {{ name }}
+          </span>
         </div>
       </div>
 

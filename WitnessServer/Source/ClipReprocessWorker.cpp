@@ -568,6 +568,14 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 													{
 														matchConf = match.Similarity;
 														matchedKnownFaceUID = match.KnownFaceUID;
+														LOG_INFO( "ClipReprocess: Face match '%s' (%.3f) crop %lld",
+															match.Name.c_str(), matchConf, (long long)cropUID );
+													}
+													else
+													{
+														LOG_DEBUG( "ClipReprocess: No match for crop %lld (best=%.3f '%s', threshold=%.3f)",
+															(long long)cropUID, match.Similarity,
+															match.Name.c_str(), FaceRecThreshold );
 													}
 												}
 
@@ -583,8 +591,20 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 												embQ->Bind( "@Verified", 0 );
 												embQ->Bind( "@CreatedAt", frameTimestamp );
 												embQ->Execute( nullptr );
+
+												LOG_DEBUG( "ClipReprocess: Stored embedding for crop %lld (conf=%.2f, match=%d)",
+													(long long)cropUID, box.Confidence, matchedKnownFaceUID );
 											}
 										}
+										else
+										{
+											LOG_DEBUG( "ClipReprocess: Orientation rejected crop %lld (interEye=%.1f nose=%.1f eyeDiff=%.1f)",
+												(long long)cropUID, interEyeDist, noseOffsetX, eyeHeightDiff );
+										}
+									}
+									else
+									{
+										LOG_DEBUG( "ClipReprocess: No landmarks for crop %lld", (long long)cropUID );
 									}
 								}
 

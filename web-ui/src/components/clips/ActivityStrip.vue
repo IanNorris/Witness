@@ -122,6 +122,9 @@ onUnmounted(() => {
           <span v-for="tag in clipTags(clip)" :key="tag.name" class="strip-tag">
             {{ tag.icon || tag.display }}
           </span>
+          <span v-for="name in (clip.recognizedFaces ?? [])" :key="'face-' + name" class="strip-tag strip-face-tag">
+            👤
+          </span>
         </div>
         <div class="strip-overlay-bottom">
           <span class="strip-cam-name">{{ cameraName(clip.camera) }}</span>

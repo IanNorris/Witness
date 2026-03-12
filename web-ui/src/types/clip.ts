@@ -11,6 +11,7 @@ export interface Clip {
   detectionVersion: number
   lighting: LightingCondition
   reviewed: boolean
+  recognizedFaces?: string[]
 }
 
 export interface Tag {

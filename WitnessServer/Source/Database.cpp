@@ -183,6 +183,7 @@ namespace Database
 		);
 
 		CREATE INDEX IF NOT EXISTS idx_facecrop_camera_time ON FaceCrop(CameraID, Timestamp);
+		CREATE INDEX IF NOT EXISTS idx_facecrop_frame_track ON FaceCrop(FrameUID, TrackingID);
 
 		CREATE TABLE IF NOT EXISTS KnownFace(
 			KnownFaceUID	INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -833,9 +834,13 @@ namespace Database
 
 	std::string SelectDetectionFramesWithBoxes = R"RAW(
 		SELECT f.FrameUID, f.Timestamp, f.FrameWidth, f.FrameHeight,
-			   b.TrackingID, b.ClassID, b.ClassName, b.Confidence, b.X, b.Y, b.W, b.H, b.IsBaseline, b.CropPath
+			   b.TrackingID, b.ClassID, b.ClassName, b.Confidence, b.X, b.Y, b.W, b.H, b.IsBaseline, b.CropPath,
+			   kf.Name
 		FROM DetectionFrame f
 		LEFT JOIN DetectionBox b ON f.FrameUID = b.FrameUID
+		LEFT JOIN FaceCrop fc ON fc.FrameUID = b.FrameUID AND fc.TrackingID = b.TrackingID
+		LEFT JOIN FaceEmbedding fe ON fe.FaceCropUID = fc.CropUID AND fe.KnownFaceUID IS NOT NULL
+		LEFT JOIN KnownFace kf ON kf.KnownFaceUID = fe.KnownFaceUID
 		WHERE f.CameraID = @CameraID
 			AND f.Timestamp >= @TimestampFrom
 			AND f.Timestamp <= @TimestampTo
@@ -1006,6 +1011,16 @@ namespace Database
 		WHERE fe.EmbeddingUID IS NULL
 		ORDER BY fc.Timestamp ASC
 		LIMIT @Limit;
+	)RAW";
+
+	std::string SelectRecognizedFacesForClip = R"RAW(
+		SELECT DISTINCT kf.Name
+		FROM FaceCrop fc
+		INNER JOIN FaceEmbedding fe ON fc.CropUID = fe.FaceCropUID
+		INNER JOIN KnownFace kf ON fe.KnownFaceUID = kf.KnownFaceUID
+		WHERE fc.CameraID = @CameraID
+			AND fc.Timestamp >= @TimestampFrom
+			AND fc.Timestamp <= @TimestampTo;
 	)RAW";
 
 	std::string DeleteFaceEmbedding = R"RAW(
@@ -1234,6 +1249,7 @@ namespace Database
 		CREATE_QUERY( SelectEmbeddingsForKnownFace );
 		CREATE_QUERY( SelectUnidentifiedFaces );
 		CREATE_QUERY( SelectFaceCropsWithoutEmbedding );
+		CREATE_QUERY( SelectRecognizedFacesForClip );
 		CREATE_QUERY( DeleteFaceEmbedding );
 		CREATE_QUERY( SelectFaceSightings );
 
