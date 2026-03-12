@@ -31,7 +31,7 @@ struct VideoSettings
 	, FaceDetectionEnabled( false )
 	, FaceDetectionConfidence( 0.7 )
 	, FaceRecognitionEnabled( false )
-	, FaceRecognitionConfidence( 0.5 )
+	, FaceRecognitionConfidence( 0.6 )
 	{}
 
 	std::string	DataPath;

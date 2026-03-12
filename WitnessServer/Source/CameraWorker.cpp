@@ -351,7 +351,8 @@ void CameraWorker::WorkerInit()
 						int64_t cropUID = query->GetLastInsertionId();
 
 						// Generate face embedding and match against known faces
-						if( faceEmbModel && faceEmbModel->IsModelLoaded() )
+						// Skip low-confidence detections — YuNet false positives produce garbage embeddings
+						if( faceEmbModel && faceEmbModel->IsModelLoaded() && box.Confidence >= 0.8f )
 						{
 							// Align face using landmarks if available
 							bool hasLandmarks = false;
@@ -380,51 +381,40 @@ void CameraWorker::WorkerInit()
 							auto embedding = faceEmbModel->GetEmbedding( alignedFace );
 							if( !embedding.empty() )
 							{
-								// Match against known faces
-								int matchedUID = 0;
-								double matchConf = 0.0;
-								int verified = 0;
+								// Match against known faces (for display only — not persisted)
 								std::string matchedName;
+								double matchConf = 0.0;
 
 								if( faceCache )
 								{
 									auto match = faceCache->Match( embedding, (float)faceRecThreshold );
 									if( match.Matched )
 									{
-										matchedUID = match.KnownFaceUID;
 										matchConf = match.Similarity;
 										matchedName = match.Name;
+										faceRecognitionNames[trackID] = matchedName;
+
+										crow::json::wvalue recEv;
+										recEv["cameraId"] = frame.CameraID;
+										recEv["cropUID"] = static_cast<int>( cropUID );
+										recEv["knownFaceUID"] = match.KnownFaceUID;
+										recEv["name"] = matchedName;
+										recEv["confidence"] = matchConf;
+										recEv["timestamp"] = frame.Timestamp;
+										events->Broadcast( "face:recognized", std::move( recEv ) );
 									}
 								}
 
-								// Insert embedding
+								// Store embedding unassigned — identity is set via admin UI
 								SQLiteDatabaseQueryInstance embQ( db, "InsertFaceEmbedding" );
 								embQ->Bind( "@FaceCropUID", static_cast<int>( cropUID ) );
-								if( matchedUID > 0 )
-									embQ->Bind( "@KnownFaceUID", matchedUID );
-								else
-									embQ->BindNull( "@KnownFaceUID" );
+								embQ->BindNull( "@KnownFaceUID" );
 								embQ->BindBlob( "@Embedding", embedding.data(), static_cast<int>( embedding.size() * sizeof( float ) ) );
 								embQ->Bind( "@Dimension", static_cast<int>( embedding.size() ) );
 								embQ->Bind( "@MatchConfidence", matchConf );
-								embQ->Bind( "@Verified", verified );
+								embQ->Bind( "@Verified", 0 );
 								embQ->Bind( "@CreatedAt", frame.Timestamp );
 								embQ->Execute( nullptr );
-
-								// Broadcast recognition event
-								if( matchedUID > 0 )
-								{
-									faceRecognitionNames[trackID] = matchedName;
-
-									crow::json::wvalue recEv;
-									recEv["cameraId"] = frame.CameraID;
-									recEv["cropUID"] = static_cast<int>( cropUID );
-									recEv["knownFaceUID"] = matchedUID;
-									recEv["name"] = matchedName;
-									recEv["confidence"] = matchConf;
-									recEv["timestamp"] = frame.Timestamp;
-									events->Broadcast( "face:recognized", std::move( recEv ) );
-								}
 							}
 						}
 					}
