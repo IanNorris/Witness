@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, nextTick, watch } from 'vue'
+import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { api } from '../../composables/useApi'
 import { useCameraStore } from '../../stores/cameras'
 import ConfirmModal from '../common/ConfirmModal.vue'
@@ -33,6 +33,14 @@ const unknownFaces = ref<UnidentifiedFace[]>([])
 const loading = ref(true)
 const unknownOffset = ref(0)
 const unknownLimit = 50
+
+const filteredUnknownFaces = computed(() => {
+  if (!orientationFilter.value) return unknownFaces.value
+  return unknownFaces.value.filter(f => {
+    if (!f.landmarks || f.landmarks.length < 10) return false
+    return classifyOrientation(f.landmarks).label === 'OK'
+  })
+})
 
 // New known face form
 const newName = ref('')
@@ -75,17 +83,26 @@ const uploadResult = ref<{ ok: boolean; message: string } | null>(null)
 
 // Landmark overlay toggle
 const showLandmarks = ref(false)
+const orientationFilter = ref(false)
 const cropCanvases: Record<number, HTMLCanvasElement> = {}
 
-function onCropLoad(event: Event, face: UnidentifiedFace) {
+function sizeCanvas(canvas: HTMLCanvasElement) {
+  const dpr = window.devicePixelRatio || 1
+  const rect = canvas.getBoundingClientRect()
+  canvas.width = Math.round(rect.width * dpr)
+  canvas.height = Math.round(rect.height * dpr)
+  const ctx = canvas.getContext('2d')
+  if (ctx) ctx.scale(dpr, dpr)
+  return { w: rect.width, h: rect.height }
+}
+
+function onCropLoad(_event: Event, face: UnidentifiedFace) {
   if (!showLandmarks.value || !face.landmarks?.length) return
   nextTick(() => {
     const canvas = cropCanvases[face.cropUID]
     if (!canvas) return
-    const img = event.target as HTMLImageElement
-    canvas.width = img.naturalWidth || 112
-    canvas.height = img.naturalHeight || 112
-    drawLandmarks(canvas, face.landmarks)
+    const { w, h } = sizeCanvas(canvas)
+    drawLandmarks(canvas, face.landmarks, w, h)
   })
 }
 
@@ -96,14 +113,12 @@ watch(showLandmarks, (show) => {
       if (ctx) ctx.clearRect(0, 0, c.width, c.height)
     })
   } else {
-    // Re-draw on existing loaded images
     nextTick(() => {
       unknownFaces.value.forEach(face => {
         const canvas = cropCanvases[face.cropUID]
         if (canvas && face.landmarks?.length) {
-          canvas.width = 112
-          canvas.height = 112
-          drawLandmarks(canvas, face.landmarks)
+          const { w, h } = sizeCanvas(canvas)
+          drawLandmarks(canvas, face.landmarks, w, h)
         }
       })
     })
@@ -143,13 +158,10 @@ function classifyOrientation(lm: number[]): { label: string; color: string } {
   return { label: 'REJECTED', color: '#ff0000' }
 }
 
-function drawLandmarks(canvas: HTMLCanvasElement, landmarks: number[]) {
+function drawLandmarks(canvas: HTMLCanvasElement, landmarks: number[], w: number, h: number) {
   if (landmarks.length < 10) return
   const ctx = canvas.getContext('2d')
   if (!ctx) return
-
-  const w = canvas.width, h = canvas.height
-  ctx.clearRect(0, 0, w, h)
 
   const rEyeX = landmarks[0] as number * w, rEyeY = landmarks[1] as number * h
   const lEyeX = landmarks[2] as number * w, lEyeY = landmarks[3] as number * h
@@ -162,10 +174,12 @@ function drawLandmarks(canvas: HTMLCanvasElement, landmarks: number[]) {
   ctx.fillStyle = orient.color
   ctx.lineWidth = 1.5
 
+  const dotR = Math.max(2, w / 40)
+
   // Landmark dots
   for (const [x, y] of [[rEyeX, rEyeY], [lEyeX, lEyeY], [noseX, noseY], [rMouthX, rMouthY], [lMouthX, lMouthY]]) {
     ctx.beginPath()
-    ctx.arc(x!, y!, 3, 0, Math.PI * 2)
+    ctx.arc(x!, y!, dotR, 0, Math.PI * 2)
     ctx.fill()
   }
 
@@ -192,8 +206,9 @@ function drawLandmarks(canvas: HTMLCanvasElement, landmarks: number[]) {
   ctx.stroke()
 
   // Label
-  ctx.font = 'bold 11px sans-serif'
-  ctx.fillText(orient.label, 3, 13)
+  const fontSize = Math.max(10, Math.round(w / 8))
+  ctx.font = `bold ${fontSize}px sans-serif`
+  ctx.fillText(orient.label, 3, fontSize + 2)
 }
 
 function formatTime(ts: number) {
@@ -419,11 +434,19 @@ function fileToBase64(file: File): Promise<string> {
     </div>
 
     <!-- Landmark overlay toggle -->
-    <div class="form-check form-switch mb-3">
+    <div class="form-check form-switch mb-2">
       <input class="form-check-input" type="checkbox" id="landmarkOverlay" v-model="showLandmarks" />
       <label class="form-check-label small" for="landmarkOverlay">
         Show landmark overlay
         <span class="text-muted-custom">— renders orientation lines on face crops (🟢 frontal, 🟡 marginal, 🔴 rejected)</span>
+      </label>
+    </div>
+
+    <div class="form-check form-switch mb-3">
+      <input class="form-check-input" type="checkbox" id="orientationFilter" v-model="orientationFilter" />
+      <label class="form-check-label small" for="orientationFilter">
+        Only show faces passing orientation check
+        <span class="text-muted-custom">— hides rejected and marginal faces</span>
       </label>
     </div>
 
@@ -582,7 +605,7 @@ function fileToBase64(file: File): Promise<string> {
       </div>
 
       <div class="row g-2">
-        <div v-for="face in unknownFaces" :key="face.cropUID" class="col-6 col-md-3 col-lg-2">
+        <div v-for="face in filteredUnknownFaces" :key="face.cropUID" class="col-6 col-md-3 col-lg-2">
           <div class="card bg-dark border-secondary">
             <div style="position: relative; aspect-ratio: 1;">
               <img :src="cropUrl(face.cropUID)"
@@ -629,8 +652,8 @@ function fileToBase64(file: File): Promise<string> {
         </div>
       </div>
 
-      <div v-if="unknownFaces.length === 0" class="text-muted-custom small">
-        No unidentified faces.
+      <div v-if="filteredUnknownFaces.length === 0" class="text-muted-custom small">
+        {{ orientationFilter ? 'No faces pass the orientation check.' : 'No unidentified faces.' }}
       </div>
 
       <div v-if="unknownFaces.length >= unknownLimit" class="text-center mt-2">
