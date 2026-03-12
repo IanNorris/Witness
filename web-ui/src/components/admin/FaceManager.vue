@@ -382,7 +382,7 @@ onMounted(fetchAll)
             <div class="card-body p-1">
               <div class="small text-muted-custom">{{ cameraName(face.cameraId) }}</div>
               <div class="small text-muted-custom">{{ formatTime(face.timestamp) }}</div>
-              <div class="small text-muted-custom">{{ Math.round(face.detectionConfidence * 100) }}%</div>
+              <div class="small text-muted-custom">{{ Math.min(Math.round(face.detectionConfidence * 100), 100) }}%</div>
 
               <!-- Assign controls -->
               <div v-if="assigningCropUID === face.cropUID" class="mt-1">

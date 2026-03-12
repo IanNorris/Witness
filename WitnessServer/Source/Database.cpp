@@ -1046,6 +1046,9 @@ namespace Database
 		// Fix any CameraAction rows with MDThreshold=0 (would trigger on any motion)
 		sqlite3_exec( DB->GetDatabase(), "UPDATE CameraAction SET MDThreshold = 0.05 WHERE MDThreshold = 0 OR MDThreshold IS NULL;", nullptr, nullptr, nullptr );
 
+		// Fix FaceCrop rows with bad confidence values from column-14 bug (landmark pixel coords stored as confidence)
+		sqlite3_exec( DB->GetDatabase(), "UPDATE FaceCrop SET Confidence = Confidence / 100.0 WHERE Confidence > 1.0;", nullptr, nullptr, nullptr );
+
 		// Migrate old Tag table schema — drop and recreate if it has the old schema
 		// (old schema had Name CHAR(64), Description TEXT; new needs Name TEXT UNIQUE, Display, Icon, etc.)
 		{
