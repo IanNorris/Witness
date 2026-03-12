@@ -221,11 +221,11 @@ std::vector<float> FaceEmbeddingModel::GetEmbedding( const cv::Mat& face112 )
 	else
 		resized = face112;
 
-	// BGR to RGB, normalize to [0, 1]
+	// BGR to RGB, normalize to [-1, 1] for ArcFace/MobileFaceNet: (pixel - 127.5) / 128.0
 	cv::Mat rgb;
 	cv::cvtColor( resized, rgb, cv::COLOR_BGR2RGB );
 	cv::Mat floatFrame;
-	rgb.convertTo( floatFrame, CV_32F, 1.0 / 255.0 );
+	rgb.convertTo( floatFrame, CV_32F, 1.0 / 128.0, -127.5 / 128.0 );
 
 	// HWC to CHW
 	int channelSize = m_Data->InputWidth * m_Data->InputHeight;
