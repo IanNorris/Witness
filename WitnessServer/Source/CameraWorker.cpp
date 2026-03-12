@@ -354,67 +354,78 @@ void CameraWorker::WorkerInit()
 						// Skip low-confidence detections — YuNet false positives produce garbage embeddings
 						if( faceEmbModel && faceEmbModel->IsModelLoaded() && box.Confidence >= 0.8f )
 						{
-							// Align face using landmarks if available
+							// Validate landmark geometry — real faces have eyes above nose above mouth
+							// YuNet landmarks: 0=right eye, 1=left eye, 2=nose, 3=right mouth, 4=left mouth
 							bool hasLandmarks = false;
 							for( int li = 0; li < 5; li++ )
 							{
 								if( lmX[li] != 0.0f || lmY[li] != 0.0f ) { hasLandmarks = true; break; }
 							}
 
-							cv::Mat alignedFace;
+							bool validGeometry = false;
 							if( hasLandmarks )
 							{
-								// Convert normalized landmarks to crop-relative pixels
+								// Convert to crop-relative pixels for geometry check
 								float cropLmX[5], cropLmY[5];
 								for( int li = 0; li < 5; li++ )
 								{
 									cropLmX[li] = ( lmX[li] - box.X ) / box.W * 112.0f;
 									cropLmY[li] = ( lmY[li] - box.Y ) / box.H * 112.0f;
 								}
-								alignedFace = Witness::Camera::FaceEmbeddingModel::AlignFace( faceCrop, cropLmX, cropLmY );
-							}
-							else
-							{
-								alignedFace = faceCrop;
-							}
 
-							auto embedding = faceEmbModel->GetEmbedding( alignedFace );
-							if( !embedding.empty() )
-							{
-								// Match against known faces (for display only — not persisted)
-								std::string matchedName;
-								double matchConf = 0.0;
+								// Eyes must be above nose, nose above mouth center
+								float eyeAvgY = ( cropLmY[0] + cropLmY[1] ) * 0.5f;
+								float mouthAvgY = ( cropLmY[3] + cropLmY[4] ) * 0.5f;
+								float interEyeDist = std::abs( cropLmX[1] - cropLmX[0] );
 
-								if( faceCache )
+								if( eyeAvgY < cropLmY[2] && cropLmY[2] < mouthAvgY && interEyeDist > 15.0f )
 								{
-									auto match = faceCache->Match( embedding, (float)faceRecThreshold );
-									if( match.Matched )
-									{
-										matchConf = match.Similarity;
-										matchedName = match.Name;
-										faceRecognitionNames[trackID] = matchedName;
-
-										crow::json::wvalue recEv;
-										recEv["cameraId"] = frame.CameraID;
-										recEv["cropUID"] = static_cast<int>( cropUID );
-										recEv["knownFaceUID"] = match.KnownFaceUID;
-										recEv["name"] = matchedName;
-										recEv["confidence"] = matchConf;
-										recEv["timestamp"] = frame.Timestamp;
-										events->Broadcast( "face:recognized", std::move( recEv ) );
-									}
+									validGeometry = true;
 								}
 
-								// Store embedding unassigned — identity is set via admin UI
-								SQLiteDatabaseQueryInstance embQ( db, "InsertFaceEmbedding" );
-								embQ->Bind( "@FaceCropUID", static_cast<int>( cropUID ) );
-								embQ->BindNull( "@KnownFaceUID" );
-								embQ->BindBlob( "@Embedding", embedding.data(), static_cast<int>( embedding.size() * sizeof( float ) ) );
-								embQ->Bind( "@Dimension", static_cast<int>( embedding.size() ) );
-								embQ->Bind( "@MatchConfidence", matchConf );
-								embQ->Bind( "@Verified", 0 );
-								embQ->Bind( "@CreatedAt", frame.Timestamp );
-								embQ->Execute( nullptr );
+								if( validGeometry )
+								{
+									cv::Mat alignedFace = Witness::Camera::FaceEmbeddingModel::AlignFace( faceCrop, cropLmX, cropLmY );
+
+									auto embedding = faceEmbModel->GetEmbedding( alignedFace );
+									if( !embedding.empty() )
+									{
+										// Match against known faces (for display only — not persisted)
+										std::string matchedName;
+										double matchConf = 0.0;
+
+										if( faceCache )
+										{
+											auto match = faceCache->Match( embedding, (float)faceRecThreshold );
+											if( match.Matched )
+											{
+												matchConf = match.Similarity;
+												matchedName = match.Name;
+												faceRecognitionNames[trackID] = matchedName;
+
+												crow::json::wvalue recEv;
+												recEv["cameraId"] = frame.CameraID;
+												recEv["cropUID"] = static_cast<int>( cropUID );
+												recEv["knownFaceUID"] = match.KnownFaceUID;
+												recEv["name"] = matchedName;
+												recEv["confidence"] = matchConf;
+												recEv["timestamp"] = frame.Timestamp;
+												events->Broadcast( "face:recognized", std::move( recEv ) );
+											}
+										}
+
+										// Store embedding unassigned — identity is set via admin UI
+										SQLiteDatabaseQueryInstance embQ( db, "InsertFaceEmbedding" );
+										embQ->Bind( "@FaceCropUID", static_cast<int>( cropUID ) );
+										embQ->BindNull( "@KnownFaceUID" );
+										embQ->BindBlob( "@Embedding", embedding.data(), static_cast<int>( embedding.size() * sizeof( float ) ) );
+										embQ->Bind( "@Dimension", static_cast<int>( embedding.size() ) );
+										embQ->Bind( "@MatchConfidence", matchConf );
+										embQ->Bind( "@Verified", 0 );
+										embQ->Bind( "@CreatedAt", frame.Timestamp );
+										embQ->Execute( nullptr );
+									}
+								}
 							}
 						}
 					}
