@@ -575,6 +575,12 @@ void CrowListener::RegisterRoutes()
 		HandleFaceReprocess( req, res );
 	});
 
+	CROW_ROUTE( m_App, "/api/face/upload" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleFaceUpload( req, res );
+	});
+
 	// Setup / Reconfiguration (admin-only)
 	CROW_ROUTE( m_App, "/setup" )
 	([this]( const crow::request& req, crow::response& res )

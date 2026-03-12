@@ -67,6 +67,11 @@ const reprocessResult = ref<{ processed: number } | null>(null)
 // Clip preview
 const previewFace = ref<{ cameraId: number; timestamp: number } | null>(null)
 
+// Upload
+const uploading = ref(false)
+const uploadTargetId = ref<number | null>(null)
+const uploadResult = ref<{ ok: boolean; message: string } | null>(null)
+
 function cameraName(id: number) {
   return cameraStore.getCameraById(id)?.name ?? `Camera ${id}`
 }
@@ -233,6 +238,48 @@ async function reprocess() {
 }
 
 onMounted(fetchAll)
+
+function triggerUpload(knownFaceUID: number | null) {
+  uploadTargetId.value = knownFaceUID
+  uploadResult.value = null
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = 'image/*'
+  input.onchange = async () => {
+    const file = input.files?.[0]
+    if (!file) return
+    uploading.value = true
+    uploadResult.value = null
+    try {
+      const base64 = await fileToBase64(file)
+      const body: Record<string, unknown> = { image: base64 }
+      if (knownFaceUID) body.knownFaceUID = knownFaceUID
+      const result = await api<{ ok: boolean; confidence: number; facesDetected: number; cropUID: number }>(
+        '/api/face/upload',
+        { method: 'POST', body }
+      )
+      uploadResult.value = {
+        ok: true,
+        message: `Face detected (${Math.round(result.confidence * 100)}% confidence)${result.facesDetected > 1 ? ` — ${result.facesDetected} faces found, used best` : ''}`
+      }
+      await fetchAll()
+    } catch (e: any) {
+      uploadResult.value = { ok: false, message: e.message || 'Upload failed' }
+    } finally {
+      uploading.value = false
+    }
+  }
+  input.click()
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
 </script>
 
 <template>
@@ -328,6 +375,12 @@ onMounted(fetchAll)
                 </div>
                 <div class="mt-1">
                   <button class="btn btn-sm btn-outline-secondary me-1 py-0" @click="startEdit(face)">Edit</button>
+                  <button class="btn btn-sm btn-outline-success me-1 py-0"
+                          :disabled="uploading"
+                          @click="triggerUpload(face.id)"
+                          title="Upload a photo to add a verified face crop">
+                    📷 Upload
+                  </button>
                   <button class="btn btn-sm btn-outline-info me-1 py-0" @click="toggleExpand(face.id)">
                     {{ expandedFaceId === face.id ? 'Hide' : 'Sightings' }}
                   </button>
@@ -371,11 +424,23 @@ onMounted(fetchAll)
     <div class="mb-4">
       <div class="d-flex justify-content-between align-items-center mb-2">
         <h5 class="mb-0">Unidentified Faces</h5>
-        <button class="btn btn-sm btn-outline-primary"
-                :disabled="reprocessing"
-                @click="reprocess">
-          {{ reprocessing ? 'Processing...' : 'Reprocess Crops' }}
-        </button>
+        <div>
+          <button class="btn btn-sm btn-outline-success me-1"
+                  :disabled="uploading"
+                  @click="triggerUpload(null)"
+                  title="Upload a photo — face will appear as unidentified">
+            📷 Upload Photo
+          </button>
+          <button class="btn btn-sm btn-outline-primary"
+                  :disabled="reprocessing"
+                  @click="reprocess">
+            {{ reprocessing ? 'Processing...' : 'Reprocess Crops' }}
+          </button>
+        </div>
+      </div>
+
+      <div v-if="uploadResult" class="alert py-1 small" :class="uploadResult.ok ? 'alert-success' : 'alert-danger'">
+        {{ uploadResult.message }}
       </div>
 
       <div v-if="reprocessResult" class="alert alert-info py-1 small">

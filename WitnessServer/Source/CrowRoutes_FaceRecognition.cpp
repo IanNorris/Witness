@@ -10,6 +10,8 @@
 #include <fstream>
 #include <chrono>
 #include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
+#include <opencv2/objdetect/face.hpp>
 
 std::shared_ptr<Witness::Camera::FaceEmbeddingModel> CrowListener::EnsureFaceModel()
 {
@@ -637,5 +639,257 @@ void CrowListener::HandleFaceReprocess( const crow::request& req, crow::response
 	res.set_header( "Content-Type", "application/json" );
 	res.body = result.dump();
 	res.code = 200;
+	res.end();
+}
+
+// --------------------------------------------------------------------------
+// Upload a face photo, detect the face, crop, generate embedding
+// --------------------------------------------------------------------------
+void CrowListener::HandleFaceUpload( const crow::request& req, crow::response& res )
+{
+	auto body = crow::json::load( req.body );
+	if( !body ) { res.code = 400; res.end(); return; }
+
+	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, &body,
+		CrowAuth::Action::ReadWrite, CrowAuth::Privilege::Administrator );
+	if( UserUID < 0 ) { res.code = 401; res.end(); return; }
+
+	// Parse request: base64-encoded image data + optional knownFaceUID
+	if( !body.has( "image" ) )
+	{
+		res.code = 400;
+		res.body = R"({"error":"Missing 'image' field [base64-encoded]"})";		res.set_header( "Content-Type", "application/json" );
+		res.end();
+		return;
+	}
+
+	std::string imageB64 = std::string( body["image"].s() );
+	int knownFaceUID = body.has( "knownFaceUID" ) ? (int)body["knownFaceUID"].i() : 0;
+
+	// Strip data URL prefix if present (e.g. "data:image/jpeg;base64,...")
+	auto commaPos = imageB64.find( ',' );
+	if( commaPos != std::string::npos )
+		imageB64 = imageB64.substr( commaPos + 1 );
+
+	// Decode base64
+	auto decoded = crow::utility::base64decode( imageB64 );
+	if( decoded.empty() )
+	{
+		res.code = 400;
+		res.body = R"({"error":"Invalid base64 image data"})";
+		res.set_header( "Content-Type", "application/json" );
+		res.end();
+		return;
+	}
+
+	// Decode image
+	std::vector<uchar> imgBuf( decoded.begin(), decoded.end() );
+	cv::Mat image = cv::imdecode( imgBuf, cv::IMREAD_COLOR );
+	if( image.empty() )
+	{
+		res.code = 400;
+		res.body = R"({"error":"Failed to decode image"})";
+		res.set_header( "Content-Type", "application/json" );
+		res.end();
+		return;
+	}
+
+	// Ensure face recognition model is loaded
+	auto embModel = EnsureFaceModel();
+	if( !embModel )
+	{
+		res.code = 400;
+		res.body = R"({"error":"Face recognition model not loaded"})";
+		res.set_header( "Content-Type", "application/json" );
+		res.end();
+		return;
+	}
+
+	// Resolve face detection model path
+	std::string faceDetectModelPath;
+	{
+		SQLiteDatabaseQueryInstance sq( m_GlobalContext->Database, "GetSetting" );
+		sq->Bind( "@Name", "face_detection_model_path" );
+		sq->Execute( [&]( const SQLiteDatabaseQuery& row ) {
+			const char* val = row.GetColumnValueText( 0 );
+			if( val ) faceDetectModelPath = val;
+			return true;
+		});
+	}
+	if( faceDetectModelPath.empty() )
+	{
+#ifdef _WIN32
+		wchar_t buf[MAX_PATH] = {};
+		GetModuleFileNameW( nullptr, buf, MAX_PATH );
+		auto defaultPath = std::filesystem::path( buf ).parent_path() / "models" / "face_detection_yunet_2023mar.onnx";
+#else
+		auto defaultPath = std::filesystem::canonical( "/proc/self/exe" ).parent_path() / "models" / "face_detection_yunet_2023mar.onnx";
+#endif
+		if( std::filesystem::exists( defaultPath ) )
+			faceDetectModelPath = defaultPath.string();
+	}
+
+	if( faceDetectModelPath.empty() || !std::filesystem::exists( faceDetectModelPath ) )
+	{
+		res.code = 400;
+		res.body = R"({"error":"Face detection model not found"})";
+		res.set_header( "Content-Type", "application/json" );
+		res.end();
+		return;
+	}
+
+	// Create face detector and detect faces
+	auto detector = cv::FaceDetectorYN::create( faceDetectModelPath, "", image.size(), 0.7f, 0.3f, 5000 );
+	cv::Mat faces;
+	detector->detect( image, faces );
+
+	if( faces.empty() || faces.rows == 0 )
+	{
+		res.code = 400;
+		res.body = R"({"error":"No face detected in image. Please upload a clear photo with a visible face."})";
+		res.set_header( "Content-Type", "application/json" );
+		res.end();
+		return;
+	}
+
+	// Pick the highest-confidence face
+	int bestIdx = 0;
+	float bestScore = 0.0f;
+	for( int i = 0; i < faces.rows; i++ )
+	{
+		float score = faces.at<float>( i, 14 );
+		if( score > bestScore )
+		{
+			bestScore = score;
+			bestIdx = i;
+		}
+	}
+
+	// Extract bounding box and landmarks from OpenCV FaceDetectorYN output
+	// Format: [x, y, w, h, lm0x, lm0y, lm1x, lm1y, lm2x, lm2y, lm3x, lm3y, lm4x, lm4y, score]
+	float bx = faces.at<float>( bestIdx, 0 );
+	float by = faces.at<float>( bestIdx, 1 );
+	float bw = faces.at<float>( bestIdx, 2 );
+	float bh = faces.at<float>( bestIdx, 3 );
+
+	float lmX[5], lmY[5];
+	for( int i = 0; i < 5; i++ )
+	{
+		lmX[i] = faces.at<float>( bestIdx, 4 + i * 2 );
+		lmY[i] = faces.at<float>( bestIdx, 5 + i * 2 );
+	}
+
+	// Clamp bounding box to image bounds
+	int ix = std::max( 0, (int)bx );
+	int iy = std::max( 0, (int)by );
+	int iw = std::min( (int)bw, image.cols - ix );
+	int ih = std::min( (int)bh, image.rows - iy );
+	if( iw <= 0 || ih <= 0 )
+	{
+		res.code = 400;
+		res.body = R"({"error":"Detected face region is invalid"})";
+		res.set_header( "Content-Type", "application/json" );
+		res.end();
+		return;
+	}
+
+	// Crop and resize to 112x112
+	cv::Rect faceRect( ix, iy, iw, ih );
+	cv::Mat faceCrop;
+	cv::resize( image( faceRect ), faceCrop, cv::Size( 112, 112 ) );
+
+	// Normalize landmarks relative to the 112x112 crop
+	float normLmX[5], normLmY[5];
+	for( int i = 0; i < 5; i++ )
+	{
+		normLmX[i] = ( lmX[i] - (float)ix ) / (float)iw;
+		normLmY[i] = ( lmY[i] - (float)iy ) / (float)ih;
+	}
+
+	// Save crop to disk
+	auto facesDir = std::filesystem::path( m_GlobalContext->CachePath ) / "faces" / "uploads";
+	std::filesystem::create_directories( facesDir );
+
+	auto now = std::chrono::duration<double>( std::chrono::system_clock::now().time_since_epoch() ).count();
+	std::ostringstream filenameStr;
+	filenameStr << std::fixed << std::setprecision( 3 ) << now << "_upload.jpg";
+	auto facePath = facesDir / filenameStr.str();
+
+	std::vector<int> jpegParams = { cv::IMWRITE_JPEG_QUALITY, 95 };
+	cv::imwrite( facePath.string(), faceCrop, jpegParams );
+
+	// Insert FaceCrop into database (CameraID=0 for uploads, no FrameUID/TrackingID)
+	int64_t cropUID = 0;
+	{
+		SQLiteDatabaseQueryInstance q( m_GlobalContext->Database, "InsertFaceCrop" );
+		q->Bind( "@CameraID", 0 );
+		q->Bind( "@Timestamp", now );
+		q->Bind( "@FrameUID", 0 );
+		q->Bind( "@TrackingID", 0 );
+		q->Bind( "@FilePath", facePath.string().c_str() );
+		q->Bind( "@Confidence", (double)bestScore );
+		for( int i = 0; i < 5; i++ )
+		{
+			char nameX[32], nameY[32];
+			snprintf( nameX, sizeof( nameX ), "@Landmark%dX", i );
+			snprintf( nameY, sizeof( nameY ), "@Landmark%dY", i );
+			q->Bind( nameX, (double)normLmX[i] );
+			q->Bind( nameY, (double)normLmY[i] );
+		}
+		q->Execute( nullptr );
+		cropUID = q->GetLastInsertionId();
+	}
+
+	// Align face using landmarks and generate embedding
+	float cropLmX[5], cropLmY[5];
+	for( int i = 0; i < 5; i++ )
+	{
+		cropLmX[i] = normLmX[i] * 112.0f;
+		cropLmY[i] = normLmY[i] * 112.0f;
+	}
+	cv::Mat aligned = Witness::Camera::FaceEmbeddingModel::AlignFace( faceCrop, cropLmX, cropLmY );
+
+	auto embedding = embModel->GetEmbedding( aligned );
+	if( embedding.empty() )
+	{
+		res.code = 500;
+		res.body = R"({"error":"Failed to generate face embedding"})";
+		res.set_header( "Content-Type", "application/json" );
+		res.end();
+		return;
+	}
+
+	// Store embedding
+	{
+		SQLiteDatabaseQueryInstance q( m_GlobalContext->Database, "InsertFaceEmbedding" );
+		q->Bind( "@FaceCropUID", (int)cropUID );
+		if( knownFaceUID > 0 )
+			q->Bind( "@KnownFaceUID", knownFaceUID );
+		else
+			q->BindNull( "@KnownFaceUID" );
+		q->BindBlob( "@Embedding", embedding.data(), static_cast<int>( embedding.size() * sizeof( float ) ) );
+		q->Bind( "@Dimension", static_cast<int>( embedding.size() ) );
+		q->Bind( "@MatchConfidence", knownFaceUID > 0 ? 1.0 : 0.0 );
+		q->Bind( "@Verified", knownFaceUID > 0 ? 1 : 0 );
+		q->Bind( "@CreatedAt", now );
+		q->Execute( nullptr );
+	}
+
+	// Refresh cache if assigned to a known face
+	if( knownFaceUID > 0 && m_GlobalContext->FaceCache )
+		m_GlobalContext->FaceCache->Refresh( m_GlobalContext->Database );
+
+	LOG_INFO( "FaceUpload: Detected face (%.1f%% confidence), saved crop %lld%s",
+		bestScore * 100.0f, (long long)cropUID,
+		knownFaceUID > 0 ? (" assigned to known face " + std::to_string( knownFaceUID )).c_str() : "" );
+
+	crow::json::wvalue result;
+	result["ok"] = true;
+	result["cropUID"] = (int)cropUID;
+	result["confidence"] = bestScore;
+	result["facesDetected"] = faces.rows;
+	res.code = 200;
+	res.body = result.dump();
+	res.set_header( "Content-Type", "application/json" );
 	res.end();
 }
