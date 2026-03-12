@@ -331,6 +331,14 @@ void CameraWorker::WorkerInit()
 							}
 						}
 
+						// Normalize landmarks relative to crop bounding box (0-1)
+						float normLmX[5], normLmY[5];
+						for( int li = 0; li < 5; li++ )
+						{
+							normLmX[li] = ( lmX[li] - (float)fX ) / (float)fW;
+							normLmY[li] = ( lmY[li] - (float)fY ) / (float)fH;
+						}
+
 						SQLiteDatabaseQueryInstance query( db, "InsertFaceCrop" );
 						query->Bind( "@CameraID", frame.CameraID );
 						query->Bind( "@Timestamp", frame.Timestamp );
@@ -338,16 +346,16 @@ void CameraWorker::WorkerInit()
 						query->Bind( "@TrackingID", static_cast<int>( trackID ) );
 						query->Bind( "@FilePath", facePath.string().c_str() );
 						query->Bind( "@Confidence", static_cast<double>( box.Confidence ) );
-						query->Bind( "@Landmark0X", static_cast<double>( lmX[0] ) );
-						query->Bind( "@Landmark0Y", static_cast<double>( lmY[0] ) );
-						query->Bind( "@Landmark1X", static_cast<double>( lmX[1] ) );
-						query->Bind( "@Landmark1Y", static_cast<double>( lmY[1] ) );
-						query->Bind( "@Landmark2X", static_cast<double>( lmX[2] ) );
-						query->Bind( "@Landmark2Y", static_cast<double>( lmY[2] ) );
-						query->Bind( "@Landmark3X", static_cast<double>( lmX[3] ) );
-						query->Bind( "@Landmark3Y", static_cast<double>( lmY[3] ) );
-						query->Bind( "@Landmark4X", static_cast<double>( lmX[4] ) );
-						query->Bind( "@Landmark4Y", static_cast<double>( lmY[4] ) );
+						query->Bind( "@Landmark0X", static_cast<double>( normLmX[0] ) );
+						query->Bind( "@Landmark0Y", static_cast<double>( normLmY[0] ) );
+						query->Bind( "@Landmark1X", static_cast<double>( normLmX[1] ) );
+						query->Bind( "@Landmark1Y", static_cast<double>( normLmY[1] ) );
+						query->Bind( "@Landmark2X", static_cast<double>( normLmX[2] ) );
+						query->Bind( "@Landmark2Y", static_cast<double>( normLmY[2] ) );
+						query->Bind( "@Landmark3X", static_cast<double>( normLmX[3] ) );
+						query->Bind( "@Landmark3Y", static_cast<double>( normLmY[3] ) );
+						query->Bind( "@Landmark4X", static_cast<double>( normLmX[4] ) );
+						query->Bind( "@Landmark4Y", static_cast<double>( normLmY[4] ) );
 						query->Execute( nullptr );
 						int64_t cropUID = query->GetLastInsertionId();
 
@@ -370,8 +378,8 @@ void CameraWorker::WorkerInit()
 								float cropLmX[5], cropLmY[5];
 								for( int li = 0; li < 5; li++ )
 								{
-									cropLmX[li] = ( lmX[li] - box.X ) / box.W * 112.0f;
-									cropLmY[li] = ( lmY[li] - box.Y ) / box.H * 112.0f;
+									cropLmX[li] = ( lmX[li] - (float)fX ) / (float)fW * 112.0f;
+									cropLmY[li] = ( lmY[li] - (float)fY ) / (float)fH * 112.0f;
 								}
 
 								// Vertical ordering: eyes above nose above mouth
