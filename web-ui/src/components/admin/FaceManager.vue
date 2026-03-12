@@ -359,7 +359,7 @@ onMounted(fetchAll)
           <div class="card bg-dark border-secondary">
             <img :src="`/api/face/crop/${face.cropUID}`"
                  class="card-img-top"
-                 style="height: 112px; object-fit: cover;"
+                 style="aspect-ratio: 1; object-fit: cover;"
                  @error="($event.target as HTMLImageElement).style.display = 'none'" />
             <div class="card-body p-1">
               <div class="small text-muted-custom">{{ cameraName(face.cameraId) }}</div>
