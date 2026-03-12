@@ -414,6 +414,9 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 				Context->Database,
 				reprocessFilter,
 				reprocessFaceFilter,
+				Context->FaceEmbeddingModel,
+				Context->FaceCache,
+				Video.FaceRecognitionConfidence,
 				CachePath,
 				[ctx]() -> bool
 				{

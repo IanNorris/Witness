@@ -1,8 +1,10 @@
 #include "ClipReprocessWorker.h"
 #include "TagHelpers.h"
 #include "ObjectTracker.h"
+#include "FaceRecognitionCache.h"
 
 #include <Log.h>
+#include <FaceEmbeddingModel.h>
 #include <filesystem>
 #include <set>
 #include <sstream>
@@ -26,6 +28,9 @@ ClipReprocessWorker::ClipReprocessWorker(
 	std::shared_ptr<SQLiteDatabase> Database,
 	std::shared_ptr<Witness::Camera::ONNXDetectionFilter> DetectionFilter,
 	std::shared_ptr<Witness::Camera::FaceDetectionFilter> FaceFilter,
+	std::shared_ptr<Witness::Camera::FaceEmbeddingModel> FaceEmbModel,
+	std::shared_ptr<FaceRecognitionCache> FaceCache,
+	double FaceRecThreshold,
 	std::string CachePath,
 	std::function<bool()> IsIdle
 )
@@ -33,6 +38,9 @@ ClipReprocessWorker::ClipReprocessWorker(
 , Database( std::move( Database ) )
 , DetectionFilter( std::move( DetectionFilter ) )
 , FaceFilter( std::move( FaceFilter ) )
+, FaceEmbModel( std::move( FaceEmbModel ) )
+, FaceCache( std::move( FaceCache ) )
+, FaceRecThreshold( FaceRecThreshold )
 , CachePath( std::move( CachePath ) )
 , IsIdle( std::move( IsIdle ) )
 {
@@ -481,10 +489,11 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 									float fy = fr.Y1 / frameHeight;
 									if( std::abs( fx - box.X ) < 0.01f && std::abs( fy - box.Y ) < 0.01f )
 									{
+										// Normalize landmarks to crop-relative 0-1
 										for( int lm = 0; lm < 5; lm++ )
 										{
-											lmX[lm] = fr.LandmarkX[lm] / frameWidth;
-											lmY[lm] = fr.LandmarkY[lm] / frameHeight;
+											lmX[lm] = ( fr.LandmarkX[lm] / frameWidth - box.X ) / box.W;
+											lmY[lm] = ( fr.LandmarkY[lm] / frameHeight - box.Y ) / box.H;
 										}
 										break;
 									}
@@ -508,6 +517,76 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 								fq->Bind( "@Landmark4X", static_cast<double>( lmX[4] ) );
 								fq->Bind( "@Landmark4Y", static_cast<double>( lmY[4] ) );
 								fq->Execute( nullptr );
+								int64_t cropUID = fq->GetLastInsertionId();
+
+								// Generate face embedding if model is available
+								if( FaceEmbModel && FaceEmbModel->IsModelLoaded() && box.Confidence >= 0.8f )
+								{
+									bool hasLandmarks = false;
+									for( int lm = 0; lm < 5; lm++ )
+									{
+										if( lmX[lm] != 0.0f || lmY[lm] != 0.0f ) { hasLandmarks = true; break; }
+									}
+
+									if( hasLandmarks )
+									{
+										// Convert crop-relative 0-1 landmarks to 112px crop pixels for geometry check
+										float cropLmX[5], cropLmY[5];
+										for( int lm = 0; lm < 5; lm++ )
+										{
+											cropLmX[lm] = lmX[lm] * 112.0f;
+											cropLmY[lm] = lmY[lm] * 112.0f;
+										}
+
+										// Orientation validation (same thresholds as CameraWorker)
+										float eyeAvgY = ( cropLmY[0] + cropLmY[1] ) * 0.5f;
+										float mouthAvgY = ( cropLmY[3] + cropLmY[4] ) * 0.5f;
+										float interEyeDist = std::abs( cropLmX[1] - cropLmX[0] );
+										float eyeMidX = ( cropLmX[0] + cropLmX[1] ) * 0.5f;
+										float noseOffsetX = std::abs( cropLmX[2] - eyeMidX );
+										float eyeHeightDiff = std::abs( cropLmY[0] - cropLmY[1] );
+
+										bool validGeometry = eyeAvgY < cropLmY[2] && cropLmY[2] < mouthAvgY
+											&& interEyeDist > 12.0f
+											&& noseOffsetX < 30.0f
+											&& eyeHeightDiff < 25.0f;
+
+										if( validGeometry )
+										{
+											cv::Mat alignedFace = Witness::Camera::FaceEmbeddingModel::AlignFace( faceCrop, cropLmX, cropLmY );
+											auto embedding = FaceEmbModel->GetEmbedding( alignedFace );
+
+											if( !embedding.empty() )
+											{
+												double matchConf = 0.0;
+												int matchedKnownFaceUID = 0;
+
+												if( FaceCache )
+												{
+													auto match = FaceCache->Match( embedding, (float)FaceRecThreshold );
+													if( match.Matched )
+													{
+														matchConf = match.Similarity;
+														matchedKnownFaceUID = match.KnownFaceUID;
+													}
+												}
+
+												SQLiteDatabaseQueryInstance embQ( Database, "InsertFaceEmbedding" );
+												embQ->Bind( "@FaceCropUID", static_cast<int>( cropUID ) );
+												if( matchedKnownFaceUID > 0 )
+													embQ->Bind( "@KnownFaceUID", matchedKnownFaceUID );
+												else
+													embQ->BindNull( "@KnownFaceUID" );
+												embQ->BindBlob( "@Embedding", embedding.data(), static_cast<int>( embedding.size() * sizeof( float ) ) );
+												embQ->Bind( "@Dimension", static_cast<int>( embedding.size() ) );
+												embQ->Bind( "@MatchConfidence", matchConf );
+												embQ->Bind( "@Verified", 0 );
+												embQ->Bind( "@CreatedAt", frameTimestamp );
+												embQ->Execute( nullptr );
+											}
+										}
+									}
+								}
 
 								detectedTags.insert( "face" );
 							}

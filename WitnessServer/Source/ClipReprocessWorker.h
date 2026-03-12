@@ -2,9 +2,11 @@
 
 #include "WorkerBase.h"
 #include "SQLite.h"
+#include "FaceRecognitionCache.h"
 
 #include <ONNXDetectionFilter.h>
 #include <FaceDetectionFilter.h>
+#include <FaceEmbeddingModel.h>
 
 #include <functional>
 #include <string>
@@ -21,6 +23,9 @@ public:
 		std::shared_ptr<SQLiteDatabase> Database,
 		std::shared_ptr<Witness::Camera::ONNXDetectionFilter> DetectionFilter,
 		std::shared_ptr<Witness::Camera::FaceDetectionFilter> FaceFilter,
+		std::shared_ptr<Witness::Camera::FaceEmbeddingModel> FaceEmbModel,
+		std::shared_ptr<FaceRecognitionCache> FaceCache,
+		double FaceRecThreshold,
 		std::string CachePath,
 		std::function<bool()> IsIdle
 	);
@@ -34,6 +39,9 @@ private:
 	std::shared_ptr<SQLiteDatabase> Database;
 	std::shared_ptr<Witness::Camera::ONNXDetectionFilter> DetectionFilter;
 	std::shared_ptr<Witness::Camera::FaceDetectionFilter> FaceFilter;
+	std::shared_ptr<Witness::Camera::FaceEmbeddingModel> FaceEmbModel;
+	std::shared_ptr<FaceRecognitionCache> FaceCache;
+	double FaceRecThreshold;
 	std::string CachePath;
 	std::function<bool()> IsIdle;
 	bool LightingBackfillComplete = false;
