@@ -5,6 +5,8 @@
 
 #include <filesystem>
 #include <fstream>
+#include <opencv2/imgcodecs.hpp>
+#include <opencv2/imgproc.hpp>
 
 namespace fs = std::filesystem;
 
@@ -157,7 +159,10 @@ void CrowListener::HandleFaceCropImage( const crow::request& req, crow::response
 		return;
 	}
 
+	bool showOverlay = req.url_params.get( "overlay" ) != nullptr;
+
 	std::string filePath;
+	float lmX[5] = {}, lmY[5] = {};
 
 	try
 	{
@@ -169,6 +174,14 @@ void CrowListener::HandleFaceCropImage( const crow::request& req, crow::response
 			const char* path = q.GetColumnValueText( 5 ); // FilePath
 			if( path )
 				filePath = path;
+			if( showOverlay )
+			{
+				for( int i = 0; i < 5; i++ )
+				{
+					lmX[i] = (float)q.GetColumnValueDouble( 7 + i * 2 );
+					lmY[i] = (float)q.GetColumnValueDouble( 8 + i * 2 );
+				}
+			}
 			return false;
 		});
 	}
@@ -186,6 +199,87 @@ void CrowListener::HandleFaceCropImage( const crow::request& req, crow::response
 		return;
 	}
 
+	if( showOverlay )
+	{
+		// Read image, draw landmark overlay, and re-encode
+		cv::Mat crop = cv::imread( filePath );
+		if( !crop.empty() )
+		{
+			int w = crop.cols, h = crop.rows;
+
+			// Convert normalized landmarks to pixel coordinates
+			float px[5], py[5];
+			bool hasLm = false;
+			for( int i = 0; i < 5; i++ )
+			{
+				px[i] = lmX[i] * (float)w;
+				py[i] = lmY[i] * (float)h;
+				if( lmX[i] != 0.0f || lmY[i] != 0.0f ) hasLm = true;
+			}
+
+			if( hasLm )
+			{
+				// Compute orientation metrics
+				float eyeMidX = ( px[0] + px[1] ) * 0.5f;
+				float eyeAvgY = ( py[0] + py[1] ) * 0.5f;
+				float noseOffsetX = std::abs( px[2] - eyeMidX );
+				float mouthMidX = ( px[3] + px[4] ) * 0.5f;
+				float mouthSymmetry = std::abs( mouthMidX - eyeMidX );
+				float interEyeDist = std::abs( px[1] - px[0] );
+				float eyeHeightDiff = std::abs( py[0] - py[1] );
+				float mouthAvgY = ( py[3] + py[4] ) * 0.5f;
+
+				// Determine quality: green=frontal, yellow=marginal, red=rejected
+				bool verticalOk = eyeAvgY < py[2] && py[2] < mouthAvgY;
+				bool frontal = verticalOk && interEyeDist > 25.0f && noseOffsetX < 15.0f
+					&& mouthSymmetry < 12.0f && eyeHeightDiff < 12.0f;
+				bool marginal = verticalOk && interEyeDist > 15.0f && noseOffsetX < 20.0f
+					&& mouthSymmetry < 18.0f && eyeHeightDiff < 18.0f;
+
+				cv::Scalar color = frontal ? cv::Scalar( 0, 200, 0 )    // green
+					: marginal ? cv::Scalar( 0, 200, 255 )              // yellow
+					: cv::Scalar( 0, 0, 255 );                          // red
+
+				// Draw landmark dots
+				for( int i = 0; i < 5; i++ )
+					cv::circle( crop, cv::Point( (int)px[i], (int)py[i] ), 2, color, -1, cv::LINE_AA );
+
+				// Eye-to-eye line
+				cv::line( crop, cv::Point( (int)px[0], (int)py[0] ), cv::Point( (int)px[1], (int)py[1] ),
+					color, 1, cv::LINE_AA );
+
+				// Eye midpoint to nose line
+				cv::line( crop, cv::Point( (int)eyeMidX, (int)eyeAvgY ), cv::Point( (int)px[2], (int)py[2] ),
+					color, 1, cv::LINE_AA );
+
+				// Nose to mouth center
+				float mouthMidY = ( py[3] + py[4] ) * 0.5f;
+				cv::line( crop, cv::Point( (int)px[2], (int)py[2] ), cv::Point( (int)mouthMidX, (int)mouthMidY ),
+					color, 1, cv::LINE_AA );
+
+				// Mouth line
+				cv::line( crop, cv::Point( (int)px[3], (int)py[3] ), cv::Point( (int)px[4], (int)py[4] ),
+					color, 1, cv::LINE_AA );
+
+				// Status label
+				const char* label = frontal ? "OK" : marginal ? "MARGINAL" : "REJECTED";
+				cv::putText( crop, label, cv::Point( 2, 10 ), cv::FONT_HERSHEY_SIMPLEX, 0.3, color, 1, cv::LINE_AA );
+			}
+
+			// Encode to JPEG
+			std::vector<uchar> buf;
+			std::vector<int> params = { cv::IMWRITE_JPEG_QUALITY, 90 };
+			cv::imencode( ".jpg", crop, buf, params );
+
+			res.set_header( "Content-Type", "image/jpeg" );
+			res.body = std::string( buf.begin(), buf.end() );
+			res.code = 200;
+			res.end();
+			return;
+		}
+	}
+
+	// Default: serve raw file
 	std::ifstream file( filePath, std::ios::binary );
 	if( file )
 	{

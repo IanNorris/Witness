@@ -806,6 +806,44 @@ void CrowListener::HandleFaceUpload( const crow::request& req, crow::response& r
 		normLmY[i] = ( lmY[i] - (float)iy ) / (float)ih;
 	}
 
+	// Orientation validation — reject profile/side/tilted faces
+	{
+		float cropPx[5], cropPy[5];
+		for( int i = 0; i < 5; i++ )
+		{
+			cropPx[i] = normLmX[i] * 112.0f;
+			cropPy[i] = normLmY[i] * 112.0f;
+		}
+		float eyeAvgY = ( cropPy[0] + cropPy[1] ) * 0.5f;
+		float mouthAvgY = ( cropPy[3] + cropPy[4] ) * 0.5f;
+		float interEyeDist = std::abs( cropPx[1] - cropPx[0] );
+		float eyeMidX = ( cropPx[0] + cropPx[1] ) * 0.5f;
+		float noseOffsetX = std::abs( cropPx[2] - eyeMidX );
+		float mouthMidX = ( cropPx[3] + cropPx[4] ) * 0.5f;
+		float mouthSymmetry = std::abs( mouthMidX - eyeMidX );
+		float eyeHeightDiff = std::abs( cropPy[0] - cropPy[1] );
+
+		bool verticalOk = eyeAvgY < cropPy[2] && cropPy[2] < mouthAvgY;
+		if( !verticalOk || interEyeDist < 25.0f || noseOffsetX > 15.0f
+			|| mouthSymmetry > 12.0f || eyeHeightDiff > 12.0f )
+		{
+			std::string reason;
+			if( !verticalOk ) reason = "Face is upside down or heavily rotated";
+			else if( noseOffsetX > 15.0f ) reason = "Face is turned to the side — use a front-facing photo";
+			else if( interEyeDist < 25.0f ) reason = "Face appears in profile — use a front-facing photo";
+			else if( eyeHeightDiff > 12.0f ) reason = "Face is too tilted — use a level photo";
+			else reason = "Face orientation is not suitable for recognition";
+
+			crow::json::wvalue err;
+			err["error"] = reason;
+			res.code = 400;
+			res.body = err.dump();
+			res.set_header( "Content-Type", "application/json" );
+			res.end();
+			return;
+		}
+	}
+
 	// Save crop to disk
 	auto facesDir = std::filesystem::path( m_GlobalContext->CachePath ) / "faces" / "uploads";
 	std::filesystem::create_directories( facesDir );

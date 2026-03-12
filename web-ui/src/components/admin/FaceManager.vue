@@ -72,8 +72,15 @@ const uploading = ref(false)
 const uploadTargetId = ref<number | null>(null)
 const uploadResult = ref<{ ok: boolean; message: string } | null>(null)
 
+// Landmark overlay toggle
+const showLandmarks = ref(false)
+
 function cameraName(id: number) {
   return cameraStore.getCameraById(id)?.name ?? `Camera ${id}`
+}
+
+function cropUrl(cropUID: number) {
+  return `/api/face/crop/${cropUID}${showLandmarks.value ? '?overlay=1' : ''}`
 }
 
 function formatTime(ts: number) {
@@ -298,6 +305,15 @@ function fileToBase64(file: File): Promise<string> {
       </ul>
     </div>
 
+    <!-- Landmark overlay toggle -->
+    <div class="form-check form-switch mb-3">
+      <input class="form-check-input" type="checkbox" id="landmarkOverlay" v-model="showLandmarks" />
+      <label class="form-check-label small" for="landmarkOverlay">
+        Show landmark overlay
+        <span class="text-muted-custom">— renders orientation lines on face crops (🟢 frontal, 🟡 marginal, 🔴 rejected)</span>
+      </label>
+    </div>
+
     <!-- Known Faces Section -->
     <div class="mb-4">
       <h5>Known Faces</h5>
@@ -361,7 +377,7 @@ function fileToBase64(file: File): Promise<string> {
               <div v-else>
                 <div class="d-flex align-items-start">
                   <img v-if="face.bestCropUID"
-                       :src="`/api/face/crop/${face.bestCropUID}`"
+                       :src="cropUrl(face.bestCropUID)"
                        class="rounded me-2"
                        style="width: 56px; height: 56px; object-fit: cover;"
                        @error="($event.target as HTMLImageElement).style.display = 'none'" />
@@ -390,7 +406,7 @@ function fileToBase64(file: File): Promise<string> {
                 <!-- Expanded sightings -->
                 <div v-if="expandedFaceId === face.id" class="mt-2 border-top pt-2">
                   <div v-for="s in expandedSightings" :key="s.cropUID" class="d-flex align-items-center mb-1">
-                    <img :src="`/api/face/crop/${s.cropUID}`"
+                    <img :src="cropUrl(s.cropUID)"
                          class="rounded me-2"
                          style="width: 40px; height: 40px; object-fit: cover; cursor: pointer;"
                          title="View original clip"
@@ -450,7 +466,7 @@ function fileToBase64(file: File): Promise<string> {
       <div class="row g-2">
         <div v-for="face in unknownFaces" :key="face.cropUID" class="col-6 col-md-3 col-lg-2">
           <div class="card bg-dark border-secondary">
-            <img :src="`/api/face/crop/${face.cropUID}`"
+            <img :src="cropUrl(face.cropUID)"
                  class="card-img-top"
                  style="aspect-ratio: 1; object-fit: cover; cursor: pointer;"
                  title="View original clip"

@@ -373,12 +373,23 @@ void CameraWorker::WorkerInit()
 									cropLmY[li] = ( lmY[li] - box.Y ) / box.H * 112.0f;
 								}
 
-								// Eyes must be above nose, nose above mouth center
+								// Vertical ordering: eyes above nose above mouth
 								float eyeAvgY = ( cropLmY[0] + cropLmY[1] ) * 0.5f;
 								float mouthAvgY = ( cropLmY[3] + cropLmY[4] ) * 0.5f;
 								float interEyeDist = std::abs( cropLmX[1] - cropLmX[0] );
 
-								if( eyeAvgY < cropLmY[2] && cropLmY[2] < mouthAvgY && interEyeDist > 15.0f )
+								// Orientation checks — reject profile/side/tilted faces
+								float eyeMidX = ( cropLmX[0] + cropLmX[1] ) * 0.5f;
+								float noseOffsetX = std::abs( cropLmX[2] - eyeMidX );
+								float mouthMidX = ( cropLmX[3] + cropLmX[4] ) * 0.5f;
+								float mouthSymmetry = std::abs( mouthMidX - eyeMidX );
+								float eyeHeightDiff = std::abs( cropLmY[0] - cropLmY[1] );
+
+								if( eyeAvgY < cropLmY[2] && cropLmY[2] < mouthAvgY
+									&& interEyeDist > 25.0f
+									&& noseOffsetX < 15.0f
+									&& mouthSymmetry < 12.0f
+									&& eyeHeightDiff < 12.0f )
 								{
 									validGeometry = true;
 								}
