@@ -78,6 +78,7 @@ void CrowListener::HandleKnownFaceList( const crow::request& req, crow::response
 		face["totalCount"] = row.GetColumnValueInt( 6 );
 		const char* bestCrop = row.GetColumnValueText( 7 );
 		face["bestCropPath"] = bestCrop ? std::string( bestCrop ) : "";
+		face["bestCropUID"] = row.GetColumnValueInt( 8 );
 		faces.push_back( std::move( face ) );
 		return true;
 	});

@@ -13,6 +13,7 @@ interface KnownFace {
   verifiedCount: number
   totalCount: number
   bestCropPath: string
+  bestCropUID: number
 }
 
 interface UnidentifiedFace {
@@ -288,8 +289,8 @@ onMounted(fetchAll)
               <!-- Display mode -->
               <div v-else>
                 <div class="d-flex align-items-start">
-                  <img v-if="face.bestCropPath"
-                       :src="`/api/face/crop/${face.id}`"
+                  <img v-if="face.bestCropUID"
+                       :src="`/api/face/crop/${face.bestCropUID}`"
                        class="rounded me-2"
                        style="width: 56px; height: 56px; object-fit: cover;"
                        @error="($event.target as HTMLImageElement).style.display = 'none'" />

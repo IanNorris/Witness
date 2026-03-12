@@ -919,7 +919,10 @@ namespace Database
 			(SELECT fc.FilePath FROM FaceEmbedding fe2
 				JOIN FaceCrop fc ON fe2.FaceCropUID = fc.CropUID
 				WHERE fe2.KnownFaceUID = kf.KnownFaceUID AND fe2.Verified = 1
-				ORDER BY fe2.MatchConfidence DESC LIMIT 1) AS BestCropPath
+				ORDER BY fe2.MatchConfidence DESC LIMIT 1) AS BestCropPath,
+			(SELECT fe2.FaceCropUID FROM FaceEmbedding fe2
+				WHERE fe2.KnownFaceUID = kf.KnownFaceUID AND fe2.Verified = 1
+				ORDER BY fe2.MatchConfidence DESC LIMIT 1) AS BestCropUID
 		FROM KnownFace kf
 		ORDER BY kf.Name ASC;
 	)RAW";
