@@ -160,6 +160,7 @@ private:
 	void HandleUnidentifiedFaces( const crow::request& req, crow::response& res );
 	void HandleFaceSightings( const crow::request& req, crow::response& res, int knownFaceId );
 	void HandleFaceReprocess( const crow::request& req, crow::response& res );
+	std::shared_ptr<Witness::Camera::FaceEmbeddingModel> EnsureFaceModel();
 
 	// Setup (reconfiguration)
 	void HandleSetupPage( const crow::request& req, crow::response& res );

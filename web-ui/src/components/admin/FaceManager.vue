@@ -76,8 +76,8 @@ async function fetchAll() {
   loading.value = true
   try {
     const [knownData, unknownData] = await Promise.all([
-      api<{ faces: KnownFace[] }>('/face/known'),
-      api<{ faces: UnidentifiedFace[] }>(`/face/unknown?limit=${unknownLimit}&offset=${unknownOffset.value}`),
+      api<{ faces: KnownFace[] }>('/api/face/known'),
+      api<{ faces: UnidentifiedFace[] }>(`/api/face/unknown?limit=${unknownLimit}&offset=${unknownOffset.value}`),
     ])
     knownFaces.value = knownData.faces ?? []
     unknownFaces.value = unknownData.faces ?? []
@@ -92,7 +92,7 @@ async function fetchAll() {
 
 async function createKnownFace() {
   if (!newName.value.trim()) return
-  await api('/face/known/create', {
+  await api('/api/face/known/create', {
     method: 'POST',
     body: { name: newName.value.trim(), notes: newNotes.value.trim() },
   })
@@ -109,7 +109,7 @@ function startEdit(face: KnownFace) {
 
 async function saveEdit() {
   if (!editingId.value || !editName.value.trim()) return
-  await api('/face/known/update', {
+  await api('/api/face/known/update', {
     method: 'POST',
     body: { id: editingId.value, name: editName.value.trim(), notes: editNotes.value.trim() },
   })
@@ -124,7 +124,7 @@ function cancelEdit() {
 function confirmDelete(face: KnownFace) {
   confirmMessage.value = `Delete "${face.name}"? Their embeddings will become unidentified.`
   confirmAction.value = async () => {
-    await api('/face/known/delete', { method: 'POST', body: { id: face.id } })
+    await api('/api/face/known/delete', { method: 'POST', body: { id: face.id } })
     showConfirm.value = false
     await fetchAll()
   }
@@ -149,7 +149,7 @@ async function doAssign() {
 
   // Create new known face if name provided
   if (!targetId && assignNewName.value.trim()) {
-    const result = await api<{ id: number }>('/face/known/create', {
+    const result = await api<{ id: number }>('/api/face/known/create', {
       method: 'POST',
       body: { name: assignNewName.value.trim(), notes: '' },
     })
@@ -158,7 +158,7 @@ async function doAssign() {
 
   if (!targetId) return
 
-  await api('/face/assign', {
+  await api('/api/face/assign', {
     method: 'POST',
     body: { cropUID: assigningCropUID.value, knownFaceUID: targetId },
   })
@@ -180,14 +180,14 @@ async function toggleExpand(faceId: number) {
   }
 
   expandedFaceId.value = faceId
-  const data = await api<{ sightings: any[] }>(`/face/sightings/${faceId}?limit=20`)
+  const data = await api<{ sightings: any[] }>(`/api/face/sightings/${faceId}?limit=20`)
   expandedSightings.value = data.sightings ?? []
 }
 
 // Merge
 async function doMerge() {
   if (!mergeSourceId.value || !mergeTargetId.value || mergeSourceId.value === mergeTargetId.value) return
-  await api('/face/merge', {
+  await api('/api/face/merge', {
     method: 'POST',
     body: { sourceId: mergeSourceId.value, targetId: mergeTargetId.value },
   })
@@ -199,7 +199,7 @@ async function doMerge() {
 // Load more unknowns
 async function loadMoreUnknowns() {
   unknownOffset.value += unknownLimit
-  const data = await api<{ faces: UnidentifiedFace[] }>(`/face/unknown?limit=${unknownLimit}&offset=${unknownOffset.value}`)
+  const data = await api<{ faces: UnidentifiedFace[] }>(`/api/face/unknown?limit=${unknownLimit}&offset=${unknownOffset.value}`)
   unknownFaces.value.push(...(data.faces ?? []))
 }
 
@@ -208,7 +208,7 @@ async function reprocess() {
   reprocessing.value = true
   reprocessResult.value = null
   try {
-    const result = await api<{ processed: number; matched: number; remaining: boolean }>('/face/reprocess', {
+    const result = await api<{ processed: number; matched: number; remaining: boolean }>('/api/face/reprocess', {
       method: 'POST',
       body: {},
     })

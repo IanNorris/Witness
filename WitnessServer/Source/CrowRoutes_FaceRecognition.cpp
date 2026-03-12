@@ -11,6 +11,52 @@
 #include <chrono>
 #include <opencv2/imgcodecs.hpp>
 
+std::shared_ptr<Witness::Camera::FaceEmbeddingModel> CrowListener::EnsureFaceModel()
+{
+	auto embModel = m_GlobalContext->FaceEmbeddingModel;
+	if( embModel && embModel->IsModelLoaded() )
+		return embModel;
+
+	// Try to load model on-demand (settings may have been enabled after startup)
+	std::string modelPath;
+	{
+		SQLiteDatabaseQueryInstance sq( m_GlobalContext->Database, "GetSetting" );
+		sq->Bind( "@Name", "face_recognition_model_path" );
+		sq->Execute( [&]( const SQLiteDatabaseQuery& row ) {
+			const char* val = row.GetColumnValueText( 0 );
+			if( val ) modelPath = val;
+			return true;
+		});
+	}
+	if( modelPath.empty() )
+	{
+#ifdef _WIN32
+		wchar_t buf[MAX_PATH] = {};
+		GetModuleFileNameW( nullptr, buf, MAX_PATH );
+		auto defaultPath = std::filesystem::path( buf ).parent_path() / "models" / "face_recognition.onnx";
+#else
+		auto defaultPath = std::filesystem::canonical( "/proc/self/exe" ).parent_path() / "models" / "face_recognition.onnx";
+#endif
+		if( std::filesystem::exists( defaultPath ) )
+			modelPath = defaultPath.string();
+	}
+
+	if( !modelPath.empty() )
+	{
+		auto newModel = std::make_shared<Witness::Camera::FaceEmbeddingModel>();
+		if( newModel->LoadModel( modelPath.c_str(), false, "" ) )
+		{
+			m_GlobalContext->FaceEmbeddingModel = newModel;
+			if( !m_GlobalContext->FaceCache )
+				m_GlobalContext->FaceCache = std::make_shared<FaceRecognitionCache>();
+			LOG_INFO( "Face recognition model loaded on-demand: %s", modelPath.c_str() );
+			return newModel;
+		}
+	}
+
+	return nullptr;
+}
+
 void CrowListener::HandleKnownFaceList( const crow::request& req, crow::response& res )
 {
 	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, nullptr,
@@ -456,11 +502,51 @@ void CrowListener::HandleFaceReprocess( const crow::request& req, crow::response
 	auto embModel = m_GlobalContext->FaceEmbeddingModel;
 	if( !embModel || !embModel->IsModelLoaded() )
 	{
-		res.code = 400;
-		res.body = R"({"error":"Face recognition model not loaded"})";
-		res.set_header( "Content-Type", "application/json" );
-		res.end();
-		return;
+		// Try to load model on-demand (settings may have been enabled after startup)
+		std::string modelPath;
+		{
+			SQLiteDatabaseQueryInstance sq( m_GlobalContext->Database, "GetSetting" );
+			sq->Bind( "@Name", "face_recognition_model_path" );
+			sq->Execute( [&]( const SQLiteDatabaseQuery& row ) {
+				const char* val = row.GetColumnValueText( 0 );
+				if( val ) modelPath = val;
+				return true;
+			});
+		}
+		if( modelPath.empty() )
+		{
+#ifdef _WIN32
+			wchar_t buf[MAX_PATH] = {};
+			GetModuleFileNameW( nullptr, buf, MAX_PATH );
+			auto defaultPath = std::filesystem::path( buf ).parent_path() / "models" / "face_recognition.onnx";
+#else
+			auto defaultPath = std::filesystem::canonical( "/proc/self/exe" ).parent_path() / "models" / "face_recognition.onnx";
+#endif
+			if( std::filesystem::exists( defaultPath ) )
+				modelPath = defaultPath.string();
+		}
+
+		if( !modelPath.empty() )
+		{
+			auto newModel = std::make_shared<Witness::Camera::FaceEmbeddingModel>();
+			if( newModel->LoadModel( modelPath.c_str(), false, "" ) )
+			{
+				m_GlobalContext->FaceEmbeddingModel = newModel;
+				if( !m_GlobalContext->FaceCache )
+					m_GlobalContext->FaceCache = std::make_shared<FaceRecognitionCache>();
+				embModel = newModel;
+				LOG_INFO( "Face recognition model loaded on-demand: %s", modelPath.c_str() );
+			}
+		}
+
+		if( !embModel || !embModel->IsModelLoaded() )
+		{
+			res.code = 400;
+			res.body = R"({"error":"Face recognition model not found. Place face_recognition.onnx in models/ folder."})";
+			res.set_header( "Content-Type", "application/json" );
+			res.end();
+			return;
+		}
 	}
 
 	// Process crops without embeddings in batches
