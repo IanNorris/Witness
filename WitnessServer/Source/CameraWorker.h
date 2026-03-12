@@ -32,6 +32,8 @@ struct VideoSettings
 	, FaceDetectionConfidence( 0.7 )
 	, FaceRecognitionEnabled( false )
 	, FaceRecognitionConfidence( 0.6 )
+	, FaceRecognitionMinVerified( 2 )
+	, FaceRecognitionAutoAssign( false )
 	{}
 
 	std::string	DataPath;
@@ -56,6 +58,8 @@ struct VideoSettings
 	bool		FaceRecognitionEnabled;
 	std::string	FaceRecognitionModelPath;
 	double		FaceRecognitionConfidence;
+	int			FaceRecognitionMinVerified;
+	bool		FaceRecognitionAutoAssign;
 };
 
 struct CameraSettings

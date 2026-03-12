@@ -174,8 +174,9 @@ void CameraWorker::WorkerInit()
 		auto faceEmbModel = Context->FaceEmbeddingModel;
 		auto faceCache = Context->FaceCache;
 		double faceRecThreshold = Video.FaceRecognitionConfidence;
+		bool faceAutoAssign = Video.FaceRecognitionAutoAssign;
 
-		Observer->SetDetectionCallback( [db, events, tracker, cachePath, detectionActionThrottle, faceEmbModel, faceCache, faceRecThreshold]( const DetectionFrameData& frame )
+		Observer->SetDetectionCallback( [db, events, tracker, cachePath, detectionActionThrottle, faceEmbModel, faceCache, faceRecThreshold, faceAutoAssign]( const DetectionFrameData& frame )
 		{
 			// Run IoU tracker for stable TrackingIDs
 			std::vector<Witness::TrackedBox> trackInputs;
@@ -404,6 +405,7 @@ void CameraWorker::WorkerInit()
 										// Match against known faces (for display only — not persisted)
 										std::string matchedName;
 										double matchConf = 0.0;
+										int matchedKnownFaceUID = 0;
 
 										if( faceCache )
 										{
@@ -412,6 +414,7 @@ void CameraWorker::WorkerInit()
 											{
 												matchConf = match.Similarity;
 												matchedName = match.Name;
+												matchedKnownFaceUID = match.KnownFaceUID;
 												faceRecognitionNames[trackID] = matchedName;
 
 												crow::json::wvalue recEv;
@@ -425,10 +428,17 @@ void CameraWorker::WorkerInit()
 											}
 										}
 
-										// Store embedding unassigned — identity is set via admin UI
+										// Store embedding — auto-assign if enabled and matched
 										SQLiteDatabaseQueryInstance embQ( db, "InsertFaceEmbedding" );
 										embQ->Bind( "@FaceCropUID", static_cast<int>( cropUID ) );
-										embQ->BindNull( "@KnownFaceUID" );
+										if( faceAutoAssign && matchedKnownFaceUID > 0 )
+										{
+											embQ->Bind( "@KnownFaceUID", matchedKnownFaceUID );
+										}
+										else
+										{
+											embQ->BindNull( "@KnownFaceUID" );
+										}
 										embQ->BindBlob( "@Embedding", embedding.data(), static_cast<int>( embedding.size() * sizeof( float ) ) );
 										embQ->Bind( "@Dimension", static_cast<int>( embedding.size() ) );
 										embQ->Bind( "@MatchConfidence", matchConf );

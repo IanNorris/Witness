@@ -160,9 +160,30 @@ onMounted(fetchSettings)
       </div>
 
       <div class="col-md-4">
-        <label class="form-label small">Match Threshold</label>
+        <label class="form-label small">Match Threshold
+          <span class="badge ms-1" :class="{
+            'bg-success': Number(detectionSettings['face_recognition_confidence'] || 0.6) >= 0.7,
+            'bg-warning text-dark': Number(detectionSettings['face_recognition_confidence'] || 0.6) >= 0.5 && Number(detectionSettings['face_recognition_confidence'] || 0.6) < 0.7,
+            'bg-danger': Number(detectionSettings['face_recognition_confidence'] || 0.6) < 0.5
+          }">{{ Number(detectionSettings['face_recognition_confidence'] || 0.6) >= 0.8 ? 'Strict' : Number(detectionSettings['face_recognition_confidence'] || 0.6) >= 0.6 ? 'Default' : 'Loose' }}</span>
+        </label>
         <input v-model="detectionSettings['face_recognition_confidence']" type="number" step="0.05" min="0.4" max="0.95" class="form-control form-control-sm" @blur="saveSetting('face_recognition_confidence')" />
-        <div class="form-text small">Cosine similarity threshold for identity match (default: 0.6, min: 0.4).</div>
+        <div class="form-text small">Cosine similarity threshold (0.4=Loose, 0.6=Default, 0.8=Strict, 0.95=Exact).</div>
+      </div>
+
+      <div class="col-md-4">
+        <label class="form-label small">Min Verified Embeddings</label>
+        <input v-model="detectionSettings['face_recognition_min_verified']" type="number" min="1" max="10" class="form-control form-control-sm" @blur="saveSetting('face_recognition_min_verified')" />
+        <div class="form-text small">Known faces need at least this many verified samples before matching (default: 2).</div>
+      </div>
+
+      <div class="col-md-4">
+        <label class="form-label small">Auto-Assign Sightings</label>
+        <select v-model="detectionSettings['face_recognition_auto_assign']" class="form-select form-select-sm" @change="saveSetting('face_recognition_auto_assign')">
+          <option value="">Disabled</option>
+          <option value="1">Enabled</option>
+        </select>
+        <div class="form-text small">Automatically assign identity when confidence ≥ threshold (marked as auto, not verified).</div>
       </div>
 
       <div class="col-12 mt-3">

@@ -383,8 +383,12 @@ function fileToBase64(file: File): Promise<string> {
                        @error="($event.target as HTMLImageElement).style.display = 'none'" />
                   <div class="flex-grow-1">
                     <strong>{{ face.name }}</strong>
+                    <span class="ms-1" :title="`${face.verifiedCount} verified embeddings`">{{
+                      face.verifiedCount >= 5 ? '🟢' : face.verifiedCount >= 2 ? '🟡' : '🔴'
+                    }}</span>
                     <div class="small text-muted-custom">
                       {{ face.verifiedCount }} verified / {{ face.totalCount }} total
+                      <span v-if="face.verifiedCount < 2" class="text-warning">— needs more samples</span>
                     </div>
                     <div v-if="face.notes" class="small text-muted-custom fst-italic">{{ face.notes }}</div>
                   </div>
@@ -417,7 +421,8 @@ function fileToBase64(file: File): Promise<string> {
                       <div class="text-muted-custom">{{ formatTime(s.timestamp) }}</div>
                       <div class="text-muted-custom">
                         {{ Math.round(s.matchConfidence * 100) }}% match
-                        <span v-if="s.verified" class="badge bg-success ms-1">verified</span>
+                        <span v-if="s.verified" class="badge bg-success ms-1">✓ verified</span>
+                        <span v-else class="badge bg-secondary ms-1">auto</span>
                       </div>
                     </div>
                     <button class="btn btn-sm btn-outline-danger py-0 ms-2" title="Not this person"

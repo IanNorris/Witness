@@ -197,6 +197,12 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 		}
 		GetSettingsField( Settings, "face_recognition_confidence", Video.FaceRecognitionConfidence, Errors );
 		GetSettingsField( Settings, "face_recognition_model_path", Video.FaceRecognitionModelPath, Errors );
+		GetSettingsField( Settings, "face_recognition_min_verified", Video.FaceRecognitionMinVerified, Errors );
+		std::string autoAssign;
+		if( GetSettingsField( Settings, "face_recognition_auto_assign", autoAssign, Errors ) && autoAssign == "1" )
+		{
+			Video.FaceRecognitionAutoAssign = true;
+		}
 
 		if( Video.FaceRecognitionEnabled && Video.FaceRecognitionModelPath.empty() )
 		{
@@ -258,6 +264,7 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 	// Load face recognition cache from DB (after DB is ready)
 	if( Context->FaceCache && Context->Database )
 	{
+		Context->FaceCache->SetMinVerifiedCount( Video.FaceRecognitionMinVerified );
 		Context->FaceCache->LoadFromDatabase( Context->Database );
 	}
 

@@ -34,6 +34,10 @@ public:
 
 	FaceRecognitionCache();
 
+	// Set minimum verified embedding count for matching (faces with fewer are skipped)
+	void SetMinVerifiedCount( int count ) { m_MinVerifiedCount = std::max( 1, count ); }
+	int GetMinVerifiedCount() const { return m_MinVerifiedCount; }
+
 	// Load all verified embeddings from DB and compute centroids
 	void LoadFromDatabase( const std::shared_ptr<SQLiteDatabase>& DB );
 
@@ -54,4 +58,5 @@ private:
 
 	mutable std::mutex m_Mutex;
 	std::vector<KnownFaceEntry> m_KnownFaces;
+	int m_MinVerifiedCount = 2;
 };

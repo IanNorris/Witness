@@ -260,6 +260,8 @@ void CrowListener::HandleSettingsSet( const crow::request& req, crow::response& 
 		"face_recognition_enabled",
 		"face_recognition_model_path",
 		"face_recognition_confidence",
+		"face_recognition_min_verified",
+		"face_recognition_auto_assign",
 	};
 
 	if( allowedSettings.find( name ) == allowedSettings.end() )
@@ -286,6 +288,12 @@ void CrowListener::HandleSettingsSet( const crow::request& req, crow::response& 
 	{
 		double v = std::stod( value );
 		if( v < 0.1 ) value = "0.1";
+	}
+	else if( name == "face_recognition_min_verified" )
+	{
+		int v = std::stoi( value );
+		if( v < 1 ) value = "1";
+		if( v > 10 ) value = "10";
 	}
 
 	SQLiteDatabaseQueryInstance query( m_GlobalContext->Database, "SetSetting" );

@@ -123,6 +123,10 @@ FaceMatchResult FaceRecognitionCache::Match( const std::vector<float>& embedding
 		if( known.Centroid.size() != embedding.size() )
 			continue;
 
+		// Skip faces with too few verified embeddings for reliable matching
+		if( known.EmbeddingCount < m_MinVerifiedCount )
+			continue;
+
 		// Cosine similarity (both are L2-normalized, so dot product suffices)
 		float sim = 0.0f;
 		for( size_t i = 0; i < embedding.size(); i++ )
