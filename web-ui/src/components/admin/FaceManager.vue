@@ -64,6 +64,9 @@ const confirmAction = ref<(() => void) | null>(null)
 const reprocessing = ref(false)
 const reprocessResult = ref<{ processed: number; matched: number } | null>(null)
 
+// Clip preview
+const previewFace = ref<{ cameraId: number; timestamp: number } | null>(null)
+
 function cameraName(id: number) {
   return cameraStore.getCameraById(id)?.name ?? `Camera ${id}`
 }
@@ -315,7 +318,9 @@ onMounted(fetchAll)
                   <div v-for="s in expandedSightings" :key="s.cropUID" class="d-flex align-items-center mb-1">
                     <img :src="`/api/face/crop/${s.cropUID}`"
                          class="rounded me-2"
-                         style="width: 40px; height: 40px; object-fit: cover;"
+                         style="width: 40px; height: 40px; object-fit: cover; cursor: pointer;"
+                         title="View original clip"
+                         @click="previewFace = { cameraId: s.cameraId, timestamp: s.timestamp }"
                          @error="($event.target as HTMLImageElement).style.display = 'none'" />
                     <div class="small">
                       <div>{{ cameraName(s.cameraId) }}</div>
@@ -359,7 +364,9 @@ onMounted(fetchAll)
           <div class="card bg-dark border-secondary">
             <img :src="`/api/face/crop/${face.cropUID}`"
                  class="card-img-top"
-                 style="aspect-ratio: 1; object-fit: cover;"
+                 style="aspect-ratio: 1; object-fit: cover; cursor: pointer;"
+                 title="View original clip"
+                 @click="previewFace = { cameraId: face.cameraId, timestamp: face.timestamp }"
                  @error="($event.target as HTMLImageElement).style.display = 'none'" />
             <div class="card-body p-1">
               <div class="small text-muted-custom">{{ cameraName(face.cameraId) }}</div>
@@ -404,5 +411,39 @@ onMounted(fetchAll)
       @confirm="onConfirm"
       @cancel="showConfirm = false"
     />
+
+    <!-- Clip preview modal -->
+    <Teleport to="body">
+      <div v-if="previewFace" class="modal d-block" style="background: rgba(0,0,0,0.7);" @click.self="previewFace = null">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+          <div class="modal-content bg-dark text-light border-secondary">
+            <div class="modal-header border-secondary py-2">
+              <h6 class="modal-title">
+                {{ cameraName(previewFace.cameraId) }} — {{ formatTime(previewFace.timestamp) }}
+              </h6>
+              <button type="button" class="btn-close btn-close-white" @click="previewFace = null"></button>
+            </div>
+            <div class="modal-body p-0">
+              <video
+                :src="`/clip/video/${previewFace.cameraId}/${previewFace.timestamp}`"
+                controls autoplay
+                class="w-100"
+                style="max-height: 70vh;"
+              />
+            </div>
+            <div class="modal-footer border-secondary py-1">
+              <router-link
+                :to="`/clips/${previewFace.cameraId}`"
+                class="btn btn-sm btn-outline-info"
+                @click="previewFace = null"
+              >
+                View all clips for this camera
+              </router-link>
+              <button class="btn btn-sm btn-secondary" @click="previewFace = null">Close</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
