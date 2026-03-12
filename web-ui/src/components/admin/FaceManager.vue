@@ -239,6 +239,18 @@ onMounted(fetchAll)
   <div v-if="loading" class="text-center py-4 text-muted-custom">Loading...</div>
 
   <div v-else>
+    <!-- Tips -->
+    <div class="alert alert-secondary py-2 mb-3 small">
+      <strong>Tips for best results</strong>
+      <ul class="mb-0 mt-1 ps-3">
+        <li>Assign <strong>3–5 crops per person</strong> with different angles, lighting, and expressions for reliable matching.</li>
+        <li>Choose crops where the face is <strong>clearly visible and front-facing</strong> — avoid profiles, heavy shadows, or motion blur.</li>
+        <li>Avoid assigning crops where the face is <strong>very small, partially occluded, or wearing sunglasses/masks</strong>.</li>
+        <li>If matches seem wrong, use the <strong>✕ button</strong> on sightings to remove bad associations — this improves future accuracy.</li>
+        <li>The <strong>Reprocess</strong> button regenerates embeddings from existing crops without auto-matching.</li>
+      </ul>
+    </div>
+
     <!-- Known Faces Section -->
     <div class="mb-4">
       <h5>Known Faces</h5>
