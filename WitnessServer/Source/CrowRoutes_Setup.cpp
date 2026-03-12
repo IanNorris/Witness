@@ -271,6 +271,23 @@ void CrowListener::HandleSettingsSet( const crow::request& req, crow::response& 
 		return;
 	}
 
+	// Enforce minimum confidence thresholds
+	if( name == "face_detection_confidence" )
+	{
+		double v = std::stod( value );
+		if( v < 0.5 ) value = "0.5";
+	}
+	else if( name == "face_recognition_confidence" )
+	{
+		double v = std::stod( value );
+		if( v < 0.4 ) value = "0.4";
+	}
+	else if( name == "detection_confidence" )
+	{
+		double v = std::stod( value );
+		if( v < 0.1 ) value = "0.1";
+	}
+
 	SQLiteDatabaseQueryInstance query( m_GlobalContext->Database, "SetSetting" );
 	query->Bind( "@Name", name.c_str() );
 	query->Bind( "@Value", value.c_str() );

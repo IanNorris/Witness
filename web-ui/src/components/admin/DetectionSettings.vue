@@ -136,8 +136,8 @@ onMounted(fetchSettings)
 
       <div class="col-md-6">
         <label class="form-label small">Face Confidence</label>
-        <input v-model="detectionSettings['face_detection_confidence']" type="number" step="0.05" min="0" max="1" class="form-control form-control-sm" @blur="saveSetting('face_detection_confidence')" />
-        <div class="form-text small">Minimum confidence for face detection (default: 0.5).</div>
+        <input v-model="detectionSettings['face_detection_confidence']" type="number" step="0.05" min="0.5" max="1" class="form-control form-control-sm" @blur="saveSetting('face_detection_confidence')" />
+        <div class="form-text small">Minimum confidence for face detection (default: 0.7, min: 0.5).</div>
       </div>
 
       <div class="col-12 mt-3">
@@ -161,8 +161,8 @@ onMounted(fetchSettings)
 
       <div class="col-md-4">
         <label class="form-label small">Match Threshold</label>
-        <input v-model="detectionSettings['face_recognition_confidence']" type="number" step="0.05" min="0.1" max="0.9" class="form-control form-control-sm" @blur="saveSetting('face_recognition_confidence')" />
-        <div class="form-text small">Cosine similarity threshold for identity match (default: 0.5).</div>
+        <input v-model="detectionSettings['face_recognition_confidence']" type="number" step="0.05" min="0.4" max="0.95" class="form-control form-control-sm" @blur="saveSetting('face_recognition_confidence')" />
+        <div class="form-text small">Cosine similarity threshold for identity match (default: 0.6, min: 0.4).</div>
       </div>
 
       <div class="col-12 mt-3">
