@@ -379,18 +379,16 @@ void CameraWorker::WorkerInit()
 								float mouthAvgY = ( cropLmY[3] + cropLmY[4] ) * 0.5f;
 								float interEyeDist = std::abs( cropLmX[1] - cropLmX[0] );
 
-								// Orientation checks — reject profile/side/tilted faces
+								// Orientation checks — reject extreme profile/upside-down faces
+								// Relaxed for surveillance cameras which capture natural angles
 								float eyeMidX = ( cropLmX[0] + cropLmX[1] ) * 0.5f;
 								float noseOffsetX = std::abs( cropLmX[2] - eyeMidX );
-								float mouthMidX = ( cropLmX[3] + cropLmX[4] ) * 0.5f;
-								float mouthSymmetry = std::abs( mouthMidX - eyeMidX );
 								float eyeHeightDiff = std::abs( cropLmY[0] - cropLmY[1] );
 
 								if( eyeAvgY < cropLmY[2] && cropLmY[2] < mouthAvgY
-									&& interEyeDist > 25.0f
-									&& noseOffsetX < 15.0f
-									&& mouthSymmetry < 12.0f
-									&& eyeHeightDiff < 12.0f )
+									&& interEyeDist > 12.0f
+									&& noseOffsetX < 30.0f
+									&& eyeHeightDiff < 25.0f )
 								{
 									validGeometry = true;
 								}

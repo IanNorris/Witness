@@ -439,6 +439,15 @@ void CrowListener::HandleUnidentifiedFaces( const crow::request& req, crow::resp
 		face["embeddingUID"] = embUID;
 		face["matchConfidence"] = row.GetColumnValueDouble( 6 );
 
+		// Landmarks (normalized 0-1)
+		std::vector<crow::json::wvalue> landmarks( 10 );
+		for( int i = 0; i < 5; i++ )
+		{
+			landmarks[i * 2] = row.GetColumnValueDouble( 7 + i * 2 );
+			landmarks[i * 2 + 1] = row.GetColumnValueDouble( 8 + i * 2 );
+		}
+		face["landmarks"] = std::move( landmarks );
+
 		faces.push_back( std::move( face ) );
 		return true;
 	});
@@ -819,19 +828,18 @@ void CrowListener::HandleFaceUpload( const crow::request& req, crow::response& r
 		float interEyeDist = std::abs( cropPx[1] - cropPx[0] );
 		float eyeMidX = ( cropPx[0] + cropPx[1] ) * 0.5f;
 		float noseOffsetX = std::abs( cropPx[2] - eyeMidX );
-		float mouthMidX = ( cropPx[3] + cropPx[4] ) * 0.5f;
-		float mouthSymmetry = std::abs( mouthMidX - eyeMidX );
 		float eyeHeightDiff = std::abs( cropPy[0] - cropPy[1] );
 
+		// Upload photos can be stricter than surveillance — but still allow moderate angles
 		bool verticalOk = eyeAvgY < cropPy[2] && cropPy[2] < mouthAvgY;
-		if( !verticalOk || interEyeDist < 25.0f || noseOffsetX > 15.0f
-			|| mouthSymmetry > 12.0f || eyeHeightDiff > 12.0f )
+		if( !verticalOk || interEyeDist < 15.0f || noseOffsetX > 25.0f
+			|| eyeHeightDiff > 20.0f )
 		{
 			std::string reason;
 			if( !verticalOk ) reason = "Face is upside down or heavily rotated";
-			else if( noseOffsetX > 15.0f ) reason = "Face is turned to the side — use a front-facing photo";
-			else if( interEyeDist < 25.0f ) reason = "Face appears in profile — use a front-facing photo";
-			else if( eyeHeightDiff > 12.0f ) reason = "Face is too tilted — use a level photo";
+			else if( noseOffsetX > 25.0f ) reason = "Face is turned too far to the side";
+			else if( interEyeDist < 15.0f ) reason = "Face appears in extreme profile";
+			else if( eyeHeightDiff > 20.0f ) reason = "Face is too tilted";
 			else reason = "Face orientation is not suitable for recognition";
 
 			crow::json::wvalue err;

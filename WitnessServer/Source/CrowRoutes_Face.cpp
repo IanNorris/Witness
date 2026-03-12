@@ -229,14 +229,14 @@ void CrowListener::HandleFaceCropImage( const crow::request& req, crow::response
 				float eyeHeightDiff = std::abs( py[0] - py[1] );
 				float mouthAvgY = ( py[3] + py[4] ) * 0.5f;
 
-				// Determine quality: green=frontal, yellow=marginal, red=rejected
+				// Determine quality: green=accepted, yellow=marginal, red=rejected
 				bool verticalOk = eyeAvgY < py[2] && py[2] < mouthAvgY;
-				bool frontal = verticalOk && interEyeDist > 25.0f && noseOffsetX < 15.0f
-					&& mouthSymmetry < 12.0f && eyeHeightDiff < 12.0f;
-				bool marginal = verticalOk && interEyeDist > 15.0f && noseOffsetX < 20.0f
-					&& mouthSymmetry < 18.0f && eyeHeightDiff < 18.0f;
+				bool accepted = verticalOk && interEyeDist > 12.0f && noseOffsetX < 30.0f
+					&& eyeHeightDiff < 25.0f;
+				bool marginal = !accepted && verticalOk && interEyeDist > 8.0f
+					&& noseOffsetX < 40.0f && eyeHeightDiff < 35.0f;
 
-				cv::Scalar color = frontal ? cv::Scalar( 0, 200, 0 )    // green
+				cv::Scalar color = accepted ? cv::Scalar( 0, 200, 0 )   // green
 					: marginal ? cv::Scalar( 0, 200, 255 )              // yellow
 					: cv::Scalar( 0, 0, 255 );                          // red
 
@@ -262,7 +262,7 @@ void CrowListener::HandleFaceCropImage( const crow::request& req, crow::response
 					color, 1, cv::LINE_AA );
 
 				// Status label
-				const char* label = frontal ? "OK" : marginal ? "MARGINAL" : "REJECTED";
+				const char* label = accepted ? "OK" : marginal ? "MARGINAL" : "REJECTED";
 				cv::putText( crop, label, cv::Point( 2, 10 ), cv::FONT_HERSHEY_SIMPLEX, 0.3, color, 1, cv::LINE_AA );
 			}
 

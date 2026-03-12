@@ -985,7 +985,10 @@ namespace Database
 
 	std::string SelectUnidentifiedFaces = R"RAW(
 		SELECT fc.CropUID, fc.CameraID, fc.Timestamp, fc.FilePath, fc.Confidence,
-			fe.EmbeddingUID, fe.MatchConfidence
+			fe.EmbeddingUID, fe.MatchConfidence,
+			fc.Landmark0X, fc.Landmark0Y, fc.Landmark1X, fc.Landmark1Y,
+			fc.Landmark2X, fc.Landmark2Y, fc.Landmark3X, fc.Landmark3Y,
+			fc.Landmark4X, fc.Landmark4Y
 		FROM FaceCrop fc
 		LEFT JOIN FaceEmbedding fe ON fc.CropUID = fe.FaceCropUID
 		WHERE fe.KnownFaceUID IS NULL

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, nextTick, watch } from 'vue'
 import { api } from '../../composables/useApi'
 import { useCameraStore } from '../../stores/cameras'
 import ConfirmModal from '../common/ConfirmModal.vue'
@@ -24,6 +24,7 @@ interface UnidentifiedFace {
   detectionConfidence: number
   embeddingUID: number
   matchConfidence: number
+  landmarks: number[] // [rx, ry, lx, ly, nx, ny, rmx, rmy, lmx, lmy] normalized 0-1
 }
 
 const cameraStore = useCameraStore()
@@ -74,13 +75,125 @@ const uploadResult = ref<{ ok: boolean; message: string } | null>(null)
 
 // Landmark overlay toggle
 const showLandmarks = ref(false)
+const cropCanvases: Record<number, HTMLCanvasElement> = {}
+
+function onCropLoad(event: Event, face: UnidentifiedFace) {
+  if (!showLandmarks.value || !face.landmarks?.length) return
+  nextTick(() => {
+    const canvas = cropCanvases[face.cropUID]
+    if (!canvas) return
+    const img = event.target as HTMLImageElement
+    canvas.width = img.naturalWidth || 112
+    canvas.height = img.naturalHeight || 112
+    drawLandmarks(canvas, face.landmarks)
+  })
+}
+
+watch(showLandmarks, (show) => {
+  if (!show) {
+    Object.values(cropCanvases).forEach(c => {
+      const ctx = c.getContext('2d')
+      if (ctx) ctx.clearRect(0, 0, c.width, c.height)
+    })
+  } else {
+    // Re-draw on existing loaded images
+    nextTick(() => {
+      unknownFaces.value.forEach(face => {
+        const canvas = cropCanvases[face.cropUID]
+        if (canvas && face.landmarks?.length) {
+          canvas.width = 112
+          canvas.height = 112
+          drawLandmarks(canvas, face.landmarks)
+        }
+      })
+    })
+  }
+})
 
 function cameraName(id: number) {
   return cameraStore.getCameraById(id)?.name ?? `Camera ${id}`
 }
 
 function cropUrl(cropUID: number) {
-  return `/api/face/crop/${cropUID}${showLandmarks.value ? '?overlay=1' : ''}`
+  return `/api/face/crop/${cropUID}`
+}
+
+function classifyOrientation(lm: number[]): { label: string; color: string } {
+  if (lm.length < 10) return { label: '', color: '' }
+  // Landmarks are normalized 0-1, convert to 112px space
+  const rEyeX = lm[0] as number * 112, rEyeY = lm[1] as number * 112
+  const lEyeX = lm[2] as number * 112, lEyeY = lm[3] as number * 112
+  const nX = lm[4] as number * 112, nY = lm[5] as number * 112
+  const rMY = lm[7] as number * 112
+  const lMY = lm[9] as number * 112
+
+  const eyeAvgY = (rEyeY + lEyeY) / 2
+  const mouthAvgY = (rMY + lMY) / 2
+  const interEye = Math.abs(lEyeX - rEyeX)
+  const eyeMidX = (rEyeX + lEyeX) / 2
+  const noseOffset = Math.abs(nX - eyeMidX)
+  const eyeHeightDiff = Math.abs(rEyeY - lEyeY)
+
+  const verticalOk = eyeAvgY < nY && nY < mouthAvgY
+  const accepted = verticalOk && interEye > 12 && noseOffset < 30 && eyeHeightDiff < 25
+  const marginal = !accepted && verticalOk && interEye > 8 && noseOffset < 40 && eyeHeightDiff < 35
+
+  if (accepted) return { label: 'OK', color: '#00c800' }
+  if (marginal) return { label: 'MARGINAL', color: '#ffc800' }
+  return { label: 'REJECTED', color: '#ff0000' }
+}
+
+function drawLandmarks(canvas: HTMLCanvasElement, landmarks: number[]) {
+  if (landmarks.length < 10) return
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+
+  const w = canvas.width, h = canvas.height
+  ctx.clearRect(0, 0, w, h)
+
+  const rEyeX = landmarks[0] as number * w, rEyeY = landmarks[1] as number * h
+  const lEyeX = landmarks[2] as number * w, lEyeY = landmarks[3] as number * h
+  const noseX = landmarks[4] as number * w, noseY = landmarks[5] as number * h
+  const rMouthX = landmarks[6] as number * w, rMouthY = landmarks[7] as number * h
+  const lMouthX = landmarks[8] as number * w, lMouthY = landmarks[9] as number * h
+
+  const orient = classifyOrientation(landmarks)
+  ctx.strokeStyle = orient.color
+  ctx.fillStyle = orient.color
+  ctx.lineWidth = 1.5
+
+  // Landmark dots
+  for (const [x, y] of [[rEyeX, rEyeY], [lEyeX, lEyeY], [noseX, noseY], [rMouthX, rMouthY], [lMouthX, lMouthY]]) {
+    ctx.beginPath()
+    ctx.arc(x!, y!, 3, 0, Math.PI * 2)
+    ctx.fill()
+  }
+
+  // Eye line
+  ctx.beginPath()
+  ctx.moveTo(rEyeX, rEyeY); ctx.lineTo(lEyeX, lEyeY)
+  ctx.stroke()
+
+  // Eye midpoint to nose
+  const emx = (rEyeX + lEyeX) / 2, emy = (rEyeY + lEyeY) / 2
+  ctx.beginPath()
+  ctx.moveTo(emx, emy); ctx.lineTo(noseX, noseY)
+  ctx.stroke()
+
+  // Nose to mouth center
+  const mmx = (rMouthX + lMouthX) / 2, mmy = (rMouthY + lMouthY) / 2
+  ctx.beginPath()
+  ctx.moveTo(noseX, noseY); ctx.lineTo(mmx, mmy)
+  ctx.stroke()
+
+  // Mouth line
+  ctx.beginPath()
+  ctx.moveTo(rMouthX, rMouthY); ctx.lineTo(lMouthX, lMouthY)
+  ctx.stroke()
+
+  // Label
+  ctx.font = 'bold 11px sans-serif'
+  ctx.fillText(orient.label, 3, 13)
 }
 
 function formatTime(ts: number) {
@@ -471,16 +584,27 @@ function fileToBase64(file: File): Promise<string> {
       <div class="row g-2">
         <div v-for="face in unknownFaces" :key="face.cropUID" class="col-6 col-md-3 col-lg-2">
           <div class="card bg-dark border-secondary">
-            <img :src="cropUrl(face.cropUID)"
-                 class="card-img-top"
-                 style="aspect-ratio: 1; object-fit: cover; cursor: pointer;"
-                 title="View original clip"
-                 @click="previewFace = { cameraId: face.cameraId, timestamp: face.timestamp }"
-                 @error="($event.target as HTMLImageElement).style.display = 'none'" />
+            <div style="position: relative; aspect-ratio: 1;">
+              <img :src="cropUrl(face.cropUID)"
+                   class="card-img-top"
+                   style="width: 100%; height: 100%; object-fit: cover; cursor: pointer;"
+                   title="View original clip"
+                   @click="previewFace = { cameraId: face.cameraId, timestamp: face.timestamp }"
+                   @error="($event.target as HTMLImageElement).style.display = 'none'"
+                   @load="onCropLoad($event, face)" />
+              <canvas v-if="showLandmarks && face.landmarks?.length >= 10"
+                      :ref="(el: any) => { if (el) cropCanvases[face.cropUID] = el }"
+                      style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;" />
+            </div>
             <div class="card-body p-1">
               <div class="small text-muted-custom">{{ cameraName(face.cameraId) }}</div>
               <div class="small text-muted-custom">{{ formatTime(face.timestamp) }}</div>
-              <div class="small text-muted-custom">{{ Math.min(Math.round(face.detectionConfidence * 100), 100) }}%</div>
+              <div class="small text-muted-custom">{{ Math.min(Math.round(face.detectionConfidence * 100), 100) }}%
+                <span v-if="showLandmarks && face.landmarks?.length >= 10"
+                      :style="{ color: classifyOrientation(face.landmarks).color, fontWeight: 'bold' }">
+                  {{ classifyOrientation(face.landmarks).label }}
+                </span>
+              </div>
 
               <!-- Assign controls -->
               <div v-if="assigningCropUID === face.cropUID" class="mt-1">
