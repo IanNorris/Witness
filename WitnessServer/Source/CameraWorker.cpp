@@ -332,11 +332,12 @@ void CameraWorker::WorkerInit()
 						}
 
 						// Normalize landmarks relative to crop bounding box (0-1)
+						// lmX/Y are already normalized to full frame (0-1) via ObservingMotionFilter
 						float normLmX[5], normLmY[5];
 						for( int li = 0; li < 5; li++ )
 						{
-							normLmX[li] = ( lmX[li] - (float)fX ) / (float)fW;
-							normLmY[li] = ( lmY[li] - (float)fY ) / (float)fH;
+							normLmX[li] = ( lmX[li] - box.X ) / box.W;
+							normLmY[li] = ( lmY[li] - box.Y ) / box.H;
 						}
 
 						SQLiteDatabaseQueryInstance query( db, "InsertFaceCrop" );
@@ -378,8 +379,8 @@ void CameraWorker::WorkerInit()
 								float cropLmX[5], cropLmY[5];
 								for( int li = 0; li < 5; li++ )
 								{
-									cropLmX[li] = ( lmX[li] - (float)fX ) / (float)fW * 112.0f;
-									cropLmY[li] = ( lmY[li] - (float)fY ) / (float)fH * 112.0f;
+									cropLmX[li] = ( lmX[li] - box.X ) / box.W * 112.0f;
+									cropLmY[li] = ( lmY[li] - box.Y ) / box.H * 112.0f;
 								}
 
 								// Vertical ordering: eyes above nose above mouth

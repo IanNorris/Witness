@@ -10,7 +10,7 @@
 #include <string>
 #include <memory>
 
-static constexpr int CURRENT_DETECTION_VERSION = 10;
+static constexpr int CURRENT_DETECTION_VERSION = 11;
 
 class ClipReprocessWorker : public WorkerBase
 {
