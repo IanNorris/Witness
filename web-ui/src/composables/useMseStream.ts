@@ -430,7 +430,31 @@ export function useMseStream(
       isActive.value = false
 
       if (!destroyed && !intentionalClose) {
-        // Unexpected close — reconnect with backoff
+        // Full teardown — stale MediaSource/SourceBuffer can't be reused reliably
+        if (sourceBuffer && mediaSource && mediaSource.readyState === 'open') {
+          try {
+            mediaSource.removeSourceBuffer(sourceBuffer)
+          } catch {}
+        }
+        sourceBuffer = null
+        appendQueue = []
+
+        const el = videoRef.value
+        if (el) {
+          URL.revokeObjectURL(el.src)
+          el.removeAttribute('src')
+          el.load()
+        }
+
+        mediaSource = null
+        lastFragTime = 0
+        streamStartTime = Date.now()
+        expectingBinary = null
+        waitingForKeyframe = true
+        hasInitialBuffer = false
+        lastCurrentTime = -1
+        currentTimeStalledSince = 0
+
         diag.stats.restartCount++
         diag.log('reconnect', { backoffMs: restartBackoffMs })
         setTimeout(() => connectWebSocket(), restartBackoffMs)

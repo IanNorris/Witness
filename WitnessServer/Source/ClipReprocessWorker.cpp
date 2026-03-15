@@ -61,12 +61,7 @@ void ClipReprocessWorker::WorkerMain()
 {
 	UpdateLastTimedAction( "Idle" );
 
-	// Yield to live detection when cameras have active motion
-	if( !IsIdle() )
-	{
-		std::this_thread::sleep_for( std::chrono::seconds( 5 ) );
-		return;
-	}
+	bool camerasActive = !IsIdle();
 
 	// Count total clips needing reprocessing
 	int totalQueue = 0;
@@ -111,20 +106,23 @@ void ClipReprocessWorker::WorkerMain()
 
 	UpdateLastTimedAction( "Reprocessing clips" );
 
+	// Broadcast queued status for all clips in batch
+	for( size_t i = 0; i < batch.size(); i++ )
+		BroadcastProgress( batch[i].ClipUID, "queued", 0, 0, static_cast<int>( i ), totalQueue );
+
 	for( size_t i = 0; i < batch.size(); i++ )
 	{
 		auto& clip = batch[i];
-
-		// Yield if cameras become active mid-batch
-		if( !IsIdle() )
-			break;
 
 		int queuePos = static_cast<int>( i );
 		ProcessClip( clip.ClipUID, clip.Timestamp, clip.Camera, clip.RecordMode, clip.ExistingTags,
 			queuePos, totalQueue );
 
-		// Sleep between clips to stay low-priority
-		std::this_thread::sleep_for( std::chrono::milliseconds( 500 ) );
+		// Throttle harder when cameras are actively recording
+		if( !IsIdle() )
+			std::this_thread::sleep_for( std::chrono::milliseconds( 500 ) );
+		else
+			std::this_thread::sleep_for( std::chrono::milliseconds( 100 ) );
 	}
 }
 

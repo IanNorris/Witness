@@ -65,15 +65,25 @@ const lightingClass = computed(() => {
     <div class="clip-thumb" @click="emit('play', clip)">
       <img :src="thumbUrl" :alt="`Clip ${clip.uid}`" loading="lazy" />
       <div v-if="reprocessProgress" class="clip-reprocess-overlay">
-        <div class="reprocess-text">
-          Reprocessing {{ reprocessProgress.frame }}/{{ reprocessProgress.totalFrames }}
-        </div>
-        <div class="reprocess-bar">
-          <div class="reprocess-bar-fill" :style="{ width: (reprocessProgress.totalFrames ? (reprocessProgress.frame / reprocessProgress.totalFrames * 100) : 0) + '%' }" />
-        </div>
-        <div v-if="reprocessProgress.queueTotal > 1" class="reprocess-queue">
-          {{ reprocessProgress.queuePosition + 1 }} of {{ reprocessProgress.queueTotal }} in queue
-        </div>
+        <template v-if="reprocessProgress.stage === 'pending'">
+          <div class="reprocess-spinner" />
+          <div class="reprocess-text">Queueing…</div>
+        </template>
+        <template v-else-if="reprocessProgress.stage === 'queued'">
+          <div class="reprocess-spinner" />
+          <div class="reprocess-text">{{ reprocessProgress.queuePosition + 1 }} in queue</div>
+        </template>
+        <template v-else>
+          <div class="reprocess-text">
+            Reprocessing {{ reprocessProgress.frame }}/{{ reprocessProgress.totalFrames }}
+          </div>
+          <div class="reprocess-bar">
+            <div class="reprocess-bar-fill" :style="{ width: (reprocessProgress.totalFrames ? (reprocessProgress.frame / reprocessProgress.totalFrames * 100) : 0) + '%' }" />
+          </div>
+          <div v-if="reprocessProgress.queueTotal > 1" class="reprocess-queue">
+            {{ reprocessProgress.queuePosition + 1 }} in queue
+          </div>
+        </template>
       </div>
       <div class="clip-play-btn">
         <svg width="36" height="36" viewBox="0 0 24 24" fill="currentColor">
@@ -259,6 +269,17 @@ const lightingClass = computed(() => {
 .reprocess-queue {
   color: #888;
   font-size: 0.65rem;
+}
+@keyframes reprocess-spin {
+  to { transform: rotate(360deg); }
+}
+.reprocess-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(255,255,255,0.2);
+  border-top-color: var(--bs-primary, #7c3aed);
+  border-radius: 50%;
+  animation: reprocess-spin 1s linear infinite;
 }
 
 .clip-body {

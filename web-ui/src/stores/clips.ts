@@ -103,6 +103,10 @@ export const useClipStore = defineStore('clips', () => {
   }
 
   async function retagClip(clipUid: number) {
+    // Show immediate feedback before server responds
+    const updated = new Map(reprocessStatus.value)
+    updated.set(clipUid, { stage: 'pending', frame: 0, totalFrames: 0, queuePosition: 0, queueTotal: 0 })
+    reprocessStatus.value = updated
     await api('/clip/retag', { method: 'POST', body: { id: clipUid } })
   }
 
