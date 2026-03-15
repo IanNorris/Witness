@@ -198,6 +198,8 @@ export function useDetectionOverlay(
   const minConf = computed(() => settings.detectionMinConfidence / 100)
 
   const LERP_SPEED = 0.3
+  const STALE_TIMEOUT_MS = 3000
+  let lastDetectionTime = 0
 
   function handleDetectionEvent(evt: { event: string; data: Record<string, unknown> }) {
     if (evt.event !== 'detection:frame') return
@@ -206,6 +208,7 @@ export function useDetectionOverlay(
     if (!enabled.value) return
 
     const now = performance.now()
+    lastDetectionTime = now
     const seen = new Set<number>()
     const filtered = filterRedundantBoxes(data.boxes)
 
@@ -256,6 +259,12 @@ export function useDetectionOverlay(
     }
 
     ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+    // Clear stale boxes when detection events stop (motion ended)
+    if (tracked.size > 0 && lastDetectionTime > 0 &&
+        performance.now() - lastDetectionTime > STALE_TIMEOUT_MS) {
+      tracked.clear()
+    }
 
     const vr = getVideoContentRect(video)
     if (!vr) {

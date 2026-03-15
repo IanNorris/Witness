@@ -747,15 +747,20 @@ void CrowListener::HandleFaceUpload( const crow::request& req, crow::response& r
 		return;
 	}
 
-	// Create face detector and detect faces
-	auto detector = cv::FaceDetectorYN::create( faceDetectModelPath, "", image.size(), 0.7f, 0.3f, 5000 );
+	// Create face detector and detect faces (lower threshold than live detection —
+	// uploaded photos vary in quality, and orientation filter catches bad detections)
+	auto detector = cv::FaceDetectorYN::create( faceDetectModelPath, "", image.size(), 0.5f, 0.3f, 5000 );
 	cv::Mat faces;
 	detector->detect( image, faces );
 
 	if( faces.empty() || faces.rows == 0 )
 	{
+		LOG_INFO( "FaceUpload: No face detected in %dx%d image", image.cols, image.rows );
 		res.code = 400;
-		res.body = R"({"error":"No face detected in image. Please upload a clear photo with a visible face."})";
+		crow::json::wvalue err;
+		err["error"] = "No face detected in image. Please upload a clear photo with a visible face.";
+		err["imageSize"] = std::to_string( image.cols ) + "x" + std::to_string( image.rows );
+		res.body = err.dump();
 		res.set_header( "Content-Type", "application/json" );
 		res.end();
 		return;
@@ -787,10 +792,18 @@ void CrowListener::HandleFaceUpload( const crow::request& req, crow::response& r
 			lmY[i] = faces.at<float>( fi, 5 + i * 2 );
 		}
 
-		int ix = std::max( 0, (int)bx );
-		int iy = std::max( 0, (int)by );
-		int iw = std::min( (int)bw, image.cols - ix );
-		int ih = std::min( (int)bh, image.rows - iy );
+		// Expand bounding box by 40% to include forehead, chin, and some context
+		float padX = bw * 0.4f;
+		float padY = bh * 0.4f;
+		float ex = bx - padX * 0.5f;
+		float ey = by - padY * 0.5f;
+		float ew = bw + padX;
+		float eh = bh + padY;
+
+		int ix = std::max( 0, (int)ex );
+		int iy = std::max( 0, (int)ey );
+		int iw = std::min( (int)ew, image.cols - ix );
+		int ih = std::min( (int)eh, image.rows - iy );
 		if( iw <= 0 || ih <= 0 ) { rejected++; continue; }
 
 		cv::Rect faceRect( ix, iy, iw, ih );

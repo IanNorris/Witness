@@ -527,6 +527,11 @@ export function useMseStream(
         return
       }
 
+      // Auto-resume videos paused by the browser (e.g. background tab suspension)
+      if (video.paused && hasFrags && !destroyed) {
+        video.play().catch(() => {})
+      }
+
       // Stuck detection: readyState low + no recent fragments
       if (hasFrags && video.readyState <= 2 && !video.paused) {
         if (lowReadyStateSince === 0) {
