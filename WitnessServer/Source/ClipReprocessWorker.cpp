@@ -110,7 +110,7 @@ void ClipReprocessWorker::WorkerMain()
 	for( size_t i = 0; i < batch.size(); i++ )
 		BroadcastProgress( batch[i].ClipUID, "queued", 0, 0, static_cast<int>( i ), totalQueue );
 
-	for( size_t i = 0; i < batch.size(); i++ )
+	for( size_t i = 0; i < batch.size() && !IsShutdownRequested(); i++ )
 	{
 		auto& clip = batch[i];
 
@@ -270,7 +270,7 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 
 	BroadcastProgress( clipUID, "processing", 0, totalFrames, queuePosition, queueTotal );
 
-	while( currentTime <= durationSec || currentTime == 0.0 )
+	while( ( currentTime <= durationSec || currentTime == 0.0 ) && !IsShutdownRequested() )
 	{
 		// Seek to target time
 		int64_t seekTarget = (int64_t)( currentTime * AV_TIME_BASE );
