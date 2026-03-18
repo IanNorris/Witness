@@ -40,6 +40,7 @@ set(SERVER_SOURCES
     Source/SetupConfig.cpp
     Source/SetupServer.cpp
     Source/Shutdown.cpp
+    Source/SoundManager.cpp
     Source/SQLite.cpp
     Source/StatusEvents.cpp
     Source/TagHelpers.cpp
@@ -70,6 +71,7 @@ set(SERVER_HEADERS
     Source/SetupConfig.h
     Source/SetupServer.h
     Source/SettingsMap.h
+    Source/SoundManager.h
     Source/SQLite.h
     Source/TagHelpers.h
     Source/EventBroadcaster.h

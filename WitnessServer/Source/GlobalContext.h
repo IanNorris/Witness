@@ -10,6 +10,7 @@
 #include "StreamBroadcaster.h"
 
 #include "FaceRecognitionCache.h"
+#include "SoundManager.h"
 
 #include <shared_mutex>
 
@@ -97,6 +98,9 @@ public:
 	// Face recognition
 	std::shared_ptr<Witness::Camera::FaceEmbeddingModel> FaceEmbeddingModel;
 	std::shared_ptr<FaceRecognitionCache> FaceCache;
+
+	// Sound actions
+	std::shared_ptr<SoundManager> Sound;
 
 private:
 	std::unordered_map< int, CameraState> Cameras;

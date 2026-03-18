@@ -225,34 +225,35 @@ namespace Database
 	)RAW";
 
 	std::string FindActions = R"RAW(
-		SELECT ActionUID FROM CameraAction
-		WHERE CameraUID = @CameraUID 
-		AND MDThreshold <= @MDThreshold
+		SELECT ca.ActionUID FROM CameraAction ca
+		WHERE ca.CameraUID = @CameraUID
+		AND (ca.DetectionClass = '' OR ca.DetectionClass IS NULL)
+		AND ca.MDThreshold <= @MDThreshold
 	)RAW";
 
 	std::string GetAction = R"RAW(
-		SELECT * FROM Action
+		SELECT ActionUID, Name, Command, Param1, Param2, Param3, Priority, Cooldown FROM Action
 		WHERE ActionUID = @ActionUID
 	)RAW";
 
 	std::string FindDetectionActions = R"RAW(
-		SELECT ca.ActionUID FROM CameraAction ca
+		SELECT ca.ActionUID, ca.MDThreshold FROM CameraAction ca
 		WHERE ca.CameraUID = @CameraUID
 		AND ca.DetectionClass = @DetectionClass
 	)RAW";
 
 	std::string SelectAllActions = R"RAW(
-		SELECT ActionUID, Name, Command, Param1, Param2, Param3 FROM Action
+		SELECT ActionUID, Name, Command, Param1, Param2, Param3, Priority, Cooldown FROM Action
 		ORDER BY Name ASC
 	)RAW";
 
 	std::string CreateAction = R"RAW(
-		INSERT INTO Action(Name, Command, Param1, Param2, Param3)
-		VALUES(@Name, @Command, @Param1, @Param2, @Param3)
+		INSERT INTO Action(Name, Command, Param1, Param2, Param3, Priority, Cooldown)
+		VALUES(@Name, @Command, @Param1, @Param2, @Param3, @Priority, @Cooldown)
 	)RAW";
 
 	std::string UpdateAction = R"RAW(
-		UPDATE Action SET Name=@Name, Command=@Command, Param1=@Param1, Param2=@Param2, Param3=@Param3
+		UPDATE Action SET Name=@Name, Command=@Command, Param1=@Param1, Param2=@Param2, Param3=@Param3, Priority=@Priority, Cooldown=@Cooldown
 		WHERE ActionUID=@ActionUID
 	)RAW";
 
@@ -1063,6 +1064,9 @@ namespace Database
 		sqlite3_exec( DB->GetDatabase(), "CREATE UNIQUE INDEX IF NOT EXISTS CameraActionIndex ON CameraAction (ActionUID, CameraUID, DetectionClass);", nullptr, nullptr, nullptr );
 		// Fix any CameraAction rows with MDThreshold=0 (would trigger on any motion)
 		sqlite3_exec( DB->GetDatabase(), "UPDATE CameraAction SET MDThreshold = 0.05 WHERE MDThreshold = 0 OR MDThreshold IS NULL;", nullptr, nullptr, nullptr );
+		// Action priority and cooldown
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Action ADD COLUMN Priority INTEGER DEFAULT 50;", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Action ADD COLUMN Cooldown INTEGER DEFAULT 30;", nullptr, nullptr, nullptr );
 
 		// Fix FaceCrop rows with bad confidence values from column-14 bug (landmark pixel coords stored as confidence)
 		sqlite3_exec( DB->GetDatabase(), "UPDATE FaceCrop SET Confidence = Confidence / 10.0 WHERE Confidence > 1.0;", nullptr, nullptr, nullptr );

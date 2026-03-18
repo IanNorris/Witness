@@ -268,6 +268,9 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 		Context->FaceCache->LoadFromDatabase( Context->Database );
 	}
 
+	// Initialize global sound manager
+	Context->Sound = std::make_shared<SoundManager>();
+
 	if( !CreateProcessors( Settings ) )
 	{
 		return false;

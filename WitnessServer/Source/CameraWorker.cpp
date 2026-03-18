@@ -22,10 +22,7 @@
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 #include <set>
-#include <future>
-#include <windows.h>
-#include <mmsystem.h>
-#pragma comment(lib, "Winmm.lib")
+#include "SoundManager.h"
 
 void CameraWorker::CreateInputStream()
 {
@@ -169,14 +166,13 @@ void CameraWorker::WorkerInit()
 		auto events = Context->Events;
 		auto tracker = std::make_shared<Witness::ObjectTracker>();
 		auto cachePath = std::string( Context->CachePath.begin(), Context->CachePath.end() );
-		// Throttle detection-triggered actions: one trigger per class per 30 seconds
-		auto detectionActionThrottle = std::make_shared<std::unordered_map<std::string, double>>();
+		auto soundManager = Context->Sound;
 		auto faceEmbModel = Context->FaceEmbeddingModel;
 		auto faceCache = Context->FaceCache;
 		double faceRecThreshold = Video.FaceRecognitionConfidence;
 		bool faceAutoAssign = Video.FaceRecognitionAutoAssign;
 
-		Observer->SetDetectionCallback( [db, events, tracker, cachePath, detectionActionThrottle, faceEmbModel, faceCache, faceRecThreshold, faceAutoAssign]( const DetectionFrameData& frame )
+		Observer->SetDetectionCallback( [db, events, tracker, cachePath, soundManager, faceEmbModel, faceCache, faceRecThreshold, faceAutoAssign]( const DetectionFrameData& frame )
 		{
 			// Run IoU tracker for stable TrackingIDs
 			std::vector<Witness::TrackedBox> trackInputs;
@@ -480,75 +476,78 @@ void CameraWorker::WorkerInit()
 			events->Broadcast( "detection:frame", std::move( ev ) );
 
 			// Trigger detection-based actions only during active motion (not baseline/idle)
-			if( frame.IsMotion )
+			if( frame.IsMotion && soundManager )
 			{
-			static constexpr double DETECTION_ACTION_COOLDOWN = 30.0;
 			std::set<std::string> detectedClasses;
+			// Collect max confidence per class for threshold filtering
+			std::unordered_map<std::string, float> classConfidence;
 			for( auto& [box, trackID] : tracked )
 			{
 				if( !box.ClassName.empty() )
+				{
 					detectedClasses.insert( box.ClassName );
+					auto& best = classConfidence[box.ClassName];
+					if( box.Confidence > best ) best = box.Confidence;
+				}
 			}
 
 			// Add face recognition synthetic classes for actions
 			if( !faceRecognitionNames.empty() )
 			{
 				detectedClasses.insert( "known_face" );
+				classConfidence["known_face"] = 1.0f;
 				for( auto& [tid, name] : faceRecognitionNames )
-					detectedClasses.insert( "face:" + name );
+				{
+					auto cls = "face:" + name;
+					detectedClasses.insert( cls );
+					classConfidence[cls] = 1.0f;
+				}
 			}
 			// If faces detected but none recognized → unknown_face
 			if( detectedClasses.count( "face" ) && faceRecognitionNames.empty() && faceEmbModel && faceEmbModel->IsModelLoaded() )
 			{
 				detectedClasses.insert( "unknown_face" );
+				classConfidence["unknown_face"] = classConfidence["face"];
 			}
 
 			for( auto& cls : detectedClasses )
 			{
-				// Throttle: skip if this class was triggered recently
-				auto it = detectionActionThrottle->find( cls );
-				if( it != detectionActionThrottle->end() && ( frame.Timestamp - it->second ) < DETECTION_ACTION_COOLDOWN )
-					continue;
-
 				// Look up actions for this camera + detection class
 				SQLiteDatabaseQueryInstance findQ( db, "FindDetectionActions" );
 				findQ->Bind( "@CameraUID", frame.CameraID );
 				findQ->Bind( "@DetectionClass", cls.c_str() );
 
-				std::vector<int> actionUIDs;
+				struct ActionMatch { int uid; double threshold; };
+				std::vector<ActionMatch> matches;
 				findQ->Execute( [&]( const SQLiteDatabaseQuery& q ) {
-					actionUIDs.push_back( q.GetColumnValueInt( 0 ) );
+					matches.push_back({ q.GetColumnValueInt( 0 ), q.GetColumnValueDouble( 1 ) });
 					return true;
 				});
 
-				if( actionUIDs.empty() )
-					continue;
+				float confidence = classConfidence[cls];
 
-				(*detectionActionThrottle)[cls] = frame.Timestamp;
-
-				for( int uid : actionUIDs )
+				for( auto& [uid, threshold] : matches )
 				{
+					// MDThreshold acts as minimum confidence for detection-class actions
+					if( confidence < threshold )
+						continue;
+
 					SQLiteDatabaseQueryInstance getQ( db, "GetAction" );
 					getQ->Bind( "@ActionUID", uid );
 					getQ->Execute( [&]( const SQLiteDatabaseQuery& q ) {
 						std::string command = q.GetColumnValueText( 2 );
-						std::string param1 = q.GetColumnValueText( 3 );
+						std::string param1  = q.GetColumnValueText( 3 );
+						int priority        = q.GetColumnValueInt( 6 );
+						int cooldown        = q.GetColumnValueInt( 7 );
 
 						if( command == "PlaySound" )
 						{
-							// Resolve relative paths against exe directory
-							std::filesystem::path soundPath( param1 );
-							if( soundPath.is_relative() )
+							auto soundFile = SoundManager::ResolveSoundPath( param1 );
+							if( soundManager->TryPlaySound( uid, priority, cooldown, soundFile ) )
 							{
-								wchar_t exeBuf[MAX_PATH] = {};
-								GetModuleFileNameW( nullptr, exeBuf, MAX_PATH );
-								soundPath = std::filesystem::path( exeBuf ).parent_path() / soundPath;
+								LOG_INFO( "Detection action: %s on camera %d -> PlaySound(%s) pri=%d cd=%ds",
+									cls.c_str(), frame.CameraID, soundFile.c_str(), priority, cooldown );
 							}
-							std::string soundFile = soundPath.string();
-							std::async( std::launch::async, [soundFile]() {
-								PlaySoundA( soundFile.c_str(), nullptr, SND_FILENAME | SND_ASYNC );
-							});
-							LOG_INFO( "Detection action: %s on camera %d -> PlaySound(%s)", cls.c_str(), frame.CameraID, soundFile.c_str() );
 						}
 						return true;
 					});

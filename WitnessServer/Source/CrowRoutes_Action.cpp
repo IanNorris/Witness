@@ -1,6 +1,7 @@
 #include "CrowListener.h"
 #include "CrowAuth.h"
 #include "GlobalContext.h"
+#include "SoundManager.h"
 
 #include <Log.h>
 #include <filesystem>
@@ -38,6 +39,8 @@ void CrowListener::HandleActionEnum( const crow::request& req, crow::response& r
 		a["param1"] = std::string( query.GetColumnValueText( 3 ) );
 		a["param2"] = std::string( query.GetColumnValueText( 4 ) );
 		a["param3"] = std::string( query.GetColumnValueText( 5 ) );
+		a["priority"] = query.GetColumnValueInt( 6 );
+		a["cooldown"] = query.GetColumnValueInt( 7 );
 		actions.push_back( std::move( a ) );
 		return true;
 	});
@@ -92,6 +95,8 @@ void CrowListener::HandleActionCreate( const crow::request& req, crow::response&
 	std::string param1 = body.has( "param1" ) ? std::string( body["param1"].s() ) : "";
 	std::string param2 = body.has( "param2" ) ? std::string( body["param2"].s() ) : "";
 	std::string param3 = body.has( "param3" ) ? std::string( body["param3"].s() ) : "";
+	int priority = body.has( "priority" ) ? (int)body["priority"].i() : 50;
+	int cooldown = body.has( "cooldown" ) ? (int)body["cooldown"].i() : 30;
 
 	SQLiteDatabaseQueryInstance q( m_GlobalContext->Database, "CreateAction" );
 	q->Bind( "@Name", name.c_str() );
@@ -99,6 +104,8 @@ void CrowListener::HandleActionCreate( const crow::request& req, crow::response&
 	q->Bind( "@Param1", param1.c_str() );
 	q->Bind( "@Param2", param2.c_str() );
 	q->Bind( "@Param3", param3.c_str() );
+	q->Bind( "@Priority", priority );
+	q->Bind( "@Cooldown", cooldown );
 	q->Execute( nullptr );
 
 	crow::json::wvalue data;
@@ -135,6 +142,8 @@ void CrowListener::HandleActionUpdate( const crow::request& req, crow::response&
 	std::string param1 = body.has( "param1" ) ? std::string( body["param1"].s() ) : "";
 	std::string param2 = body.has( "param2" ) ? std::string( body["param2"].s() ) : "";
 	std::string param3 = body.has( "param3" ) ? std::string( body["param3"].s() ) : "";
+	int priority = body.has( "priority" ) ? (int)body["priority"].i() : 50;
+	int cooldown = body.has( "cooldown" ) ? (int)body["cooldown"].i() : 30;
 
 	SQLiteDatabaseQueryInstance q( m_GlobalContext->Database, "UpdateAction" );
 	q->Bind( "@ActionUID", actionUID );
@@ -143,6 +152,8 @@ void CrowListener::HandleActionUpdate( const crow::request& req, crow::response&
 	q->Bind( "@Param1", param1.c_str() );
 	q->Bind( "@Param2", param2.c_str() );
 	q->Bind( "@Param3", param3.c_str() );
+	q->Bind( "@Priority", priority );
+	q->Bind( "@Cooldown", cooldown );
 	q->Execute( nullptr );
 
 	res.set_header( "Content-Type", "application/json" );

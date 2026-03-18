@@ -2,6 +2,9 @@
 #include "CameraWorker.h"
 #include "GlobalContext.h"
 #include "CrowListener.h"
+#include "SoundManager.h"
+#include "SQLite.h"
+#include <Log.h>
 
 void WitnessServer::HandleCameraBeginMotionMessage(const CameraBeginMotionMessage& Data)
 {
@@ -24,6 +27,43 @@ void WitnessServer::HandleCameraBeginMotionMessage(const CameraBeginMotionMessag
 			Worker = CameraState->Worker;
 
 			CameraState->TriggeredActions.clear();
+
+			// Trigger generic motion actions (DetectionClass = "")
+			if( Context->Sound )
+			{
+				SQLiteDatabaseQueryInstance findQ( Context->Database, "FindActions" );
+				findQ->Bind( "@CameraUID", Data.Camera );
+				findQ->Bind( "@MDThreshold", Data.MotionPercentage );
+
+				std::vector<int> actionUIDs;
+				findQ->Execute( [&]( const SQLiteDatabaseQuery& q ) {
+					actionUIDs.push_back( q.GetColumnValueInt( 0 ) );
+					return true;
+				});
+
+				for( int uid : actionUIDs )
+				{
+					SQLiteDatabaseQueryInstance getQ( Context->Database, "GetAction" );
+					getQ->Bind( "@ActionUID", uid );
+					getQ->Execute( [&]( const SQLiteDatabaseQuery& q ) {
+						std::string command = q.GetColumnValueText( 2 );
+						std::string param1  = q.GetColumnValueText( 3 );
+						int priority        = q.GetColumnValueInt( 6 );
+						int cooldown        = q.GetColumnValueInt( 7 );
+
+						if( command == "PlaySound" )
+						{
+							auto soundFile = SoundManager::ResolveSoundPath( param1 );
+							if( Context->Sound->TryPlaySound( uid, priority, cooldown, soundFile ) )
+							{
+								LOG_INFO( "Motion action on camera %d -> PlaySound(%s) pri=%d cd=%ds",
+									Data.Camera, soundFile.c_str(), priority, cooldown );
+							}
+						}
+						return true;
+					});
+				}
+			}
 
 			//Already recording
 			if (CameraState->IsRecording)
