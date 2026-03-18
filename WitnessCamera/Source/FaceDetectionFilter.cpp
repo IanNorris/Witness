@@ -24,14 +24,22 @@ struct FaceDetectionFilterData : public FilterDataBase
 {
 	FaceDetectionFilterData()
 	: ConfidenceThreshold( 0.7f )
+	, BurstDurationSec( 3.0 )
 	{}
 
 	cv::Ptr<cv::FaceDetectorYN> Detector;
 	float ConfidenceThreshold;
+	double BurstDurationSec;
+
+	// Cached person ROIs for burst-mode face detection between ONNX frames
+	std::vector<ClassificationResult::RegionOfInterest> CachedPersonROIs;
+	std::chrono::steady_clock::time_point LastPersonDetectionTime;
+	bool HasCachedPersonROIs = false;
 
 	// Stats
 	uint64_t FramesReceived = 0;
 	uint64_t FramesProcessed = 0;
+	uint64_t BurstFramesProcessed = 0;
 	uint64_t FacesDetected = 0;
 	double TotalInferenceMs = 0.0;
 	std::chrono::steady_clock::time_point LastStatsTime;
@@ -40,12 +48,13 @@ struct FaceDetectionFilterData : public FilterDataBase
 PIMPL_CONSTRUCT(FaceDetectionFilterData)
 
 
-FaceDetectionFilter::FaceDetectionFilter( const MotionChainNode& Chain, const char* ModelPath, float ConfidenceThreshold )
+FaceDetectionFilter::FaceDetectionFilter( const MotionChainNode& Chain, const char* ModelPath, float ConfidenceThreshold, float BurstDurationSec )
 : RecordFilterBase( Chain )
 , m_ModelLoaded( false )
 {
 	auto& Data = GetData();
 	Data.ConfidenceThreshold = ConfidenceThreshold;
+	Data.BurstDurationSec = BurstDurationSec;
 	Data.LastStatsTime = std::chrono::steady_clock::now();
 
 	if( !ModelPath || !std::filesystem::exists( ModelPath ) )
@@ -209,7 +218,9 @@ bool FaceDetectionFilter::ProcessFrame( SharedClassificationTask TaskData )
 	if( !m_ModelLoaded )
 		return true;  // Pass through if model not loaded
 
-	// Only run face detection on frames that contain people
+	auto now = std::chrono::steady_clock::now();
+
+	// Check if this frame has fresh person ROIs from ONNX
 	bool hasPerson = false;
 	for( auto& roi : TaskData->Result.ROI )
 	{
@@ -220,8 +231,42 @@ bool FaceDetectionFilter::ProcessFrame( SharedClassificationTask TaskData )
 		}
 	}
 
-	if( !hasPerson )
-		return true;  // No people detected, pass through
+	// Determine which ROIs to use for face detection
+	const std::vector<ClassificationResult::RegionOfInterest>* personROIs = nullptr;
+	bool isBurstFrame = false;
+
+	if( hasPerson )
+	{
+		// Fresh ONNX detection — update cache and use current ROIs
+		Data.CachedPersonROIs.clear();
+		for( auto& roi : TaskData->Result.ROI )
+		{
+			if( ( roi.Classification & ClassificationResult::Motion_Person ) != 0 )
+				Data.CachedPersonROIs.push_back( roi );
+		}
+		Data.LastPersonDetectionTime = now;
+		Data.HasCachedPersonROIs = true;
+		personROIs = &TaskData->Result.ROI;
+	}
+	else if( Data.HasCachedPersonROIs && Data.BurstDurationSec > 0.0 )
+	{
+		// No ONNX detection this frame (throttled), but we have recent person positions
+		double elapsed = std::chrono::duration<double>( now - Data.LastPersonDetectionTime ).count();
+		if( elapsed < Data.BurstDurationSec )
+		{
+			// Burst mode: use cached person ROIs
+			personROIs = &Data.CachedPersonROIs;
+			isBurstFrame = true;
+		}
+		else
+		{
+			// Cache expired
+			Data.HasCachedPersonROIs = false;
+		}
+	}
+
+	if( !personROIs )
+		return true;  // No person context available
 
 	auto& decodedFrame = TaskData->Frame.GetOrDecodeFrame();
 	if( decodedFrame.empty() )
@@ -230,22 +275,25 @@ bool FaceDetectionFilter::ProcessFrame( SharedClassificationTask TaskData )
 		return true;
 	}
 
-	LOG_DEBUG( "FaceDetection: Processing frame with %zu ROIs (%dx%d)",
-		TaskData->Result.ROI.size(), decodedFrame.cols, decodedFrame.rows );
+	LOG_DEBUG( "FaceDetection: Processing %s frame with %zu ROIs (%dx%d)",
+		isBurstFrame ? "burst" : "normal",
+		personROIs->size(), decodedFrame.cols, decodedFrame.rows );
 
 	auto startTime = std::chrono::steady_clock::now();
 
-	auto faces = DetectFacesInPersonCrops( decodedFrame, TaskData->Result.ROI );
+	auto faces = DetectFacesInPersonCrops( decodedFrame, *personROIs );
 
 	auto endTime = std::chrono::steady_clock::now();
 	double elapsedMs = std::chrono::duration<double, std::milli>( endTime - startTime ).count();
 
 	Data.FramesProcessed++;
+	if( isBurstFrame )
+		Data.BurstFramesProcessed++;
 	Data.TotalInferenceMs += elapsedMs;
 	Data.FacesDetected += faces.size();
 
-	LOG_DEBUG( "FaceDetection: %zu faces found in %.1fms (total: %llu faces from %llu frames)",
-		faces.size(), elapsedMs, Data.FacesDetected, Data.FramesProcessed );
+	LOG_DEBUG( "FaceDetection: %zu faces found in %.1fms (total: %llu faces from %llu frames, %llu burst)",
+		faces.size(), elapsedMs, Data.FacesDetected, Data.FramesProcessed, Data.BurstFramesProcessed );
 
 	// Add face ROIs to TaskData
 	for( auto& face : faces )
@@ -278,14 +326,13 @@ bool FaceDetectionFilter::ProcessFrame( SharedClassificationTask TaskData )
 	}
 
 	// Periodic stats logging (every 60 seconds)
-	auto now = std::chrono::steady_clock::now();
 	double secSinceStats = std::chrono::duration<double>( now - Data.LastStatsTime ).count();
 	if( secSinceStats >= 60.0 )
 	{
 		if( Data.FramesProcessed > 0 )
 		{
-			LOG_INFO( "FaceDetection: %llu frames, %llu faces, avg %.1fms/frame",
-				Data.FramesProcessed, Data.FacesDetected,
+			LOG_INFO( "FaceDetection: %llu frames (%llu burst), %llu faces, avg %.1fms/frame",
+				Data.FramesProcessed, Data.BurstFramesProcessed, Data.FacesDetected,
 				Data.TotalInferenceMs / Data.FramesProcessed );
 		}
 		Data.LastStatsTime = now;

@@ -1,0 +1,712 @@
+<script setup lang="ts">
+import { ref, computed, onMounted, nextTick, watch } from 'vue'
+import { api } from '../../composables/useApi'
+import { useCameraStore } from '../../stores/cameras'
+import ConfirmModal from '../common/ConfirmModal.vue'
+import ClipPlayer from '../clips/ClipPlayer.vue'
+import type { Clip } from '../../types/clip'
+
+interface KnownFace {
+  id: number
+  name: string
+  notes: string
+  createdAt: number
+  updatedAt: number
+  verifiedCount: number
+  totalCount: number
+  bestCropPath: string
+  bestCropUID: number
+}
+
+interface UnidentifiedFace {
+  cropUID: number
+  cameraId: number
+  timestamp: number
+  filePath: string
+  detectionConfidence: number
+  embeddingUID: number
+  matchConfidence: number
+  landmarks: number[] // [rx, ry, lx, ly, nx, ny, rmx, rmy, lmx, lmy] normalized 0-1
+}
+
+const cameraStore = useCameraStore()
+const knownFaces = ref<KnownFace[]>([])
+const unknownFaces = ref<UnidentifiedFace[]>([])
+const loading = ref(true)
+const unknownOffset = ref(0)
+const unknownLimit = 50
+
+const filteredUnknownFaces = computed(() => {
+  if (!orientationFilter.value) return unknownFaces.value
+  return unknownFaces.value.filter(f => {
+    if (!f.landmarks || f.landmarks.length < 10) return false
+    return classifyOrientation(f.landmarks).label === 'OK'
+  })
+})
+
+// New known face form
+const newName = ref('')
+const newNotes = ref('')
+
+// Editing
+const editingId = ref<number | null>(null)
+const editName = ref('')
+const editNotes = ref('')
+
+// Assignment mode
+const assigningCropUID = ref<number | null>(null)
+const assignTargetId = ref(0)
+const assignNewName = ref('')
+
+// Merge mode
+const mergeSourceId = ref(0)
+const mergeTargetId = ref(0)
+
+// Expanded known face
+const expandedFaceId = ref<number | null>(null)
+const expandedSightings = ref<any[]>([])
+
+// Delete confirmation
+const showConfirm = ref(false)
+const confirmMessage = ref('')
+const confirmAction = ref<(() => void) | null>(null)
+
+// Reprocess
+const reprocessing = ref(false)
+const reprocessResult = ref<{ processed: number } | null>(null)
+
+// Clip preview
+const previewFace = ref<{ cameraId: number; timestamp: number } | null>(null)
+const previewClip = computed<Clip | null>(() => {
+  if (!previewFace.value) return null
+  const pf = previewFace.value
+  return {
+    uid: 0,
+    camera: pf.cameraId,
+    cameraName: cameraName(pf.cameraId),
+    timestamp: pf.timestamp,
+    duration: 60,
+    tags: '',
+    saved: false,
+    recordMode: 'motion',
+    description: '',
+    detectionVersion: 0,
+    lighting: 0,
+    reviewed: false,
+  }
+})
+
+// Upload
+const uploading = ref(false)
+const uploadTargetId = ref<number | null>(null)
+const uploadResult = ref<{ ok: boolean; message: string } | null>(null)
+
+// Landmark overlay toggle
+const showLandmarks = ref(false)
+const orientationFilter = ref(false)
+const cropCanvases: Record<number, HTMLCanvasElement> = {}
+
+function sizeCanvas(canvas: HTMLCanvasElement) {
+  const dpr = window.devicePixelRatio || 1
+  const rect = canvas.getBoundingClientRect()
+  canvas.width = Math.round(rect.width * dpr)
+  canvas.height = Math.round(rect.height * dpr)
+  const ctx = canvas.getContext('2d')
+  if (ctx) ctx.scale(dpr, dpr)
+  return { w: rect.width, h: rect.height }
+}
+
+function onCropLoad(_event: Event, face: UnidentifiedFace) {
+  if (!showLandmarks.value || !face.landmarks?.length) return
+  nextTick(() => {
+    const canvas = cropCanvases[face.cropUID]
+    if (!canvas) return
+    const { w, h } = sizeCanvas(canvas)
+    drawLandmarks(canvas, face.landmarks, w, h)
+  })
+}
+
+watch(showLandmarks, (show) => {
+  if (!show) {
+    Object.values(cropCanvases).forEach(c => {
+      const ctx = c.getContext('2d')
+      if (ctx) ctx.clearRect(0, 0, c.width, c.height)
+    })
+  } else {
+    nextTick(() => {
+      unknownFaces.value.forEach(face => {
+        const canvas = cropCanvases[face.cropUID]
+        if (canvas && face.landmarks?.length) {
+          const { w, h } = sizeCanvas(canvas)
+          drawLandmarks(canvas, face.landmarks, w, h)
+        }
+      })
+    })
+  }
+})
+
+function cameraName(id: number) {
+  return cameraStore.getCameraById(id)?.name ?? `Camera ${id}`
+}
+
+function cropUrl(cropUID: number) {
+  return `/api/face/crop/${cropUID}`
+}
+
+function classifyOrientation(lm: number[]): { label: string; color: string } {
+  if (lm.length < 10) return { label: '', color: '' }
+  // Landmarks are normalized 0-1, convert to 112px space
+  const rEyeX = lm[0] as number * 112, rEyeY = lm[1] as number * 112
+  const lEyeX = lm[2] as number * 112, lEyeY = lm[3] as number * 112
+  const nX = lm[4] as number * 112, nY = lm[5] as number * 112
+  const rMY = lm[7] as number * 112
+  const lMY = lm[9] as number * 112
+
+  const eyeAvgY = (rEyeY + lEyeY) / 2
+  const mouthAvgY = (rMY + lMY) / 2
+  const interEye = Math.abs(lEyeX - rEyeX)
+  const eyeMidX = (rEyeX + lEyeX) / 2
+  const noseOffset = Math.abs(nX - eyeMidX)
+  const eyeHeightDiff = Math.abs(rEyeY - lEyeY)
+
+  const verticalOk = eyeAvgY < nY && nY < mouthAvgY
+  const accepted = verticalOk && interEye > 12 && noseOffset < 30 && eyeHeightDiff < 25
+  const marginal = !accepted && verticalOk && interEye > 8 && noseOffset < 40 && eyeHeightDiff < 35
+
+  if (accepted) return { label: 'OK', color: '#00c800' }
+  if (marginal) return { label: 'MARGINAL', color: '#ffc800' }
+  return { label: 'REJECTED', color: '#ff0000' }
+}
+
+function drawLandmarks(canvas: HTMLCanvasElement, landmarks: number[], w: number, h: number) {
+  if (landmarks.length < 10) return
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+
+  const rEyeX = landmarks[0] as number * w, rEyeY = landmarks[1] as number * h
+  const lEyeX = landmarks[2] as number * w, lEyeY = landmarks[3] as number * h
+  const noseX = landmarks[4] as number * w, noseY = landmarks[5] as number * h
+  const rMouthX = landmarks[6] as number * w, rMouthY = landmarks[7] as number * h
+  const lMouthX = landmarks[8] as number * w, lMouthY = landmarks[9] as number * h
+
+  const orient = classifyOrientation(landmarks)
+  ctx.strokeStyle = orient.color
+  ctx.fillStyle = orient.color
+  ctx.lineWidth = 1.5
+
+  const dotR = Math.max(2, w / 40)
+
+  // Landmark dots
+  for (const [x, y] of [[rEyeX, rEyeY], [lEyeX, lEyeY], [noseX, noseY], [rMouthX, rMouthY], [lMouthX, lMouthY]]) {
+    ctx.beginPath()
+    ctx.arc(x!, y!, dotR, 0, Math.PI * 2)
+    ctx.fill()
+  }
+
+  // Eye line
+  ctx.beginPath()
+  ctx.moveTo(rEyeX, rEyeY); ctx.lineTo(lEyeX, lEyeY)
+  ctx.stroke()
+
+  // Eye midpoint to nose
+  const emx = (rEyeX + lEyeX) / 2, emy = (rEyeY + lEyeY) / 2
+  ctx.beginPath()
+  ctx.moveTo(emx, emy); ctx.lineTo(noseX, noseY)
+  ctx.stroke()
+
+  // Nose to mouth center
+  const mmx = (rMouthX + lMouthX) / 2, mmy = (rMouthY + lMouthY) / 2
+  ctx.beginPath()
+  ctx.moveTo(noseX, noseY); ctx.lineTo(mmx, mmy)
+  ctx.stroke()
+
+  // Mouth line
+  ctx.beginPath()
+  ctx.moveTo(rMouthX, rMouthY); ctx.lineTo(lMouthX, lMouthY)
+  ctx.stroke()
+
+  // Label
+  const fontSize = Math.max(10, Math.round(w / 8))
+  ctx.font = `bold ${fontSize}px sans-serif`
+  ctx.fillText(orient.label, 3, fontSize + 2)
+}
+
+function formatTime(ts: number) {
+  if (!ts) return ''
+  return new Date(ts * 1000).toLocaleString()
+}
+
+async function fetchAll() {
+  loading.value = true
+  try {
+    const [knownData, unknownData] = await Promise.all([
+      api<{ faces: KnownFace[] }>('/api/face/known'),
+      api<{ faces: UnidentifiedFace[] }>(`/api/face/unknown?limit=${unknownLimit}&offset=${unknownOffset.value}`),
+    ])
+    knownFaces.value = knownData.faces ?? []
+    unknownFaces.value = unknownData.faces ?? []
+
+    if (cameraStore.cameras.length === 0) {
+      await cameraStore.fetchCameras()
+    }
+  } finally {
+    loading.value = false
+  }
+}
+
+async function createKnownFace() {
+  if (!newName.value.trim()) return
+  await api('/api/face/known/create', {
+    method: 'POST',
+    body: { name: newName.value.trim(), notes: newNotes.value.trim() },
+  })
+  newName.value = ''
+  newNotes.value = ''
+  await fetchAll()
+}
+
+function startEdit(face: KnownFace) {
+  editingId.value = face.id
+  editName.value = face.name
+  editNotes.value = face.notes
+}
+
+async function saveEdit() {
+  if (!editingId.value || !editName.value.trim()) return
+  await api('/api/face/known/update', {
+    method: 'POST',
+    body: { id: editingId.value, name: editName.value.trim(), notes: editNotes.value.trim() },
+  })
+  editingId.value = null
+  await fetchAll()
+}
+
+function cancelEdit() {
+  editingId.value = null
+}
+
+function confirmDelete(face: KnownFace) {
+  confirmMessage.value = `Delete "${face.name}"? Their embeddings will become unidentified.`
+  confirmAction.value = async () => {
+    await api('/api/face/known/delete', { method: 'POST', body: { id: face.id } })
+    showConfirm.value = false
+    await fetchAll()
+  }
+  showConfirm.value = true
+}
+
+function onConfirm() {
+  if (confirmAction.value) confirmAction.value()
+}
+
+// Assignment
+function startAssign(cropUID: number) {
+  assigningCropUID.value = cropUID
+  assignTargetId.value = 0
+  assignNewName.value = ''
+}
+
+async function doAssign() {
+  if (!assigningCropUID.value) return
+
+  let targetId = assignTargetId.value
+
+  // Create new known face if name provided
+  if (!targetId && assignNewName.value.trim()) {
+    const result = await api<{ id: number }>('/api/face/known/create', {
+      method: 'POST',
+      body: { name: assignNewName.value.trim(), notes: '' },
+    })
+    targetId = result.id
+  }
+
+  if (!targetId) return
+
+  await api('/api/face/assign', {
+    method: 'POST',
+    body: { cropUID: assigningCropUID.value, knownFaceUID: targetId },
+  })
+
+  assigningCropUID.value = null
+  await fetchAll()
+}
+
+function cancelAssign() {
+  assigningCropUID.value = null
+}
+
+// Expand/collapse known face sightings
+async function toggleExpand(faceId: number) {
+  if (expandedFaceId.value === faceId) {
+    expandedFaceId.value = null
+    expandedSightings.value = []
+    return
+  }
+
+  expandedFaceId.value = faceId
+  const data = await api<{ sightings: any[] }>(`/api/face/sightings/${faceId}?limit=20`)
+  expandedSightings.value = data.sightings ?? []
+}
+
+async function removeSighting(embeddingUID: number) {
+  await api('/api/face/unassign', {
+    method: 'POST',
+    body: { embeddingUID },
+  })
+  expandedSightings.value = expandedSightings.value.filter(s => s.embeddingUID !== embeddingUID)
+  await fetchAll()
+}
+
+// Merge
+async function doMerge() {
+  if (!mergeSourceId.value || !mergeTargetId.value || mergeSourceId.value === mergeTargetId.value) return
+  await api('/api/face/merge', {
+    method: 'POST',
+    body: { sourceId: mergeSourceId.value, targetId: mergeTargetId.value },
+  })
+  mergeSourceId.value = 0
+  mergeTargetId.value = 0
+  await fetchAll()
+}
+
+// Load more unknowns
+async function loadMoreUnknowns() {
+  unknownOffset.value += unknownLimit
+  const data = await api<{ faces: UnidentifiedFace[] }>(`/api/face/unknown?limit=${unknownLimit}&offset=${unknownOffset.value}`)
+  unknownFaces.value.push(...(data.faces ?? []))
+}
+
+// Reprocess
+async function reprocess() {
+  reprocessing.value = true
+  reprocessResult.value = null
+  try {
+    const result = await api<{ processed: number; remaining: boolean }>('/api/face/reprocess', {
+      method: 'POST',
+      body: {},
+    })
+    reprocessResult.value = { processed: result.processed }
+    await fetchAll()
+  } finally {
+    reprocessing.value = false
+  }
+}
+
+onMounted(fetchAll)
+
+function triggerUpload(knownFaceUID: number | null) {
+  uploadTargetId.value = knownFaceUID
+  uploadResult.value = null
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = 'image/*'
+  input.multiple = true
+  input.onchange = async () => {
+    const files = input.files
+    if (!files || files.length === 0) return
+    uploading.value = true
+    uploadResult.value = null
+
+    let totalAccepted = 0, totalRejected = 0, totalDetected = 0, errors: string[] = []
+
+    for (let f = 0; f < files.length; f++) {
+      try {
+        const base64 = await fileToBase64(files[f]!)
+        const body: Record<string, unknown> = { image: base64 }
+        if (knownFaceUID) body.knownFaceUID = knownFaceUID
+        const result = await api<{ ok: boolean; accepted: number; rejected: number; facesDetected: number }>(
+          '/api/face/upload',
+          { method: 'POST', body }
+        )
+        totalAccepted += result.accepted
+        totalRejected += result.rejected
+        totalDetected += result.facesDetected
+      } catch (e: any) {
+        errors.push(`${files[f]!.name}: ${e.message || 'failed'}`)
+      }
+    }
+
+    const parts: string[] = []
+    if (totalAccepted > 0) parts.push(`${totalAccepted} face${totalAccepted !== 1 ? 's' : ''} added`)
+    if (totalRejected > 0) parts.push(`${totalRejected} rejected (orientation)`)
+    if (errors.length > 0) parts.push(`${errors.length} file${errors.length !== 1 ? 's' : ''} failed`)
+
+    uploadResult.value = {
+      ok: totalAccepted > 0,
+      message: parts.join(', ') + (totalDetected > 0 ? ` — ${totalDetected} detected across ${files.length} image${files.length !== 1 ? 's' : ''}` : '')
+    }
+    if (errors.length > 0 && totalAccepted === 0) {
+      uploadResult.value.message = errors[0]!
+    }
+
+    await fetchAll()
+    uploading.value = false
+  }
+  input.click()
+}
+
+function fileToBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(reader.result as string)
+    reader.onerror = reject
+    reader.readAsDataURL(file)
+  })
+}
+</script>
+
+<template>
+  <div v-if="loading" class="text-center py-4 text-muted-custom">Loading...</div>
+
+  <div v-else>
+    <!-- Tips -->
+    <div class="alert alert-secondary py-2 mb-3 small">
+      <strong>Tips for best results</strong>
+      <ul class="mb-0 mt-1 ps-3">
+        <li>Assign <strong>3–5 crops per person</strong> with different angles, lighting, and expressions for reliable matching.</li>
+        <li>Choose crops where the face is <strong>clearly visible and front-facing</strong> — avoid profiles, heavy shadows, or motion blur.</li>
+        <li>Avoid assigning crops where the face is <strong>very small, partially occluded, or wearing sunglasses/masks</strong>.</li>
+        <li>If matches seem wrong, use the <strong>✕ button</strong> on sightings to remove bad associations — this improves future accuracy.</li>
+        <li>The <strong>Reprocess</strong> button regenerates embeddings from existing crops without auto-matching.</li>
+      </ul>
+    </div>
+
+    <!-- Landmark overlay toggle -->
+    <div class="form-check form-switch mb-2">
+      <input class="form-check-input" type="checkbox" id="landmarkOverlay" v-model="showLandmarks" />
+      <label class="form-check-label small" for="landmarkOverlay">
+        Show landmark overlay
+        <span class="text-muted-custom">— renders orientation lines on face crops (🟢 frontal, 🟡 marginal, 🔴 rejected)</span>
+      </label>
+    </div>
+
+    <div class="form-check form-switch mb-3">
+      <input class="form-check-input" type="checkbox" id="orientationFilter" v-model="orientationFilter" />
+      <label class="form-check-label small" for="orientationFilter">
+        Only show faces passing orientation check
+        <span class="text-muted-custom">— hides rejected and marginal faces</span>
+      </label>
+    </div>
+
+    <!-- Known Faces Section -->
+    <div class="mb-4">
+      <h5>Known Faces</h5>
+
+      <!-- Create new known face -->
+      <div class="row g-2 align-items-end mb-3">
+        <div class="col-auto">
+          <label class="form-label small">Name</label>
+          <input v-model="newName" type="text" class="form-control form-control-sm" placeholder="Person name..." />
+        </div>
+        <div class="col-auto">
+          <label class="form-label small">Notes</label>
+          <input v-model="newNotes" type="text" class="form-control form-control-sm" placeholder="Optional notes..." />
+        </div>
+        <div class="col-auto">
+          <button class="btn btn-sm btn-primary" :disabled="!newName.trim()" @click="createKnownFace">
+            + Add Person
+          </button>
+        </div>
+      </div>
+
+      <!-- Merge controls -->
+      <div v-if="knownFaces.length >= 2" class="row g-2 align-items-end mb-3 border-top pt-2">
+        <div class="col-auto">
+          <label class="form-label small">Merge</label>
+          <select v-model.number="mergeSourceId" class="form-select form-select-sm" style="width: auto;">
+            <option :value="0" disabled>From...</option>
+            <option v-for="f in knownFaces" :key="f.id" :value="f.id">{{ f.name }}</option>
+          </select>
+        </div>
+        <div class="col-auto">
+          <label class="form-label small">Into</label>
+          <select v-model.number="mergeTargetId" class="form-select form-select-sm" style="width: auto;">
+            <option :value="0" disabled>Into...</option>
+            <option v-for="f in knownFaces.filter(x => x.id !== mergeSourceId)" :key="f.id" :value="f.id">{{ f.name }}</option>
+          </select>
+        </div>
+        <div class="col-auto">
+          <button class="btn btn-sm btn-outline-warning"
+                  :disabled="!mergeSourceId || !mergeTargetId || mergeSourceId === mergeTargetId"
+                  @click="doMerge">
+            Merge
+          </button>
+        </div>
+      </div>
+
+      <!-- Known faces grid -->
+      <div class="row g-2">
+        <div v-for="face in knownFaces" :key="face.id" class="col-md-4 col-lg-3">
+          <div class="card bg-dark border-secondary">
+            <div class="card-body p-2">
+              <!-- Editing mode -->
+              <div v-if="editingId === face.id">
+                <input v-model="editName" class="form-control form-control-sm mb-1" />
+                <input v-model="editNotes" class="form-control form-control-sm mb-1" placeholder="Notes..." />
+                <button class="btn btn-sm btn-success me-1" @click="saveEdit">Save</button>
+                <button class="btn btn-sm btn-secondary" @click="cancelEdit">Cancel</button>
+              </div>
+
+              <!-- Display mode -->
+              <div v-else>
+                <div class="d-flex align-items-start">
+                  <img v-if="face.bestCropUID"
+                       :src="cropUrl(face.bestCropUID)"
+                       class="rounded me-2"
+                       style="width: 56px; height: 56px; object-fit: cover;"
+                       @error="($event.target as HTMLImageElement).style.display = 'none'" />
+                  <div class="flex-grow-1">
+                    <strong>{{ face.name }}</strong>
+                    <span class="ms-1" :title="`${face.verifiedCount} verified embeddings`">{{
+                      face.verifiedCount >= 5 ? '🟢' : face.verifiedCount >= 2 ? '🟡' : '🔴'
+                    }}</span>
+                    <div class="small text-muted-custom">
+                      {{ face.verifiedCount }} verified / {{ face.totalCount }} total
+                      <span v-if="face.verifiedCount < 2" class="text-warning">— needs more samples</span>
+                    </div>
+                    <div v-if="face.notes" class="small text-muted-custom fst-italic">{{ face.notes }}</div>
+                  </div>
+                </div>
+                <div class="mt-1">
+                  <button class="btn btn-sm btn-outline-secondary me-1 py-0" @click="startEdit(face)">Edit</button>
+                  <button class="btn btn-sm btn-outline-success me-1 py-0"
+                          :disabled="uploading"
+                          @click="triggerUpload(face.id)"
+                          title="Upload a photo to add a verified face crop">
+                    📷 Upload
+                  </button>
+                  <button class="btn btn-sm btn-outline-info me-1 py-0" @click="toggleExpand(face.id)">
+                    {{ expandedFaceId === face.id ? 'Hide' : 'Sightings' }}
+                  </button>
+                  <button class="btn btn-sm btn-outline-danger py-0" @click="confirmDelete(face)">Delete</button>
+                </div>
+
+                <!-- Expanded sightings -->
+                <div v-if="expandedFaceId === face.id" class="mt-2 border-top pt-2">
+                  <div v-for="s in expandedSightings" :key="s.cropUID" class="d-flex align-items-center mb-1">
+                    <img :src="cropUrl(s.cropUID)"
+                         class="rounded me-2"
+                         :style="{ width: '40px', height: '40px', objectFit: 'cover', cursor: s.cameraId ? 'pointer' : 'default' }"
+                         :title="s.cameraId ? 'View original clip' : 'Uploaded image'"
+                         @click="s.cameraId && (previewFace = { cameraId: s.cameraId, timestamp: s.timestamp })"
+                         @error="($event.target as HTMLImageElement).style.display = 'none'" />
+                    <div class="small flex-grow-1">
+                      <div>{{ s.cameraId ? cameraName(s.cameraId) : 'Uploaded' }}</div>
+                      <div class="text-muted-custom">{{ formatTime(s.timestamp) }}</div>
+                      <div class="text-muted-custom">
+                        {{ Math.round(s.matchConfidence * 100) }}% match
+                        <span v-if="s.verified" class="badge bg-success ms-1">✓ verified</span>
+                        <span v-else class="badge bg-secondary ms-1">auto</span>
+                      </div>
+                    </div>
+                    <button class="btn btn-sm btn-outline-danger py-0 ms-2" title="Not this person"
+                            @click="removeSighting(s.embeddingUID)">✕</button>
+                  </div>
+                  <div v-if="expandedSightings.length === 0" class="small text-muted-custom">No sightings yet</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="knownFaces.length === 0" class="text-muted-custom small">
+        No known faces registered. Add a person above, then assign face crops to them.
+      </div>
+    </div>
+
+    <!-- Unidentified Faces Section -->
+    <div class="mb-4">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h5 class="mb-0">Unidentified Faces</h5>
+        <div>
+          <button class="btn btn-sm btn-outline-success me-1"
+                  :disabled="uploading"
+                  @click="triggerUpload(null)"
+                  title="Upload a photo — face will appear as unidentified">
+            📷 Upload Photo
+          </button>
+          <button class="btn btn-sm btn-outline-primary"
+                  :disabled="reprocessing"
+                  @click="reprocess">
+            {{ reprocessing ? 'Processing...' : 'Reprocess Crops' }}
+          </button>
+        </div>
+      </div>
+
+      <div v-if="uploadResult" class="alert py-1 small" :class="uploadResult.ok ? 'alert-success' : 'alert-danger'">
+        {{ uploadResult.message }}
+      </div>
+
+      <div v-if="reprocessResult" class="alert alert-info py-1 small">
+        Processed {{ reprocessResult.processed }} crops. Faces will appear in the unidentified gallery below.
+      </div>
+
+      <div class="row g-2">
+        <div v-for="face in filteredUnknownFaces" :key="face.cropUID" class="col-6 col-md-3 col-lg-2">
+          <div class="card bg-dark border-secondary">
+            <div style="position: relative; aspect-ratio: 1;">
+              <img :src="cropUrl(face.cropUID)"
+                   class="card-img-top"
+                   :style="{ width: '100%', height: '100%', objectFit: 'cover', cursor: face.cameraId ? 'pointer' : 'default' }"
+                   :title="face.cameraId ? 'View original clip' : 'Uploaded image'"
+                   @click="face.cameraId && (previewFace = { cameraId: face.cameraId, timestamp: face.timestamp })"
+                   @error="($event.target as HTMLImageElement).style.display = 'none'"
+                   @load="onCropLoad($event, face)" />
+              <canvas v-if="showLandmarks && face.landmarks?.length >= 10"
+                      :ref="(el: any) => { if (el) cropCanvases[face.cropUID] = el }"
+                      style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;" />
+            </div>
+            <div class="card-body p-1">
+              <div class="small text-muted-custom">{{ face.cameraId ? cameraName(face.cameraId) : 'Uploaded' }}</div>
+              <div class="small text-muted-custom">{{ formatTime(face.timestamp) }}</div>
+              <div class="small text-muted-custom">{{ Math.min(Math.round(face.detectionConfidence * 100), 100) }}%
+                <span v-if="showLandmarks && face.landmarks?.length >= 10"
+                      :style="{ color: classifyOrientation(face.landmarks).color, fontWeight: 'bold' }">
+                  {{ classifyOrientation(face.landmarks).label }}
+                </span>
+              </div>
+
+              <!-- Assign controls -->
+              <div v-if="assigningCropUID === face.cropUID" class="mt-1">
+                <select v-model.number="assignTargetId" class="form-select form-select-sm mb-1">
+                  <option :value="0">— New person —</option>
+                  <option v-for="kf in knownFaces" :key="kf.id" :value="kf.id">{{ kf.name }}</option>
+                </select>
+                <input v-if="!assignTargetId" v-model="assignNewName" type="text"
+                       class="form-control form-control-sm mb-1" placeholder="Name..." />
+                <button class="btn btn-sm btn-success py-0 me-1"
+                        :disabled="!assignTargetId && !assignNewName.trim()"
+                        @click="doAssign">
+                  Assign
+                </button>
+                <button class="btn btn-sm btn-secondary py-0" @click="cancelAssign">Cancel</button>
+              </div>
+              <button v-else class="btn btn-sm btn-outline-info py-0 mt-1 w-100" @click="startAssign(face.cropUID)">
+                Identify
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="filteredUnknownFaces.length === 0" class="text-muted-custom small">
+        {{ orientationFilter ? 'No faces pass the orientation check.' : 'No unidentified faces.' }}
+      </div>
+
+      <div v-if="unknownFaces.length >= unknownLimit" class="text-center mt-2">
+        <button class="btn btn-sm btn-outline-secondary" @click="loadMoreUnknowns">Load More</button>
+      </div>
+    </div>
+
+    <ConfirmModal
+      :show="showConfirm"
+      :message="confirmMessage"
+      @confirm="onConfirm"
+      @cancel="showConfirm = false"
+    />
+
+    <!-- Clip preview modal -->
+    <ClipPlayer v-if="previewClip" :clip="previewClip" @close="previewFace = null" />
+  </div>
+</template>

@@ -5,6 +5,15 @@ import type { Clip } from '../types/clip'
 import { LightingCondition } from '../types/clip'
 import { useSettingsStore } from './settings'
 import { useFilterStore } from './filters'
+import { useEventStream } from '../composables/useEventStream'
+
+export interface ReprocessProgress {
+  stage: string
+  frame: number
+  totalFrames: number
+  queuePosition: number
+  queueTotal: number
+}
 
 export const useClipStore = defineStore('clips', () => {
   const clips = ref<Clip[]>([])
@@ -12,12 +21,42 @@ export const useClipStore = defineStore('clips', () => {
   const loading = ref(false)
   const pageOffset = ref(0)
   const currentCameraId = ref<number | null>(null)
+  const reprocessStatus = ref<Map<number, ReprocessProgress>>(new Map())
 
   const settings = useSettingsStore()
   const filterStore = useFilterStore()
   const pageSize = computed(() => settings.clipsPerPage)
   const currentPage = computed(() => Math.floor(pageOffset.value / pageSize.value))
   const totalPages = computed(() => Math.ceil(totalCount.value / pageSize.value))
+
+  // Listen for reprocess progress events
+  const events = useEventStream()
+  events.onEvent((evt) => {
+    if (evt.event !== 'reprocess:progress') return
+    const data = evt.data as unknown as { clipUID: number; stage: string; frame: number; totalFrames: number; queuePosition: number; queueTotal: number }
+    if (data.stage === 'idle') {
+      reprocessStatus.value = new Map()
+      return
+    }
+    const updated = new Map(reprocessStatus.value)
+    if (data.stage === 'complete') {
+      updated.delete(data.clipUID)
+      // Refresh the clip's data after reprocessing
+      const clip = clips.value.find(c => c.uid === data.clipUID)
+      if (clip) {
+        fetchClips(currentCameraId.value, pageOffset.value)
+      }
+    } else {
+      updated.set(data.clipUID, {
+        stage: data.stage,
+        frame: data.frame,
+        totalFrames: data.totalFrames,
+        queuePosition: data.queuePosition,
+        queueTotal: data.queueTotal,
+      })
+    }
+    reprocessStatus.value = updated
+  })
 
   async function fetchClips(cameraId: number | null, offset = 0) {
     loading.value = true
@@ -64,6 +103,10 @@ export const useClipStore = defineStore('clips', () => {
   }
 
   async function retagClip(clipUid: number) {
+    // Show immediate feedback before server responds
+    const updated = new Map(reprocessStatus.value)
+    updated.set(clipUid, { stage: 'pending', frame: 0, totalFrames: 0, queuePosition: 0, queueTotal: 0 })
+    reprocessStatus.value = updated
     await api('/clip/retag', { method: 'POST', body: { id: clipUid } })
   }
 
@@ -116,7 +159,7 @@ export const useClipStore = defineStore('clips', () => {
   return {
     clips, totalCount, loading, pageSize, pageOffset,
     currentCameraId, currentPage, totalPages,
-    recentClips,
+    recentClips, reprocessStatus,
     fetchClips, toggleSave, deleteClip, retagClip,
     reviewClip, reviewAllClips, fetchRecent,
     nextPage, prevPage, goToPage,
@@ -138,5 +181,6 @@ function mapClip(raw: Record<string, unknown>): Clip {
     detectionVersion: (raw.detectionVersion as number) ?? 0,
     lighting: (raw.lighting as number ?? 0) as LightingCondition,
     reviewed: (raw.reviewed as number) === 1,
+    recognizedFaces: (raw.recognizedFaces as string[]) ?? [],
   }
 }

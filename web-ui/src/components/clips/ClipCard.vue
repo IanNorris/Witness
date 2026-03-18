@@ -26,6 +26,7 @@ const tagStore = useTagStore()
 
 const camera = computed(() => cameraStore.getCameraById(props.clip.camera))
 const thumbUrl = computed(() => clipStore.thumbnailUrl(props.clip.camera, props.clip.timestamp))
+const reprocessProgress = computed(() => clipStore.reprocessStatus.get(props.clip.uid))
 
 const clipDate = computed(() => new Date(props.clip.timestamp * 1000))
 const fullDateTime = computed(() => format(clipDate.value, 'dd MMM yyyy HH:mm:ss'))
@@ -63,6 +64,27 @@ const lightingClass = computed(() => {
   <div class="clip-card" :class="{ 'clip-saved': clip.saved, 'clip-trivial': trivial, 'clip-unreviewed': !clip.reviewed }">
     <div class="clip-thumb" @click="emit('play', clip)">
       <img :src="thumbUrl" :alt="`Clip ${clip.uid}`" loading="lazy" />
+      <div v-if="reprocessProgress" class="clip-reprocess-overlay">
+        <template v-if="reprocessProgress.stage === 'pending'">
+          <div class="reprocess-spinner" />
+          <div class="reprocess-text">Queueing…</div>
+        </template>
+        <template v-else-if="reprocessProgress.stage === 'queued'">
+          <div class="reprocess-spinner" />
+          <div class="reprocess-text">{{ reprocessProgress.queuePosition + 1 }} in queue</div>
+        </template>
+        <template v-else>
+          <div class="reprocess-text">
+            Reprocessing {{ reprocessProgress.frame }}/{{ reprocessProgress.totalFrames }}
+          </div>
+          <div class="reprocess-bar">
+            <div class="reprocess-bar-fill" :style="{ width: (reprocessProgress.totalFrames ? (reprocessProgress.frame / reprocessProgress.totalFrames * 100) : 0) + '%' }" />
+          </div>
+          <div v-if="reprocessProgress.queueTotal > 1" class="reprocess-queue">
+            {{ reprocessProgress.queuePosition + 1 }} in queue
+          </div>
+        </template>
+      </div>
       <div class="clip-play-btn">
         <svg width="36" height="36" viewBox="0 0 24 24" fill="currentColor">
           <path d="M8 5v14l11-7z"/>
@@ -97,6 +119,13 @@ const lightingClass = computed(() => {
             @click="emit('tagClick', dt.display)"
           >
             <span v-if="dt.icon">{{ dt.icon }}</span> {{ dt.display }}
+          </span>
+          <span
+            v-for="name in (clip.recognizedFaces ?? [])"
+            :key="'face-' + name"
+            class="badge bg-primary clip-tag-chip"
+          >
+            👤 {{ name }}
           </span>
         </div>
       </div>
@@ -209,6 +238,48 @@ const lightingClass = computed(() => {
   top: 4px;
   right: 4px;
   color: var(--bs-warning, #f59e0b);
+}
+.clip-reprocess-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  z-index: 2;
+}
+.reprocess-text {
+  color: #ccc;
+  font-size: 0.75rem;
+}
+.reprocess-bar {
+  width: 70%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.reprocess-bar-fill {
+  height: 100%;
+  background: var(--bs-primary, #7c3aed);
+  transition: width 0.3s ease;
+}
+.reprocess-queue {
+  color: #888;
+  font-size: 0.65rem;
+}
+@keyframes reprocess-spin {
+  to { transform: rotate(360deg); }
+}
+.reprocess-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(255,255,255,0.2);
+  border-top-color: var(--bs-primary, #7c3aed);
+  border-radius: 50%;
+  animation: reprocess-spin 1s linear infinite;
 }
 
 .clip-body {

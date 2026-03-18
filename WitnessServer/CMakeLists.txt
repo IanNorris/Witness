@@ -17,6 +17,7 @@ set(SERVER_SOURCES
     Source/CrowRoutes_Clip.cpp
     Source/CrowRoutes_Debug.cpp
     Source/CrowRoutes_Face.cpp
+    Source/CrowRoutes_FaceRecognition.cpp
     Source/CrowRoutes_DVR.cpp
     Source/CrowRoutes_Group.cpp
     Source/CrowRoutes_Action.cpp
@@ -26,6 +27,7 @@ set(SERVER_SOURCES
     Source/CameraWorker.cpp
     Source/Common.cpp
     Source/Database.cpp
+    Source/FaceRecognitionCache.cpp
     Source/ImageProcessorWorker.cpp
     Source/Init.cpp
     Source/JsonHelpers.cpp
@@ -38,6 +40,7 @@ set(SERVER_SOURCES
     Source/SetupConfig.cpp
     Source/SetupServer.cpp
     Source/Shutdown.cpp
+    Source/SoundManager.cpp
     Source/SQLite.cpp
     Source/StatusEvents.cpp
     Source/TagHelpers.cpp
@@ -57,6 +60,7 @@ set(SERVER_HEADERS
     Source/CrowAuth.h
     Source/CrowListener.h
     Source/Database.h
+    Source/FaceRecognitionCache.h
     Source/GlobalContext.h
     Source/ImageProcessorWorker.h
     Source/LongPoll.h
@@ -67,6 +71,7 @@ set(SERVER_HEADERS
     Source/SetupConfig.h
     Source/SetupServer.h
     Source/SettingsMap.h
+    Source/SoundManager.h
     Source/SQLite.h
     Source/TagHelpers.h
     Source/EventBroadcaster.h

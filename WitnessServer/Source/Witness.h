@@ -44,8 +44,7 @@ private:
 	bool CreateProcessors( const std::unordered_map< std::string, std::string >& Settings );
 	bool InitializeContext( const std::shared_ptr<SQLiteDatabase>& Database );
 
-	void HandleActions( const std::shared_ptr<GlobalContext>& Context, CameraState& State, int CameraIndex, double MotionThreshold );
-	void TriggerAction( const std::string& Command, const std::string& Param1, const std::string& Param2, const std::string& Param3, CameraState& State, int CameraIndex );
+
 
 	void StartCameraWorkers();
 

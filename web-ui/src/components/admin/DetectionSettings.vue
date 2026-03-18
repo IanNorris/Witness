@@ -15,6 +15,10 @@ const detectionKeys = [
   'cudnn_path',
   'face_detection_enabled',
   'face_detection_confidence',
+  'face_burst_duration',
+  'face_recognition_enabled',
+  'face_recognition_model_path',
+  'face_recognition_confidence',
 ]
 
 const detectionSettings = ref<Record<string, string>>({})
@@ -133,8 +137,60 @@ onMounted(fetchSettings)
 
       <div class="col-md-6">
         <label class="form-label small">Face Confidence</label>
-        <input v-model="detectionSettings['face_detection_confidence']" type="number" step="0.05" min="0" max="1" class="form-control form-control-sm" @blur="saveSetting('face_detection_confidence')" />
-        <div class="form-text small">Minimum confidence for face detection (default: 0.5).</div>
+        <input v-model="detectionSettings['face_detection_confidence']" type="number" step="0.05" min="0.5" max="1" class="form-control form-control-sm" @blur="saveSetting('face_detection_confidence')" />
+        <div class="form-text small">Minimum confidence for face detection (default: 0.7, min: 0.5).</div>
+      </div>
+
+      <div class="col-md-6">
+        <label class="form-label small">Burst Duration (seconds)</label>
+        <input v-model="detectionSettings['face_burst_duration']" type="number" step="0.5" min="0" max="10" class="form-control form-control-sm" @blur="saveSetting('face_burst_duration')" />
+        <div class="form-text small">After a person is detected, continue face detection at full FPS for this duration (default: 3s, 0=disabled).</div>
+      </div>
+
+      <div class="col-12 mt-3">
+        <h6 class="mb-2">Face Recognition</h6>
+      </div>
+
+      <div class="col-md-4">
+        <label class="form-label small">Face Recognition</label>
+        <select v-model="detectionSettings['face_recognition_enabled']" class="form-select form-select-sm" @change="saveSetting('face_recognition_enabled')">
+          <option value="">Disabled</option>
+          <option value="1">Enabled</option>
+        </select>
+        <div class="form-text small">Match detected faces against known identities.</div>
+      </div>
+
+      <div class="col-md-4">
+        <label class="form-label small">Recognition Model Path</label>
+        <input v-model="detectionSettings['face_recognition_model_path']" type="text" class="form-control form-control-sm" placeholder="models/face_recognition.onnx" @blur="saveSetting('face_recognition_model_path')" />
+        <div class="form-text small">ONNX model for face embedding (ArcFace, MobileFaceNet, etc.).</div>
+      </div>
+
+      <div class="col-md-4">
+        <label class="form-label small">Match Threshold
+          <span class="badge ms-1" :class="{
+            'bg-success': Number(detectionSettings['face_recognition_confidence'] || 0.6) >= 0.7,
+            'bg-warning text-dark': Number(detectionSettings['face_recognition_confidence'] || 0.6) >= 0.5 && Number(detectionSettings['face_recognition_confidence'] || 0.6) < 0.7,
+            'bg-danger': Number(detectionSettings['face_recognition_confidence'] || 0.6) < 0.5
+          }">{{ Number(detectionSettings['face_recognition_confidence'] || 0.6) >= 0.8 ? 'Strict' : Number(detectionSettings['face_recognition_confidence'] || 0.6) >= 0.6 ? 'Default' : 'Loose' }}</span>
+        </label>
+        <input v-model="detectionSettings['face_recognition_confidence']" type="number" step="0.05" min="0.4" max="0.95" class="form-control form-control-sm" @blur="saveSetting('face_recognition_confidence')" />
+        <div class="form-text small">Cosine similarity threshold (0.4=Loose, 0.6=Default, 0.8=Strict, 0.95=Exact).</div>
+      </div>
+
+      <div class="col-md-4">
+        <label class="form-label small">Min Verified Embeddings</label>
+        <input v-model="detectionSettings['face_recognition_min_verified']" type="number" min="1" max="10" class="form-control form-control-sm" @blur="saveSetting('face_recognition_min_verified')" />
+        <div class="form-text small">Known faces need at least this many verified samples before matching (default: 2).</div>
+      </div>
+
+      <div class="col-md-4">
+        <label class="form-label small">Auto-Assign Sightings</label>
+        <select v-model="detectionSettings['face_recognition_auto_assign']" class="form-select form-select-sm" @change="saveSetting('face_recognition_auto_assign')">
+          <option value="">Disabled</option>
+          <option value="1">Enabled</option>
+        </select>
+        <div class="form-text small">Automatically assign identity when confidence ≥ threshold (marked as auto, not verified).</div>
       </div>
 
       <div class="col-12 mt-3">

@@ -59,6 +59,7 @@ void WitnessServer::RequestShutdown()
 	if (ReprocessWorker)
 	{
 		ReprocessWorker->RequestShutdown();
+		ReprocessWorker->Join();
 	}
 	for (auto& Worker : ImageWorkers)
 	{

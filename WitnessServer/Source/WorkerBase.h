@@ -76,6 +76,8 @@ protected:
 			std::chrono::system_clock::now().time_since_epoch() ).count()), NewAction } );
 	}
 
+	bool IsShutdownRequested() const { return Shutdown; }
+
 private:
 
 	virtual void WorkerInit() {};

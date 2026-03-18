@@ -514,6 +514,73 @@ void CrowListener::RegisterRoutes()
 		HandleDetectionCropImage( req, res, cropPath );
 	});
 
+	// Face recognition
+	CROW_ROUTE( m_App, "/api/face/known" )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleKnownFaceList( req, res );
+	});
+
+	CROW_ROUTE( m_App, "/api/face/known/create" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleKnownFaceCreate( req, res );
+	});
+
+	CROW_ROUTE( m_App, "/api/face/known/update" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleKnownFaceUpdate( req, res );
+	});
+
+	CROW_ROUTE( m_App, "/api/face/known/delete" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleKnownFaceDelete( req, res );
+	});
+
+	CROW_ROUTE( m_App, "/api/face/assign" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleFaceAssign( req, res );
+	});
+
+	CROW_ROUTE( m_App, "/api/face/unassign" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleFaceUnassign( req, res );
+	});
+
+	CROW_ROUTE( m_App, "/api/face/merge" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleFaceMerge( req, res );
+	});
+
+	CROW_ROUTE( m_App, "/api/face/unknown" )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleUnidentifiedFaces( req, res );
+	});
+
+	CROW_ROUTE( m_App, "/api/face/sightings/<int>" )
+	([this]( const crow::request& req, crow::response& res, int knownFaceId )
+	{
+		HandleFaceSightings( req, res, knownFaceId );
+	});
+
+	CROW_ROUTE( m_App, "/api/face/reprocess" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleFaceReprocess( req, res );
+	});
+
+	CROW_ROUTE( m_App, "/api/face/upload" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleFaceUpload( req, res );
+	});
+
 	// Setup / Reconfiguration (admin-only)
 	CROW_ROUTE( m_App, "/setup" )
 	([this]( const crow::request& req, crow::response& res )

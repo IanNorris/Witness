@@ -283,6 +283,11 @@ export function useHls(
     watchdog = setInterval(() => {
       if (!element) return
 
+      // Auto-resume videos paused by the browser (e.g. background tab suspension)
+      if (element.paused && lastFragTime > 0 && !destroyed) {
+        element.play().catch(() => {})
+      }
+
       // Reset backoffs when stream is healthy (frags flowing + playback active)
       if (element.readyState >= 3 && lastFragTime > 0 && Date.now() - lastFragTime < HLS_SPINNER_TIMEOUT_MS) {
         stuckBackoffMs = 3000

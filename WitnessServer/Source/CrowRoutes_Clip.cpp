@@ -151,6 +151,9 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 	int Count = 0;
 	std::vector<crow::json::wvalue> Array;
 	std::vector<int64_t> clipUIDs;
+	std::vector<int> clipCameras;
+	std::vector<uint64_t> clipTimestamps;
+	std::vector<int> clipDurations;
 
 	if( hasFilters )
 	{
@@ -250,8 +253,9 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 			}, &Count, nullptr );
 
 		// Execute select query
-		struct EnumContext { std::vector<crow::json::wvalue>* array; std::vector<int64_t>* clipUIDs; };
-		EnumContext ctx{ &Array, &clipUIDs };
+		struct EnumContext { std::vector<crow::json::wvalue>* array; std::vector<int64_t>* clipUIDs;
+			std::vector<int>* cameras; std::vector<uint64_t>* timestamps; std::vector<int>* durations; };
+		EnumContext ctx{ &Array, &clipUIDs, &clipCameras, &clipTimestamps, &clipDurations };
 
 		if( Count > 0 )
 		{
@@ -289,6 +293,9 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 					Clip["reviewed"] = Reviewed;
 
 					ctx->clipUIDs->push_back( ClipID );
+					ctx->cameras->push_back( CameraID );
+					ctx->timestamps->push_back( Timestamp );
+					ctx->durations->push_back( Duration );
 					ctx->array->push_back( std::move( Clip ) );
 					return 0;
 				}, &ctx, nullptr );
@@ -330,7 +337,7 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 		SelectClips->Bind( "@PageOffset", pageOffset );
 
 		SelectClips->Execute(
-			[&Array, &clipUIDs]( const SQLiteDatabaseQuery& query )
+			[&Array, &clipUIDs, &clipCameras, &clipTimestamps, &clipDurations]( const SQLiteDatabaseQuery& query )
 			{
 				int64_t ClipID = query.GetColumnValueInt64( 0 );
 				uint64_t Timestamp = query.GetColumnValueInt64( 1 );
@@ -363,6 +370,9 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 				Clip["reviewed"] = Reviewed;
 
 				clipUIDs.push_back( ClipID );
+				clipCameras.push_back( CameraID );
+				clipTimestamps.push_back( Timestamp );
+				clipDurations.push_back( Duration );
 				Array.push_back( std::move( Clip ) );
 				return true;
 			}
@@ -389,6 +399,26 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 			});
 		}
 		Array[i]["tags"] = tags;
+	}
+
+	// Populate recognized face names
+	for( size_t i = 0; i < clipUIDs.size(); i++ )
+	{
+		std::vector<crow::json::wvalue> faceNames;
+		{
+			SQLiteDatabaseQueryInstance q( m_GlobalContext->Database, "SelectRecognizedFacesForClip" );
+			q->Bind( "@CameraID", clipCameras[i] );
+			q->Bind( "@TimestampFrom", static_cast<double>( clipTimestamps[i] ) );
+			q->Bind( "@TimestampTo", static_cast<double>( clipTimestamps[i] + clipDurations[i] ) );
+			q->Execute( [&faceNames]( const SQLiteDatabaseQuery& query )
+			{
+				const char* name = query.GetColumnValueText( 0 );
+				if( name )
+					faceNames.push_back( std::string( name ) );
+				return true;
+			});
+		}
+		Array[i]["recognizedFaces"] = std::move( faceNames );
 	}
 
 	crow::json::wvalue Data;

@@ -30,6 +30,11 @@ struct VideoSettings
 	, MsePartialDuration( 0.15 )
 	, FaceDetectionEnabled( false )
 	, FaceDetectionConfidence( 0.7 )
+	, FaceBurstDuration( 3.0 )
+	, FaceRecognitionEnabled( false )
+	, FaceRecognitionConfidence( 0.6 )
+	, FaceRecognitionMinVerified( 2 )
+	, FaceRecognitionAutoAssign( false )
 	{}
 
 	std::string	DataPath;
@@ -50,6 +55,13 @@ struct VideoSettings
 	bool		FaceDetectionEnabled;
 	std::string	FaceDetectionModelPath;
 	double		FaceDetectionConfidence;
+	double		FaceBurstDuration;
+
+	bool		FaceRecognitionEnabled;
+	std::string	FaceRecognitionModelPath;
+	double		FaceRecognitionConfidence;
+	int			FaceRecognitionMinVerified;
+	bool		FaceRecognitionAutoAssign;
 };
 
 struct CameraSettings

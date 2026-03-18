@@ -79,6 +79,36 @@ void SQLiteDatabaseQuery::Bind( const char* paramName, int64_t value )
 	}
 }
 
+void SQLiteDatabaseQuery::BindBlob( const char* paramName, const void* data, int bytes )
+{
+	Reset();
+
+	for( auto& statement : m_statements )
+	{
+		int index = sqlite3_bind_parameter_index( statement, paramName );
+		if( index )
+		{
+			int result = sqlite3_bind_blob( statement, index, data, bytes, SQLITE_TRANSIENT );
+			AssertQuery( result == 0, "Failed to bind blob parameter: %s", sqlite3_errmsg( m_database->GetDatabase() ) );
+		}
+	}
+}
+
+void SQLiteDatabaseQuery::BindNull( const char* paramName )
+{
+	Reset();
+
+	for( auto& statement : m_statements )
+	{
+		int index = sqlite3_bind_parameter_index( statement, paramName );
+		if( index )
+		{
+			int result = sqlite3_bind_null( statement, index );
+			AssertQuery( result == 0, "Failed to bind null parameter: %s", sqlite3_errmsg( m_database->GetDatabase() ) );
+		}
+	}
+}
+
 void SQLiteDatabaseQuery::Reset()
 {
 	if( !m_reset )
@@ -156,6 +186,16 @@ const int64_t SQLiteDatabaseQuery::GetColumnValueInt64( int column ) const
 const double SQLiteDatabaseQuery::GetColumnValueDouble( int column ) const
 {
 	return sqlite3_column_double( m_statements.back(), column );
+}
+
+const void* SQLiteDatabaseQuery::GetColumnValueBlob( int column ) const
+{
+	return sqlite3_column_blob( m_statements.back(), column );
+}
+
+const int SQLiteDatabaseQuery::GetColumnValueBytes( int column ) const
+{
+	return sqlite3_column_bytes( m_statements.back(), column );
 }
 
 const int SQLiteDatabaseQuery::GetColumnCount() const

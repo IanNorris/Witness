@@ -183,6 +183,31 @@ namespace Database
 		);
 
 		CREATE INDEX IF NOT EXISTS idx_facecrop_camera_time ON FaceCrop(CameraID, Timestamp);
+		CREATE INDEX IF NOT EXISTS idx_facecrop_frame_track ON FaceCrop(FrameUID, TrackingID);
+
+		CREATE TABLE IF NOT EXISTS KnownFace(
+			KnownFaceUID	INTEGER PRIMARY KEY AUTOINCREMENT,
+			Name			TEXT					NOT NULL,
+			Notes			TEXT					DEFAULT '',
+			CreatedAt		REAL					NOT NULL,
+			UpdatedAt		REAL					NOT NULL
+		);
+
+		CREATE TABLE IF NOT EXISTS FaceEmbedding(
+			EmbeddingUID	INTEGER PRIMARY KEY AUTOINCREMENT,
+			FaceCropUID		INTEGER					NOT NULL,
+			KnownFaceUID	INTEGER,
+			Embedding		BLOB					NOT NULL,
+			Dimension		INTEGER					NOT NULL,
+			MatchConfidence	REAL,
+			Verified		INTEGER					DEFAULT 0,
+			CreatedAt		REAL					NOT NULL,
+			FOREIGN KEY(FaceCropUID) REFERENCES FaceCrop(CropUID) ON DELETE CASCADE,
+			FOREIGN KEY(KnownFaceUID) REFERENCES KnownFace(KnownFaceUID) ON DELETE SET NULL
+		);
+
+		CREATE INDEX IF NOT EXISTS idx_embedding_known ON FaceEmbedding(KnownFaceUID);
+		CREATE INDEX IF NOT EXISTS idx_embedding_crop ON FaceEmbedding(FaceCropUID);
 
 	)RAW";
 
@@ -200,34 +225,35 @@ namespace Database
 	)RAW";
 
 	std::string FindActions = R"RAW(
-		SELECT ActionUID FROM CameraAction
-		WHERE CameraUID = @CameraUID 
-		AND MDThreshold <= @MDThreshold
+		SELECT ca.ActionUID FROM CameraAction ca
+		WHERE ca.CameraUID = @CameraUID
+		AND (ca.DetectionClass = '' OR ca.DetectionClass IS NULL)
+		AND ca.MDThreshold <= @MDThreshold
 	)RAW";
 
 	std::string GetAction = R"RAW(
-		SELECT * FROM Action
+		SELECT ActionUID, Name, Command, Param1, Param2, Param3, Priority, Cooldown FROM Action
 		WHERE ActionUID = @ActionUID
 	)RAW";
 
 	std::string FindDetectionActions = R"RAW(
-		SELECT ca.ActionUID FROM CameraAction ca
+		SELECT ca.ActionUID, ca.MDThreshold FROM CameraAction ca
 		WHERE ca.CameraUID = @CameraUID
 		AND ca.DetectionClass = @DetectionClass
 	)RAW";
 
 	std::string SelectAllActions = R"RAW(
-		SELECT ActionUID, Name, Command, Param1, Param2, Param3 FROM Action
+		SELECT ActionUID, Name, Command, Param1, Param2, Param3, Priority, Cooldown FROM Action
 		ORDER BY Name ASC
 	)RAW";
 
 	std::string CreateAction = R"RAW(
-		INSERT INTO Action(Name, Command, Param1, Param2, Param3)
-		VALUES(@Name, @Command, @Param1, @Param2, @Param3)
+		INSERT INTO Action(Name, Command, Param1, Param2, Param3, Priority, Cooldown)
+		VALUES(@Name, @Command, @Param1, @Param2, @Param3, @Priority, @Cooldown)
 	)RAW";
 
 	std::string UpdateAction = R"RAW(
-		UPDATE Action SET Name=@Name, Command=@Command, Param1=@Param1, Param2=@Param2, Param3=@Param3
+		UPDATE Action SET Name=@Name, Command=@Command, Param1=@Param1, Param2=@Param2, Param3=@Param3, Priority=@Priority, Cooldown=@Cooldown
 		WHERE ActionUID=@ActionUID
 	)RAW";
 
@@ -809,9 +835,13 @@ namespace Database
 
 	std::string SelectDetectionFramesWithBoxes = R"RAW(
 		SELECT f.FrameUID, f.Timestamp, f.FrameWidth, f.FrameHeight,
-			   b.TrackingID, b.ClassID, b.ClassName, b.Confidence, b.X, b.Y, b.W, b.H, b.IsBaseline, b.CropPath
+			   b.TrackingID, b.ClassID, b.ClassName, b.Confidence, b.X, b.Y, b.W, b.H, b.IsBaseline, b.CropPath,
+			   kf.Name
 		FROM DetectionFrame f
 		LEFT JOIN DetectionBox b ON f.FrameUID = b.FrameUID
+		LEFT JOIN FaceCrop fc ON fc.FrameUID = b.FrameUID AND fc.TrackingID = b.TrackingID
+		LEFT JOIN FaceEmbedding fe ON fe.FaceCropUID = fc.CropUID AND fe.KnownFaceUID IS NOT NULL
+		LEFT JOIN KnownFace kf ON kf.KnownFaceUID = fe.KnownFaceUID
 		WHERE f.CameraID = @CameraID
 			AND f.Timestamp >= @TimestampFrom
 			AND f.Timestamp <= @TimestampTo
@@ -886,6 +916,128 @@ namespace Database
 		WHERE CameraID = @CameraID AND Timestamp < @Timestamp;
 	)RAW";
 
+	// -- KnownFace queries --
+
+	std::string SelectAllKnownFaces = R"RAW(
+		SELECT kf.KnownFaceUID, kf.Name, kf.Notes, kf.CreatedAt, kf.UpdatedAt,
+			(SELECT COUNT(*) FROM FaceEmbedding fe WHERE fe.KnownFaceUID = kf.KnownFaceUID AND fe.Verified = 1) AS VerifiedCount,
+			(SELECT COUNT(*) FROM FaceEmbedding fe WHERE fe.KnownFaceUID = kf.KnownFaceUID) AS TotalCount,
+			(SELECT fc.FilePath FROM FaceEmbedding fe2
+				JOIN FaceCrop fc ON fe2.FaceCropUID = fc.CropUID
+				WHERE fe2.KnownFaceUID = kf.KnownFaceUID AND fe2.Verified = 1
+				ORDER BY fe2.MatchConfidence DESC LIMIT 1) AS BestCropPath,
+			(SELECT fe2.FaceCropUID FROM FaceEmbedding fe2
+				WHERE fe2.KnownFaceUID = kf.KnownFaceUID AND fe2.Verified = 1
+				ORDER BY fe2.MatchConfidence DESC LIMIT 1) AS BestCropUID
+		FROM KnownFace kf
+		ORDER BY kf.Name ASC;
+	)RAW";
+
+	std::string SelectKnownFaceByUID = R"RAW(
+		SELECT KnownFaceUID, Name, Notes, CreatedAt, UpdatedAt
+		FROM KnownFace WHERE KnownFaceUID = @KnownFaceUID;
+	)RAW";
+
+	std::string CreateKnownFace = R"RAW(
+		INSERT INTO KnownFace(Name, Notes, CreatedAt, UpdatedAt)
+		VALUES(@Name, @Notes, @CreatedAt, @UpdatedAt);
+	)RAW";
+
+	std::string UpdateKnownFace = R"RAW(
+		UPDATE KnownFace SET Name=@Name, Notes=@Notes, UpdatedAt=@UpdatedAt
+		WHERE KnownFaceUID = @KnownFaceUID;
+	)RAW";
+
+	std::string DeleteKnownFace = R"RAW(
+		DELETE FROM KnownFace WHERE KnownFaceUID = @KnownFaceUID;
+	)RAW";
+
+	std::string MergeKnownFace = R"RAW(
+		UPDATE FaceEmbedding SET KnownFaceUID = @TargetUID
+		WHERE KnownFaceUID = @SourceUID;
+	)RAW";
+
+	// -- FaceEmbedding queries --
+
+	std::string InsertFaceEmbedding = R"RAW(
+		INSERT INTO FaceEmbedding(FaceCropUID, KnownFaceUID, Embedding, Dimension, MatchConfidence, Verified, CreatedAt)
+		VALUES(@FaceCropUID, @KnownFaceUID, @Embedding, @Dimension, @MatchConfidence, @Verified, @CreatedAt);
+	)RAW";
+
+	std::string UpdateFaceEmbeddingIdentity = R"RAW(
+		UPDATE FaceEmbedding SET KnownFaceUID = @KnownFaceUID, MatchConfidence = @MatchConfidence, Verified = @Verified
+		WHERE EmbeddingUID = @EmbeddingUID;
+	)RAW";
+
+	std::string SelectEmbeddingByFaceCrop = R"RAW(
+		SELECT EmbeddingUID, FaceCropUID, KnownFaceUID, Embedding, Dimension, MatchConfidence, Verified
+		FROM FaceEmbedding WHERE FaceCropUID = @FaceCropUID;
+	)RAW";
+
+	std::string SelectVerifiedEmbeddings = R"RAW(
+		SELECT fe.EmbeddingUID, fe.KnownFaceUID, fe.Embedding, fe.Dimension
+		FROM FaceEmbedding fe
+		WHERE fe.Verified = 1 AND fe.KnownFaceUID IS NOT NULL;
+	)RAW";
+
+	std::string SelectEmbeddingsForKnownFace = R"RAW(
+		SELECT fe.EmbeddingUID, fe.FaceCropUID, fe.Embedding, fe.Dimension, fe.MatchConfidence, fe.Verified,
+			fc.FilePath, fc.CameraID, fc.Timestamp, fc.Confidence AS DetectionConfidence
+		FROM FaceEmbedding fe
+		JOIN FaceCrop fc ON fe.FaceCropUID = fc.CropUID
+		WHERE fe.KnownFaceUID = @KnownFaceUID
+		ORDER BY fc.Timestamp DESC;
+	)RAW";
+
+	std::string SelectUnidentifiedFaces = R"RAW(
+		SELECT fc.CropUID, fc.CameraID, fc.Timestamp, fc.FilePath, fc.Confidence,
+			fe.EmbeddingUID, fe.MatchConfidence,
+			fc.Landmark0X, fc.Landmark0Y, fc.Landmark1X, fc.Landmark1Y,
+			fc.Landmark2X, fc.Landmark2Y, fc.Landmark3X, fc.Landmark3Y,
+			fc.Landmark4X, fc.Landmark4Y
+		FROM FaceCrop fc
+		LEFT JOIN FaceEmbedding fe ON fc.CropUID = fe.FaceCropUID
+		WHERE fe.KnownFaceUID IS NULL
+		ORDER BY fc.Timestamp DESC
+		LIMIT @Limit OFFSET @Offset;
+	)RAW";
+
+	std::string SelectFaceCropsWithoutEmbedding = R"RAW(
+		SELECT fc.CropUID, fc.FilePath, fc.Confidence,
+			fc.Landmark0X, fc.Landmark0Y, fc.Landmark1X, fc.Landmark1Y,
+			fc.Landmark2X, fc.Landmark2Y, fc.Landmark3X, fc.Landmark3Y,
+			fc.Landmark4X, fc.Landmark4Y, fc.CameraID, fc.Timestamp
+		FROM FaceCrop fc
+		LEFT JOIN FaceEmbedding fe ON fc.CropUID = fe.FaceCropUID
+		WHERE fe.EmbeddingUID IS NULL
+		ORDER BY fc.Timestamp ASC
+		LIMIT @Limit;
+	)RAW";
+
+	std::string SelectRecognizedFacesForClip = R"RAW(
+		SELECT DISTINCT kf.Name
+		FROM FaceCrop fc
+		INNER JOIN FaceEmbedding fe ON fc.CropUID = fe.FaceCropUID
+		INNER JOIN KnownFace kf ON fe.KnownFaceUID = kf.KnownFaceUID
+		WHERE fc.CameraID = @CameraID
+			AND fc.Timestamp >= @TimestampFrom
+			AND fc.Timestamp <= @TimestampTo;
+	)RAW";
+
+	std::string DeleteFaceEmbedding = R"RAW(
+		DELETE FROM FaceEmbedding WHERE EmbeddingUID = @EmbeddingUID;
+	)RAW";
+
+	std::string SelectFaceSightings = R"RAW(
+		SELECT fc.CropUID, fc.CameraID, fc.Timestamp, fc.FilePath, fc.Confidence AS DetectionConfidence,
+			fe.MatchConfidence, fe.Verified, fe.EmbeddingUID
+		FROM FaceEmbedding fe
+		JOIN FaceCrop fc ON fe.FaceCropUID = fc.CropUID
+		WHERE fe.KnownFaceUID = @KnownFaceUID
+		ORDER BY fc.Timestamp DESC
+		LIMIT @Limit OFFSET @Offset;
+	)RAW";
+
 #define CREATE_QUERY( X ) DB->CreateQuery( #X, X )
 
 	std::shared_ptr<SQLiteDatabase> InitializeDatabase( std::string Filename )
@@ -912,6 +1064,14 @@ namespace Database
 		sqlite3_exec( DB->GetDatabase(), "CREATE UNIQUE INDEX IF NOT EXISTS CameraActionIndex ON CameraAction (ActionUID, CameraUID, DetectionClass);", nullptr, nullptr, nullptr );
 		// Fix any CameraAction rows with MDThreshold=0 (would trigger on any motion)
 		sqlite3_exec( DB->GetDatabase(), "UPDATE CameraAction SET MDThreshold = 0.05 WHERE MDThreshold = 0 OR MDThreshold IS NULL;", nullptr, nullptr, nullptr );
+		// Action priority and cooldown
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Action ADD COLUMN Priority INTEGER DEFAULT 50;", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Action ADD COLUMN Cooldown INTEGER DEFAULT 30;", nullptr, nullptr, nullptr );
+
+		// Fix FaceCrop rows with bad confidence values from column-14 bug (landmark pixel coords stored as confidence)
+		sqlite3_exec( DB->GetDatabase(), "UPDATE FaceCrop SET Confidence = Confidence / 10.0 WHERE Confidence > 1.0;", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "UPDATE FaceCrop SET Confidence = Confidence / 10.0 WHERE Confidence > 1.0;", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "UPDATE FaceCrop SET Confidence = Confidence / 10.0 WHERE Confidence > 1.0;", nullptr, nullptr, nullptr );
 
 		// Migrate old Tag table schema — drop and recreate if it has the old schema
 		// (old schema had Name CHAR(64), Description TEXT; new needs Name TEXT UNIQUE, Display, Icon, etc.)
@@ -1078,6 +1238,24 @@ namespace Database
 		CREATE_QUERY( SelectFaceCropByUID );
 		CREATE_QUERY( SelectFaceCropFilePaths );
 		CREATE_QUERY( DeleteFaceCropsBefore );
+
+		// Face recognition queries
+		CREATE_QUERY( SelectAllKnownFaces );
+		CREATE_QUERY( SelectKnownFaceByUID );
+		CREATE_QUERY( CreateKnownFace );
+		CREATE_QUERY( UpdateKnownFace );
+		CREATE_QUERY( DeleteKnownFace );
+		CREATE_QUERY( MergeKnownFace );
+		CREATE_QUERY( InsertFaceEmbedding );
+		CREATE_QUERY( UpdateFaceEmbeddingIdentity );
+		CREATE_QUERY( SelectEmbeddingByFaceCrop );
+		CREATE_QUERY( SelectVerifiedEmbeddings );
+		CREATE_QUERY( SelectEmbeddingsForKnownFace );
+		CREATE_QUERY( SelectUnidentifiedFaces );
+		CREATE_QUERY( SelectFaceCropsWithoutEmbedding );
+		CREATE_QUERY( SelectRecognizedFacesForClip );
+		CREATE_QUERY( DeleteFaceEmbedding );
+		CREATE_QUERY( SelectFaceSightings );
 
 		return DB;
 	}

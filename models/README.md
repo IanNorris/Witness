@@ -1,17 +1,17 @@
-# ONNX Detection Models
+# ONNX Models
 
-This directory stores ONNX model files for object detection. Models are not committed to the repository due to their size.
+This directory stores ONNX model files for object detection and face recognition. Models are not committed to the repository due to their size.
 
 ## Quick Start
 
-Download and export the default model (nano):
+Download the default detection model (nano) and face recognition model:
 
 ```bash
 pip install ultralytics
-python scripts/download-models.py
+python scripts/download-models.py --face
 ```
 
-This downloads `yolo26n.pt` from Ultralytics and exports it to `yolo26n.onnx`.
+This downloads `yolo26n.onnx` (object detection) and `face_recognition.onnx` (MobileFaceNet).
 
 ## Download All Variants
 
@@ -22,7 +22,7 @@ python scripts/download-models.py --all
 Or specific variants:
 
 ```bash
-python scripts/download-models.py --variants n s m
+python scripts/download-models.py --variants n s m --face
 ```
 
 ## Available Models
@@ -64,7 +64,30 @@ Uses OpenCV's built-in `cv::FaceDetectorYN` — no custom ONNX loading needed.
 | `face_detection_enabled` | `1` | Enable face detection |
 | `face_detection_confidence` | `0.7` | Minimum confidence threshold (0.0-1.0) |
 
+## Face Recognition Model
+
+MobileFaceNet (w600k_mbf) generates 512-dim embeddings for face matching against known identities.
+
+| Model | Size | Embedding | LFW Accuracy | Source |
+|-------|------|-----------|--------------|--------|
+| face_recognition.onnx | ~13 MB | 512-dim | 99.7% | InsightFace buffalo_sc |
+
+Input: `[1, 3, 112, 112]` float (aligned face, BGR→RGB, normalized to [0,1]).
+Output: `[1, 512]` float (L2-normalized embedding).
+
+Download automatically:
+```bash
+python scripts/download-models.py --face
+```
+
+| Setting | Value | Description |
+|---------|-------|-------------|
+| `face_recognition_enabled` | `1` | Enable face recognition |
+| `face_recognition_model_path` | *(optional)* | Path to .onnx file (default: `models/face_recognition.onnx` next to exe) |
+| `face_recognition_confidence` | `0.5` | Cosine similarity threshold for identity match (0.0-1.0) |
+
 ## License
 
 YOLO26 model weights are licensed under AGPL-3.0 by Ultralytics, compatible with Witness's GPLv3 license.
 YuNet model is licensed under MIT by OpenCV Zoo — no restrictions for any use.
+MobileFaceNet (w600k_mbf) from InsightFace is for **non-commercial research purposes only**.

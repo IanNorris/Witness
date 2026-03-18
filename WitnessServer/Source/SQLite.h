@@ -27,6 +27,8 @@ public:
 	void Bind( const char* parameterName, double value );
 	void Bind( const char* parameterName, int value );
 	void Bind( const char* parameterName, int64_t value );
+	void BindBlob( const char* parameterName, const void* data, int bytes );
+	void BindNull( const char* parameterName );
 
 	void Reset();
 
@@ -37,6 +39,8 @@ public:
 	const int GetColumnValueInt( int column ) const;
 	const int64_t GetColumnValueInt64( int column ) const;
 	const double GetColumnValueDouble( int column ) const;
+	const void* GetColumnValueBlob( int column ) const;
+	const int GetColumnValueBytes( int column ) const;
 	const int GetColumnCount() const;
 
 	inline int64_t GetLastInsertionId(){ return m_lastInsertId; }

@@ -1,10 +1,13 @@
 #include "ClipReprocessWorker.h"
 #include "TagHelpers.h"
 #include "ObjectTracker.h"
+#include "FaceRecognitionCache.h"
 
 #include <Log.h>
+#include <FaceEmbeddingModel.h>
 #include <filesystem>
 #include <set>
+#include <unordered_map>
 #include <sstream>
 #include <iomanip>
 
@@ -26,6 +29,10 @@ ClipReprocessWorker::ClipReprocessWorker(
 	std::shared_ptr<SQLiteDatabase> Database,
 	std::shared_ptr<Witness::Camera::ONNXDetectionFilter> DetectionFilter,
 	std::shared_ptr<Witness::Camera::FaceDetectionFilter> FaceFilter,
+	std::shared_ptr<Witness::Camera::FaceEmbeddingModel> FaceEmbModel,
+	std::shared_ptr<FaceRecognitionCache> FaceCache,
+	std::shared_ptr<EventBroadcaster> Events,
+	double FaceRecThreshold,
 	std::string CachePath,
 	std::function<bool()> IsIdle
 )
@@ -33,6 +40,10 @@ ClipReprocessWorker::ClipReprocessWorker(
 , Database( std::move( Database ) )
 , DetectionFilter( std::move( DetectionFilter ) )
 , FaceFilter( std::move( FaceFilter ) )
+, FaceEmbModel( std::move( FaceEmbModel ) )
+, FaceCache( std::move( FaceCache ) )
+, Events( std::move( Events ) )
+, FaceRecThreshold( FaceRecThreshold )
 , CachePath( std::move( CachePath ) )
 , IsIdle( std::move( IsIdle ) )
 {
@@ -51,11 +62,18 @@ void ClipReprocessWorker::WorkerMain()
 {
 	UpdateLastTimedAction( "Idle" );
 
-	// Yield to live detection when cameras have active motion
-	if( !IsIdle() )
+	bool camerasActive = !IsIdle();
+
+	// Count total clips needing reprocessing
+	int totalQueue = 0;
 	{
-		std::this_thread::sleep_for( std::chrono::seconds( 5 ) );
-		return;
+		SQLiteDatabaseQueryInstance CountQuery( Database, "CountClipsToReprocess" );
+		CountQuery->Bind( "@DetectionVersion", CURRENT_DETECTION_VERSION );
+		CountQuery->Execute( [&]( const SQLiteDatabaseQuery& query ) -> bool
+		{
+			totalQueue = query.GetColumnValueInt( 0 );
+			return true;
+		});
 	}
 
 	// Fetch a batch of clips needing reprocessing
@@ -81,26 +99,36 @@ void ClipReprocessWorker::WorkerMain()
 
 	if( batch.empty() )
 	{
+		// Broadcast idle status
+		BroadcastProgress( 0, "idle", 0, 0, 0, 0 );
 		std::this_thread::sleep_for( std::chrono::seconds( 30 ) );
 		return;
 	}
 
 	UpdateLastTimedAction( "Reprocessing clips" );
 
-	for( auto& clip : batch )
+	// Broadcast queued status for all clips in batch
+	for( size_t i = 0; i < batch.size(); i++ )
+		BroadcastProgress( batch[i].ClipUID, "queued", 0, 0, static_cast<int>( i ), totalQueue );
+
+	for( size_t i = 0; i < batch.size() && !IsShutdownRequested(); i++ )
 	{
-		// Yield if cameras become active mid-batch
+		auto& clip = batch[i];
+
+		int queuePos = static_cast<int>( i );
+		ProcessClip( clip.ClipUID, clip.Timestamp, clip.Camera, clip.RecordMode, clip.ExistingTags,
+			queuePos, totalQueue );
+
+		// Throttle harder when cameras are actively recording
 		if( !IsIdle() )
-			break;
-
-		ProcessClip( clip.ClipUID, clip.Timestamp, clip.Camera, clip.RecordMode, clip.ExistingTags );
-
-		// Sleep between clips to stay low-priority
-		std::this_thread::sleep_for( std::chrono::milliseconds( 500 ) );
+			std::this_thread::sleep_for( std::chrono::milliseconds( 500 ) );
+		else
+			std::this_thread::sleep_for( std::chrono::milliseconds( 100 ) );
 	}
 }
 
-void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int camera, int recordMode, const std::string& existingTags )
+void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int camera, int recordMode, const std::string& existingTags,
+	int queuePosition, int queueTotal )
 {
 	// Build clip filename: {Camera}_{Auto|Manual}_{Timestamp}.mp4
 	std::stringstream nameStream;
@@ -238,8 +266,16 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 	std::vector<Witness::Camera::DetectionResult> baselineDetections;
 	bool baselineCaptured = false;
 	Witness::ObjectTracker clipTracker;
+	int totalFrames = std::max( 1, (int)( durationSec / sampleInterval ) + 1 );
+	int frameIndex = 0;
 
-	while( currentTime <= durationSec || currentTime == 0.0 )
+	// Track best face sharpness per tracking ID (same as live pipeline)
+	struct FaceSharpnessEntry { double sharpness; double timestamp; };
+	std::unordered_map<uint64_t, FaceSharpnessEntry> faceSharpnessMap;
+
+	BroadcastProgress( clipUID, "processing", 0, totalFrames, queuePosition, queueTotal );
+
+	while( ( currentTime <= durationSec || currentTime == 0.0 ) && !IsShutdownRequested() )
 	{
 		// Seek to target time
 		int64_t seekTarget = (int64_t)( currentTime * AV_TIME_BASE );
@@ -465,6 +501,35 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 								cv::Mat faceCrop;
 								cv::resize( mat( faceRect ), faceCrop, cv::Size( 112, 112 ) );
 
+								// Compute sharpness via Laplacian variance — reject blurry crops
+								cv::Mat faceGray, faceLaplacian;
+								cv::cvtColor( faceCrop, faceGray, cv::COLOR_BGR2GRAY );
+								cv::Laplacian( faceGray, faceLaplacian, CV_64F );
+								cv::Scalar faceMean, faceStddev;
+								cv::meanStdDev( faceLaplacian, faceMean, faceStddev );
+								double faceSharpness = faceStddev.val[0] * faceStddev.val[0];
+
+								if( faceSharpness < 30.0 )
+								{
+									LOG_DEBUG( "Reprocess: Skipping blurry face crop (sharpness=%.1f)", faceSharpness );
+									continue;
+								}
+
+								// Only save if this is sharper than the best recent crop for this trackID
+								{
+									auto it = faceSharpnessMap.find( trackID );
+									if( it != faceSharpnessMap.end() )
+									{
+										if( frameTimestamp - it->second.timestamp < 2.0 && faceSharpness <= it->second.sharpness )
+										{
+											LOG_DEBUG( "Reprocess: Skipping face crop (sharpness=%.1f <= best=%.1f for track %llu)",
+												faceSharpness, it->second.sharpness, trackID );
+											continue;
+										}
+									}
+									faceSharpnessMap[trackID] = { faceSharpness, frameTimestamp };
+								}
+
 								std::ostringstream faceFilename;
 								faceFilename << std::fixed << std::setprecision( 3 ) << frameTimestamp
 									<< "_" << trackID << ".jpg";
@@ -481,10 +546,11 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 									float fy = fr.Y1 / frameHeight;
 									if( std::abs( fx - box.X ) < 0.01f && std::abs( fy - box.Y ) < 0.01f )
 									{
+										// Normalize landmarks to crop-relative 0-1
 										for( int lm = 0; lm < 5; lm++ )
 										{
-											lmX[lm] = fr.LandmarkX[lm] / frameWidth;
-											lmY[lm] = fr.LandmarkY[lm] / frameHeight;
+											lmX[lm] = ( fr.LandmarkX[lm] / frameWidth - box.X ) / box.W;
+											lmY[lm] = ( fr.LandmarkY[lm] / frameHeight - box.Y ) / box.H;
 										}
 										break;
 									}
@@ -508,6 +574,96 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 								fq->Bind( "@Landmark4X", static_cast<double>( lmX[4] ) );
 								fq->Bind( "@Landmark4Y", static_cast<double>( lmY[4] ) );
 								fq->Execute( nullptr );
+								int64_t cropUID = fq->GetLastInsertionId();
+
+								// Generate face embedding if model is available
+								if( FaceEmbModel && FaceEmbModel->IsModelLoaded() && box.Confidence >= 0.8f )
+								{
+									bool hasLandmarks = false;
+									for( int lm = 0; lm < 5; lm++ )
+									{
+										if( lmX[lm] != 0.0f || lmY[lm] != 0.0f ) { hasLandmarks = true; break; }
+									}
+
+									if( hasLandmarks )
+									{
+										// Convert crop-relative 0-1 landmarks to 112px crop pixels for geometry check
+										float cropLmX[5], cropLmY[5];
+										for( int lm = 0; lm < 5; lm++ )
+										{
+											cropLmX[lm] = lmX[lm] * 112.0f;
+											cropLmY[lm] = lmY[lm] * 112.0f;
+										}
+
+										// Orientation validation (same thresholds as CameraWorker)
+										float eyeAvgY = ( cropLmY[0] + cropLmY[1] ) * 0.5f;
+										float mouthAvgY = ( cropLmY[3] + cropLmY[4] ) * 0.5f;
+										float interEyeDist = std::abs( cropLmX[1] - cropLmX[0] );
+										float eyeMidX = ( cropLmX[0] + cropLmX[1] ) * 0.5f;
+										float noseOffsetX = std::abs( cropLmX[2] - eyeMidX );
+										float eyeHeightDiff = std::abs( cropLmY[0] - cropLmY[1] );
+
+										bool validGeometry = eyeAvgY < cropLmY[2] && cropLmY[2] < mouthAvgY
+											&& interEyeDist > 12.0f
+											&& noseOffsetX < 30.0f
+											&& eyeHeightDiff < 25.0f;
+
+										if( validGeometry )
+										{
+											cv::Mat alignedFace = Witness::Camera::FaceEmbeddingModel::AlignFace( faceCrop, cropLmX, cropLmY );
+											auto embedding = FaceEmbModel->GetEmbedding( alignedFace );
+
+											if( !embedding.empty() )
+											{
+												double matchConf = 0.0;
+												int matchedKnownFaceUID = 0;
+
+												if( FaceCache )
+												{
+													auto match = FaceCache->Match( embedding, (float)FaceRecThreshold );
+													if( match.Matched )
+													{
+														matchConf = match.Similarity;
+														matchedKnownFaceUID = match.KnownFaceUID;
+														LOG_INFO( "ClipReprocess: Face match '%s' (%.3f) crop %lld",
+															match.Name.c_str(), matchConf, (long long)cropUID );
+													}
+													else
+													{
+														LOG_DEBUG( "ClipReprocess: No match for crop %lld (best=%.3f '%s', threshold=%.3f)",
+															(long long)cropUID, match.Similarity,
+															match.Name.c_str(), FaceRecThreshold );
+													}
+												}
+
+												SQLiteDatabaseQueryInstance embQ( Database, "InsertFaceEmbedding" );
+												embQ->Bind( "@FaceCropUID", static_cast<int>( cropUID ) );
+												if( matchedKnownFaceUID > 0 )
+													embQ->Bind( "@KnownFaceUID", matchedKnownFaceUID );
+												else
+													embQ->BindNull( "@KnownFaceUID" );
+												embQ->BindBlob( "@Embedding", embedding.data(), static_cast<int>( embedding.size() * sizeof( float ) ) );
+												embQ->Bind( "@Dimension", static_cast<int>( embedding.size() ) );
+												embQ->Bind( "@MatchConfidence", matchConf );
+												embQ->Bind( "@Verified", 0 );
+												embQ->Bind( "@CreatedAt", frameTimestamp );
+												embQ->Execute( nullptr );
+
+												LOG_DEBUG( "ClipReprocess: Stored embedding for crop %lld (conf=%.2f, match=%d)",
+													(long long)cropUID, box.Confidence, matchedKnownFaceUID );
+											}
+										}
+										else
+										{
+											LOG_DEBUG( "ClipReprocess: Orientation rejected crop %lld (interEye=%.1f nose=%.1f eyeDiff=%.1f)",
+												(long long)cropUID, interEyeDist, noseOffsetX, eyeHeightDiff );
+										}
+									}
+									else
+									{
+										LOG_DEBUG( "ClipReprocess: No landmarks for crop %lld", (long long)cropUID );
+									}
+								}
 
 								detectedTags.insert( "face" );
 							}
@@ -525,6 +681,8 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 		if( !gotFrame )
 			break;
 
+		frameIndex++;
+		BroadcastProgress( clipUID, "processing", frameIndex, totalFrames, queuePosition, queueTotal );
 		currentTime += sampleInterval;
 	}
 
@@ -574,6 +732,22 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 	TagHelpers::SyncClipTags( Database, clipUID, tagString );
 
 	LOG_INFO( "Reprocessed clip %lld: %s", (long long)clipUID, tagString.c_str() );
+	BroadcastProgress( clipUID, "complete", totalFrames, totalFrames, queuePosition, queueTotal );
+}
+
+void ClipReprocessWorker::BroadcastProgress( int64_t clipUID, const std::string& stage, int frame, int totalFrames, int queuePos, int queueTotal )
+{
+	if( !Events )
+		return;
+
+	crow::json::wvalue ev;
+	ev["clipUID"] = clipUID;
+	ev["stage"] = stage;
+	ev["frame"] = frame;
+	ev["totalFrames"] = totalFrames;
+	ev["queuePosition"] = queuePos;
+	ev["queueTotal"] = queueTotal;
+	Events->Broadcast( "reprocess:progress", std::move( ev ) );
 }
 
 void ClipReprocessWorker::BackfillLighting()

@@ -11,6 +11,7 @@ interface DetectionBox {
   w: number
   h: number
   baseline?: boolean
+  name?: string
 }
 
 interface DetectionFrame {
@@ -152,7 +153,7 @@ const BASELINE_COLOR = '#6688cc'
 
 function drawBox(
   ctx: CanvasRenderingContext2D,
-  box: { x: number; y: number; w: number; h: number; cls: string; conf: number; baseline?: boolean },
+  box: { x: number; y: number; w: number; h: number; cls: string; conf: number; baseline?: boolean; name?: string },
   vr: { drawW: number; drawH: number; offsetX: number; offsetY: number },
   alpha = 1,
 ) {
@@ -160,17 +161,20 @@ function drawBox(
   const py = vr.offsetY + box.y * vr.drawH
   const pw = box.w * vr.drawW
   const ph = box.h * vr.drawH
-  const color = box.baseline ? BASELINE_COLOR : getClassColor(box.cls)
+  const isFace = box.cls.toLowerCase() === 'face'
+  const isRecognized = isFace && !!box.name
+  const color = box.baseline ? BASELINE_COLOR : isRecognized ? '#00ffff' : getClassColor(box.cls)
 
   ctx.strokeStyle = color
   ctx.globalAlpha = alpha
-  const isFace = box.cls.toLowerCase() === 'face'
   ctx.lineWidth = box.baseline ? 1 : isFace ? 1 : 2
   if (box.baseline) ctx.setLineDash([4, 4])
   ctx.strokeRect(px, py, pw, ph)
   ctx.setLineDash([])
 
-  const label = `${box.cls} ${Math.round(box.conf * 100)}%`
+  const label = isRecognized
+    ? `${box.name} ${Math.round(box.conf * 100)}%`
+    : `${box.cls} ${Math.round(box.conf * 100)}%`
   ctx.font = '12px sans-serif'
   const textW = ctx.measureText(label).width
   ctx.fillStyle = color
@@ -194,6 +198,8 @@ export function useDetectionOverlay(
   const minConf = computed(() => settings.detectionMinConfidence / 100)
 
   const LERP_SPEED = 0.3
+  const STALE_TIMEOUT_MS = 3000
+  let lastDetectionTime = 0
 
   function handleDetectionEvent(evt: { event: string; data: Record<string, unknown> }) {
     if (evt.event !== 'detection:frame') return
@@ -202,6 +208,7 @@ export function useDetectionOverlay(
     if (!enabled.value) return
 
     const now = performance.now()
+    lastDetectionTime = now
     const seen = new Set<number>()
     const filtered = filterRedundantBoxes(data.boxes)
 
@@ -216,6 +223,7 @@ export function useDetectionOverlay(
         existing.th = box.h
         existing.conf = box.conf
         existing.cls = box.cls
+        existing.name = box.name
         existing.lastSeen = now
       } else {
         // New object — start at target position
@@ -252,6 +260,12 @@ export function useDetectionOverlay(
 
     ctx.clearRect(0, 0, canvas.width, canvas.height)
 
+    // Clear stale boxes when detection events stop (motion ended)
+    if (tracked.size > 0 && lastDetectionTime > 0 &&
+        performance.now() - lastDetectionTime > STALE_TIMEOUT_MS) {
+      tracked.clear()
+    }
+
     const vr = getVideoContentRect(video)
     if (!vr) {
       animFrame = requestAnimationFrame(draw)
@@ -266,7 +280,7 @@ export function useDetectionOverlay(
       box.ih += (box.th - box.ih) * LERP_SPEED
 
       if (box.conf >= minConf.value) {
-        drawBox(ctx, { x: box.ix, y: box.iy, w: box.iw, h: box.ih, cls: box.cls, conf: box.conf }, vr)
+        drawBox(ctx, { x: box.ix, y: box.iy, w: box.iw, h: box.ih, cls: box.cls, conf: box.conf, name: box.name }, vr)
       }
     }
 
