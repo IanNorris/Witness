@@ -3,6 +3,8 @@ import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { api } from '../../composables/useApi'
 import { useCameraStore } from '../../stores/cameras'
 import ConfirmModal from '../common/ConfirmModal.vue'
+import ClipPlayer from '../clips/ClipPlayer.vue'
+import type { Clip } from '../../types/clip'
 
 interface KnownFace {
   id: number
@@ -75,6 +77,24 @@ const reprocessResult = ref<{ processed: number } | null>(null)
 
 // Clip preview
 const previewFace = ref<{ cameraId: number; timestamp: number } | null>(null)
+const previewClip = computed<Clip | null>(() => {
+  if (!previewFace.value) return null
+  const pf = previewFace.value
+  return {
+    uid: 0,
+    camera: pf.cameraId,
+    cameraName: cameraName(pf.cameraId),
+    timestamp: pf.timestamp,
+    duration: 60,
+    tags: '',
+    saved: false,
+    recordMode: 'motion',
+    description: '',
+    detectionVersion: 0,
+    lighting: 0,
+    reviewed: false,
+  }
+})
 
 // Upload
 const uploading = ref(false)
@@ -687,37 +707,6 @@ function fileToBase64(file: File): Promise<string> {
     />
 
     <!-- Clip preview modal -->
-    <Teleport to="body">
-      <div v-if="previewFace" class="modal d-block" style="background: rgba(0,0,0,0.7);" @click.self="previewFace = null">
-        <div class="modal-dialog modal-lg modal-dialog-centered">
-          <div class="modal-content bg-dark text-light border-secondary">
-            <div class="modal-header border-secondary py-2">
-              <h6 class="modal-title">
-                {{ cameraName(previewFace.cameraId) }} — {{ formatTime(previewFace.timestamp) }}
-              </h6>
-              <button type="button" class="btn-close btn-close-white" @click="previewFace = null"></button>
-            </div>
-            <div class="modal-body p-0">
-              <video
-                :src="`/clip/video/${previewFace.cameraId}/${previewFace.timestamp}`"
-                controls autoplay
-                class="w-100"
-                style="max-height: 70vh;"
-              />
-            </div>
-            <div class="modal-footer border-secondary py-1">
-              <router-link
-                :to="`/clips/${previewFace.cameraId}`"
-                class="btn btn-sm btn-outline-info"
-                @click="previewFace = null"
-              >
-                View all clips for this camera
-              </router-link>
-              <button class="btn btn-sm btn-secondary" @click="previewFace = null">Close</button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </Teleport>
+    <ClipPlayer v-if="previewClip" :clip="previewClip" @close="previewFace = null" />
   </div>
 </template>
