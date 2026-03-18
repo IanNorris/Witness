@@ -586,12 +586,12 @@ function fileToBase64(file: File): Promise<string> {
                   <div v-for="s in expandedSightings" :key="s.cropUID" class="d-flex align-items-center mb-1">
                     <img :src="cropUrl(s.cropUID)"
                          class="rounded me-2"
-                         style="width: 40px; height: 40px; object-fit: cover; cursor: pointer;"
-                         title="View original clip"
-                         @click="previewFace = { cameraId: s.cameraId, timestamp: s.timestamp }"
+                         :style="{ width: '40px', height: '40px', objectFit: 'cover', cursor: s.cameraId ? 'pointer' : 'default' }"
+                         :title="s.cameraId ? 'View original clip' : 'Uploaded image'"
+                         @click="s.cameraId && (previewFace = { cameraId: s.cameraId, timestamp: s.timestamp })"
                          @error="($event.target as HTMLImageElement).style.display = 'none'" />
                     <div class="small flex-grow-1">
-                      <div>{{ cameraName(s.cameraId) }}</div>
+                      <div>{{ s.cameraId ? cameraName(s.cameraId) : 'Uploaded' }}</div>
                       <div class="text-muted-custom">{{ formatTime(s.timestamp) }}</div>
                       <div class="text-muted-custom">
                         {{ Math.round(s.matchConfidence * 100) }}% match
@@ -648,9 +648,9 @@ function fileToBase64(file: File): Promise<string> {
             <div style="position: relative; aspect-ratio: 1;">
               <img :src="cropUrl(face.cropUID)"
                    class="card-img-top"
-                   style="width: 100%; height: 100%; object-fit: cover; cursor: pointer;"
-                   title="View original clip"
-                   @click="previewFace = { cameraId: face.cameraId, timestamp: face.timestamp }"
+                   :style="{ width: '100%', height: '100%', objectFit: 'cover', cursor: face.cameraId ? 'pointer' : 'default' }"
+                   :title="face.cameraId ? 'View original clip' : 'Uploaded image'"
+                   @click="face.cameraId && (previewFace = { cameraId: face.cameraId, timestamp: face.timestamp })"
                    @error="($event.target as HTMLImageElement).style.display = 'none'"
                    @load="onCropLoad($event, face)" />
               <canvas v-if="showLandmarks && face.landmarks?.length >= 10"
@@ -658,7 +658,7 @@ function fileToBase64(file: File): Promise<string> {
                       style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;" />
             </div>
             <div class="card-body p-1">
-              <div class="small text-muted-custom">{{ cameraName(face.cameraId) }}</div>
+              <div class="small text-muted-custom">{{ face.cameraId ? cameraName(face.cameraId) : 'Uploaded' }}</div>
               <div class="small text-muted-custom">{{ formatTime(face.timestamp) }}</div>
               <div class="small text-muted-custom">{{ Math.min(Math.round(face.detectionConfidence * 100), 100) }}%
                 <span v-if="showLandmarks && face.landmarks?.length >= 10"
