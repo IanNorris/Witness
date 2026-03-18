@@ -45,7 +45,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # Generate PDBs even in Release builds (MSVC)
 if(MSVC)
-    add_compile_options(/Zi)
+    add_compile_options(/Z7)
     add_link_options(/DEBUG /OPT:REF /OPT:ICF)
 endif()
 
