@@ -22,6 +22,7 @@
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 #include <set>
+#include <unordered_map>
 #include "SoundManager.h"
 
 void CameraWorker::CreateInputStream()
@@ -171,8 +172,13 @@ void CameraWorker::WorkerInit()
 		auto faceCache = Context->FaceCache;
 		double faceRecThreshold = Video.FaceRecognitionConfidence;
 		bool faceAutoAssign = Video.FaceRecognitionAutoAssign;
+		double faceMinSharpness = 30.0;  // Minimum Laplacian variance to accept a face crop
 
-		Observer->SetDetectionCallback( [db, events, tracker, cachePath, soundManager, faceEmbModel, faceCache, faceRecThreshold, faceAutoAssign]( const DetectionFrameData& frame )
+		// Track best face sharpness per tracking ID to avoid saving blurry duplicates
+		struct FaceSharpnessEntry { double sharpness; double timestamp; };
+		auto faceSharpnessMap = std::make_shared<std::unordered_map<uint64_t, FaceSharpnessEntry>>();
+
+		Observer->SetDetectionCallback( [db, events, tracker, cachePath, soundManager, faceEmbModel, faceCache, faceRecThreshold, faceAutoAssign, faceMinSharpness, faceSharpnessMap]( const DetectionFrameData& frame )
 		{
 			// Run IoU tracker for stable TrackingIDs
 			std::vector<Witness::TrackedBox> trackInputs;
@@ -304,6 +310,45 @@ void CameraWorker::WorkerInit()
 						cv::Rect faceRect( fX, fY, fW, fH );
 						cv::Mat faceCrop;
 						cv::resize( frame.DecodedFrame( faceRect ), faceCrop, cv::Size( 112, 112 ) );
+
+						// Compute sharpness via Laplacian variance — reject blurry crops
+						cv::Mat gray, laplacian;
+						cv::cvtColor( faceCrop, gray, cv::COLOR_BGR2GRAY );
+						cv::Laplacian( gray, laplacian, CV_64F );
+						cv::Scalar mean, stddev;
+						cv::meanStdDev( laplacian, mean, stddev );
+						double sharpness = stddev.val[0] * stddev.val[0];  // variance
+
+						if( sharpness < faceMinSharpness )
+						{
+							LOG_DEBUG( "FaceDetection: Skipping blurry face crop (sharpness=%.1f, min=%.1f)", sharpness, faceMinSharpness );
+							continue;
+						}
+
+						// Only save if this is sharper than the best recent crop for this trackID
+						{
+							auto it = faceSharpnessMap->find( trackID );
+							if( it != faceSharpnessMap->end() )
+							{
+								// If within 2 seconds and not sharper, skip
+								if( frame.Timestamp - it->second.timestamp < 2.0 && sharpness <= it->second.sharpness )
+								{
+									LOG_DEBUG( "FaceDetection: Skipping face crop (sharpness=%.1f <= best=%.1f for track %llu)",
+										sharpness, it->second.sharpness, trackID );
+									continue;
+								}
+							}
+							(*faceSharpnessMap)[trackID] = { sharpness, frame.Timestamp };
+
+							// Prune old entries (> 10 seconds)
+							for( auto jt = faceSharpnessMap->begin(); jt != faceSharpnessMap->end(); )
+							{
+								if( frame.Timestamp - jt->second.timestamp > 10.0 )
+									jt = faceSharpnessMap->erase( jt );
+								else
+									++jt;
+							}
+						}
 
 						std::ostringstream faceFilename;
 						faceFilename << std::fixed << std::setprecision( 3 ) << frame.Timestamp
@@ -581,7 +626,8 @@ void CameraWorker::WorkerInit()
 			auto FaceFilter = std::make_shared<FaceDetectionFilter>(
 				FaceChain,
 				Video.FaceDetectionModelPath.c_str(),
-				(float)Video.FaceDetectionConfidence
+				(float)Video.FaceDetectionConfidence,
+				(float)Video.FaceBurstDuration
 			);
 
 			if( FaceFilter->IsModelLoaded() )

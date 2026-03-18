@@ -7,6 +7,7 @@
 #include <FaceEmbeddingModel.h>
 #include <filesystem>
 #include <set>
+#include <unordered_map>
 #include <sstream>
 #include <iomanip>
 
@@ -268,6 +269,10 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 	int totalFrames = std::max( 1, (int)( durationSec / sampleInterval ) + 1 );
 	int frameIndex = 0;
 
+	// Track best face sharpness per tracking ID (same as live pipeline)
+	struct FaceSharpnessEntry { double sharpness; double timestamp; };
+	std::unordered_map<uint64_t, FaceSharpnessEntry> faceSharpnessMap;
+
 	BroadcastProgress( clipUID, "processing", 0, totalFrames, queuePosition, queueTotal );
 
 	while( ( currentTime <= durationSec || currentTime == 0.0 ) && !IsShutdownRequested() )
@@ -495,6 +500,35 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 								cv::Rect faceRect( cropX, cropY, cropW, cropH );
 								cv::Mat faceCrop;
 								cv::resize( mat( faceRect ), faceCrop, cv::Size( 112, 112 ) );
+
+								// Compute sharpness via Laplacian variance — reject blurry crops
+								cv::Mat faceGray, faceLaplacian;
+								cv::cvtColor( faceCrop, faceGray, cv::COLOR_BGR2GRAY );
+								cv::Laplacian( faceGray, faceLaplacian, CV_64F );
+								cv::Scalar faceMean, faceStddev;
+								cv::meanStdDev( faceLaplacian, faceMean, faceStddev );
+								double faceSharpness = faceStddev.val[0] * faceStddev.val[0];
+
+								if( faceSharpness < 30.0 )
+								{
+									LOG_DEBUG( "Reprocess: Skipping blurry face crop (sharpness=%.1f)", faceSharpness );
+									continue;
+								}
+
+								// Only save if this is sharper than the best recent crop for this trackID
+								{
+									auto it = faceSharpnessMap.find( trackID );
+									if( it != faceSharpnessMap.end() )
+									{
+										if( frameTimestamp - it->second.timestamp < 2.0 && faceSharpness <= it->second.sharpness )
+										{
+											LOG_DEBUG( "Reprocess: Skipping face crop (sharpness=%.1f <= best=%.1f for track %llu)",
+												faceSharpness, it->second.sharpness, trackID );
+											continue;
+										}
+									}
+									faceSharpnessMap[trackID] = { faceSharpness, frameTimestamp };
+								}
 
 								std::ostringstream faceFilename;
 								faceFilename << std::fixed << std::setprecision( 3 ) << frameTimestamp

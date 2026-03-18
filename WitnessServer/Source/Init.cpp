@@ -165,6 +165,7 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 		LOG_INFO( "Face detection setting: '%s' -> enabled=%s", faceEnabled.c_str(), Video.FaceDetectionEnabled ? "true" : "false" );
 		GetSettingsField( Settings, "face_detection_confidence", Video.FaceDetectionConfidence, Errors );
 		GetSettingsField( Settings, "face_detection_model_path", Video.FaceDetectionModelPath, Errors );
+		GetSettingsField( Settings, "face_burst_duration", Video.FaceBurstDuration, Errors );
 
 		// Default face model path if not set
 		if( Video.FaceDetectionEnabled && Video.FaceDetectionModelPath.empty() )

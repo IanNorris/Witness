@@ -28,7 +28,7 @@ class CAMERA_API FaceDetectionFilter : public RecordFilterBase<FaceDetectionFilt
 {
 public:
 
-	FaceDetectionFilter( const MotionChainNode& Chain, const char* ModelPath, float ConfidenceThreshold );
+	FaceDetectionFilter( const MotionChainNode& Chain, const char* ModelPath, float ConfidenceThreshold, float BurstDurationSec = 3.0f );
 	virtual ~FaceDetectionFilter();
 
 	virtual bool ProcessFrame( SharedClassificationTask TaskData );

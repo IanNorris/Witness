@@ -15,6 +15,7 @@ const detectionKeys = [
   'cudnn_path',
   'face_detection_enabled',
   'face_detection_confidence',
+  'face_burst_duration',
   'face_recognition_enabled',
   'face_recognition_model_path',
   'face_recognition_confidence',
@@ -138,6 +139,12 @@ onMounted(fetchSettings)
         <label class="form-label small">Face Confidence</label>
         <input v-model="detectionSettings['face_detection_confidence']" type="number" step="0.05" min="0.5" max="1" class="form-control form-control-sm" @blur="saveSetting('face_detection_confidence')" />
         <div class="form-text small">Minimum confidence for face detection (default: 0.7, min: 0.5).</div>
+      </div>
+
+      <div class="col-md-6">
+        <label class="form-label small">Burst Duration (seconds)</label>
+        <input v-model="detectionSettings['face_burst_duration']" type="number" step="0.5" min="0" max="10" class="form-control form-control-sm" @blur="saveSetting('face_burst_duration')" />
+        <div class="form-text small">After a person is detected, continue face detection at full FPS for this duration (default: 3s, 0=disabled).</div>
       </div>
 
       <div class="col-12 mt-3">

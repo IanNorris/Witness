@@ -257,6 +257,7 @@ void CrowListener::HandleSettingsSet( const crow::request& req, crow::response& 
 		"face_detection_enabled",
 		"face_detection_confidence",
 		"face_detection_model_path",
+		"face_burst_duration",
 		"face_recognition_enabled",
 		"face_recognition_model_path",
 		"face_recognition_confidence",
