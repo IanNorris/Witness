@@ -2,6 +2,7 @@
 #include "CrowAuth.h"
 #include "GlobalContext.h"
 #include "SQLite.h"
+#include "ClipReprocessWorker.h"
 
 #include <Log.h>
 #include <filesystem>
@@ -512,6 +513,228 @@ void CrowListener::HandleDetectionQuery( const crow::request& req, crow::respons
 
 	result["frames"] = std::move( frames );
 	result["cameraId"] = cameraId;
+
+	res.set_header( "Content-Type", "application/json" );
+	res.body = result.dump();
+	res.code = 200;
+	res.end();
+}
+
+void CrowListener::HandleTrailsQuery( const crow::request& req, crow::response& res, int cameraId )
+{
+	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, nullptr,
+		CrowAuth::Action::Read, CrowAuth::Privilege::Normal );
+	if( UserUID < 0 )
+	{
+		res.code = 401;
+		res.end();
+		return;
+	}
+
+	if( !m_GlobalContext || !m_GlobalContext->Database )
+	{
+		res.code = 500;
+		res.body = R"({"error":"Database not available"})";
+		res.set_header( "Content-Type", "application/json" );
+		res.end();
+		return;
+	}
+
+	auto fromParam = req.url_params.get( "from" );
+	auto toParam = req.url_params.get( "to" );
+	auto anchorParam = req.url_params.get( "anchor" );  // bottom-center, center, top-center
+
+	if( !fromParam || !toParam )
+	{
+		res.code = 400;
+		res.body = R"({"error":"Missing from/to query params"})";
+		res.set_header( "Content-Type", "application/json" );
+		res.end();
+		return;
+	}
+
+	double from = std::stod( fromParam );
+	double to = std::stod( toParam );
+
+	// Determine anchor computation
+	enum class Anchor { BottomCenter, Center, TopCenter };
+	Anchor anchor = Anchor::BottomCenter;
+	if( anchorParam )
+	{
+		std::string a( anchorParam );
+		if( a == "center" ) anchor = Anchor::Center;
+		else if( a == "top-center" ) anchor = Anchor::TopCenter;
+	}
+
+	// Query detection boxes ordered by TrackingID and timestamp
+	// This groups naturally for trail construction
+	crow::json::wvalue result;
+	std::vector<crow::json::wvalue> trailsArray;
+
+	try
+	{
+		SQLiteDatabaseQueryInstance query( m_GlobalContext->Database, "SelectDetectionFramesWithBoxes" );
+		query->Bind( "@CameraID", cameraId );
+		query->Bind( "@TimestampFrom", from );
+		query->Bind( "@TimestampTo", to );
+
+		// Collect trail points grouped by TrackingID
+		struct TrailPoint
+		{
+			double x, y, timestamp;
+		};
+		struct Trail
+		{
+			std::string className;
+			std::vector<TrailPoint> points;
+			std::string name;
+		};
+		std::map<int, Trail> trailMap;
+
+		query->Execute( [&]( const SQLiteDatabaseQuery& q )
+		{
+			const char* className = q.GetColumnValueText( 6 );
+			if( !className )
+				return true;
+
+			int trackingId = q.GetColumnValueInt( 4 );
+			double timestamp = q.GetColumnValueDouble( 1 );
+			double x = q.GetColumnValueDouble( 8 );
+			double y = q.GetColumnValueDouble( 9 );
+			double w = q.GetColumnValueDouble( 10 );
+			double h = q.GetColumnValueDouble( 11 );
+
+			// Compute anchor point
+			double ax, ay;
+			switch( anchor )
+			{
+				case Anchor::Center:
+					ax = x + w / 2.0;
+					ay = y + h / 2.0;
+					break;
+				case Anchor::TopCenter:
+					ax = x + w / 2.0;
+					ay = y;
+					break;
+				case Anchor::BottomCenter:
+				default:
+					ax = x + w / 2.0;
+					ay = y + h;
+					break;
+			}
+
+			auto& trail = trailMap[trackingId];
+			if( trail.className.empty() )
+				trail.className = className;
+
+			const char* faceName = q.GetColumnValueText( 14 );
+			if( faceName && trail.name.empty() )
+				trail.name = faceName;
+
+			trail.points.push_back( { ax, ay, timestamp } );
+
+			// Safety limit
+			if( trailMap.size() > 5000 )
+				return false;
+
+			return true;
+		});
+
+		// Build JSON response — only include trails with >= 2 points
+		for( auto& [trackId, trail] : trailMap )
+		{
+			if( trail.points.size() < 2 )
+				continue;
+
+			crow::json::wvalue t;
+			t["id"] = trackId;
+			t["cls"] = trail.className;
+			if( !trail.name.empty() )
+				t["name"] = trail.name;
+
+			std::vector<crow::json::wvalue> pts;
+			pts.reserve( trail.points.size() );
+			for( auto& p : trail.points )
+			{
+				crow::json::wvalue pt;
+				pt["x"] = p.x;
+				pt["y"] = p.y;
+				pt["t"] = p.timestamp;
+				pts.push_back( std::move( pt ) );
+			}
+			t["points"] = std::move( pts );
+			trailsArray.push_back( std::move( t ) );
+		}
+	}
+	catch( const std::exception& e )
+	{
+		res.code = 500;
+		crow::json::wvalue err;
+		err["error"] = std::string( e.what() );
+		res.body = err.dump();
+		res.set_header( "Content-Type", "application/json" );
+		res.end();
+		return;
+	}
+
+	result["trails"] = std::move( trailsArray );
+	result["cameraId"] = cameraId;
+
+	res.set_header( "Content-Type", "application/json" );
+	res.body = result.dump();
+	res.code = 200;
+	res.end();
+}
+
+void CrowListener::HandleReprocessQueue( const crow::request& req, crow::response& res )
+{
+	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, nullptr,
+		CrowAuth::Action::Read, CrowAuth::Privilege::Normal );
+	if( UserUID < 0 )
+	{
+		res.code = 401;
+		res.end();
+		return;
+	}
+
+	crow::json::wvalue result;
+
+	// Get total count
+	int totalCount = 0;
+	{
+		SQLiteDatabaseQueryInstance q( m_GlobalContext->Database, "CountClipsToReprocess" );
+		q->Bind( "@DetectionVersion", CURRENT_DETECTION_VERSION );
+		q->Execute( [&]( const SQLiteDatabaseQuery& query ) -> bool
+		{
+			totalCount = query.GetColumnValueInt( 0 );
+			return true;
+		});
+	}
+
+	// Get top 100 queued clips
+	std::vector<crow::json::wvalue> clips;
+	{
+		SQLiteDatabaseQueryInstance q( m_GlobalContext->Database, "SelectReprocessQueue" );
+		q->Bind( "@DetectionVersion", CURRENT_DETECTION_VERSION );
+		q->Execute( [&]( const SQLiteDatabaseQuery& query ) -> bool
+		{
+			crow::json::wvalue clip;
+			clip["uid"] = query.GetColumnValueInt64( 0 );
+			clip["timestamp"] = query.GetColumnValueInt64( 1 );
+			clip["camera"] = query.GetColumnValueInt( 2 );
+			clip["detectionVersion"] = query.GetColumnValueInt( 3 );
+			clip["recordMode"] = query.GetColumnValueInt( 4 );
+			const char* tags = query.GetColumnValueText( 5 );
+			clip["tags"] = tags ? std::string( tags ) : "";
+			clip["duration"] = query.GetColumnValueDouble( 6 );
+			clips.push_back( std::move( clip ) );
+			return true;
+		});
+	}
+
+	result["total"] = totalCount;
+	result["clips"] = std::move( clips );
+	result["detectionVersion"] = CURRENT_DETECTION_VERSION;
 
 	res.set_header( "Content-Type", "application/json" );
 	res.body = result.dump();

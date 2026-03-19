@@ -13,6 +13,7 @@
 #include <FaceEmbeddingModel.h>
 
 #include <filesystem>
+#include <fstream>
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -237,6 +238,31 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 
 	Context = Server->GetGlobalContext();
 	Context->CachePath = CachePath;
+
+	// Validate cache path is writable
+	try
+	{
+		std::filesystem::create_directories( std::filesystem::path( CachePath ) );
+
+		// Write a test file to verify the path is writable
+		auto testPath = std::filesystem::path( CachePath ) / ".witness_test";
+		{
+			std::ofstream test( testPath );
+			if( !test.is_open() )
+			{
+				LOG_ERROR( "Cache path is not writable: %s", CachePath.c_str() );
+				return false;
+			}
+		}
+		std::filesystem::remove( testPath );
+		LOG_INFO( "Cache path verified: %s", CachePath.c_str() );
+	}
+	catch( const std::exception& e )
+	{
+		LOG_ERROR( "Cache path is invalid or inaccessible: %s (%s)", CachePath.c_str(), e.what() );
+		return false;
+	}
+
 	Context->Events->Start();
 	Context->Streams->Start();
 
@@ -422,6 +448,7 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 				Context->FaceCache,
 				Context->Events,
 				Video.FaceRecognitionConfidence,
+				Video.DetectionMaxFPS,
 				CachePath,
 				[ctx]() -> bool
 				{

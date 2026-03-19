@@ -145,7 +145,8 @@ namespace Database
 			CameraID		INTEGER					NOT NULL,
 			Timestamp		REAL					NOT NULL,
 			FrameWidth		INTEGER,
-			FrameHeight		INTEGER
+			FrameHeight		INTEGER,
+			FramePath		TEXT
 		);
 
 		CREATE INDEX IF NOT EXISTS idx_detframe_camera_time ON DetectionFrame(CameraID, Timestamp);
@@ -561,7 +562,7 @@ namespace Database
 		SELECT * FROM Clip
 		WHERE DetectionVersion < @DetectionVersion OR DetectionVersion IS NULL
 		ORDER BY DetectionVersion ASC, Timestamp DESC
-		LIMIT 5;
+		LIMIT 1;
 	)RAW";
 
 	std::string UpdateClipDetection = R"RAW(
@@ -577,9 +578,24 @@ namespace Database
 		WHERE ClipUID = @ClipUID;
 	)RAW";
 
+	std::string ResetClipDetectionBulk = R"RAW(
+		UPDATE Clip SET DetectionVersion = 0
+		WHERE (@CameraID = -1 OR Camera = @CameraID)
+		  AND Timestamp >= @TimestampFrom
+		  AND Timestamp <= @TimestampTo;
+	)RAW";
+
 	std::string CountClipsToReprocess = R"RAW(
 		SELECT COUNT(*) FROM Clip
 		WHERE DetectionVersion < @DetectionVersion OR DetectionVersion IS NULL;
+	)RAW";
+
+	std::string SelectReprocessQueue = R"RAW(
+		SELECT c.ClipUID, c.Timestamp, c.Camera, c.DetectionVersion, c.RecordMode, c.Tags, c.Duration
+		FROM Clip c
+		WHERE c.DetectionVersion < @DetectionVersion OR c.DetectionVersion IS NULL
+		ORDER BY c.DetectionVersion ASC, c.Timestamp DESC
+		LIMIT 100;
 	)RAW";
 
 	std::string SelectClipsNeedingLighting = R"RAW(
@@ -824,8 +840,8 @@ namespace Database
 
 	// Detection overlay queries
 	std::string InsertDetectionFrame = R"RAW(
-		INSERT INTO DetectionFrame (CameraID, Timestamp, FrameWidth, FrameHeight)
-		VALUES(@CameraID, @Timestamp, @FrameWidth, @FrameHeight);
+		INSERT INTO DetectionFrame (CameraID, Timestamp, FrameWidth, FrameHeight, FramePath)
+		VALUES(@CameraID, @Timestamp, @FrameWidth, @FrameHeight, @FramePath);
 	)RAW";
 
 	std::string InsertDetectionBox = R"RAW(
@@ -836,7 +852,7 @@ namespace Database
 	std::string SelectDetectionFramesWithBoxes = R"RAW(
 		SELECT f.FrameUID, f.Timestamp, f.FrameWidth, f.FrameHeight,
 			   b.TrackingID, b.ClassID, b.ClassName, b.Confidence, b.X, b.Y, b.W, b.H, b.IsBaseline, b.CropPath,
-			   kf.Name
+			   kf.Name, f.FramePath
 		FROM DetectionFrame f
 		LEFT JOIN DetectionBox b ON f.FrameUID = b.FrameUID
 		LEFT JOIN FaceCrop fc ON fc.FrameUID = b.FrameUID AND fc.TrackingID = b.TrackingID
@@ -1067,6 +1083,7 @@ namespace Database
 		// Action priority and cooldown
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Action ADD COLUMN Priority INTEGER DEFAULT 50;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Action ADD COLUMN Cooldown INTEGER DEFAULT 30;", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE DetectionFrame ADD COLUMN FramePath TEXT;", nullptr, nullptr, nullptr );
 
 		// Fix FaceCrop rows with bad confidence values from column-14 bug (landmark pixel coords stored as confidence)
 		sqlite3_exec( DB->GetDatabase(), "UPDATE FaceCrop SET Confidence = Confidence / 10.0 WHERE Confidence > 1.0;", nullptr, nullptr, nullptr );
@@ -1159,7 +1176,9 @@ namespace Database
 		CREATE_QUERY( SelectClipForReprocess );
 		CREATE_QUERY( UpdateClipDetection );
 		CREATE_QUERY( ResetClipDetection );
+		CREATE_QUERY( ResetClipDetectionBulk );
 		CREATE_QUERY( CountClipsToReprocess );
+		CREATE_QUERY( SelectReprocessQueue );
 		CREATE_QUERY( SelectClipsNeedingLighting );
 		CREATE_QUERY( UpdateClipLighting );
 		CREATE_QUERY( SetClipSaveState );

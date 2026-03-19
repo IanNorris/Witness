@@ -33,6 +33,7 @@ ClipReprocessWorker::ClipReprocessWorker(
 	std::shared_ptr<FaceRecognitionCache> FaceCache,
 	std::shared_ptr<EventBroadcaster> Events,
 	double FaceRecThreshold,
+	double DetectionMaxFPS,
 	std::string CachePath,
 	std::function<bool()> IsIdle
 )
@@ -44,6 +45,7 @@ ClipReprocessWorker::ClipReprocessWorker(
 , FaceCache( std::move( FaceCache ) )
 , Events( std::move( Events ) )
 , FaceRecThreshold( FaceRecThreshold )
+, DetectionMaxFPS( DetectionMaxFPS )
 , CachePath( std::move( CachePath ) )
 , IsIdle( std::move( IsIdle ) )
 {
@@ -62,8 +64,6 @@ void ClipReprocessWorker::WorkerMain()
 {
 	UpdateLastTimedAction( "Idle" );
 
-	bool camerasActive = !IsIdle();
-
 	// Count total clips needing reprocessing
 	int totalQueue = 0;
 	{
@@ -76,55 +76,49 @@ void ClipReprocessWorker::WorkerMain()
 		});
 	}
 
-	// Fetch a batch of clips needing reprocessing
-	std::vector<ClipToReprocess> batch;
-
+	if( totalQueue == 0 )
 	{
-		SQLiteDatabaseQueryInstance SelectClipForReprocess( Database, "SelectClipForReprocess" );
-		SelectClipForReprocess->Bind( "@DetectionVersion", CURRENT_DETECTION_VERSION );
-		SelectClipForReprocess->Execute( [&]( const SQLiteDatabaseQuery& query ) -> bool
-		{
-			ClipToReprocess clip;
-			clip.ClipUID = query.GetColumnValueInt64( 0 );
-			clip.Timestamp = query.GetColumnValueInt64( 1 );
-			clip.Camera = query.GetColumnValueInt( 2 );
-			clip.RecordMode = query.GetColumnValueInt( 6 );
-			const char* tags = query.GetColumnValueText( 10 );
-			if( tags )
-				clip.ExistingTags = tags;
-			batch.push_back( std::move( clip ) );
-			return true;
-		});
-	}
-
-	if( batch.empty() )
-	{
-		// Broadcast idle status
 		BroadcastProgress( 0, "idle", 0, 0, 0, 0 );
+
+		if( !LightingBackfillComplete )
+			BackfillLighting();
+
 		std::this_thread::sleep_for( std::chrono::seconds( 30 ) );
 		return;
 	}
 
 	UpdateLastTimedAction( "Reprocessing clips" );
 
-	// Broadcast queued status for all clips in batch
-	for( size_t i = 0; i < batch.size(); i++ )
-		BroadcastProgress( batch[i].ClipUID, "queued", 0, 0, static_cast<int>( i ), totalQueue );
+	// Fetch and process ONE clip at a time (re-fetches after each to respect priority)
+	SQLiteDatabaseQueryInstance SelectClipForReprocess( Database, "SelectClipForReprocess" );
+	SelectClipForReprocess->Bind( "@DetectionVersion", CURRENT_DETECTION_VERSION );
 
-	for( size_t i = 0; i < batch.size() && !IsShutdownRequested(); i++ )
+	ClipToReprocess clip;
+	bool found = false;
+	SelectClipForReprocess->Execute( [&]( const SQLiteDatabaseQuery& query ) -> bool
 	{
-		auto& clip = batch[i];
+		clip.ClipUID = query.GetColumnValueInt64( 0 );
+		clip.Timestamp = query.GetColumnValueInt64( 1 );
+		clip.Camera = query.GetColumnValueInt( 2 );
+		clip.RecordMode = query.GetColumnValueInt( 6 );
+		const char* tags = query.GetColumnValueText( 10 );
+		if( tags )
+			clip.ExistingTags = tags;
+		found = true;
+		return false; // Only take the first result
+	});
 
-		int queuePos = static_cast<int>( i );
-		ProcessClip( clip.ClipUID, clip.Timestamp, clip.Camera, clip.RecordMode, clip.ExistingTags,
-			queuePos, totalQueue );
+	if( !found )
+		return;
 
-		// Throttle harder when cameras are actively recording
-		if( !IsIdle() )
-			std::this_thread::sleep_for( std::chrono::milliseconds( 500 ) );
-		else
-			std::this_thread::sleep_for( std::chrono::milliseconds( 100 ) );
-	}
+	ProcessClip( clip.ClipUID, clip.Timestamp, clip.Camera, clip.RecordMode, clip.ExistingTags,
+		0, totalQueue );
+
+	// Throttle harder when cameras are actively recording
+	if( !IsIdle() )
+		std::this_thread::sleep_for( std::chrono::milliseconds( 500 ) );
+	else
+		std::this_thread::sleep_for( std::chrono::milliseconds( 100 ) );
 }
 
 void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int camera, int recordMode, const std::string& existingTags,
@@ -258,11 +252,9 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 	av_image_fill_arrays( bgrFrame->data, bgrFrame->linesize, bgrBuffer.data(),
 		AV_PIX_FMT_BGR24, frameWidth, frameHeight, 1 );
 
-	// Sample frames at 2-second intervals
-	// First frame is used as baseline - objects present before motion are filtered out
-	// Uses spatial IoU matching: a detection is filtered only if same class AND >50% overlap
-	double sampleInterval = 2.0;
-	double currentTime = 0.0;
+	// Sample frames at DetectionMaxFPS rate (matching live pipeline)
+	double sampleInterval = ( DetectionMaxFPS > 0.0 ) ? ( 1.0 / DetectionMaxFPS ) : 0.1;
+	double nextSampleTime = 0.0;
 	std::vector<Witness::Camera::DetectionResult> baselineDetections;
 	bool baselineCaptured = false;
 	Witness::ObjectTracker clipTracker;
@@ -275,30 +267,43 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 
 	BroadcastProgress( clipUID, "processing", 0, totalFrames, queuePosition, queueTotal );
 
-	while( ( currentTime <= durationSec || currentTime == 0.0 ) && !IsShutdownRequested() )
+	// Sequential decode - read all packets, only process frames at sample intervals
+	AVStream* vs = fmtCtx->streams[videoIdx];
+	double timeBase = av_q2d( vs->time_base );
+
+	while( av_read_frame( fmtCtx, pkt ) >= 0 && !IsShutdownRequested() )
 	{
-		// Seek to target time
-		int64_t seekTarget = (int64_t)( currentTime * AV_TIME_BASE );
-		if( currentTime > 0.0 )
+		if( pkt->stream_index != videoIdx )
 		{
-			av_seek_frame( fmtCtx, -1, seekTarget, AVSEEK_FLAG_BACKWARD );
-			avcodec_flush_buffers( codecCtx );
+			av_packet_unref( pkt );
+			continue;
 		}
 
-		// Decode one frame
-		bool gotFrame = false;
-		while( av_read_frame( fmtCtx, pkt ) >= 0 )
-		{
-			if( pkt->stream_index == videoIdx )
-			{
-				avcodec_send_packet( codecCtx, pkt );
-				if( avcodec_receive_frame( codecCtx, frame ) == 0 )
-				{
-					// Convert to BGR24 cv::Mat
-					sws_scale( swsCtx, frame->data, frame->linesize, 0, frameHeight,
-						bgrFrame->data, bgrFrame->linesize );
+		avcodec_send_packet( codecCtx, pkt );
+		av_packet_unref( pkt );
 
-					cv::Mat mat( frameHeight, frameWidth, CV_8UC3, bgrFrame->data[0], bgrFrame->linesize[0] );
+		while( avcodec_receive_frame( codecCtx, frame ) == 0 )
+		{
+			// Calculate frame time from PTS
+			double frameTime = 0.0;
+			if( frame->pts != AV_NOPTS_VALUE )
+				frameTime = frame->pts * timeBase;
+			else if( frame->pkt_dts != AV_NOPTS_VALUE )
+				frameTime = frame->pkt_dts * timeBase;
+
+			// Skip frames that aren't at our sample interval
+			if( frameTime < nextSampleTime && baselineCaptured )
+			{
+				av_frame_unref( frame );
+				continue;
+			}
+			nextSampleTime = frameTime + sampleInterval;
+
+			// Convert to BGR24 cv::Mat
+			sws_scale( swsCtx, frame->data, frame->linesize, 0, frameHeight,
+				bgrFrame->data, bgrFrame->linesize );
+
+			cv::Mat mat( frameHeight, frameWidth, CV_8UC3, bgrFrame->data[0], bgrFrame->linesize[0] );
 
 					// Classify lighting on first frame
 					if( !baselineCaptured )
@@ -412,7 +417,18 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 						}
 						auto tracked = clipTracker.Update( trackInputs );
 
-						double frameTimestamp = static_cast<double>( timestamp ) + currentTime;
+						double frameTimestamp = static_cast<double>( timestamp ) + frameTime;
+
+						// Save detection frame image for trails/DVR preview
+						auto framesDir = fs::path( CachePath ) / "frames" / std::to_string( camera );
+						if( !fs::exists( framesDir ) )
+							fs::create_directories( framesDir );
+
+						std::stringstream framePath;
+						framePath << std::fixed << std::setprecision(3) << frameTimestamp << ".jpg";
+						auto fullFramePath = ( framesDir / framePath.str() ).string();
+						cv::imwrite( fullFramePath, mat, { cv::IMWRITE_JPEG_QUALITY, 75 } );
+
 						int64_t frameUID = 0;
 						{
 							SQLiteDatabaseQueryInstance q( Database, "InsertDetectionFrame" );
@@ -420,6 +436,7 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 							q->Bind( "@Timestamp", frameTimestamp );
 							q->Bind( "@FrameWidth", frameWidth );
 							q->Bind( "@FrameHeight", frameHeight );
+							q->Bind( "@FramePath", fullFramePath.c_str() );
 							q->Execute( nullptr );
 							frameUID = q->GetLastInsertionId();
 						}
@@ -670,20 +687,17 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 						}
 					}
 
-					gotFrame = true;
-					av_packet_unref( pkt );
-					break;
-				}
-			}
-			av_packet_unref( pkt );
+			av_frame_unref( frame );
+
+			frameIndex++;
+			BroadcastProgress( clipUID, "processing", frameIndex, totalFrames, queuePosition, queueTotal );
+
+			if( frameTime >= durationSec )
+				break;
 		}
 
-		if( !gotFrame )
+		if( frameIndex >= totalFrames || ( nextSampleTime - sampleInterval ) >= durationSec )
 			break;
-
-		frameIndex++;
-		BroadcastProgress( clipUID, "processing", frameIndex, totalFrames, queuePosition, queueTotal );
-		currentTime += sampleInterval;
 	}
 
 	// Cleanup FFmpeg resources
@@ -732,10 +746,11 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 	TagHelpers::SyncClipTags( Database, clipUID, tagString );
 
 	LOG_INFO( "Reprocessed clip %lld: %s", (long long)clipUID, tagString.c_str() );
-	BroadcastProgress( clipUID, "complete", totalFrames, totalFrames, queuePosition, queueTotal );
+	BroadcastProgress( clipUID, "complete", totalFrames, totalFrames, queuePosition, queueTotal, tagString, (int)lighting );
 }
 
-void ClipReprocessWorker::BroadcastProgress( int64_t clipUID, const std::string& stage, int frame, int totalFrames, int queuePos, int queueTotal )
+void ClipReprocessWorker::BroadcastProgress( int64_t clipUID, const std::string& stage, int frame, int totalFrames, int queuePos, int queueTotal,
+	const std::string& tags, int lighting )
 {
 	if( !Events )
 		return;
@@ -747,6 +762,10 @@ void ClipReprocessWorker::BroadcastProgress( int64_t clipUID, const std::string&
 	ev["totalFrames"] = totalFrames;
 	ev["queuePosition"] = queuePos;
 	ev["queueTotal"] = queueTotal;
+	if( !tags.empty() )
+		ev["tags"] = tags;
+	if( lighting >= 0 )
+		ev["lighting"] = lighting;
 	Events->Broadcast( "reprocess:progress", std::move( ev ) );
 }
 

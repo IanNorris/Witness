@@ -31,9 +31,13 @@ export const useClipStore = defineStore('clips', () => {
 
   // Listen for reprocess progress events
   const events = useEventStream()
+
   events.onEvent((evt) => {
     if (evt.event !== 'reprocess:progress') return
-    const data = evt.data as unknown as { clipUID: number; stage: string; frame: number; totalFrames: number; queuePosition: number; queueTotal: number }
+    const data = evt.data as unknown as {
+      clipUID: number; stage: string; frame: number; totalFrames: number;
+      queuePosition: number; queueTotal: number; tags?: string; lighting?: number
+    }
     if (data.stage === 'idle') {
       reprocessStatus.value = new Map()
       return
@@ -41,10 +45,12 @@ export const useClipStore = defineStore('clips', () => {
     const updated = new Map(reprocessStatus.value)
     if (data.stage === 'complete') {
       updated.delete(data.clipUID)
-      // Refresh the clip's data after reprocessing
+      // Update the clip in-place with new tags/lighting from the event
       const clip = clips.value.find(c => c.uid === data.clipUID)
       if (clip) {
-        fetchClips(currentCameraId.value, pageOffset.value)
+        if (data.tags !== undefined) clip.tags = data.tags
+        if (data.lighting !== undefined) clip.lighting = data.lighting as LightingCondition
+        clip.detectionVersion = 14
       }
     } else {
       updated.set(data.clipUID, {
@@ -110,6 +116,24 @@ export const useClipStore = defineStore('clips', () => {
     await api('/clip/retag', { method: 'POST', body: { id: clipUid } })
   }
 
+  async function retagAll() {
+    const camParam = currentCameraId.value ?? -1
+    const range = filterStore.timeRange
+    let from: number, to: number
+    if (range) {
+      from = Math.floor(range.from)
+      to = Math.floor(range.to)
+    } else {
+      from = 0
+      to = Math.floor(Date.now() / 1000)
+    }
+    const data = await api<{ queued: number }>('/clip/retag/bulk', {
+      method: 'POST',
+      body: { cameraId: camParam, from, to }
+    })
+    return data.queued ?? 0
+  }
+
   async function reviewClip(clipUid: number) {
     await api('/clip/review', { method: 'POST', body: { id: clipUid, value: true } })
     const clip = clips.value.find(c => c.uid === clipUid)
@@ -160,7 +184,7 @@ export const useClipStore = defineStore('clips', () => {
     clips, totalCount, loading, pageSize, pageOffset,
     currentCameraId, currentPage, totalPages,
     recentClips, reprocessStatus,
-    fetchClips, toggleSave, deleteClip, retagClip,
+    fetchClips, toggleSave, deleteClip, retagClip, retagAll,
     reviewClip, reviewAllClips, fetchRecent,
     nextPage, prevPage, goToPage,
     thumbnailUrl, videoUrl,

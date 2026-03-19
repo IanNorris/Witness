@@ -103,6 +103,21 @@ function changePageSize(event: Event) {
 function handleTagClick(_tag: string) {
   // Future: filter by tag
 }
+
+const reprocessingAll = ref(false)
+const reprocessedCount = ref<number | null>(null)
+
+async function handleRetagAll() {
+  reprocessingAll.value = true
+  reprocessedCount.value = null
+  try {
+    const count = await clipStore.retagAll()
+    reprocessedCount.value = count
+    setTimeout(() => { reprocessedCount.value = null }, 5000)
+  } finally {
+    reprocessingAll.value = false
+  }
+}
 </script>
 
 <template>
@@ -111,6 +126,15 @@ function handleTagClick(_tag: string) {
     <template #actions>
       <div class="d-flex align-items-center gap-3">
         <button class="btn btn-sm btn-outline-secondary" @click="loadClips" title="Refresh">↻</button>
+        <button
+          class="btn btn-sm btn-outline-warning"
+          @click="handleRetagAll"
+          :disabled="reprocessingAll"
+          title="Reprocess all clips in current view"
+        >
+          <span v-if="reprocessingAll" class="spinner-border spinner-border-sm me-1"></span>
+          {{ reprocessedCount !== null ? `${reprocessedCount} queued` : 'Reprocess All' }}
+        </button>
         <div class="form-check form-switch mb-0 mobile-hide">
           <input
             class="form-check-input"

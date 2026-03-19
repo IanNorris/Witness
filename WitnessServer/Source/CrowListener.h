@@ -107,6 +107,7 @@ private:
 	void HandleClipToggleSave( const crow::request& req, crow::response& res );
 	void HandleClipDelete( const crow::request& req, crow::response& res );
 	void HandleClipRetag( const crow::request& req, crow::response& res );
+	void HandleClipRetagBulk( const crow::request& req, crow::response& res );
 	void HandleClipReview( const crow::request& req, crow::response& res );
 	void HandleClipRecent( const crow::request& req, crow::response& res, int maxCount );
 	void HandleClipCalendar( const crow::request& req, crow::response& res, int year, int month );
@@ -141,13 +142,16 @@ private:
 	void HandleDebugStreamingDiag( const crow::request& req, crow::response& res );
 	void HandleDebugDisk( const crow::request& req, crow::response& res );
 	void HandleDebugDiskScan( const crow::request& req, crow::response& res );
+	void HandleReprocessQueue( const crow::request& req, crow::response& res );
 	void HandleDetectionQuery( const crow::request& req, crow::response& res, int cameraId );
+	void HandleTrailsQuery( const crow::request& req, crow::response& res, int cameraId );
 
 	// Face detection / crops
 	void HandleFaceQuery( const crow::request& req, crow::response& res, int cameraId );
 	void HandleFaceRecent( const crow::request& req, crow::response& res );
 	void HandleFaceCropImage( const crow::request& req, crow::response& res, int cropUID );
 	void HandleDetectionCropImage( const crow::request& req, crow::response& res, const std::string& cropPath );
+	void HandleDetectionFrameImage( const crow::request& req, crow::response& res, int cameraId, const std::string& filename );
 
 	// Face recognition
 	void HandleKnownFaceList( const crow::request& req, crow::response& res );

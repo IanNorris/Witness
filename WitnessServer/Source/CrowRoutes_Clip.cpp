@@ -591,3 +591,55 @@ void CrowListener::HandleClipRetag( const crow::request& req, crow::response& re
 	res.code = 200;
 	res.end();
 }
+
+void CrowListener::HandleClipRetagBulk( const crow::request& req, crow::response& res )
+{
+	auto body = crow::json::load( req.body );
+	if( !body || !body.has( "cameraId" ) || !body.has( "from" ) || !body.has( "to" ) )
+	{
+		res.code = 400;
+		res.body = R"({"error":"Missing cameraId, from, or to"})";
+		res.set_header( "Content-Type", "application/json" );
+		res.end();
+		return;
+	}
+
+	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, &body,
+		CrowAuth::Action::ReadWrite, CrowAuth::Privilege::Normal );
+	if( UserUID < 0 )
+	{
+		res.code = 401;
+		res.end();
+		return;
+	}
+
+	int cameraId = static_cast<int>( body["cameraId"].i() );
+	double from = body["from"].d();
+	double to = body["to"].d();
+
+	try
+	{
+		SQLiteDatabaseQueryInstance q( m_GlobalContext->Database, "ResetClipDetectionBulk" );
+		q->Bind( "@CameraID", cameraId );
+		q->Bind( "@TimestampFrom", from );
+		q->Bind( "@TimestampTo", to );
+		q->Execute( [&]( const SQLiteDatabaseQuery& query ) { return true; } );
+
+		int count = sqlite3_changes( m_GlobalContext->Database->GetDatabase() );
+
+		crow::json::wvalue result;
+		result["queued"] = count;
+		res.set_header( "Content-Type", "application/json" );
+		res.body = result.dump();
+		res.code = 200;
+	}
+	catch( const std::exception& e )
+	{
+		res.code = 500;
+		crow::json::wvalue err;
+		err["error"] = std::string( e.what() );
+		res.body = err.dump();
+		res.set_header( "Content-Type", "application/json" );
+	}
+	res.end();
+}
