@@ -117,7 +117,12 @@ function filterRedundantBoxes(boxes: DetectionBox[]): DetectionBox[] {
 function getVideoContentRect(video: HTMLVideoElement) {
   if (!video.videoWidth || !video.videoHeight) return null
 
-  const rect = video.getBoundingClientRect()
+  // Use parent container for layout rect — video element can report stale dimensions
+  const container = video.parentElement
+  if (!container) return null
+  const rect = container.getBoundingClientRect()
+  if (rect.width <= 0 || rect.height <= 0) return null
+
   const videoAspect = video.videoWidth / video.videoHeight
   const containerAspect = rect.width / rect.height
 
@@ -140,14 +145,21 @@ function getVideoContentRect(video: HTMLVideoElement) {
   return { drawW, drawH, offsetX, offsetY, containerW: rect.width, containerH: rect.height }
 }
 
-function syncCanvasSize(canvas: HTMLCanvasElement, video: HTMLVideoElement) {
-  const rect = video.getBoundingClientRect()
+function syncCanvasSize(canvas: HTMLCanvasElement, _video: HTMLVideoElement): boolean {
+  // Use the parent container for sizing — video.getBoundingClientRect() can return
+  // stale dimensions during route transitions causing the canvas to flash full-width
+  const container = canvas.parentElement
+  if (!container) return false
+  const rect = container.getBoundingClientRect()
   const w = Math.round(rect.width)
   const h = Math.round(rect.height)
+  if (w <= 0 || h <= 0) return false
   if (canvas.width !== w || canvas.height !== h) {
     canvas.width = w
     canvas.height = h
+    return false // dimensions just changed — skip this frame to avoid stretched content
   }
+  return true
 }
 
 const BASELINE_COLOR = '#6688cc'
@@ -254,7 +266,10 @@ export function useDetectionOverlay(
       return
     }
 
-    syncCanvasSize(canvas, video)
+    if (!syncCanvasSize(canvas, video)) {
+      animFrame = requestAnimationFrame(draw)
+      return
+    }
 
     const ctx = canvas.getContext('2d')
     if (!ctx) {
@@ -406,7 +421,10 @@ export function useDetectionPlayback(
       return
     }
 
-    syncCanvasSize(canvas, video)
+    if (!syncCanvasSize(canvas, video)) {
+      animFrame = requestAnimationFrame(draw)
+      return
+    }
 
     const ctx = canvas.getContext('2d')
     if (!ctx) {
