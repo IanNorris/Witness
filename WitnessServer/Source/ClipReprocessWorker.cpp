@@ -1003,8 +1003,8 @@ void ClipReprocessWorker::ComputeAndStoreTrails( int64_t clipUID, int cameraID, 
 	}
 
 	// Split on discontinuities, simplify, and store
-	constexpr double MAX_TIME_GAP = 2.0;
-	constexpr double MAX_SPATIAL_JUMP = 0.15;
+	constexpr double MAX_TIME_GAP = 5.0;
+	constexpr double MAX_SPATIAL_JUMP = 0.25;
 	constexpr double RDP_EPSILON = 0.008;
 
 	for( auto& [key, trail] : trailMap )
@@ -1014,6 +1014,34 @@ void ClipReprocessWorker::ComputeAndStoreTrails( int64_t clipUID, int cameraID, 
 
 		std::sort( trail.points.begin(), trail.points.end(),
 			[]( const TrailPoint& a, const TrailPoint& b ) { return a.timestamp < b.timestamp; } );
+
+		// 90th percentile outlier filtering — remove spikey jumps
+		if( trail.points.size() >= 4 )
+		{
+			std::vector<double> dists;
+			dists.reserve( trail.points.size() - 1 );
+			for( size_t i = 1; i < trail.points.size(); i++ )
+			{
+				double dist = std::sqrt( std::pow( trail.points[i].x - trail.points[i-1].x, 2 ) +
+										 std::pow( trail.points[i].y - trail.points[i-1].y, 2 ) );
+				dists.push_back( dist );
+			}
+			std::vector<double> sorted = dists;
+			std::sort( sorted.begin(), sorted.end() );
+			double p90 = sorted[static_cast<size_t>( sorted.size() * 0.9 )];
+			double threshold = std::max( p90 * 2.5, 0.01 );
+
+			std::vector<TrailPoint> filtered;
+			filtered.push_back( trail.points[0] );
+			for( size_t i = 1; i < trail.points.size(); i++ )
+			{
+				if( dists[i-1] <= threshold )
+					filtered.push_back( trail.points[i] );
+			}
+			trail.points = std::move( filtered );
+			if( trail.points.size() < 2 )
+				continue;
+		}
 
 		// Split into segments on discontinuities
 		std::vector<std::vector<TrailPoint>> segments;

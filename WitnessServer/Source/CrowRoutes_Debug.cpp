@@ -557,9 +557,11 @@ void CrowListener::HandleTrailsQuery( const crow::request& req, crow::response& 
 	double from = std::stod( fromParam );
 	double to = std::stod( toParam );
 
-	// Query pre-computed trails
-	crow::json::wvalue result;
-	std::vector<crow::json::wvalue> trailsArray;
+	// Build JSON response manually for performance — avoids crow::json::wvalue overhead
+	// and passes PointData through as raw compact arrays
+	std::ostringstream json;
+	json << R"({"cameraId":)" << cameraId << R"(,"trails":[)";
+	bool first = true;
 
 	try
 	{
@@ -570,66 +572,27 @@ void CrowListener::HandleTrailsQuery( const crow::request& req, crow::response& 
 
 		query->Execute( [&]( const SQLiteDatabaseQuery& q ) -> bool
 		{
-			crow::json::wvalue t;
-			t["id"] = q.GetColumnValueInt64( 0 ); // TrailUID
-			t["cls"] = std::string( q.GetColumnValueText( 3 ) ); // ClassName
-
-			const char* faceName = q.GetColumnValueText( 4 );
-			if( faceName )
-				t["name"] = std::string( faceName );
-
-			// PointData is already compact JSON [[x,y,t],...]
 			const char* pointData = q.GetColumnValueText( 7 );
 			if( !pointData )
 				return true;
 
-			// Parse the compact array format into [{x,y,t},...]
-			std::vector<crow::json::wvalue> pts;
-			std::string data( pointData );
+			if( !first ) json << ",";
+			first = false;
 
-			size_t pos = 1; // skip opening [
-			while( pos < data.size() )
-			{
-				if( data[pos] == '[' )
-				{
-					size_t end = data.find( ']', pos );
-					if( end == std::string::npos ) break;
+			int64_t trailUID = q.GetColumnValueInt64( 0 );
+			int64_t clipUID = q.GetColumnValueInt64( 1 );
+			const char* className = q.GetColumnValueText( 3 );
+			const char* faceName = q.GetColumnValueText( 4 );
 
-					std::string triplet = data.substr( pos + 1, end - pos - 1 );
-					double vals[3] = {};
-					int vi = 0;
-					size_t start = 0;
-					for( size_t j = 0; j <= triplet.size() && vi < 3; j++ )
-					{
-						if( j == triplet.size() || triplet[j] == ',' )
-						{
-							vals[vi++] = std::stod( triplet.substr( start, j - start ) );
-							start = j + 1;
-						}
-					}
+			json << R"({"id":)" << trailUID
+				 << R"(,"clipId":)" << clipUID
+				 << R"(,"cls":")" << ( className ? className : "" ) << "\"";
 
-					if( vi == 3 )
-					{
-						crow::json::wvalue pt;
-						pt["x"] = vals[0];
-						pt["y"] = vals[1];
-						pt["t"] = vals[2];
-						pts.push_back( std::move( pt ) );
-					}
+			if( faceName )
+				json << R"(,"name":")" << faceName << "\"";
 
-					pos = end + 1;
-				}
-				else
-				{
-					pos++;
-				}
-			}
-
-			if( pts.size() >= 2 )
-			{
-				t["points"] = std::move( pts );
-				trailsArray.push_back( std::move( t ) );
-			}
+			// Pass PointData through verbatim — already compact [[x,y,t],...]
+			json << R"(,"pts":)" << pointData << "}";
 
 			return true;
 		});
@@ -637,19 +600,16 @@ void CrowListener::HandleTrailsQuery( const crow::request& req, crow::response& 
 	catch( const std::exception& e )
 	{
 		res.code = 500;
-		crow::json::wvalue err;
-		err["error"] = std::string( e.what() );
-		res.body = err.dump();
+		res.body = std::string( R"({"error":")" ) + e.what() + "\"}";
 		res.set_header( "Content-Type", "application/json" );
 		res.end();
 		return;
 	}
 
-	result["trails"] = std::move( trailsArray );
-	result["cameraId"] = cameraId;
+	json << "]}";
 
 	res.set_header( "Content-Type", "application/json" );
-	res.body = result.dump();
+	res.body = json.str();
 	res.code = 200;
 	res.end();
 }
