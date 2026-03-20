@@ -9,6 +9,8 @@
 #include <iostream>
 #include <fstream>
 #include <chrono>
+#include <algorithm>
+#include <cmath>
 
 #ifdef CROW_ENABLE_SSL
 #include <openssl/x509.h>
@@ -542,7 +544,6 @@ void CrowListener::HandleTrailsQuery( const crow::request& req, crow::response& 
 
 	auto fromParam = req.url_params.get( "from" );
 	auto toParam = req.url_params.get( "to" );
-	auto anchorParam = req.url_params.get( "anchor" );  // bottom-center, center, top-center
 
 	if( !fromParam || !toParam )
 	{
@@ -556,115 +557,82 @@ void CrowListener::HandleTrailsQuery( const crow::request& req, crow::response& 
 	double from = std::stod( fromParam );
 	double to = std::stod( toParam );
 
-	// Determine anchor computation
-	enum class Anchor { BottomCenter, Center, TopCenter };
-	Anchor anchor = Anchor::BottomCenter;
-	if( anchorParam )
-	{
-		std::string a( anchorParam );
-		if( a == "center" ) anchor = Anchor::Center;
-		else if( a == "top-center" ) anchor = Anchor::TopCenter;
-	}
-
-	// Query detection boxes ordered by TrackingID and timestamp
-	// This groups naturally for trail construction
+	// Query pre-computed trails
 	crow::json::wvalue result;
 	std::vector<crow::json::wvalue> trailsArray;
 
 	try
 	{
-		SQLiteDatabaseQueryInstance query( m_GlobalContext->Database, "SelectDetectionFramesWithBoxes" );
+		SQLiteDatabaseQueryInstance query( m_GlobalContext->Database, "SelectTrails" );
 		query->Bind( "@CameraID", cameraId );
 		query->Bind( "@TimestampFrom", from );
 		query->Bind( "@TimestampTo", to );
 
-		// Collect trail points grouped by TrackingID
-		struct TrailPoint
+		query->Execute( [&]( const SQLiteDatabaseQuery& q ) -> bool
 		{
-			double x, y, timestamp;
-		};
-		struct Trail
-		{
-			std::string className;
-			std::vector<TrailPoint> points;
-			std::string name;
-		};
-		std::map<int, Trail> trailMap;
+			crow::json::wvalue t;
+			t["id"] = q.GetColumnValueInt64( 0 ); // TrailUID
+			t["cls"] = std::string( q.GetColumnValueText( 3 ) ); // ClassName
 
-		query->Execute( [&]( const SQLiteDatabaseQuery& q )
-		{
-			const char* className = q.GetColumnValueText( 6 );
-			if( !className )
+			const char* faceName = q.GetColumnValueText( 4 );
+			if( faceName )
+				t["name"] = std::string( faceName );
+
+			// PointData is already compact JSON [[x,y,t],...]
+			const char* pointData = q.GetColumnValueText( 7 );
+			if( !pointData )
 				return true;
 
-			int trackingId = q.GetColumnValueInt( 4 );
-			double timestamp = q.GetColumnValueDouble( 1 );
-			double x = q.GetColumnValueDouble( 8 );
-			double y = q.GetColumnValueDouble( 9 );
-			double w = q.GetColumnValueDouble( 10 );
-			double h = q.GetColumnValueDouble( 11 );
+			// Parse the compact array format into [{x,y,t},...]
+			std::vector<crow::json::wvalue> pts;
+			std::string data( pointData );
 
-			// Compute anchor point
-			double ax, ay;
-			switch( anchor )
+			size_t pos = 1; // skip opening [
+			while( pos < data.size() )
 			{
-				case Anchor::Center:
-					ax = x + w / 2.0;
-					ay = y + h / 2.0;
-					break;
-				case Anchor::TopCenter:
-					ax = x + w / 2.0;
-					ay = y;
-					break;
-				case Anchor::BottomCenter:
-				default:
-					ax = x + w / 2.0;
-					ay = y + h;
-					break;
+				if( data[pos] == '[' )
+				{
+					size_t end = data.find( ']', pos );
+					if( end == std::string::npos ) break;
+
+					std::string triplet = data.substr( pos + 1, end - pos - 1 );
+					double vals[3] = {};
+					int vi = 0;
+					size_t start = 0;
+					for( size_t j = 0; j <= triplet.size() && vi < 3; j++ )
+					{
+						if( j == triplet.size() || triplet[j] == ',' )
+						{
+							vals[vi++] = std::stod( triplet.substr( start, j - start ) );
+							start = j + 1;
+						}
+					}
+
+					if( vi == 3 )
+					{
+						crow::json::wvalue pt;
+						pt["x"] = vals[0];
+						pt["y"] = vals[1];
+						pt["t"] = vals[2];
+						pts.push_back( std::move( pt ) );
+					}
+
+					pos = end + 1;
+				}
+				else
+				{
+					pos++;
+				}
 			}
 
-			auto& trail = trailMap[trackingId];
-			if( trail.className.empty() )
-				trail.className = className;
-
-			const char* faceName = q.GetColumnValueText( 14 );
-			if( faceName && trail.name.empty() )
-				trail.name = faceName;
-
-			trail.points.push_back( { ax, ay, timestamp } );
-
-			// Safety limit
-			if( trailMap.size() > 5000 )
-				return false;
+			if( pts.size() >= 2 )
+			{
+				t["points"] = std::move( pts );
+				trailsArray.push_back( std::move( t ) );
+			}
 
 			return true;
 		});
-
-		// Build JSON response — only include trails with >= 2 points
-		for( auto& [trackId, trail] : trailMap )
-		{
-			if( trail.points.size() < 2 )
-				continue;
-
-			crow::json::wvalue t;
-			t["id"] = trackId;
-			t["cls"] = trail.className;
-			if( !trail.name.empty() )
-				t["name"] = trail.name;
-
-			std::vector<crow::json::wvalue> pts;
-			pts.reserve( trail.points.size() );
-			for( auto& p : trail.points )
-			{
-				crow::json::wvalue pt;
-				pt["x"] = p.x;
-				pt["y"] = p.y;
-				pt["t"] = p.timestamp;
-				pts.push_back( std::move( pt ) );
-			}
-			t["points"] = std::move( pts );
-			trailsArray.push_back( std::move( t ) );
-		}
 	}
 	catch( const std::exception& e )
 	{

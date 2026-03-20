@@ -7,6 +7,10 @@
 #include <FaceEmbeddingModel.h>
 #include <filesystem>
 #include <set>
+#include <map>
+#include <array>
+#include <algorithm>
+#include <cmath>
 #include <unordered_map>
 #include <sstream>
 #include <iomanip>
@@ -745,6 +749,9 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 	// Sync ClipTag junction table
 	TagHelpers::SyncClipTags( Database, clipUID, tagString );
 
+	// Pre-compute trails for this clip
+	ComputeAndStoreTrails( clipUID, camera, static_cast<double>( timestamp ), static_cast<double>( timestamp ) + durationSec );
+
 	LOG_INFO( "Reprocessed clip %lld: %s", (long long)clipUID, tagString.c_str() );
 	BroadcastProgress( clipUID, "complete", totalFrames, totalFrames, queuePosition, queueTotal, tagString, (int)lighting );
 }
@@ -893,4 +900,182 @@ void ClipReprocessWorker::BackfillLighting()
 	}
 
 	LOG_INFO( "Lighting backfill: classified %d clips this batch", classified );
+}
+
+// Ramer-Douglas-Peucker line simplification on normalized coordinates
+static std::vector<std::array<double,3>> SimplifyRDP( const std::vector<std::array<double,3>>& pts, double epsilon )
+{
+	if( pts.size() <= 2 )
+		return pts;
+
+	double maxDist = 0;
+	size_t maxIdx = 0;
+	const auto& a = pts.front();
+	const auto& b = pts.back();
+	double dx = b[0] - a[0], dy = b[1] - a[1];
+	double lenSq = dx * dx + dy * dy;
+
+	for( size_t i = 1; i < pts.size() - 1; i++ )
+	{
+		double dist;
+		if( lenSq == 0 )
+		{
+			dist = std::sqrt( std::pow( pts[i][0] - a[0], 2 ) + std::pow( pts[i][1] - a[1], 2 ) );
+		}
+		else
+		{
+			double t = std::max( 0.0, std::min( 1.0, ( ( pts[i][0] - a[0] ) * dx + ( pts[i][1] - a[1] ) * dy ) / lenSq ) );
+			double px = a[0] + t * dx, py = a[1] + t * dy;
+			dist = std::sqrt( std::pow( pts[i][0] - px, 2 ) + std::pow( pts[i][1] - py, 2 ) );
+		}
+		if( dist > maxDist )
+		{
+			maxDist = dist;
+			maxIdx = i;
+		}
+	}
+
+	if( maxDist > epsilon )
+	{
+		auto left = SimplifyRDP( { pts.begin(), pts.begin() + maxIdx + 1 }, epsilon );
+		auto right = SimplifyRDP( { pts.begin() + maxIdx, pts.end() }, epsilon );
+		left.pop_back();
+		left.insert( left.end(), right.begin(), right.end() );
+		return left;
+	}
+	return { a, b };
+}
+
+void ClipReprocessWorker::ComputeAndStoreTrails( int64_t clipUID, int cameraID, double fromTime, double toTime )
+{
+	// Delete old trails for this clip
+	{
+		SQLiteDatabaseQueryInstance q( Database, "DeleteTrailsForClip" );
+		q->Bind( "@ClipUID", clipUID );
+		q->Execute( nullptr );
+	}
+
+	// Fetch all detection boxes for this clip's time range
+	struct TrailPoint { double x, y, timestamp; };
+	struct Trail
+	{
+		std::string className;
+		std::string faceName;
+		std::vector<TrailPoint> points;
+	};
+	std::map<std::string, Trail> trailMap;
+
+	{
+		SQLiteDatabaseQueryInstance query( Database, "SelectDetectionFramesWithBoxes" );
+		query->Bind( "@CameraID", cameraID );
+		query->Bind( "@TimestampFrom", fromTime );
+		query->Bind( "@TimestampTo", toTime );
+
+		query->Execute( [&]( const SQLiteDatabaseQuery& q ) -> bool
+		{
+			const char* className = q.GetColumnValueText( 6 );
+			if( !className )
+				return true;
+
+			int trackingId = q.GetColumnValueInt( 4 );
+			double timestamp = q.GetColumnValueDouble( 1 );
+			double x = q.GetColumnValueDouble( 8 );
+			double y = q.GetColumnValueDouble( 9 );
+			double w = q.GetColumnValueDouble( 10 );
+			double h = q.GetColumnValueDouble( 11 );
+
+			// Bottom-center anchor
+			double ax = x + w / 2.0;
+			double ay = y + h;
+
+			std::string key = std::to_string( trackingId ) + ":" + className;
+			auto& trail = trailMap[key];
+			if( trail.className.empty() )
+				trail.className = className;
+
+			const char* faceName = q.GetColumnValueText( 14 );
+			if( faceName && trail.faceName.empty() )
+				trail.faceName = faceName;
+
+			trail.points.push_back( { ax, ay, timestamp } );
+			return true;
+		});
+	}
+
+	// Split on discontinuities, simplify, and store
+	constexpr double MAX_TIME_GAP = 2.0;
+	constexpr double MAX_SPATIAL_JUMP = 0.15;
+	constexpr double RDP_EPSILON = 0.008;
+
+	for( auto& [key, trail] : trailMap )
+	{
+		if( trail.points.size() < 2 )
+			continue;
+
+		std::sort( trail.points.begin(), trail.points.end(),
+			[]( const TrailPoint& a, const TrailPoint& b ) { return a.timestamp < b.timestamp; } );
+
+		// Split into segments on discontinuities
+		std::vector<std::vector<TrailPoint>> segments;
+		std::vector<TrailPoint> current;
+		current.push_back( trail.points[0] );
+
+		for( size_t i = 1; i < trail.points.size(); i++ )
+		{
+			const auto& prev = trail.points[i - 1];
+			const auto& curr = trail.points[i];
+			double dt = curr.timestamp - prev.timestamp;
+			double dist = std::sqrt( std::pow( curr.x - prev.x, 2 ) + std::pow( curr.y - prev.y, 2 ) );
+
+			if( dt > MAX_TIME_GAP || dist > MAX_SPATIAL_JUMP )
+			{
+				if( current.size() >= 2 )
+					segments.push_back( std::move( current ) );
+				current.clear();
+			}
+			current.push_back( curr );
+		}
+		if( current.size() >= 2 )
+			segments.push_back( std::move( current ) );
+
+		// Simplify each segment with RDP and store
+		for( auto& seg : segments )
+		{
+			std::vector<std::array<double,3>> pts;
+			pts.reserve( seg.size() );
+			for( auto& p : seg )
+				pts.push_back( { p.x, p.y, p.timestamp } );
+
+			auto simplified = SimplifyRDP( pts, RDP_EPSILON );
+			if( simplified.size() < 2 )
+				continue;
+
+			// Build compact JSON: [[x,y,t],[x,y,t],...]
+			std::ostringstream json;
+			json << std::fixed << std::setprecision( 6 ) << "[";
+			for( size_t i = 0; i < simplified.size(); i++ )
+			{
+				if( i > 0 ) json << ",";
+				json << "[" << simplified[i][0] << "," << simplified[i][1] << ","
+					 << std::setprecision( 2 ) << simplified[i][2] << std::setprecision( 6 ) << "]";
+			}
+			json << "]";
+
+			double startTime = simplified.front()[2];
+			double endTime = simplified.back()[2];
+
+			SQLiteDatabaseQueryInstance q( Database, "InsertTrail" );
+			q->Bind( "@ClipUID", clipUID );
+			q->Bind( "@CameraID", cameraID );
+			q->Bind( "@ClassName", trail.className.c_str() );
+			if( !trail.faceName.empty() )
+				q->Bind( "@FaceName", trail.faceName.c_str() );
+			else
+				q->BindNull( "@FaceName" );
+			q->Bind( "@StartTime", startTime );
+			q->Bind( "@EndTime", endTime );
+			q->Bind( "@PointData", json.str().c_str() );
+			q->Execute( nullptr );
+		}
+	}
 }

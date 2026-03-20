@@ -13,7 +13,7 @@
 #include <string>
 #include <memory>
 
-static constexpr int CURRENT_DETECTION_VERSION = 15;
+static constexpr int CURRENT_DETECTION_VERSION = 16;
 
 class ClipReprocessWorker : public WorkerBase
 {
@@ -41,6 +41,7 @@ private:
 	void BroadcastProgress( int64_t clipUID, const std::string& stage, int frame, int totalFrames, int queuePos, int queueTotal,
 		const std::string& tags = "", int lighting = -1 );
 	void BackfillLighting();
+	void ComputeAndStoreTrails( int64_t clipUID, int cameraID, double fromTime, double toTime );
 
 	std::shared_ptr<SQLiteDatabase> Database;
 	std::shared_ptr<Witness::Camera::ONNXDetectionFilter> DetectionFilter;

@@ -210,6 +210,19 @@ namespace Database
 		CREATE INDEX IF NOT EXISTS idx_embedding_known ON FaceEmbedding(KnownFaceUID);
 		CREATE INDEX IF NOT EXISTS idx_embedding_crop ON FaceEmbedding(FaceCropUID);
 
+		CREATE TABLE IF NOT EXISTS Trail(
+			TrailUID		INTEGER PRIMARY KEY AUTOINCREMENT,
+			ClipUID			INTEGER			NOT NULL,
+			CameraID		INTEGER			NOT NULL,
+			ClassName		TEXT			NOT NULL,
+			FaceName		TEXT,
+			StartTime		REAL			NOT NULL,
+			EndTime			REAL			NOT NULL,
+			PointData		TEXT			NOT NULL,
+			FOREIGN KEY(ClipUID) REFERENCES Clip(ClipUID) ON DELETE CASCADE
+		);
+		CREATE INDEX IF NOT EXISTS idx_trail_camera_time ON Trail(CameraID, StartTime, EndTime);
+
 	)RAW";
 
 	std::string GetSetting = R"RAW(
@@ -887,7 +900,25 @@ namespace Database
 		WHERE CameraID = @CameraID AND Timestamp >= @TimestampFrom AND Timestamp <= @TimestampTo;
 	)RAW";
 
-	std::string InsertFaceCrop = R"RAW(
+	std::string InsertTrail = R"RAW(
+		INSERT INTO Trail (ClipUID, CameraID, ClassName, FaceName, StartTime, EndTime, PointData)
+		VALUES (@ClipUID, @CameraID, @ClassName, @FaceName, @StartTime, @EndTime, @PointData);
+	)RAW";
+
+	std::string DeleteTrailsForClip = R"RAW(
+		DELETE FROM Trail WHERE ClipUID = @ClipUID;
+	)RAW";
+
+	std::string SelectTrails = R"RAW(
+		SELECT TrailUID, ClipUID, CameraID, ClassName, FaceName, StartTime, EndTime, PointData
+		FROM Trail
+		WHERE CameraID = @CameraID
+			AND EndTime >= @TimestampFrom
+			AND StartTime <= @TimestampTo
+		ORDER BY StartTime ASC;
+	)RAW";
+
+	std::string InsertFaceCrop= R"RAW(
 		INSERT INTO FaceCrop (CameraID, Timestamp, FrameUID, TrackingID, FilePath, Confidence,
 			Landmark0X, Landmark0Y, Landmark1X, Landmark1Y, Landmark2X, Landmark2Y,
 			Landmark3X, Landmark3Y, Landmark4X, Landmark4Y)
@@ -1085,6 +1116,10 @@ namespace Database
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Action ADD COLUMN Cooldown INTEGER DEFAULT 30;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE DetectionFrame ADD COLUMN FramePath TEXT;", nullptr, nullptr, nullptr );
 
+		// Trail table migration (new table, CREATE IF NOT EXISTS handles it)
+		sqlite3_exec( DB->GetDatabase(), "CREATE TABLE IF NOT EXISTS Trail(TrailUID INTEGER PRIMARY KEY AUTOINCREMENT, ClipUID INTEGER NOT NULL, CameraID INTEGER NOT NULL, ClassName TEXT NOT NULL, FaceName TEXT, StartTime REAL NOT NULL, EndTime REAL NOT NULL, PointData TEXT NOT NULL, FOREIGN KEY(ClipUID) REFERENCES Clip(ClipUID) ON DELETE CASCADE);", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "CREATE INDEX IF NOT EXISTS idx_trail_camera_time ON Trail(CameraID, StartTime, EndTime);", nullptr, nullptr, nullptr );
+
 		// Fix FaceCrop rows with bad confidence values from column-14 bug (landmark pixel coords stored as confidence)
 		sqlite3_exec( DB->GetDatabase(), "UPDATE FaceCrop SET Confidence = Confidence / 10.0 WHERE Confidence > 1.0;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "UPDATE FaceCrop SET Confidence = Confidence / 10.0 WHERE Confidence > 1.0;", nullptr, nullptr, nullptr );
@@ -1250,6 +1285,10 @@ namespace Database
 		CREATE_QUERY( DeleteDetectionFramesBefore );
 		CREATE_QUERY( DeleteAllDetectionFrames );
 		CREATE_QUERY( DeleteDetectionFramesInRange );
+
+		CREATE_QUERY( InsertTrail );
+		CREATE_QUERY( DeleteTrailsForClip );
+		CREATE_QUERY( SelectTrails );
 
 		CREATE_QUERY( InsertFaceCrop );
 		CREATE_QUERY( SelectFaceCrops );
