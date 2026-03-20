@@ -910,12 +910,14 @@ namespace Database
 	)RAW";
 
 	std::string SelectTrails = R"RAW(
-		SELECT TrailUID, ClipUID, CameraID, ClassName, FaceName, StartTime, EndTime, PointData
-		FROM Trail
-		WHERE CameraID = @CameraID
-			AND EndTime >= @TimestampFrom
-			AND StartTime <= @TimestampTo
-		ORDER BY StartTime ASC;
+		SELECT t.TrailUID, t.ClipUID, t.CameraID, t.ClassName, t.FaceName, t.StartTime, t.EndTime, t.PointData,
+			   c.Timestamp AS ClipTimestamp, c.Duration AS ClipDuration
+		FROM Trail t
+		LEFT JOIN Clip c ON c.ClipUID = t.ClipUID
+		WHERE t.CameraID = @CameraID
+			AND t.EndTime >= @TimestampFrom
+			AND t.StartTime <= @TimestampTo
+		ORDER BY t.StartTime ASC;
 	)RAW";
 
 	std::string InsertFaceCrop= R"RAW(

@@ -16,9 +16,8 @@ import json
 import time
 
 # --- Constants matching C++ ---
-MAX_TIME_GAP = 5.0       # seconds
-MAX_SPATIAL_JUMP = 0.25   # normalized coords
-RDP_EPSILON = 0.008       # simplification tolerance
+MAX_TIME_GAP = 10.0       # seconds
+MAX_SPATIAL_JUMP = 0.50   # normalized coords
 
 
 def simplify_rdp(pts: list[list[float]], epsilon: float) -> list[list[float]]:
@@ -204,13 +203,12 @@ def backfill(db_path: str):
             segments = split_on_discontinuities(pts)
 
             for seg in segments:
-                simplified = simplify_rdp(seg, RDP_EPSILON)
-                if len(simplified) < 2:
+                if len(seg) < 2:
                     continue
 
-                start_time = simplified[0][2]
-                end_time = simplified[-1][2]
-                point_data = compact_json(simplified)
+                start_time = seg[0][2]
+                end_time = seg[-1][2]
+                point_data = compact_json(seg)
 
                 conn.execute(
                     "INSERT INTO Trail (ClipUID, CameraID, ClassName, FaceName, StartTime, EndTime, PointData) "

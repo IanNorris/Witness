@@ -42,6 +42,7 @@ private:
 		const std::string& tags = "", int lighting = -1 );
 	void BackfillLighting();
 	void ComputeAndStoreTrails( int64_t clipUID, int cameraID, double fromTime, double toTime );
+	void MarkClipProcessed( int64_t clipUID );
 
 	std::shared_ptr<SQLiteDatabase> Database;
 	std::shared_ptr<Witness::Camera::ONNXDetectionFilter> DetectionFilter;

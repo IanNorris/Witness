@@ -583,9 +583,13 @@ void CrowListener::HandleTrailsQuery( const crow::request& req, crow::response& 
 			int64_t clipUID = q.GetColumnValueInt64( 1 );
 			const char* className = q.GetColumnValueText( 3 );
 			const char* faceName = q.GetColumnValueText( 4 );
+			double clipTimestamp = q.GetColumnValueDouble( 8 );
+			double clipDuration = q.GetColumnValueDouble( 9 );
 
 			json << R"({"id":)" << trailUID
 				 << R"(,"clipId":)" << clipUID
+				 << R"(,"clipTs":)" << std::fixed << std::setprecision( 2 ) << clipTimestamp
+				 << R"(,"clipDur":)" << clipDuration
 				 << R"(,"cls":")" << ( className ? className : "" ) << "\"";
 
 			if( faceName )

@@ -16,14 +16,19 @@ interface TrailPoint {
 interface Trail {
   id: number
   clipId: number
+  clipTs: number
+  clipDur: number
   cls: string
   name?: string
   points: TrailPoint[]
+  smooth: TrailPoint[]  // smoothed x,y for rendering; t preserved for lookup
 }
 
 interface RawTrail {
   id: number
   clipId: number
+  clipTs: number
+  clipDur: number
   cls: string
   name?: string
   pts: number[][]  // compact format [[x,y,t],...]
@@ -94,6 +99,53 @@ const visibleTrails = computed(() => {
   if (regionTrails.value.length > 0) return regionTrails.value
   return filteredTrails.value
 })
+
+// Unique clips from matched region trails (deduplicated by clipId)
+interface MatchedClip {
+  clipId: number
+  clipTs: number
+  clipDur: number
+  cameraId: number
+  classes: string[]
+}
+
+const matchedClips = computed<MatchedClip[]>(() => {
+  const source = regionTrails.value.length > 0 ? regionTrails.value : []
+  const clipMap = new Map<number, MatchedClip>()
+  for (const trail of source) {
+    const existing = clipMap.get(trail.clipId)
+    if (existing) {
+      if (!existing.classes.includes(trail.cls)) existing.classes.push(trail.cls)
+    } else {
+      clipMap.set(trail.clipId, {
+        clipId: trail.clipId,
+        clipTs: trail.clipTs,
+        clipDur: trail.clipDur,
+        cameraId: selectedCameraId.value!,
+        classes: [trail.cls],
+      })
+    }
+  }
+  return [...clipMap.values()].sort((a, b) => b.clipTs - a.clipTs)
+})
+
+function formatDateTime(ts: number): string {
+  const d = new Date(ts * 1000)
+  return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString()
+}
+
+function formatDuration(sec: number): string {
+  if (sec < 60) return `${Math.round(sec)}s`
+  return `${Math.floor(sec / 60)}m ${Math.round(sec % 60)}s`
+}
+
+function navigateToClipTs(clip: MatchedClip) {
+  if (!selectedCameraId.value) return
+  router.push({
+    path: `/clips/${selectedCameraId.value}`,
+    query: { t: String(Math.floor(clip.clipTs)) },
+  })
+}
 
 function hexToRgb(hex: string): { r: number; g: number; b: number } {
   const n = parseInt(hex.replace('#', ''), 16)
@@ -166,7 +218,7 @@ let canvasPointsCache = new WeakMap<Trail, Pt[]>()
 function getCanvasPoints(trail: Trail, vr: ReturnType<typeof getViewRect>): Pt[] {
   const cached = canvasPointsCache.get(trail)
   if (cached) return cached
-  const cp = trail.points.map(p => ({
+  const cp = trail.smooth.map(p => ({
     x: vr.offsetX + p.x * vr.drawW,
     y: vr.offsetY + p.y * vr.drawH,
   }))
@@ -186,9 +238,11 @@ function lightenColor(r: number, g: number, b: number, factor: number) {
   }
 }
 
-/** Distance from point (px,py) to the nearest segment of a polyline */
-function distToPolyline(px: number, py: number, cp: Pt[]): number {
+/** Distance from point (px,py) to the nearest segment of a polyline, plus nearest segment index + t */
+function distToPolyline(px: number, py: number, cp: Pt[]): { dist: number; segIdx: number; t: number } {
   let minDist = Infinity
+  let bestSeg = 0
+  let bestT = 0
   for (let i = 0; i < cp.length - 1; i++) {
     const ax = cp[i]!.x, ay = cp[i]!.y
     const bx = cp[i + 1]!.x, by = cp[i + 1]!.y
@@ -197,9 +251,13 @@ function distToPolyline(px: number, py: number, cp: Pt[]): number {
     let t = lenSq === 0 ? 0 : Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / lenSq))
     const cx = ax + t * dx, cy = ay + t * dy
     const dist = Math.sqrt((px - cx) ** 2 + (py - cy) ** 2)
-    if (dist < minDist) minDist = dist
+    if (dist < minDist) {
+      minDist = dist
+      bestSeg = i
+      bestT = t
+    }
   }
-  return minDist
+  return { dist: minDist, segIdx: bestSeg, t: bestT }
 }
 
 function drawTrails() {
@@ -304,14 +362,45 @@ function drawTrails() {
   }
 }
 
+/** Gaussian-weighted moving average for trail smoothing. Only smooths x,y; preserves t. */
+function smoothTrailPoints(pts: TrailPoint[], windowRadius = 4): TrailPoint[] {
+  if (pts.length <= 3) return pts
+  const kernel: number[] = []
+  let sum = 0
+  for (let i = -windowRadius; i <= windowRadius; i++) {
+    const w = Math.exp(-0.5 * (i / (windowRadius * 0.5)) ** 2)
+    kernel.push(w)
+    sum += w
+  }
+  for (let i = 0; i < kernel.length; i++) kernel[i]! /= sum
+
+  return pts.map((p, idx) => {
+    let sx = 0, sy = 0, wt = 0
+    for (let k = -windowRadius; k <= windowRadius; k++) {
+      const j = Math.max(0, Math.min(pts.length - 1, idx + k))
+      const w = kernel[k + windowRadius]!
+      sx += pts[j]!.x * w
+      sy += pts[j]!.y * w
+      wt += w
+    }
+    return { x: sx / wt, y: sy / wt, t: p.t }
+  })
+}
+
 function parseCompactTrails(raw: RawTrail[]): Trail[] {
-  return raw.map(r => ({
-    id: r.id,
-    clipId: r.clipId,
-    cls: r.cls,
-    name: r.name,
-    points: r.pts.map(p => ({ x: p[0]!, y: p[1]!, t: p[2]! })),
-  }))
+  return raw.map(r => {
+    const points = r.pts.map(p => ({ x: p[0]!, y: p[1]!, t: p[2]! }))
+    return {
+      id: r.id,
+      clipId: r.clipId,
+      clipTs: r.clipTs,
+      clipDur: r.clipDur,
+      cls: r.cls,
+      name: r.name,
+      points,
+      smooth: smoothTrailPoints(points),
+    }
+  })
 }
 
 async function fetchTrails() {
@@ -379,15 +468,7 @@ function startSnapshotTimeout() {
 
 // Hit-test trails using distance to polyline path
 function onCanvasMouseMove(e: MouseEvent) {
-  if (regionMode.value && regionStart.value) {
-    // Dragging region selection
-    const canvas = canvasRef.value
-    if (!canvas) return
-    const rect = canvas.getBoundingClientRect()
-    regionEnd.value = { x: e.clientX - rect.left, y: e.clientY - rect.top }
-    drawTrails()
-    return
-  }
+  if (isDraggingRegion) return // handled by document listener
 
   const canvas = canvasRef.value
   const img = snapshotImg.value
@@ -402,29 +483,38 @@ function onCanvasMouseMove(e: MouseEvent) {
 
   let closest: Trail | null = null
   let closestDist = HIT_DIST
+  let closestSegIdx = 0
+  let closestSegT = 0
 
   for (const trail of visibleTrails.value) {
     if (trail.points.length < 2) continue
     const cp = getCanvasPoints(trail, vr)
-    const dist = distToPolyline(mx, my, cp)
-    if (dist < closestDist) {
-      closestDist = dist
+    const hit = distToPolyline(mx, my, cp)
+    if (hit.dist < closestDist) {
+      closestDist = hit.dist
       closest = trail
+      closestSegIdx = hit.segIdx
+      closestSegT = hit.t
     }
   }
 
-  if (closest !== hoveredTrail.value) {
+  if (closest !== hoveredTrail.value || closest) {
     hoveredTrail.value = closest
     tooltipPos.value = { x: e.clientX, y: e.clientY }
     drawTrails()
 
-    // Update background to show detection frame near hovered trail midpoint
+    // Show detection frame nearest to mouse position along the trail
     if (closest && selectedCameraId.value) {
-      const midPt = closest.points[Math.floor(closest.points.length / 2)]!
-      const frameFile = midPt.t.toFixed(3) + '.jpg'
+      // Interpolate timestamp from nearest segment
+      const ptA = closest.points[closestSegIdx]!
+      const ptB = closest.points[closestSegIdx + 1]!
+      const nearestT = ptA.t + (ptB.t - ptA.t) * closestSegT
+      const frameFile = nearestT.toFixed(3) + '.jpg'
       const frameUrl = `/api/detection/frame/${selectedCameraId.value}/${frameFile}`
       if (hoverFrameCache.has(frameUrl)) {
-        activeSnapshotUrl.value = frameUrl
+        if (hoverFrameCache.get(frameUrl)) {
+          activeSnapshotUrl.value = frameUrl
+        }
       } else {
         const probe = new Image()
         probe.onload = () => {
@@ -439,8 +529,6 @@ function onCanvasMouseMove(e: MouseEvent) {
     } else {
       activeSnapshotUrl.value = ''
     }
-  } else if (closest) {
-    tooltipPos.value = { x: e.clientX, y: e.clientY }
   }
 }
 
@@ -458,6 +546,7 @@ function onCanvasClick(_e: MouseEvent) {
   // Navigate to clip if a trail is hovered
   if (hoveredTrail.value && selectedCameraId.value) {
     const trail = hoveredTrail.value
+    // Use the timestamp from wherever the user is hovering (nearest point via last hover)
     const midTime = trail.points[Math.floor(trail.points.length / 2)]?.t
     router.push({
       path: `/clips/${selectedCameraId.value}`,
@@ -466,7 +555,9 @@ function onCanvasClick(_e: MouseEvent) {
   }
 }
 
-// Region selection handlers
+// Region selection handlers — track on document to handle mouse leaving canvas
+let isDraggingRegion = false
+
 function onCanvasMouseDown(e: MouseEvent) {
   if (!regionMode.value) return
   const canvas = canvasRef.value
@@ -475,18 +566,45 @@ function onCanvasMouseDown(e: MouseEvent) {
   regionStart.value = { x: e.clientX - rect.left, y: e.clientY - rect.top }
   regionEnd.value = null
   regionTrails.value = []
+  isDraggingRegion = true
+  document.addEventListener('mousemove', onDocumentRegionMove)
+  document.addEventListener('mouseup', onDocumentRegionUp)
 }
 
-function onCanvasMouseUp(e: MouseEvent) {
+function clampToCanvas(clientX: number, clientY: number): { x: number; y: number } | null {
+  const canvas = canvasRef.value
+  if (!canvas) return null
+  const rect = canvas.getBoundingClientRect()
+  return {
+    x: Math.max(0, Math.min(rect.width, clientX - rect.left)),
+    y: Math.max(0, Math.min(rect.height, clientY - rect.top)),
+  }
+}
+
+function onDocumentRegionMove(e: MouseEvent) {
+  if (!isDraggingRegion || !regionStart.value) return
+  const pt = clampToCanvas(e.clientX, e.clientY)
+  if (pt) {
+    regionEnd.value = pt
+    drawTrails()
+  }
+}
+
+function onDocumentRegionUp(e: MouseEvent) {
+  document.removeEventListener('mousemove', onDocumentRegionMove)
+  document.removeEventListener('mouseup', onDocumentRegionUp)
+  isDraggingRegion = false
+
   if (!regionMode.value || !regionStart.value) return
   const canvas = canvasRef.value
   const img = snapshotImg.value
   if (!canvas || !img) return
 
-  const rect = canvas.getBoundingClientRect()
-  regionEnd.value = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+  const pt = clampToCanvas(e.clientX, e.clientY)
+  if (!pt) return
+  regionEnd.value = pt
 
-  const rs = regionStart.value, re = regionEnd.value
+  const rs = regionStart.value, re = regionEnd.value!
   const rxMin = Math.min(rs.x, re.x), rxMax = Math.max(rs.x, re.x)
   const ryMin = Math.min(rs.y, re.y), ryMax = Math.max(rs.y, re.y)
 
@@ -503,8 +621,8 @@ function onCanvasMouseUp(e: MouseEvent) {
   const matched: Trail[] = []
   for (const trail of filteredTrails.value) {
     const cp = getCanvasPoints(trail, vr)
-    for (const pt of cp) {
-      if (pt.x >= rxMin && pt.x <= rxMax && pt.y >= ryMin && pt.y <= ryMax) {
+    for (const p of cp) {
+      if (p.x >= rxMin && p.x <= rxMax && p.y >= ryMin && p.y <= ryMax) {
         matched.push(trail)
         break
       }
@@ -512,6 +630,10 @@ function onCanvasMouseUp(e: MouseEvent) {
   }
   regionTrails.value = matched
   drawTrails()
+}
+
+function onCanvasMouseUp(_e: MouseEvent) {
+  // Region mouseup handled by document listener
 }
 
 function clearRegion() {
@@ -524,15 +646,6 @@ function clearRegion() {
 function toggleRegionMode() {
   regionMode.value = !regionMode.value
   if (!regionMode.value) clearRegion()
-}
-
-function navigateToClip(trail: Trail) {
-  if (!selectedCameraId.value) return
-  const midTime = trail.points[Math.floor(trail.points.length / 2)]?.t
-  router.push({
-    path: `/clips/${selectedCameraId.value}`,
-    query: midTime ? { t: String(Math.floor(midTime)) } : undefined,
-  })
 }
 
 function formatTime(ts: number): string {
@@ -574,6 +687,8 @@ onMounted(async () => {
 onUnmounted(() => {
   resizeObserver?.disconnect()
   if (snapshotTimeout) clearTimeout(snapshotTimeout)
+  document.removeEventListener('mousemove', onDocumentRegionMove)
+  document.removeEventListener('mouseup', onDocumentRegionUp)
 })
 
 watch(selectedCameraId, () => {
@@ -781,31 +896,43 @@ watch(timeRange, () => fetchTrails())
         </div>
       </div>
 
-      <!-- Region matched clips panel -->
-      <div v-if="regionTrails.length > 0" class="trails-region-panel">
+      <!-- Matched clips grid -->
+      <div v-if="matchedClips.length > 0" class="trails-matched-clips">
         <div class="trails-region-header">
-          <strong class="small">{{ regionTrails.length }} matched trails</strong>
+          <strong class="small">{{ matchedClips.length }} matched clips ({{ regionTrails.length }} trails)</strong>
           <button class="btn btn-sm btn-link text-muted-custom p-0" @click="clearRegion">✕</button>
         </div>
-        <div class="trails-region-list">
+        <div class="trails-clip-grid">
           <div
-            v-for="trail in regionTrails.slice(0, 50)"
-            :key="trail.id"
-            class="trails-region-item"
-            @click="navigateToClip(trail)"
-            @mouseenter="hoveredTrail = trail; drawTrails()"
-            @mouseleave="hoveredTrail = null; drawTrails()"
+            v-for="clip in matchedClips.slice(0, 50)"
+            :key="clip.clipId"
+            class="trails-clip-card"
+            @click="navigateToClipTs(clip)"
           >
-            <span
-              class="trails-tooltip-dot"
-              :style="{ background: getTrailColor(trail.cls) }"
-            />
-            <span class="small">{{ trail.name || trail.cls }}</span>
-            <span class="text-muted-custom small ms-auto">{{ formatTime(trail.points[0]?.t ?? 0) }}</span>
+            <div class="trails-clip-thumb-wrap">
+              <img
+                :src="`/clip/thumb/${clip.cameraId}/${clip.clipTs}`"
+                class="trails-clip-thumb"
+                loading="lazy"
+                @error="($event.target as HTMLImageElement).style.display = 'none'"
+              />
+              <span class="trails-clip-duration">{{ formatDuration(clip.clipDur) }}</span>
+            </div>
+            <div class="trails-clip-info">
+              <span class="trails-clip-time">{{ formatDateTime(clip.clipTs) }}</span>
+              <div class="trails-clip-tags">
+                <span
+                  v-for="cls in clip.classes"
+                  :key="cls"
+                  class="trails-clip-tag"
+                  :style="{ background: getTrailColor(cls), color: '#000' }"
+                >{{ cls }}</span>
+              </div>
+            </div>
           </div>
-          <div v-if="regionTrails.length > 50" class="text-muted-custom small px-2 py-1">
-            … and {{ regionTrails.length - 50 }} more
-          </div>
+        </div>
+        <div v-if="matchedClips.length > 50" class="text-muted-custom small px-2 py-1">
+          … and {{ matchedClips.length - 50 }} more
         </div>
       </div>
 
@@ -983,15 +1110,11 @@ watch(timeRange, () => fetchTrails())
   color: rgba(255, 255, 255, 0.4);
 }
 
-.trails-region-panel {
-  margin-top: 0.5rem;
+.trails-matched-clips {
+  margin-top: 0.75rem;
   border: 1px solid var(--bs-border-color, #333);
   border-radius: 0.375rem;
   background: var(--bs-dark, #1e1e2e);
-  max-height: 200px;
-  overflow: hidden;
-  display: flex;
-  flex-direction: column;
 }
 
 .trails-region-header {
@@ -1002,22 +1125,77 @@ watch(timeRange, () => fetchTrails())
   border-bottom: 1px solid var(--bs-border-color, #333);
 }
 
-.trails-region-list {
-  overflow-y: auto;
-  flex: 1;
-}
-
-.trails-region-item {
-  display: flex;
-  align-items: center;
+.trails-clip-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: 0.5rem;
-  padding: 0.25rem 0.5rem;
-  cursor: pointer;
-  transition: background 0.1s;
+  padding: 0.5rem;
+  max-height: 400px;
+  overflow-y: auto;
 }
 
-.trails-region-item:hover {
-  background: rgba(255, 255, 255, 0.08);
+.trails-clip-card {
+  border: 1px solid var(--bs-border-color, #333);
+  border-radius: 0.375rem;
+  overflow: hidden;
+  cursor: pointer;
+  transition: border-color 0.15s, transform 0.1s;
+  background: rgba(0, 0, 0, 0.3);
+}
+
+.trails-clip-card:hover {
+  border-color: var(--bs-primary, #0d6efd);
+  transform: translateY(-1px);
+}
+
+.trails-clip-thumb-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16/9;
+  background: #000;
+}
+
+.trails-clip-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.trails-clip-duration {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  background: rgba(0, 0, 0, 0.8);
+  color: #fff;
+  font-size: 0.7rem;
+  padding: 1px 4px;
+  border-radius: 2px;
+}
+
+.trails-clip-info {
+  padding: 0.35rem 0.5rem;
+}
+
+.trails-clip-time {
+  font-size: 0.75rem;
+  color: var(--bs-body-color, #e1e4e8);
+  display: block;
+}
+
+.trails-clip-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  margin-top: 0.25rem;
+}
+
+.trails-clip-tag {
+  font-size: 0.65rem;
+  padding: 0px 4px;
+  border-radius: 2px;
+  font-weight: 600;
+  line-height: 1.4;
 }
 
 @media (max-width: 768px) {

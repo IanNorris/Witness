@@ -125,6 +125,20 @@ void ClipReprocessWorker::WorkerMain()
 		std::this_thread::sleep_for( std::chrono::milliseconds( 100 ) );
 }
 
+void ClipReprocessWorker::MarkClipProcessed( int64_t clipUID )
+{
+	SQLiteDatabaseQueryInstance q( Database, "UpdateClipDetection" );
+	q->Bind( "@ClipUID", clipUID );
+	q->Bind( "@Tags", "" );
+	q->Bind( "@DetectionVersion", CURRENT_DETECTION_VERSION );
+	q->Bind( "@Lighting", 0 );
+	q->Execute( nullptr );
+
+	SQLiteDatabaseQueryInstance q2( Database, "DeleteClipTags" );
+	q2->Bind( "@ClipUID", clipUID );
+	q2->Execute( nullptr );
+}
+
 void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int camera, int recordMode, const std::string& existingTags,
 	int queuePosition, int queueTotal )
 {
@@ -135,22 +149,17 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 
 	if( !fs::exists( clipPath ) )
 	{
-		// File missing - mark as processed to skip it
-		SQLiteDatabaseQueryInstance UpdateClipDetection( Database, "UpdateClipDetection" );
-		UpdateClipDetection->Bind( "@ClipUID", clipUID );
-		UpdateClipDetection->Bind( "@Tags", "" );
-		UpdateClipDetection->Bind( "@DetectionVersion", CURRENT_DETECTION_VERSION );
-		UpdateClipDetection->Bind( "@Lighting", 0 );
-		UpdateClipDetection->Execute( nullptr );
-
-		// Clear any stale ClipTag rows for this missing clip
-		{
-			SQLiteDatabaseQueryInstance q( Database, "DeleteClipTags" );
-			q->Bind( "@ClipUID", clipUID );
-			q->Execute( nullptr );
-		}
-
 		LOG_DEBUG( "ClipReprocess: Clip %lld file not found, skipping: %s", (long long)clipUID, clipPath.c_str() );
+		MarkClipProcessed( clipUID );
+		return;
+	}
+
+	// Skip empty or zero-byte files (vestigial clips that never completed recording)
+	auto fileSize = fs::file_size( clipPath );
+	if( fileSize == 0 )
+	{
+		LOG_DEBUG( "ClipReprocess: Clip %lld is empty (0 bytes), skipping: %s", (long long)clipUID, clipPath.c_str() );
+		MarkClipProcessed( clipUID );
 		return;
 	}
 
@@ -158,14 +167,16 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 	AVFormatContext* fmtCtx = nullptr;
 	if( avformat_open_input( &fmtCtx, clipPath.c_str(), nullptr, nullptr ) < 0 )
 	{
-		LOG_ERROR( "ClipReprocess: Failed to open clip %lld: %s", (long long)clipUID, clipPath.c_str() );
+		LOG_ERROR( "ClipReprocess: Failed to open clip %lld, marking as processed: %s", (long long)clipUID, clipPath.c_str() );
+		MarkClipProcessed( clipUID );
 		return;
 	}
 
 	if( avformat_find_stream_info( fmtCtx, nullptr ) < 0 )
 	{
-		LOG_ERROR( "ClipReprocess: Failed to find stream info for clip %lld", (long long)clipUID );
+		LOG_ERROR( "ClipReprocess: Failed to find stream info for clip %lld, marking as processed", (long long)clipUID );
 		avformat_close_input( &fmtCtx );
+		MarkClipProcessed( clipUID );
 		return;
 	}
 
@@ -182,8 +193,9 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 
 	if( videoIdx < 0 )
 	{
-		LOG_ERROR( "ClipReprocess: No video stream in clip %lld", (long long)clipUID );
+		LOG_ERROR( "ClipReprocess: No video stream in clip %lld, marking as processed", (long long)clipUID );
 		avformat_close_input( &fmtCtx );
+		MarkClipProcessed( clipUID );
 		return;
 	}
 
@@ -192,8 +204,9 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 	auto codec = avcodec_find_decoder( codecpar->codec_id );
 	if( !codec )
 	{
-		LOG_ERROR( "ClipReprocess: No decoder for clip %lld", (long long)clipUID );
+		LOG_ERROR( "ClipReprocess: No decoder for clip %lld, marking as processed", (long long)clipUID );
 		avformat_close_input( &fmtCtx );
+		MarkClipProcessed( clipUID );
 		return;
 	}
 
@@ -201,9 +214,10 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 	avcodec_parameters_to_context( codecCtx, codecpar );
 	if( avcodec_open2( codecCtx, codec, nullptr ) < 0 )
 	{
-		LOG_ERROR( "ClipReprocess: Failed to open decoder for clip %lld", (long long)clipUID );
+		LOG_ERROR( "ClipReprocess: Failed to open decoder for clip %lld, marking as processed", (long long)clipUID );
 		avcodec_free_context( &codecCtx );
 		avformat_close_input( &fmtCtx );
+		MarkClipProcessed( clipUID );
 		return;
 	}
 
@@ -216,9 +230,10 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 
 	if( !swsCtx )
 	{
-		LOG_ERROR( "ClipReprocess: Failed to create SwsContext for clip %lld", (long long)clipUID );
+		LOG_ERROR( "ClipReprocess: Failed to create SwsContext for clip %lld, marking as processed", (long long)clipUID );
 		avcodec_free_context( &codecCtx );
 		avformat_close_input( &fmtCtx );
+		MarkClipProcessed( clipUID );
 		return;
 	}
 
@@ -1002,10 +1017,9 @@ void ClipReprocessWorker::ComputeAndStoreTrails( int64_t clipUID, int cameraID, 
 		});
 	}
 
-	// Split on discontinuities, simplify, and store
-	constexpr double MAX_TIME_GAP = 5.0;
-	constexpr double MAX_SPATIAL_JUMP = 0.25;
-	constexpr double RDP_EPSILON = 0.008;
+	// Split on discontinuities and store (all points preserved for client-side frame scrubbing)
+	constexpr double MAX_TIME_GAP = 10.0;
+	constexpr double MAX_SPATIAL_JUMP = 0.50;
 
 	for( auto& [key, trail] : trailMap )
 	{
@@ -1066,31 +1080,25 @@ void ClipReprocessWorker::ComputeAndStoreTrails( int64_t clipUID, int cameraID, 
 		if( current.size() >= 2 )
 			segments.push_back( std::move( current ) );
 
-		// Simplify each segment with RDP and store
+		// Store each segment with all points (no RDP — client needs full granularity for frame scrubbing)
 		for( auto& seg : segments )
 		{
-			std::vector<std::array<double,3>> pts;
-			pts.reserve( seg.size() );
-			for( auto& p : seg )
-				pts.push_back( { p.x, p.y, p.timestamp } );
-
-			auto simplified = SimplifyRDP( pts, RDP_EPSILON );
-			if( simplified.size() < 2 )
+			if( seg.size() < 2 )
 				continue;
 
 			// Build compact JSON: [[x,y,t],[x,y,t],...]
 			std::ostringstream json;
 			json << std::fixed << std::setprecision( 6 ) << "[";
-			for( size_t i = 0; i < simplified.size(); i++ )
+			for( size_t i = 0; i < seg.size(); i++ )
 			{
 				if( i > 0 ) json << ",";
-				json << "[" << simplified[i][0] << "," << simplified[i][1] << ","
-					 << std::setprecision( 2 ) << simplified[i][2] << std::setprecision( 6 ) << "]";
+				json << "[" << seg[i].x << "," << seg[i].y << ","
+					 << std::setprecision( 2 ) << seg[i].timestamp << std::setprecision( 6 ) << "]";
 			}
 			json << "]";
 
-			double startTime = simplified.front()[2];
-			double endTime = simplified.back()[2];
+			double startTime = seg.front().timestamp;
+			double endTime = seg.back().timestamp;
 
 			SQLiteDatabaseQueryInstance q( Database, "InsertTrail" );
 			q->Bind( "@ClipUID", clipUID );
