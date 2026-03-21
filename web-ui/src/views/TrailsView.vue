@@ -435,6 +435,11 @@ function syncCanvasSize() {
   if (!canvas || !container) return
 
   const rect = container.getBoundingClientRect()
+  // Sanity check: skip if container reports zero or unreasonably large dimensions
+  // (can happen during route transitions or layout shifts)
+  if (rect.width < 10 || rect.height < 10 || rect.width > window.innerWidth * 1.5 || rect.height > window.innerHeight * 1.5)
+    return
+
   canvas.width = rect.width
   canvas.height = rect.height
   canvasPointsCache = new WeakMap()
@@ -526,8 +531,8 @@ function onCanvasMouseMove(e: MouseEvent) {
         probe.onerror = () => { hoverFrameCache.set(frameUrl, false) }
         probe.src = frameUrl
       }
-    } else {
-      activeSnapshotUrl.value = ''
+    } else if (!closest) {
+      // Not hovering any trail — keep last frame visible
     }
   }
 }
@@ -535,7 +540,7 @@ function onCanvasMouseMove(e: MouseEvent) {
 function onCanvasMouseLeave() {
   if (hoveredTrail.value) {
     hoveredTrail.value = null
-    activeSnapshotUrl.value = ''
+    // Keep activeSnapshotUrl — show last hovered frame rather than resetting to live preview
     drawTrails()
   }
 }
@@ -546,11 +551,9 @@ function onCanvasClick(_e: MouseEvent) {
   // Navigate to clip if a trail is hovered
   if (hoveredTrail.value && selectedCameraId.value) {
     const trail = hoveredTrail.value
-    // Use the timestamp from wherever the user is hovering (nearest point via last hover)
-    const midTime = trail.points[Math.floor(trail.points.length / 2)]?.t
     router.push({
       path: `/clips/${selectedCameraId.value}`,
-      query: midTime ? { t: String(Math.floor(midTime)) } : undefined,
+      query: { t: String(Math.floor(trail.clipTs)) },
     })
   }
 }

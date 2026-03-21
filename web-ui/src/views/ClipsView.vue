@@ -53,10 +53,29 @@ async function loadClips() {
   await clipStore.fetchClips(cameraId.value, 0)
 }
 
+// If navigated with ?t= query param (e.g. from trails view), set time range around that timestamp
+function applyTimestampQuery() {
+  const t = route.query.t
+  if (t) {
+    const ts = Number(t)
+    if (ts > 0) {
+      // Set a 2-hour window centered on the clip timestamp
+      filterStore.setTimeRange(ts - 3600, ts + 3600)
+    }
+  }
+}
+
 watch(cameraId, () => loadClips())
 watch(() => filterStore.filterQueryString, () => loadClips())
 watch(() => filterStore.timeRange, () => loadClips())
-onMounted(() => loadClips())
+onMounted(async () => {
+  applyTimestampQuery()
+  // loadClips will run via the timeRange watch if applyTimestampQuery set it,
+  // otherwise we need to trigger it explicitly
+  if (!route.query.t) {
+    await loadClips()
+  }
+})
 
 function handlePlay(clip: Clip) {
   playingClip.value = clip
