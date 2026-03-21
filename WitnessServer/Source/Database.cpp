@@ -145,7 +145,8 @@ namespace Database
 			CameraID		INTEGER					NOT NULL,
 			Timestamp		REAL					NOT NULL,
 			FrameWidth		INTEGER,
-			FrameHeight		INTEGER
+			FrameHeight		INTEGER,
+			FramePath		TEXT
 		);
 
 		CREATE INDEX IF NOT EXISTS idx_detframe_camera_time ON DetectionFrame(CameraID, Timestamp);
@@ -208,6 +209,19 @@ namespace Database
 
 		CREATE INDEX IF NOT EXISTS idx_embedding_known ON FaceEmbedding(KnownFaceUID);
 		CREATE INDEX IF NOT EXISTS idx_embedding_crop ON FaceEmbedding(FaceCropUID);
+
+		CREATE TABLE IF NOT EXISTS Trail(
+			TrailUID		INTEGER PRIMARY KEY AUTOINCREMENT,
+			ClipUID			INTEGER			NOT NULL,
+			CameraID		INTEGER			NOT NULL,
+			ClassName		TEXT			NOT NULL,
+			FaceName		TEXT,
+			StartTime		REAL			NOT NULL,
+			EndTime			REAL			NOT NULL,
+			PointData		TEXT			NOT NULL,
+			FOREIGN KEY(ClipUID) REFERENCES Clip(ClipUID) ON DELETE CASCADE
+		);
+		CREATE INDEX IF NOT EXISTS idx_trail_camera_time ON Trail(CameraID, StartTime, EndTime);
 
 	)RAW";
 
@@ -561,7 +575,7 @@ namespace Database
 		SELECT * FROM Clip
 		WHERE DetectionVersion < @DetectionVersion OR DetectionVersion IS NULL
 		ORDER BY DetectionVersion ASC, Timestamp DESC
-		LIMIT 5;
+		LIMIT 1;
 	)RAW";
 
 	std::string UpdateClipDetection = R"RAW(
@@ -577,9 +591,24 @@ namespace Database
 		WHERE ClipUID = @ClipUID;
 	)RAW";
 
+	std::string ResetClipDetectionBulk = R"RAW(
+		UPDATE Clip SET DetectionVersion = 0
+		WHERE (@CameraID = -1 OR Camera = @CameraID)
+		  AND Timestamp >= @TimestampFrom
+		  AND Timestamp <= @TimestampTo;
+	)RAW";
+
 	std::string CountClipsToReprocess = R"RAW(
 		SELECT COUNT(*) FROM Clip
 		WHERE DetectionVersion < @DetectionVersion OR DetectionVersion IS NULL;
+	)RAW";
+
+	std::string SelectReprocessQueue = R"RAW(
+		SELECT c.ClipUID, c.Timestamp, c.Camera, c.DetectionVersion, c.RecordMode, c.Tags, c.Duration
+		FROM Clip c
+		WHERE c.DetectionVersion < @DetectionVersion OR c.DetectionVersion IS NULL
+		ORDER BY c.DetectionVersion ASC, c.Timestamp DESC
+		LIMIT 100;
 	)RAW";
 
 	std::string SelectClipsNeedingLighting = R"RAW(
@@ -824,8 +853,8 @@ namespace Database
 
 	// Detection overlay queries
 	std::string InsertDetectionFrame = R"RAW(
-		INSERT INTO DetectionFrame (CameraID, Timestamp, FrameWidth, FrameHeight)
-		VALUES(@CameraID, @Timestamp, @FrameWidth, @FrameHeight);
+		INSERT INTO DetectionFrame (CameraID, Timestamp, FrameWidth, FrameHeight, FramePath)
+		VALUES(@CameraID, @Timestamp, @FrameWidth, @FrameHeight, @FramePath);
 	)RAW";
 
 	std::string InsertDetectionBox = R"RAW(
@@ -836,7 +865,7 @@ namespace Database
 	std::string SelectDetectionFramesWithBoxes = R"RAW(
 		SELECT f.FrameUID, f.Timestamp, f.FrameWidth, f.FrameHeight,
 			   b.TrackingID, b.ClassID, b.ClassName, b.Confidence, b.X, b.Y, b.W, b.H, b.IsBaseline, b.CropPath,
-			   kf.Name
+			   kf.Name, f.FramePath
 		FROM DetectionFrame f
 		LEFT JOIN DetectionBox b ON f.FrameUID = b.FrameUID
 		LEFT JOIN FaceCrop fc ON fc.FrameUID = b.FrameUID AND fc.TrackingID = b.TrackingID
@@ -871,7 +900,27 @@ namespace Database
 		WHERE CameraID = @CameraID AND Timestamp >= @TimestampFrom AND Timestamp <= @TimestampTo;
 	)RAW";
 
-	std::string InsertFaceCrop = R"RAW(
+	std::string InsertTrail = R"RAW(
+		INSERT INTO Trail (ClipUID, CameraID, ClassName, FaceName, StartTime, EndTime, PointData)
+		VALUES (@ClipUID, @CameraID, @ClassName, @FaceName, @StartTime, @EndTime, @PointData);
+	)RAW";
+
+	std::string DeleteTrailsForClip = R"RAW(
+		DELETE FROM Trail WHERE ClipUID = @ClipUID;
+	)RAW";
+
+	std::string SelectTrails = R"RAW(
+		SELECT t.TrailUID, t.ClipUID, t.CameraID, t.ClassName, t.FaceName, t.StartTime, t.EndTime, t.PointData,
+			   c.Timestamp AS ClipTimestamp, c.Duration AS ClipDuration
+		FROM Trail t
+		LEFT JOIN Clip c ON c.ClipUID = t.ClipUID
+		WHERE t.CameraID = @CameraID
+			AND t.EndTime >= @TimestampFrom
+			AND t.StartTime <= @TimestampTo
+		ORDER BY t.StartTime ASC;
+	)RAW";
+
+	std::string InsertFaceCrop= R"RAW(
 		INSERT INTO FaceCrop (CameraID, Timestamp, FrameUID, TrackingID, FilePath, Confidence,
 			Landmark0X, Landmark0Y, Landmark1X, Landmark1Y, Landmark2X, Landmark2Y,
 			Landmark3X, Landmark3Y, Landmark4X, Landmark4Y)
@@ -1067,6 +1116,11 @@ namespace Database
 		// Action priority and cooldown
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Action ADD COLUMN Priority INTEGER DEFAULT 50;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Action ADD COLUMN Cooldown INTEGER DEFAULT 30;", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE DetectionFrame ADD COLUMN FramePath TEXT;", nullptr, nullptr, nullptr );
+
+		// Trail table migration (new table, CREATE IF NOT EXISTS handles it)
+		sqlite3_exec( DB->GetDatabase(), "CREATE TABLE IF NOT EXISTS Trail(TrailUID INTEGER PRIMARY KEY AUTOINCREMENT, ClipUID INTEGER NOT NULL, CameraID INTEGER NOT NULL, ClassName TEXT NOT NULL, FaceName TEXT, StartTime REAL NOT NULL, EndTime REAL NOT NULL, PointData TEXT NOT NULL, FOREIGN KEY(ClipUID) REFERENCES Clip(ClipUID) ON DELETE CASCADE);", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "CREATE INDEX IF NOT EXISTS idx_trail_camera_time ON Trail(CameraID, StartTime, EndTime);", nullptr, nullptr, nullptr );
 
 		// Fix FaceCrop rows with bad confidence values from column-14 bug (landmark pixel coords stored as confidence)
 		sqlite3_exec( DB->GetDatabase(), "UPDATE FaceCrop SET Confidence = Confidence / 10.0 WHERE Confidence > 1.0;", nullptr, nullptr, nullptr );
@@ -1159,7 +1213,9 @@ namespace Database
 		CREATE_QUERY( SelectClipForReprocess );
 		CREATE_QUERY( UpdateClipDetection );
 		CREATE_QUERY( ResetClipDetection );
+		CREATE_QUERY( ResetClipDetectionBulk );
 		CREATE_QUERY( CountClipsToReprocess );
+		CREATE_QUERY( SelectReprocessQueue );
 		CREATE_QUERY( SelectClipsNeedingLighting );
 		CREATE_QUERY( UpdateClipLighting );
 		CREATE_QUERY( SetClipSaveState );
@@ -1231,6 +1287,10 @@ namespace Database
 		CREATE_QUERY( DeleteDetectionFramesBefore );
 		CREATE_QUERY( DeleteAllDetectionFrames );
 		CREATE_QUERY( DeleteDetectionFramesInRange );
+
+		CREATE_QUERY( InsertTrail );
+		CREATE_QUERY( DeleteTrailsForClip );
+		CREATE_QUERY( SelectTrails );
 
 		CREATE_QUERY( InsertFaceCrop );
 		CREATE_QUERY( SelectFaceCrops );

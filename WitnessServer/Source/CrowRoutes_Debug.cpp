@@ -2,12 +2,15 @@
 #include "CrowAuth.h"
 #include "GlobalContext.h"
 #include "SQLite.h"
+#include "ClipReprocessWorker.h"
 
 #include <Log.h>
 #include <filesystem>
 #include <iostream>
 #include <fstream>
 #include <chrono>
+#include <algorithm>
+#include <cmath>
 
 #ifdef CROW_ENABLE_SSL
 #include <openssl/x509.h>
@@ -512,6 +515,158 @@ void CrowListener::HandleDetectionQuery( const crow::request& req, crow::respons
 
 	result["frames"] = std::move( frames );
 	result["cameraId"] = cameraId;
+
+	res.set_header( "Content-Type", "application/json" );
+	res.body = result.dump();
+	res.code = 200;
+	res.end();
+}
+
+void CrowListener::HandleTrailsQuery( const crow::request& req, crow::response& res, int cameraId )
+{
+	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, nullptr,
+		CrowAuth::Action::Read, CrowAuth::Privilege::Normal );
+	if( UserUID < 0 )
+	{
+		res.code = 401;
+		res.end();
+		return;
+	}
+
+	if( !m_GlobalContext || !m_GlobalContext->Database )
+	{
+		res.code = 500;
+		res.body = R"({"error":"Database not available"})";
+		res.set_header( "Content-Type", "application/json" );
+		res.end();
+		return;
+	}
+
+	auto fromParam = req.url_params.get( "from" );
+	auto toParam = req.url_params.get( "to" );
+
+	if( !fromParam || !toParam )
+	{
+		res.code = 400;
+		res.body = R"({"error":"Missing from/to query params"})";
+		res.set_header( "Content-Type", "application/json" );
+		res.end();
+		return;
+	}
+
+	double from = std::stod( fromParam );
+	double to = std::stod( toParam );
+
+	// Build JSON response manually for performance — avoids crow::json::wvalue overhead
+	// and passes PointData through as raw compact arrays
+	std::ostringstream json;
+	json << R"({"cameraId":)" << cameraId << R"(,"trails":[)";
+	bool first = true;
+
+	try
+	{
+		SQLiteDatabaseQueryInstance query( m_GlobalContext->Database, "SelectTrails" );
+		query->Bind( "@CameraID", cameraId );
+		query->Bind( "@TimestampFrom", from );
+		query->Bind( "@TimestampTo", to );
+
+		query->Execute( [&]( const SQLiteDatabaseQuery& q ) -> bool
+		{
+			const char* pointData = q.GetColumnValueText( 7 );
+			if( !pointData )
+				return true;
+
+			if( !first ) json << ",";
+			first = false;
+
+			int64_t trailUID = q.GetColumnValueInt64( 0 );
+			int64_t clipUID = q.GetColumnValueInt64( 1 );
+			const char* className = q.GetColumnValueText( 3 );
+			const char* faceName = q.GetColumnValueText( 4 );
+			double clipTimestamp = q.GetColumnValueDouble( 8 );
+			double clipDuration = q.GetColumnValueDouble( 9 );
+
+			json << R"({"id":)" << trailUID
+				 << R"(,"clipId":)" << clipUID
+				 << R"(,"clipTs":)" << std::fixed << std::setprecision( 2 ) << clipTimestamp
+				 << R"(,"clipDur":)" << clipDuration
+				 << R"(,"cls":")" << ( className ? className : "" ) << "\"";
+
+			if( faceName )
+				json << R"(,"name":")" << faceName << "\"";
+
+			// Pass PointData through verbatim — already compact [[x,y,t],...]
+			json << R"(,"pts":)" << pointData << "}";
+
+			return true;
+		});
+	}
+	catch( const std::exception& e )
+	{
+		res.code = 500;
+		res.body = std::string( R"({"error":")" ) + e.what() + "\"}";
+		res.set_header( "Content-Type", "application/json" );
+		res.end();
+		return;
+	}
+
+	json << "]}";
+
+	res.set_header( "Content-Type", "application/json" );
+	res.body = json.str();
+	res.code = 200;
+	res.end();
+}
+
+void CrowListener::HandleReprocessQueue( const crow::request& req, crow::response& res )
+{
+	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, nullptr,
+		CrowAuth::Action::Read, CrowAuth::Privilege::Normal );
+	if( UserUID < 0 )
+	{
+		res.code = 401;
+		res.end();
+		return;
+	}
+
+	crow::json::wvalue result;
+
+	// Get total count
+	int totalCount = 0;
+	{
+		SQLiteDatabaseQueryInstance q( m_GlobalContext->Database, "CountClipsToReprocess" );
+		q->Bind( "@DetectionVersion", CURRENT_DETECTION_VERSION );
+		q->Execute( [&]( const SQLiteDatabaseQuery& query ) -> bool
+		{
+			totalCount = query.GetColumnValueInt( 0 );
+			return true;
+		});
+	}
+
+	// Get top 100 queued clips
+	std::vector<crow::json::wvalue> clips;
+	{
+		SQLiteDatabaseQueryInstance q( m_GlobalContext->Database, "SelectReprocessQueue" );
+		q->Bind( "@DetectionVersion", CURRENT_DETECTION_VERSION );
+		q->Execute( [&]( const SQLiteDatabaseQuery& query ) -> bool
+		{
+			crow::json::wvalue clip;
+			clip["uid"] = query.GetColumnValueInt64( 0 );
+			clip["timestamp"] = query.GetColumnValueInt64( 1 );
+			clip["camera"] = query.GetColumnValueInt( 2 );
+			clip["detectionVersion"] = query.GetColumnValueInt( 3 );
+			clip["recordMode"] = query.GetColumnValueInt( 4 );
+			const char* tags = query.GetColumnValueText( 5 );
+			clip["tags"] = tags ? std::string( tags ) : "";
+			clip["duration"] = query.GetColumnValueDouble( 6 );
+			clips.push_back( std::move( clip ) );
+			return true;
+		});
+	}
+
+	result["total"] = totalCount;
+	result["clips"] = std::move( clips );
+	result["detectionVersion"] = CURRENT_DETECTION_VERSION;
 
 	res.set_header( "Content-Type", "application/json" );
 	res.body = result.dump();

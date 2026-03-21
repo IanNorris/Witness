@@ -27,7 +27,16 @@ void WitnessServer::StartCameraRecording( const std::shared_ptr<CameraWorker>& W
 	}
 	std::string Tags( TagsA.begin(), TagsA.end() );
 
-	std::filesystem::create_directories( std::filesystem::path(CachePath) );
+	try
+	{
+		std::filesystem::create_directories( std::filesystem::path(CachePath) );
+	}
+	catch( const std::filesystem::filesystem_error& e )
+	{
+		LOG_ERROR( "Failed to create cache directory '%s': %s", CachePath.c_str(), e.what() );
+		return;
+	}
+
 	std::stringstream TargetFilename;
 	TargetFilename << CameraID << (IsManual ? "_Manual_" : "_Auto_") << Timestamp << ".mp4";
 	auto TargetPath = (std::filesystem::path(CachePath) / TargetFilename.str()).string();

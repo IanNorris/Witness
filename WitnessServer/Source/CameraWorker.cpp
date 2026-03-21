@@ -202,6 +202,7 @@ void CameraWorker::WorkerInit()
 				query->Bind( "@Timestamp", frame.Timestamp );
 				query->Bind( "@FrameWidth", frame.FrameWidth );
 				query->Bind( "@FrameHeight", frame.FrameHeight );
+				query->BindNull( "@FramePath" );
 				query->Execute( nullptr );
 				frameUID = query->GetLastInsertionId();
 			}

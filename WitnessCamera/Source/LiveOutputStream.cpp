@@ -554,20 +554,6 @@ void LiveOutputStream::FinishCurrentSegment(int64_t NextKeyframeDTS)
 	if (std::abs(DriftMs) > std::abs(_DiagMaxDriftMs))
 		_DiagMaxDriftMs = DriftMs;
 
-	// Log segment completion — every segment for now to validate the fix.
-	// Also warn if per-segment drift exceeds 5ms (indicates unusual stream).
-	double CumulativeDriftMs = (_DiagTotalAccumulatedDuration - _DiagTotalDtsDuration) * 1000.0;
-	if (std::abs(DriftMs) > 5.0)
-	{
-		LOG_WARNING("[HLS] Segment %d: dts=%.3fs acc=%.3fs drift=%.1fms cumDrift=%.1fms",
-			_CurrentSegmentIndex, DtsDuration, _CurrentSegmentDuration, DriftMs, CumulativeDriftMs);
-	}
-	else
-	{
-		LOG_DEBUG("[HLS] Segment %d: dts=%.3fs acc=%.3fs drift=%.1fms cumDrift=%.1fms",
-			_CurrentSegmentIndex, DtsDuration, _CurrentSegmentDuration, DriftMs, CumulativeDriftMs);
-	}
-
 	{
 		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
 

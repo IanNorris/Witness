@@ -66,6 +66,13 @@ onUnmounted(() => { if (clockTimer) clearInterval(clockTimer) })
           </RouterLink>
         </div>
 
+        <div class="nav-item">
+          <RouterLink to="/trails" class="nav-link">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+            Trails
+          </RouterLink>
+        </div>
+
         <div class="sidebar-section">Cameras</div>
         <div
           v-for="camera in cameraStore.cameras"
@@ -165,6 +172,12 @@ onUnmounted(() => { if (clockTimer) clearInterval(clockTimer) })
             <RouterLink to="/clips" class="nav-link" @click="mobileMenuOpen = false">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
               All Clips
+            </RouterLink>
+          </div>
+          <div class="nav-item">
+            <RouterLink to="/trails" class="nav-link" @click="mobileMenuOpen = false">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+              Trails
             </RouterLink>
           </div>
 

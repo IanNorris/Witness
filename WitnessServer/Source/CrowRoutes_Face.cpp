@@ -343,3 +343,49 @@ void CrowListener::HandleDetectionCropImage( const crow::request& req, crow::res
 	res.code = 500;
 	res.end();
 }
+
+void CrowListener::HandleDetectionFrameImage( const crow::request& req, crow::response& res, int cameraId, const std::string& filename )
+{
+int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, nullptr,
+CrowAuth::Action::Read, CrowAuth::Privilege::Normal );
+if( UserUID < 0 )
+{
+res.code = 401;
+res.end();
+return;
+}
+
+fs::path fullPath = fs::path( m_GlobalContext->CachePath ) / "frames" / std::to_string( cameraId ) / filename;
+fs::path canonical = fs::weakly_canonical( fullPath );
+fs::path cacheCanonical = fs::weakly_canonical( fs::path( m_GlobalContext->CachePath ) );
+
+auto mismatch = std::mismatch( cacheCanonical.begin(), cacheCanonical.end(), canonical.begin() );
+if( mismatch.first != cacheCanonical.end() )
+{
+res.code = 403;
+res.end();
+return;
+}
+
+if( !fs::exists( fullPath ) )
+{
+res.code = 404;
+res.end();
+return;
+}
+
+std::ifstream file( fullPath, std::ios::binary );
+if( file )
+{
+std::string body( (std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>() );
+res.set_header( "Content-Type", "image/jpeg" );
+res.set_header( "Cache-Control", "public, max-age=86400" );
+res.body = std::move( body );
+res.code = 200;
+res.end();
+return;
+}
+
+res.code = 500;
+res.end();
+}

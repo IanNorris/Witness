@@ -1,6 +1,7 @@
 import { ref, onUnmounted, type Ref, computed } from 'vue'
 import { useEventStream } from './useEventStream'
 import { useSettingsStore } from '../stores/settings'
+import { useTrailRenderer } from './useTrailRenderer'
 
 interface DetectionBox {
   id: number
@@ -116,7 +117,12 @@ function filterRedundantBoxes(boxes: DetectionBox[]): DetectionBox[] {
 function getVideoContentRect(video: HTMLVideoElement) {
   if (!video.videoWidth || !video.videoHeight) return null
 
-  const rect = video.getBoundingClientRect()
+  // Use parent container for layout rect — video element can report stale dimensions
+  const container = video.parentElement
+  if (!container) return null
+  const rect = container.getBoundingClientRect()
+  if (rect.width <= 0 || rect.height <= 0) return null
+
   const videoAspect = video.videoWidth / video.videoHeight
   const containerAspect = rect.width / rect.height
 
@@ -139,14 +145,21 @@ function getVideoContentRect(video: HTMLVideoElement) {
   return { drawW, drawH, offsetX, offsetY, containerW: rect.width, containerH: rect.height }
 }
 
-function syncCanvasSize(canvas: HTMLCanvasElement, video: HTMLVideoElement) {
-  const rect = video.getBoundingClientRect()
+function syncCanvasSize(canvas: HTMLCanvasElement, _video: HTMLVideoElement): boolean {
+  // Use the parent container for sizing — video.getBoundingClientRect() can return
+  // stale dimensions during route transitions causing the canvas to flash full-width
+  const container = canvas.parentElement
+  if (!container) return false
+  const rect = container.getBoundingClientRect()
   const w = Math.round(rect.width)
   const h = Math.round(rect.height)
+  if (w <= 0 || h <= 0) return false
   if (canvas.width !== w || canvas.height !== h) {
     canvas.width = w
     canvas.height = h
+    return false // dimensions just changed — skip this frame to avoid stretched content
   }
+  return true
 }
 
 const BASELINE_COLOR = '#6688cc'
@@ -200,6 +213,7 @@ export function useDetectionOverlay(
   const LERP_SPEED = 0.3
   const STALE_TIMEOUT_MS = 3000
   let lastDetectionTime = 0
+  const trailRenderer = useTrailRenderer()
 
   function handleDetectionEvent(evt: { event: string; data: Record<string, unknown> }) {
     if (evt.event !== 'detection:frame') return
@@ -240,6 +254,8 @@ export function useDetectionOverlay(
     for (const [id] of tracked) {
       if (!seen.has(id)) tracked.delete(id)
     }
+
+    trailRenderer.addDetectionFrame(filtered, data.timestamp)
   }
 
   function draw() {
@@ -250,7 +266,10 @@ export function useDetectionOverlay(
       return
     }
 
-    syncCanvasSize(canvas, video)
+    if (!syncCanvasSize(canvas, video)) {
+      animFrame = requestAnimationFrame(draw)
+      return
+    }
 
     const ctx = canvas.getContext('2d')
     if (!ctx) {
@@ -264,6 +283,7 @@ export function useDetectionOverlay(
     if (tracked.size > 0 && lastDetectionTime > 0 &&
         performance.now() - lastDetectionTime > STALE_TIMEOUT_MS) {
       tracked.clear()
+      trailRenderer.clearTrails()
     }
 
     const vr = getVideoContentRect(video)
@@ -271,6 +291,8 @@ export function useDetectionOverlay(
       animFrame = requestAnimationFrame(draw)
       return
     }
+
+    trailRenderer.drawTrails(ctx, vr)
 
     for (const [, box] of tracked) {
       // Lerp toward target
@@ -300,6 +322,7 @@ export function useDetectionOverlay(
   function stop() {
     enabled.value = false
     tracked.clear()
+    trailRenderer.clearTrails()
     if (animFrame) {
       cancelAnimationFrame(animFrame)
       animFrame = 0
@@ -340,6 +363,9 @@ export function useDetectionPlayback(
   let animFrame = 0
   const settings = useSettingsStore()
   const minConf = computed(() => settings.detectionMinConfidence / 100)
+  const trailRenderer = useTrailRenderer()
+  let lastPlaybackTime = -1
+  let lastFrameIdx = -1
 
   function getTimeOffset(): number {
     return typeof timeOffset === 'number' ? timeOffset : timeOffset.value
@@ -351,8 +377,14 @@ export function useDetectionPlayback(
       if (!resp.ok) return
       const data = await resp.json()
       frames.value = data.frames || []
+      trailRenderer.clearTrails()
+      lastPlaybackTime = -1
+      lastFrameIdx = -1
     } catch {
       frames.value = []
+      trailRenderer.clearTrails()
+      lastPlaybackTime = -1
+      lastFrameIdx = -1
     }
   }
 
@@ -389,7 +421,10 @@ export function useDetectionPlayback(
       return
     }
 
-    syncCanvasSize(canvas, video)
+    if (!syncCanvasSize(canvas, video)) {
+      animFrame = requestAnimationFrame(draw)
+      return
+    }
 
     const ctx = canvas.getContext('2d')
     if (!ctx) {
@@ -410,6 +445,27 @@ export function useDetectionPlayback(
       animFrame = requestAnimationFrame(draw)
       return
     }
+
+    const absoluteTime = video.currentTime + getTimeOffset()
+
+    // If we've seeked backwards, rebuild trails from scratch
+    if (absoluteTime < lastPlaybackTime - 0.5) {
+      trailRenderer.clearTrails()
+      lastFrameIdx = -1
+    }
+    lastPlaybackTime = absoluteTime
+
+    // Add any new frames since last draw
+    const arr = frames.value
+    const startIdx = lastFrameIdx + 1
+    for (let i = startIdx; i < arr.length; i++) {
+      const f = arr[i]
+      if (!f || f.t > absoluteTime) break
+      trailRenderer.addDetectionFrame(filterRedundantBoxes(f.boxes), f.t)
+      lastFrameIdx = i
+    }
+
+    trailRenderer.drawTrails(ctx, vr)
 
     const filtered = filterRedundantBoxes(frame.boxes)
     for (const box of filtered) {
@@ -433,6 +489,9 @@ export function useDetectionPlayback(
       cancelAnimationFrame(animFrame)
       animFrame = 0
     }
+    trailRenderer.clearTrails()
+    lastPlaybackTime = -1
+    lastFrameIdx = -1
     const canvas = canvasRef.value
     if (canvas) {
       const ctx = canvas.getContext('2d')

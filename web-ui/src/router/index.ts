@@ -23,6 +23,11 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/trails',
+    component: () => import('../views/TrailsView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/admin',
     component: () => import('../views/AdminView.vue'),
     meta: { requiresAuth: true, requiresAdmin: true },
@@ -37,6 +42,7 @@ const routes = [
       { path: 'tags', component: () => import('../components/admin/TagManager.vue') },
       { path: 'actions', component: () => import('../components/admin/ActionManager.vue') },
       { path: 'faces', component: () => import('../components/admin/FaceManager.vue') },
+      { path: 'queue', component: () => import('../components/admin/QueueManager.vue') },
       { path: 'debug', component: () => import('../components/admin/DebugValues.vue') },
     ],
   },

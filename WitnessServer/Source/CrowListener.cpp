@@ -323,6 +323,12 @@ void CrowListener::RegisterRoutes()
 		HandleClipRetag( req, res );
 	});
 
+	CROW_ROUTE( m_App, "/clip/retag/bulk" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleClipRetagBulk( req, res );
+	});
+
 	CROW_ROUTE( m_App, "/clip/review" ).methods( crow::HTTPMethod::POST )
 	([this]( const crow::request& req, crow::response& res )
 	{
@@ -483,10 +489,22 @@ void CrowListener::RegisterRoutes()
 		HandleDebugDiskScan( req, res );
 	});
 
+	CROW_ROUTE( m_App, "/api/reprocess/queue" )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleReprocessQueue( req, res );
+	});
+
 	CROW_ROUTE( m_App, "/api/detection/<int>" )
 	([this]( const crow::request& req, crow::response& res, int cameraId )
 	{
 		HandleDetectionQuery( req, res, cameraId );
+	});
+
+	CROW_ROUTE( m_App, "/api/trails/<int>" )
+	([this]( const crow::request& req, crow::response& res, int cameraId )
+	{
+		HandleTrailsQuery( req, res, cameraId );
 	});
 
 	// Face detection / crops
@@ -512,6 +530,12 @@ void CrowListener::RegisterRoutes()
 	([this]( const crow::request& req, crow::response& res, const std::string& cropPath )
 	{
 		HandleDetectionCropImage( req, res, cropPath );
+	});
+
+	CROW_ROUTE( m_App, "/api/detection/frame/<int>/<string>" )
+	([this]( const crow::request& req, crow::response& res, int cameraId, const std::string& filename )
+	{
+		HandleDetectionFrameImage( req, res, cameraId, filename );
 	});
 
 	// Face recognition
