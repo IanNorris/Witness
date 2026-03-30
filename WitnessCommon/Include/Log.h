@@ -1,9 +1,17 @@
 #pragma once
 
-#ifdef COMMON_EXPORTS
-	#define COMMON_API __declspec(dllexport)
+#if defined(_WIN32)
+# ifdef COMMON_EXPORTS
+#  define COMMON_API __declspec(dllexport)
+# else
+#  define COMMON_API __declspec(dllimport)
+# endif
 #else
-	#define COMMON_API __declspec(dllimport)
+# ifdef COMMON_EXPORTS
+#  define COMMON_API __attribute__((visibility("default")))
+# else
+#  define COMMON_API
+# endif
 #endif
 
 #include <cstdarg>

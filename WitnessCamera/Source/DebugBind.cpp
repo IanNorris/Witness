@@ -21,11 +21,13 @@ DebugBindBase::~DebugBindBase()
 }
 
 
+template<>
 std::string DebugBind<unsigned int>::Get() const
 {
 	return std::to_string(*m_Data);
 }
 
+template<>
 bool DebugBind<unsigned int>::Set( const char* Value )
 {
 	try
@@ -39,11 +41,13 @@ bool DebugBind<unsigned int>::Set( const char* Value )
 	}
 }
 
+template<>
 std::string DebugBind<int>::Get() const
 {
 	return std::to_string(*m_Data);
 }
 
+template<>
 bool DebugBind<int>::Set( const char* Value )
 {
 	try
@@ -57,11 +61,13 @@ bool DebugBind<int>::Set( const char* Value )
 	}
 }
 
+template<>
 std::string DebugBind<float>::Get() const
 {
 	return std::to_string(*m_Data);
 }
 
+template<>
 bool DebugBind<float>::Set( const char* Value )
 {
 	try
@@ -75,11 +81,13 @@ bool DebugBind<float>::Set( const char* Value )
 	}
 }
 
+template<>
 std::string DebugBind<double>::Get() const
 {
 	return std::to_string(*m_Data);
 }
 
+template<>
 bool DebugBind<double>::Set( const char* Value )
 {
 	try

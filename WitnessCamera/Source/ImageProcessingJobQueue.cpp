@@ -3,6 +3,7 @@
 #include "ImageProcessingData.h"
 #include "ImageProcessingJob.h"
 #include "MotionFilter.h"
+#include <atomic>
 
 #include <opencv2/core/core.hpp>
 #include <opencv2/imgproc.hpp>
@@ -324,7 +325,11 @@ void ImageProcessingJobQueue::RequestShutdown()
 {
 	auto& ID = *m_InternalData;
 	ID.WantExit = true;
+#ifdef _WIN32
 	MemoryBarrier();
+#else
+	std::atomic_thread_fence( std::memory_order_seq_cst );
+#endif
 	ID.Condition.notify_all();
 }
 

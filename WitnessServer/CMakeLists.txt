@@ -1,8 +1,13 @@
-find_package(Crow CONFIG REQUIRED)
-find_package(FFMPEG REQUIRED)
+if(NOT WITNESS_USE_SYSTEM_DEPS)
+    find_package(Crow CONFIG REQUIRED)
+    find_package(FFMPEG REQUIRED)
+    find_package(unofficial-sodium CONFIG REQUIRED)
+    find_package(unofficial-sqlite3 CONFIG REQUIRED)
+else()
+    # LinuxDeps.cmake (included from root) already set up these targets:
+    #   Crow::Crow, unofficial-sodium::sodium, unofficial::sqlite3::sqlite3, FFMPEG_*
+endif()
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs videoio objdetect)
-find_package(unofficial-sodium CONFIG REQUIRED)
-find_package(unofficial-sqlite3 CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
 
 set(SERVER_SOURCES
@@ -97,14 +102,17 @@ target_compile_definitions(WitnessServer PRIVATE
 if(MSVC)
     target_compile_options(WitnessServer PRIVATE /utf-8 /W3)
     target_compile_definitions(WitnessServer PRIVATE _WINDOWS _WIN32 UNICODE _UNICODE)
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    # GCC 15 added -Wchanges-meaning for members shadowing type names; suppress for now
+    target_compile_options(WitnessServer PRIVATE -Wno-changes-meaning)
 endif()
 
 if(WIN32)
     target_link_libraries(WitnessServer PRIVATE winmm)
 else()
-    # pthreads + dynamic loading required on Linux
+    # pthreads + dynamic loading + 128-bit atomics required on Linux
     find_package(Threads REQUIRED)
-    target_link_libraries(WitnessServer PRIVATE Threads::Threads ${CMAKE_DL_LIBS})
+    target_link_libraries(WitnessServer PRIVATE Threads::Threads ${CMAKE_DL_LIBS} atomic)
 endif()
 
 target_link_directories(WitnessServer PRIVATE ${FFMPEG_LIBRARY_DIRS})

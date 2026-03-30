@@ -658,7 +658,7 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 					cv::arrowedLine( InputFrame, cv::Point2f( NewX, NewY ), cv::Point2f( NewX + (Ref.x / SummaryScale), NewY + (Ref.y / SummaryScale) ), cv::Scalar(0.0,255.0,255.0), 3 );
 
 					char Buffer[128];
-					sprintf_s( Buffer, "%.0f", Score );
+					snprintf( Buffer, sizeof(Buffer), "%.0f", Score );
 
 					cv::putText( InputFrame, Buffer, Point((int)NewX,(int)NewY), FONT_HERSHEY_PLAIN, 1.0, Scalar(0,255,255), 2 );
 				}
@@ -1035,7 +1035,7 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 		FilterFrameStatScope Scope( TaskData->Frame.Stats, FilterStat_Debug );
 
 		char Buffer[128];
-		sprintf_s( Buffer, "MVU=%04d,MVF=%04d,L=%02d,A=%02d,T=%02d", MotionVectors, UsableMotionVectors, MaxLabel, ActualCluters, TrackedClusters );
+		snprintf( Buffer, sizeof(Buffer), "MVU=%04d,MVF=%04d,L=%02d,A=%02d,T=%02d", MotionVectors, UsableMotionVectors, MaxLabel, ActualCluters, TrackedClusters );
 
 		cv::putText( InputFrame, Buffer, Point(25,75), FONT_HERSHEY_PLAIN, 2.5, Scalar(255,0,255), 3 );
 	}

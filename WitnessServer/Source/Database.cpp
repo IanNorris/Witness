@@ -135,7 +135,8 @@ namespace Database
 			CameraActionUID INTEGER PRIMARY KEY	AUTOINCREMENT,
 			ActionUID		INTEGER,
 			CameraUID		INTEGER,
-			MDThreshold		FLOAT
+			MDThreshold		FLOAT,
+			DetectionClass	TEXT DEFAULT ''
 		);
 
 		CREATE UNIQUE INDEX IF NOT EXISTS CameraActionIndex ON CameraAction (ActionUID,CameraUID,DetectionClass);

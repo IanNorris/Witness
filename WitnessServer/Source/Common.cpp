@@ -103,11 +103,18 @@ std::string StringPrintfA(const char* Message, ...)
 	va_list Args;
 	va_start( Args, Message );
 
+#ifdef _WIN32
 	size_t Length = _vscprintf( Message, Args );
-
 	std::shared_ptr<char> Buffer( new char[ Length + 1 ], std::default_delete<char[]>() );
-
 	vsprintf_s( Buffer.get(), Length + 1, Message, Args );
+#else
+	va_list ArgsCopy;
+	va_copy( ArgsCopy, Args );
+	size_t Length = vsnprintf( nullptr, 0, Message, ArgsCopy );
+	va_end( ArgsCopy );
+	std::shared_ptr<char> Buffer( new char[ Length + 1 ], std::default_delete<char[]>() );
+	vsnprintf( Buffer.get(), Length + 1, Message, Args );
+#endif
 
 	va_end( Args );
 

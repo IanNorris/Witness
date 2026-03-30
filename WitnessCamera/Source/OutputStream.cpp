@@ -230,7 +230,7 @@ CameraStreamError OutputStream::Initialize()
 		CodecParams->format = AV_PIX_FMT_YUV420P;
 		CodecParams->codec_id = ID.CodecID;
 		CodecParams->codec_type = AVMEDIA_TYPE_VIDEO;
-		CodecParams->profile = FF_PROFILE_H264_MAIN;
+		CodecParams->profile = AV_PROFILE_H264_MAIN;
 		CodecParams->level = 40;
 
 		Result = avcodec_parameters_to_context( ID.CodecContext, CodecParams );

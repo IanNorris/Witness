@@ -104,7 +104,9 @@ void Stream::LogCallback( void* AVData, int Level, const char* Format, va_list A
 
 	std::snprintf( MessageBuf.data(), MessageBuf.size(), OutputFormat, AVClassData ? AVClassData->item_name(AVData) : "Unknown", OriginalMessageBuf.data());
 
+#ifdef _WIN32
 	OutputDebugStringA( MessageBuf.data() );
+#endif
 }
 
 }}

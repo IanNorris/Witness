@@ -1,5 +1,14 @@
 cmake_minimum_required(VERSION 3.20)
 
+# ---------------------------------------------------------------------------
+# Dependency resolution strategy:
+#   - On Windows (or when VCPKG_ROOT is set): use vcpkg toolchain
+#   - On Linux without vcpkg: cmake/LinuxDeps.cmake provides pkg-config targets
+# ---------------------------------------------------------------------------
+option(WITNESS_USE_SYSTEM_DEPS
+    "Use system/pkg-config libraries instead of vcpkg (auto-enabled on Linux without vcpkg)"
+    OFF)
+
 # Auto-detect vcpkg and set up the toolchain before project()
 if(DEFINED CMAKE_TOOLCHAIN_FILE AND NOT CMAKE_TOOLCHAIN_FILE STREQUAL "" AND EXISTS "${CMAKE_TOOLCHAIN_FILE}")
     # Already set and valid — use it
@@ -30,11 +39,15 @@ else()
 
     if(_VCPKG_TOOLCHAIN)
         set(CMAKE_TOOLCHAIN_FILE "${_VCPKG_TOOLCHAIN}" CACHE STRING "" FORCE)
-    else()
+    elseif(WIN32)
         message(FATAL_ERROR
             "Cannot find vcpkg. Set VCPKG_ROOT environment variable, "
             "run 'vcpkg integrate install', or pass "
             "-DCMAKE_TOOLCHAIN_FILE=<vcpkg>/scripts/buildsystems/vcpkg.cmake")
+    else()
+        # Linux without vcpkg — fall through to system deps
+        set(WITNESS_USE_SYSTEM_DEPS ON CACHE BOOL "" FORCE)
+        message(STATUS "vcpkg not found — using system/pkg-config dependencies")
     endif()
 endif()
 
@@ -42,6 +55,12 @@ project(Witness LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# Load system dependency shims when not using vcpkg
+if(WITNESS_USE_SYSTEM_DEPS)
+    list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
+    include(LinuxDeps)
+endif()
 
 # Generate PDBs even in Release builds (MSVC)
 if(MSVC)

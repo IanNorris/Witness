@@ -300,8 +300,11 @@ bool TestCudaViaProbe( const char* CudnnPath )
 	CloseHandle( pi.hProcess );
 
 	return exitCode == 0;
-}
+#else
+	(void)CudnnPath;
+	return false;
 #endif
+}
 
 ONNXDetectionFilter::ONNXDetectionFilter( const MotionChainNode& Chain, const char* ModelPath, float ConfidenceThreshold, bool UseGPU, float MaxFPS, const char* CudnnPath )
 : RecordFilterBase( Chain )

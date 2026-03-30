@@ -43,7 +43,9 @@ using std::max;
 #include <Log.h>
 
 #ifdef CROW_ENABLE_SSL
+#ifdef _WIN32
 #include <openssl/applink.c>
+#endif
 #endif
 
 // ---------------------------------------------------------------------------
