@@ -1,8 +1,8 @@
 #include "SQLite.h"
 #include "Common.h"
 
-#define AssertQuery( condition, message, ... ) if( !(condition) ) { m_database->ThrowError( "[" + m_queryName + "] " + StringPrintfA( message, __VA_ARGS__ ) ); }
-#define AssertDB( condition, message, ... ) if( !(condition) ) { ThrowError( StringPrintfA( message, __VA_ARGS__ ) ); }
+#define AssertQuery( condition, message, ... ) if( !(condition) ) { m_database->ThrowError( "[" + m_queryName + "] " + StringPrintfA( message, ##__VA_ARGS__ ) ); }
+#define AssertDB( condition, message, ... ) if( !(condition) ) { ThrowError( StringPrintfA( message, ##__VA_ARGS__ ) ); }
 
 SQLiteDatabaseQuery::SQLiteDatabaseQuery(std::shared_ptr<SQLiteDatabase> database )
 : m_database( database )	

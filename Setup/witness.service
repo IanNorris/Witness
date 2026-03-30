@@ -1,0 +1,45 @@
+[Unit]
+Description=Witness CCTV Monitoring Server
+Documentation=https://github.com/IanNorris/Witness
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+NotifyAccess=main
+
+# Run as a dedicated user for security.
+# Create with: sudo useradd -r -s /sbin/nologin witness
+User=witness
+Group=witness
+
+# Adjust ExecStart to the actual installation path.
+ExecStart=/usr/local/bin/WitnessServer
+
+# Graceful shutdown: give the server up to 30 seconds to stop.
+TimeoutStopSec=30
+KillMode=mixed
+KillSignal=SIGTERM
+FinalKillSignal=SIGKILL
+
+# Restart on non-zero exit or signal, but not on clean exit (code 0).
+Restart=on-failure
+RestartSec=5
+
+# Logging goes to the system journal.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=witness
+
+# Security hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/cache/witness /var/lib/witness
+
+# Environment
+Environment=HOME=/var/lib/witness
+
+[Install]
+WantedBy=multi-user.target

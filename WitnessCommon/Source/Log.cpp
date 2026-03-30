@@ -1,6 +1,7 @@
 #include "Log.h"
 
 #include <cstdio>
+#include <cstring>
 #include <ctime>
 #include <chrono>
 #include <mutex>

@@ -6,6 +6,7 @@
 #include "ClipHelpers.h"
 #include "Database.h"
 #include "TagHelpers.h"
+#include "PlatformHelpers.h"
 
 #include <Log.h>
 #include <ONNXDetectionFilter.h>
@@ -59,15 +60,7 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 	if( !Database::HasAdminUser( Database ) )
 	{
 		// Derive the Web root from the executable directory
-		std::filesystem::path exePath;
-#ifdef _WIN32
-		wchar_t exeBuf[MAX_PATH] = {};
-		GetModuleFileNameW( nullptr, exeBuf, MAX_PATH );
-		exePath = std::filesystem::path( exeBuf ).parent_path();
-#else
-		exePath = std::filesystem::canonical( "/proc/self/exe" ).parent_path();
-#endif
-		std::string staticRoot = ( exePath / "Web" ).string();
+		std::string staticRoot = ( Witness::GetExeDir() / "Web" ).string();
 
 		SetupServer setup( Database, staticRoot );
 		if( !setup.Run() )
@@ -137,13 +130,7 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 		// Default model path if not set
 		if( Video.DetectionEnabled && Video.DetectionModelPath.empty() )
 		{
-#ifdef _WIN32
-			wchar_t modelExeBuf[MAX_PATH] = {};
-			GetModuleFileNameW( nullptr, modelExeBuf, MAX_PATH );
-			auto defaultModel = std::filesystem::path( modelExeBuf ).parent_path() / "models" / "yolo26n.onnx";
-#else
-			auto defaultModel = std::filesystem::canonical( "/proc/self/exe" ).parent_path() / "models" / "yolo26n.onnx";
-#endif
+			auto defaultModel = Witness::GetExeDir() / "models" / "yolo26n.onnx";
 			if( std::filesystem::exists( defaultModel ) )
 			{
 				Video.DetectionModelPath = defaultModel.string();
@@ -171,13 +158,7 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 		// Default face model path if not set
 		if( Video.FaceDetectionEnabled && Video.FaceDetectionModelPath.empty() )
 		{
-#ifdef _WIN32
-			wchar_t modelExeBuf[MAX_PATH] = {};
-			GetModuleFileNameW( nullptr, modelExeBuf, MAX_PATH );
-			auto defaultFaceModel = std::filesystem::path( modelExeBuf ).parent_path() / "models" / "face_detection_yunet_2023mar.onnx";
-#else
-			auto defaultFaceModel = std::filesystem::canonical( "/proc/self/exe" ).parent_path() / "models" / "face_detection_yunet_2023mar.onnx";
-#endif
+			auto defaultFaceModel = Witness::GetExeDir() / "models" / "face_detection_yunet_2023mar.onnx";
 			if( std::filesystem::exists( defaultFaceModel ) )
 			{
 				Video.FaceDetectionModelPath = defaultFaceModel.string();
@@ -208,13 +189,7 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 
 		if( Video.FaceRecognitionEnabled && Video.FaceRecognitionModelPath.empty() )
 		{
-#ifdef _WIN32
-			wchar_t modelExeBuf[MAX_PATH] = {};
-			GetModuleFileNameW( nullptr, modelExeBuf, MAX_PATH );
-			auto defaultRecModel = std::filesystem::path( modelExeBuf ).parent_path() / "models" / "face_recognition.onnx";
-#else
-			auto defaultRecModel = std::filesystem::canonical( "/proc/self/exe" ).parent_path() / "models" / "face_recognition.onnx";
-#endif
+			auto defaultRecModel = Witness::GetExeDir() / "models" / "face_recognition.onnx";
 			if( std::filesystem::exists( defaultRecModel ) )
 			{
 				Video.FaceRecognitionModelPath = defaultRecModel.string();

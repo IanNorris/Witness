@@ -24,7 +24,7 @@ namespace fs = std::filesystem;
 class WitnessCrowLogHandler : public crow::ILogHandler
 {
 public:
-	void log( std::string message, crow::LogLevel level ) override
+	void log( const std::string& message, crow::LogLevel level ) override
 	{
 		// SSL handshake failures are benign (scanners, self-signed cert rejection)
 		if( message.find( "Could not start adaptor" ) != std::string::npos )
@@ -723,7 +723,7 @@ void CrowListener::RegisterRoutes()
 
 			LOG_INFO( "[MSE] Stream client connected for camera %d", cameraId );
 		})
-		.onclose([this]( crow::websocket::connection& conn, const std::string& /*reason*/ )
+		.onclose([this]( crow::websocket::connection& conn, const std::string& /*reason*/, uint16_t /*code*/ )
 		{
 			m_GlobalContext->Streams->Unsubscribe( &conn );
 		})
@@ -769,7 +769,7 @@ void CrowListener::RegisterRoutes()
 			envelope["data"] = std::move( initData );
 			conn.send_text( envelope.dump() );
 		})
-		.onclose([this]( crow::websocket::connection& conn, const std::string& /*reason*/ )
+		.onclose([this]( crow::websocket::connection& conn, const std::string& /*reason*/, uint16_t /*code*/ )
 		{
 			m_GlobalContext->Events->RemoveConnection( &conn );
 		})
