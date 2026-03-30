@@ -4,6 +4,7 @@
 #include "FaceRecognitionCache.h"
 #include "SQLite.h"
 #include "FaceEmbeddingModel.h"
+#include "PlatformHelpers.h"
 
 #include <Log.h>
 #include <filesystem>
@@ -32,13 +33,7 @@ std::shared_ptr<Witness::Camera::FaceEmbeddingModel> CrowListener::EnsureFaceMod
 	}
 	if( modelPath.empty() )
 	{
-#ifdef _WIN32
-		wchar_t buf[MAX_PATH] = {};
-		GetModuleFileNameW( nullptr, buf, MAX_PATH );
-		auto defaultPath = std::filesystem::path( buf ).parent_path() / "models" / "face_recognition.onnx";
-#else
-		auto defaultPath = std::filesystem::canonical( "/proc/self/exe" ).parent_path() / "models" / "face_recognition.onnx";
-#endif
+		auto defaultPath = Witness::GetExeDir() / "models" / "face_recognition.onnx";
 		if( std::filesystem::exists( defaultPath ) )
 			modelPath = defaultPath.string();
 	}
@@ -528,13 +523,7 @@ void CrowListener::HandleFaceReprocess( const crow::request& req, crow::response
 		}
 		if( modelPath.empty() )
 		{
-#ifdef _WIN32
-			wchar_t buf[MAX_PATH] = {};
-			GetModuleFileNameW( nullptr, buf, MAX_PATH );
-			auto defaultPath = std::filesystem::path( buf ).parent_path() / "models" / "face_recognition.onnx";
-#else
-			auto defaultPath = std::filesystem::canonical( "/proc/self/exe" ).parent_path() / "models" / "face_recognition.onnx";
-#endif
+			auto defaultPath = Witness::GetExeDir() / "models" / "face_recognition.onnx";
 			if( std::filesystem::exists( defaultPath ) )
 				modelPath = defaultPath.string();
 		}
@@ -727,13 +716,7 @@ void CrowListener::HandleFaceUpload( const crow::request& req, crow::response& r
 	}
 	if( faceDetectModelPath.empty() )
 	{
-#ifdef _WIN32
-		wchar_t buf[MAX_PATH] = {};
-		GetModuleFileNameW( nullptr, buf, MAX_PATH );
-		auto defaultPath = std::filesystem::path( buf ).parent_path() / "models" / "face_detection_yunet_2023mar.onnx";
-#else
-		auto defaultPath = std::filesystem::canonical( "/proc/self/exe" ).parent_path() / "models" / "face_detection_yunet_2023mar.onnx";
-#endif
+		auto defaultPath = Witness::GetExeDir() / "models" / "face_detection_yunet_2023mar.onnx";
 		if( std::filesystem::exists( defaultPath ) )
 			faceDetectModelPath = defaultPath.string();
 	}

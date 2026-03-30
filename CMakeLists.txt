@@ -14,8 +14,8 @@ else()
         endif()
     endif()
 
-    # 2. Try vcpkg hint file (written by 'vcpkg integrate install')
-    if(NOT _VCPKG_TOOLCHAIN AND DEFINED ENV{LOCALAPPDATA})
+    # 2. Try vcpkg hint file (written by 'vcpkg integrate install') — Windows only
+    if(NOT _VCPKG_TOOLCHAIN AND WIN32 AND DEFINED ENV{LOCALAPPDATA})
         set(_VCPKG_HINT_FILE "$ENV{LOCALAPPDATA}/vcpkg/vcpkg.path.txt")
         if(EXISTS "${_VCPKG_HINT_FILE}")
             file(READ "${_VCPKG_HINT_FILE}" _VCPKG_ROOT)
@@ -77,12 +77,14 @@ if(DOTNET_EXECUTABLE AND WIN32)
     )
 endif()
 
-# Copy Setup-TLS.ps1 to output
-configure_file(
-    "${CMAKE_SOURCE_DIR}/Setup/Setup-TLS.ps1"
-    "${CMAKE_BINARY_DIR}/bin/Setup-TLS.ps1"
-    COPYONLY
-)
+# Copy Setup-TLS.ps1 to output (Windows only — PowerShell script)
+if(WIN32)
+    configure_file(
+        "${CMAKE_SOURCE_DIR}/Setup/Setup-TLS.ps1"
+        "${CMAKE_BINARY_DIR}/bin/Setup-TLS.ps1"
+        COPYONLY
+    )
+endif()
 
 # Build Vue 3 web UI and copy to Web/witness2/
 find_program(NPM_EXECUTABLE npm)

@@ -10,7 +10,14 @@
     },
     "opencv4",
     "libsodium",
-    "onnxruntime-gpu",
+    {
+      "name": "onnxruntime-gpu",
+      "platform": "windows"
+    },
+    {
+      "name": "onnxruntime",
+      "platform": "!windows"
+    },
     {
       "name": "openssl",
       "features": ["tools"]

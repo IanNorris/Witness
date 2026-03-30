@@ -6,7 +6,9 @@
 
 #include <functional>
 #include <chrono>
+#ifdef _WIN32
 #include <windows.h>
+#endif
 
 #define MakeLambda( Name ) auto LambdaHandle##Name = std::bind( &WitnessServer::Handle##Name, this, std::placeholders::_1 )
 #define HandleEvent( Name ) Msg->Handle<Name>(LambdaHandle##Name)

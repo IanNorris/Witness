@@ -8,8 +8,14 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/imgproc/imgproc_c.h>
 
+#ifdef _WIN32
 #include <windows.h>
 #include <minmax.h>
+#else
+#include <algorithm>
+using std::min;
+using std::max;
+#endif
 
 namespace Witness{
 namespace Camera{

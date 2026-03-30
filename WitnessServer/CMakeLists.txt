@@ -101,6 +101,10 @@ endif()
 
 if(WIN32)
     target_link_libraries(WitnessServer PRIVATE winmm)
+else()
+    # pthreads + dynamic loading required on Linux
+    find_package(Threads REQUIRED)
+    target_link_libraries(WitnessServer PRIVATE Threads::Threads ${CMAKE_DL_LIBS})
 endif()
 
 target_link_directories(WitnessServer PRIVATE ${FFMPEG_LIBRARY_DIRS})

@@ -1,18 +1,21 @@
 #include "InputStream.h"
 #include "StreamData.h"
 
+#ifdef _WIN32
 #include <windows.h>
+#endif
+#include <cstring>
 #include <vector>
 
 void FFMPEGErrorToString(int ErrorCode, char* Buffer, size_t BufferSize)
 {
 	if (ErrorCode == 0)
 	{
-		strcpy_s(Buffer, BufferSize, "");
+		strncpy(Buffer, "", BufferSize);
 	}
 	else if (av_strerror(ErrorCode, Buffer, BufferSize) < 0)
 	{
-		strcpy_s(Buffer, BufferSize, "Unknown error");
+		strncpy(Buffer, "Unknown error", BufferSize);
 	}
 }
 

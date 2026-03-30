@@ -2,6 +2,7 @@
 #include "CrowAuth.h"
 #include "GlobalContext.h"
 #include "SoundManager.h"
+#include "PlatformHelpers.h"
 
 #include <Log.h>
 #include <filesystem>
@@ -284,13 +285,7 @@ void CrowListener::HandleActionSounds( const crow::request& req, crow::response&
 	// List available notification sounds relative to the exe directory
 	std::vector<crow::json::wvalue> sounds;
 
-#ifdef _WIN32
-	wchar_t exeBuf[MAX_PATH] = {};
-	GetModuleFileNameW( nullptr, exeBuf, MAX_PATH );
-	auto soundsDir = fs::path( exeBuf ).parent_path() / "NotificationSounds";
-#else
-	auto soundsDir = fs::path( "/opt/witness/NotificationSounds" );
-#endif
+	auto soundsDir = Witness::GetExeDir() / "NotificationSounds";
 
 	if( fs::exists( soundsDir ) && fs::is_directory( soundsDir ) )
 	{
@@ -347,11 +342,7 @@ void CrowListener::HandleActionTestSound( const crow::request& req, crow::respon
 	fs::path soundPath( soundFile );
 	if( soundPath.is_relative() )
 	{
-#ifdef _WIN32
-		wchar_t exeBuf[MAX_PATH] = {};
-		GetModuleFileNameW( nullptr, exeBuf, MAX_PATH );
-		soundPath = fs::path( exeBuf ).parent_path() / soundPath;
-#endif
+		soundPath = Witness::GetExeDir() / soundPath;
 	}
 
 	// Validate path exists
