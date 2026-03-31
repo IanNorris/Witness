@@ -118,7 +118,8 @@ jobs:
             -DWITNESS_USE_SYSTEM_DEPS=ON \
             -DONNXRUNTIME_INCLUDE_DIR=$HOME/onnxruntime/include \
             -DONNXRUNTIME_LIB=$HOME/onnxruntime/lib/libonnxruntime.so \
-            -DCMAKE_PREFIX_PATH="$HOME/crow;$HOME/onnxruntime"
+            -DCROW_INCLUDE_DIR=$HOME/crow/include \
+            -DCMAKE_PREFIX_PATH="$HOME/onnxruntime"
 
       - name: Build
         run: cmake --build build-linux --parallel $(nproc)

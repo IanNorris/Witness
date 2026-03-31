@@ -15,17 +15,25 @@ find_package(PkgConfig REQUIRED)
 # ---------------------------------------------------------------------------
 # Crow (header-only)
 # ---------------------------------------------------------------------------
-find_package(Crow CONFIG QUIET)
+# We intentionally skip find_package(Crow CONFIG) here because Crow's installed
+# CrowConfig.cmake has a find_dependency(Boost) that fails on Ubuntu 24.04 with
+# split Boost packages. Since Crow is header-only, we create the target manually.
 if(NOT TARGET Crow::Crow)
-    find_path(CROW_INCLUDE_DIR crow.h HINTS ENV CROW_ROOT PATH_SUFFIXES include)
+    find_path(CROW_INCLUDE_DIR crow.h
+        HINTS ENV CROW_ROOT ${CROW_ROOT}
+        PATH_SUFFIXES include
+    )
     if(NOT CROW_INCLUDE_DIR)
-        message(FATAL_ERROR "Cannot find crow.h. Install the Crow development package or set CROW_ROOT.")
+        message(FATAL_ERROR "Cannot find crow.h. Set CROW_ROOT or CROW_INCLUDE_DIR.")
     endif()
 
-    # Crow requires standalone asio (header-only)
-    find_path(ASIO_INCLUDE_DIR asio.hpp HINTS ENV ASIO_ROOT PATH_SUFFIXES include)
+    # Crow needs standalone asio (header-only); system libasio-dev puts it in /usr/include
+    find_path(ASIO_INCLUDE_DIR asio.hpp
+        HINTS ENV ASIO_ROOT ${ASIO_ROOT}
+        PATH_SUFFIXES include
+    )
     if(NOT ASIO_INCLUDE_DIR)
-        message(FATAL_ERROR "Cannot find asio.hpp. Install the standalone asio package.")
+        message(FATAL_ERROR "Cannot find asio.hpp. Install libasio-dev or set ASIO_ROOT.")
     endif()
 
     add_library(Crow::Crow INTERFACE IMPORTED)
@@ -33,7 +41,7 @@ if(NOT TARGET Crow::Crow)
         INTERFACE_INCLUDE_DIRECTORIES "${CROW_INCLUDE_DIR};${ASIO_INCLUDE_DIR}"
         INTERFACE_COMPILE_DEFINITIONS "CROW_STANDALONE_ASIO;CROW_ENABLE_SSL"
     )
-    message(STATUS "Found Crow: ${CROW_INCLUDE_DIR}")
+    message(STATUS "Found Crow (manual): ${CROW_INCLUDE_DIR}")
 endif()
 
 # ---------------------------------------------------------------------------
