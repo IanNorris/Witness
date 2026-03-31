@@ -36,6 +36,17 @@ jobs:
         with:
           arch: x64
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web-ui/package-lock.json
+
+      - name: Install web UI dependencies
+        working-directory: web-ui
+        run: npm ci
+
       - name: Configure (CMake)
         run: >
           cmake -S . -B build
@@ -110,6 +121,17 @@ jobs:
         run: |
           wget -q "https://github.com/CrowCpp/Crow/releases/download/v${CROW_VERSION}/Crow-${CROW_VERSION}-Linux.tar.gz"
           mkdir ~/crow && tar xzf "Crow-${CROW_VERSION}-Linux.tar.gz" -C ~/crow --strip-components=1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: web-ui/package-lock.json
+
+      - name: Install web UI dependencies
+        working-directory: web-ui
+        run: npm ci
 
       - name: Configure (CMake)
         run: |
