@@ -19,6 +19,9 @@
 #include <filesystem>
 #include <sstream>
 #include <iomanip>
+#ifndef _WIN32
+#include <strings.h>
+#endif
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 #include <set>
@@ -146,7 +149,13 @@ void CameraWorker::CreateInputStream()
 		});
 	}
 
-	if (_strnicmp(CamPath.c_str(), "rtsp://", 7) == 0)
+	if (
+#ifdef _WIN32
+		_strnicmp
+#else
+		strncasecmp
+#endif
+		(CamPath.c_str(), "rtsp://", 7) == 0)
 	{
 		IsRTSP = true;
 	}

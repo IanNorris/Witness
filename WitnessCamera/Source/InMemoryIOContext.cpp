@@ -3,6 +3,10 @@
 #include "StreamData.h"
 #include "InMemoryIOContext.h"
 
+#ifndef _WIN32
+#include <cstdio>
+#endif
+
 namespace Witness{
 namespace Camera{
 namespace FFMPEG{
@@ -15,7 +19,11 @@ InMemoryIOContext::InMemoryIOContext(const char* Filename)
 
 	_TempBuffer = new uint8_t[ContextBufferSize];
 
+#ifdef _WIN32
 	fopen_s(&_Handle, Filename, "wb");
+#else
+	_Handle = fopen(Filename, "wb");
+#endif
 
 	_Context = avio_alloc_context(_TempBuffer, ContextBufferSize, AVIO_FLAG_WRITE, this, &InMemoryIOContext::Read, &InMemoryIOContext::Write, &InMemoryIOContext::Seek);
 }
@@ -41,7 +49,11 @@ void InMemoryIOContext::Close()
 		_Handle = nullptr;
 	}
 
+#ifdef _WIN32
 	DeleteFileA(_Filename->c_str());
+#else
+	std::remove(_Filename->c_str());
+#endif
 }
 
 int InMemoryIOContext::Read(void* Opaque, uint8_t* Buffer, int BufferSize)
@@ -51,7 +63,7 @@ int InMemoryIOContext::Read(void* Opaque, uint8_t* Buffer, int BufferSize)
 	return (int)fread(Buffer, 1, BufferSize, This->_Handle);
 }
 
-int InMemoryIOContext::Write(void* Opaque, const uint8_t* Buffer, int BufferSize)
+int InMemoryIOContext::Write(void* Opaque, AV_WRITE_BUF_CONST uint8_t* Buffer, int BufferSize)
 {
 	InMemoryIOContext* This = (InMemoryIOContext*)Opaque;
 

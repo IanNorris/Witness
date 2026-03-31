@@ -62,7 +62,7 @@ public:
 	
 	virtual bool ProcessFrame( SharedClassificationTask TaskData ) override;
 
-	bool FlagToSaveNextFrame() { SaveNextFrame = true; }
+	bool FlagToSaveNextFrame() { SaveNextFrame = true; return true; }
 	bool HasViewer() { return SaveNextFrame; }
 
 	const ClipStatistics& GetClipStatistics() const { return ClipStats; }

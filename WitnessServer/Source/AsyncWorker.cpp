@@ -2,7 +2,6 @@
 #include "Messages.h"
 
 #include <fstream>
-#include <windows.h>
 
 void AsyncWorker::WorkerMain()
 {

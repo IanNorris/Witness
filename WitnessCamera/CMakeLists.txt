@@ -1,4 +1,8 @@
-find_package(FFMPEG REQUIRED)
+if(NOT WITNESS_USE_SYSTEM_DEPS)
+    find_package(FFMPEG REQUIRED)
+else()
+    # FFMPEG targets already set up by cmake/LinuxDeps.cmake
+endif()
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs videoio objdetect video)
 
 # ONNX Runtime (onnxruntime-gpu vcpkg port installs raw headers/libs, no CMake config)

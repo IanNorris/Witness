@@ -50,7 +50,11 @@ static bool DeleteClipFiles( const GlobalContext& Context, int CameraID, int64_t
 	std::error_code error;
 	if( !std::filesystem::remove( ThumbnailPath, error ) )
 	{
+#ifdef _WIN32
 		if( error.value() == E_ACCESSDENIED )
+#else
+		if( error == std::make_error_code( std::errc::permission_denied ) )
+#endif
 		{
 			return false;
 		}
@@ -58,7 +62,11 @@ static bool DeleteClipFiles( const GlobalContext& Context, int CameraID, int64_t
 
 	if( !std::filesystem::remove( VideoPath, error ) )
 	{
+#ifdef _WIN32
 		if( error.value() == E_ACCESSDENIED )
+#else
+		if( error == std::make_error_code( std::errc::permission_denied ) )
+#endif
 		{
 			return false;
 		}

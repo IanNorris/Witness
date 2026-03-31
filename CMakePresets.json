@@ -2,23 +2,57 @@
     "version": 3,
     "configurePresets": [
         {
-            "name": "default",
-            "displayName": "Default (vcpkg)",
-            "binaryDir": "${sourceDir}/build",
+            "name": "windows-base",
+            "hidden": true,
             "generator": "Ninja",
             "architecture": {
                 "value": "x64",
                 "strategy": "external"
             },
             "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Release",
                 "VCPKG_TARGET_TRIPLET": "x64-windows"
             }
         },
         {
+            "name": "default",
+            "displayName": "Windows x64 Release (vcpkg)",
+            "binaryDir": "${sourceDir}/build",
+            "inherits": "windows-base",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+        {
             "name": "debug",
-            "displayName": "Debug (vcpkg)",
-            "inherits": "default",
+            "displayName": "Windows x64 Debug (vcpkg)",
+            "binaryDir": "${sourceDir}/build-debug",
+            "inherits": "windows-base",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "linux-base",
+            "hidden": true,
+            "generator": "Ninja",
+            "cacheVariables": {
+                "VCPKG_TARGET_TRIPLET": "x64-linux"
+            }
+        },
+        {
+            "name": "linux-release",
+            "displayName": "Linux x64 Release (vcpkg)",
+            "binaryDir": "${sourceDir}/build-linux",
+            "inherits": "linux-base",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+        {
+            "name": "linux-debug",
+            "displayName": "Linux x64 Debug (vcpkg)",
+            "binaryDir": "${sourceDir}/build-linux-debug",
+            "inherits": "linux-base",
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug"
             }
@@ -33,6 +67,16 @@
         {
             "name": "debug",
             "configurePreset": "debug",
+            "configuration": "Debug"
+        },
+        {
+            "name": "linux-release",
+            "configurePreset": "linux-release",
+            "configuration": "Release"
+        },
+        {
+            "name": "linux-debug",
+            "configurePreset": "linux-debug",
             "configuration": "Debug"
         }
     ]

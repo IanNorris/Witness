@@ -136,11 +136,11 @@ bool ObservingMotionFilter::ProcessFrame( SharedClassificationTask TaskData )
 					char Buffer[128];
 					if( Label.size() )
 					{
-						sprintf_s( Buffer, "TID=%d Class=%s (%.0f%%)", ROI.TrackingID, Label.c_str(), ROI.ClassificationConfidence * 100.0f );
+						snprintf( Buffer, sizeof(Buffer), "TID=%d Class=%s (%.0f%%)", ROI.TrackingID, Label.c_str(), ROI.ClassificationConfidence * 100.0f );
 					}
 					else
 					{
-						sprintf_s( Buffer, "TID=%d", ROI.TrackingID );
+						snprintf( Buffer, sizeof(Buffer), "TID=%d", ROI.TrackingID );
 					}
 
 					cv::Point2i LabelPos = DrawBounds.tl();

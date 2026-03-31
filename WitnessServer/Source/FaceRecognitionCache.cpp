@@ -2,6 +2,7 @@
 #include "SQLite.h"
 #include <Log.h>
 #include <cmath>
+#include <cstring>
 #include <algorithm>
 
 FaceRecognitionCache::FaceRecognitionCache()

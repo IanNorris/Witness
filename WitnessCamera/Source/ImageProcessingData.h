@@ -2,6 +2,7 @@
 
 #include <mutex>
 #include <shared_mutex>
+#include <condition_variable>
 #include <vector>
 #include <memory>
 #include <unordered_map>

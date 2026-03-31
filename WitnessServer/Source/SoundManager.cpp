@@ -1,9 +1,70 @@
 #include "SoundManager.h"
 #include <Log.h>
 #include <filesystem>
+
+#ifdef _WIN32
 #include <windows.h>
 #include <mmsystem.h>
 #pragma comment(lib, "Winmm.lib")
+#else
+#include <cstdlib>
+#include <unistd.h>
+#include <fcntl.h>
+#endif
+
+// ---------------------------------------------------------------------------
+// Platform helpers
+// ---------------------------------------------------------------------------
+
+static void PlatformPlaySoundAsync( const std::string& soundFile )
+{
+#ifdef _WIN32
+	PlaySoundA( soundFile.c_str(), nullptr, SND_FILENAME | SND_ASYNC );
+#else
+	// Fork a child process to play the .wav file; parent returns immediately.
+	// Try paplay (PulseAudio / PipeWire-pulse) first, then aplay (ALSA).
+	pid_t pid = fork();
+	if( pid == 0 )
+	{
+		// Child: redirect stdout/stderr to /dev/null to stay silent
+		int devnull = open( "/dev/null", O_WRONLY );
+		if( devnull >= 0 )
+		{
+			dup2( devnull, STDOUT_FILENO );
+			dup2( devnull, STDERR_FILENO );
+			close( devnull );
+		}
+		execlp( "paplay", "paplay", soundFile.c_str(), (char*)nullptr );
+		// paplay not found — try aplay
+		execlp( "aplay", "aplay", "-q", soundFile.c_str(), (char*)nullptr );
+		// Neither found — silently exit child
+		_exit( 0 );
+	}
+	// Parent: don't wait — fire-and-forget
+#endif
+}
+
+static void PlatformStopSound()
+{
+#ifdef _WIN32
+	PlaySoundA( nullptr, nullptr, 0 );
+#else
+	// No reliable cross-platform "stop async sound"; nothing to do here.
+#endif
+}
+
+static std::filesystem::path PlatformGetExeDir()
+{
+#ifdef _WIN32
+	wchar_t exeBuf[MAX_PATH] = {};
+	GetModuleFileNameW( nullptr, exeBuf, MAX_PATH );
+	return std::filesystem::path( exeBuf ).parent_path();
+#else
+	return std::filesystem::canonical( "/proc/self/exe" ).parent_path();
+#endif
+}
+
+// ---------------------------------------------------------------------------
 
 bool SoundManager::TryPlaySound( int actionUID, int priority, int cooldownSeconds, const std::string& soundFile )
 {
@@ -32,11 +93,10 @@ bool SoundManager::TryPlaySound( int actionUID, int priority, int cooldownSecond
 	// If preempting a lower-priority sound, stop it first
 	if( soundStillPlaying && priority > m_CurrentPriority )
 	{
-		PlaySoundA( nullptr, nullptr, 0 );
+		PlatformStopSound();
 	}
 
-	// Play the new sound
-	PlaySoundA( soundFile.c_str(), nullptr, SND_FILENAME | SND_ASYNC );
+	PlatformPlaySoundAsync( soundFile );
 
 	m_CurrentPriority = priority;
 	m_CurrentPlayStart = now;
@@ -50,9 +110,7 @@ std::string SoundManager::ResolveSoundPath( const std::string& param )
 	std::filesystem::path soundPath( param );
 	if( soundPath.is_relative() )
 	{
-		wchar_t exeBuf[MAX_PATH] = {};
-		GetModuleFileNameW( nullptr, exeBuf, MAX_PATH );
-		soundPath = std::filesystem::path( exeBuf ).parent_path() / soundPath;
+		soundPath = PlatformGetExeDir() / soundPath;
 	}
 	return soundPath.string();
 }
