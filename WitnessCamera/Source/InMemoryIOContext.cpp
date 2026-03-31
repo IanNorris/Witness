@@ -63,7 +63,7 @@ int InMemoryIOContext::Read(void* Opaque, uint8_t* Buffer, int BufferSize)
 	return (int)fread(Buffer, 1, BufferSize, This->_Handle);
 }
 
-int InMemoryIOContext::Write(void* Opaque, const uint8_t* Buffer, int BufferSize)
+int InMemoryIOContext::Write(void* Opaque, AV_WRITE_BUF_CONST uint8_t* Buffer, int BufferSize)
 {
 	InMemoryIOContext* This = (InMemoryIOContext*)Opaque;
 

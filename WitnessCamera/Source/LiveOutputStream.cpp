@@ -159,7 +159,7 @@ void LiveOutputStream::ResetForReconnect(InputStream* NewInputStream)
 	}
 }
 
-int LiveOutputStream::WriteBuffer(void* Opaque, const uint8_t* Buffer, int BufferSize)
+int LiveOutputStream::WriteBuffer(void* Opaque, AV_WRITE_BUF_CONST uint8_t* Buffer, int BufferSize)
 {
 	LiveOutputStream* Self = static_cast<LiveOutputStream*>(Opaque);
 

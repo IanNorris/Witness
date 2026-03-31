@@ -2,6 +2,7 @@
 
 #include "Stream.h"
 #include "InputStream.h"
+#include "InMemoryIOContext.h"
 #include <mutex>
 #include <chrono>
 #include <string>
@@ -133,7 +134,7 @@ private:
 
 	void SetupMemoryIO();
 
-	static int WriteBuffer(void* Opaque, const uint8_t* Buffer, int BufferSize);
+	static int WriteBuffer(void* Opaque, AV_WRITE_BUF_CONST uint8_t* Buffer, int BufferSize);
 	static int64_t SeekBuffer(void* Opaque, int64_t Offset, int Origin);
 
 	std::string _LiveCachePath;
