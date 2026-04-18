@@ -7,10 +7,12 @@ import ClipPlayer from '../components/clips/ClipPlayer.vue'
 import ActivityStrip from '../components/clips/ActivityStrip.vue'
 import ActivityTimeline from '../components/clips/ActivityTimeline.vue'
 import ClipFilters from '../components/clips/ClipFilters.vue'
+import TrailsPanel from '../components/clips/TrailsPanel.vue'
 import { useCameraStore } from '../stores/cameras'
 import { useClipStore } from '../stores/clips'
 import { useSettingsStore } from '../stores/settings'
 import { useFilterStore } from '../stores/filters'
+import { useGroupStore } from '../stores/groups'
 import type { Clip } from '../types/clip'
 
 const route = useRoute()
@@ -18,16 +20,39 @@ const cameraStore = useCameraStore()
 const clipStore = useClipStore()
 const settings = useSettingsStore()
 const filterStore = useFilterStore()
+const groupStore = useGroupStore()
 
 const playingClip = ref<Clip | null>(null)
 const confirmDelete = ref<Clip | null>(null)
 const mobileFiltersOpen = ref(false)
 
+// Trail integration state
+const trailFilterClipIds = ref<number[] | null>(null)
+const highlightedClipId = ref<number | null>(null)
+
+// Route mode detection
 const cameraId = computed(() =>
   route.params.cameraId ? Number(route.params.cameraId) : null
 )
+const groupId = computed(() =>
+  route.params.groupId ? Number(route.params.groupId) : null
+)
+const isGroupMode = computed(() => groupId.value !== null)
+
+const groupCameras = computed(() => {
+  if (!groupId.value) return []
+  return groupStore.camerasInGroup(groupId.value)
+})
+
+const groupCameraIds = computed(() =>
+  new Set(groupCameras.value.map(c => c.id))
+)
 
 const title = computed(() => {
+  if (isGroupMode.value && groupId.value) {
+    const group = groupStore.getGroupById(groupId.value)
+    return group ? group.displayName : 'Group'
+  }
   if (cameraId.value) {
     const cam = cameraStore.getCameraById(cameraId.value)
     return cam ? `Clips — ${cam.name}` : 'Clips'
@@ -50,7 +75,9 @@ async function loadClips() {
   if (cameraStore.cameras.length === 0) {
     await cameraStore.fetchCameras()
   }
-  await clipStore.fetchClips(cameraId.value, 0)
+  // For group mode, fetch all clips (we'll filter client-side by group cameras)
+  const camId = isGroupMode.value ? null : cameraId.value
+  await clipStore.fetchClips(camId, 0)
 }
 
 // If navigated with ?t= query param (e.g. from trails view), set time range around that timestamp
@@ -59,19 +86,23 @@ function applyTimestampQuery() {
   if (t) {
     const ts = Number(t)
     if (ts > 0) {
-      // Set a 2-hour window centered on the clip timestamp
       filterStore.setTimeRange(ts - 3600, ts + 3600)
     }
   }
 }
 
 watch(cameraId, () => loadClips())
+watch(groupId, () => { trailFilterClipIds.value = null; loadClips() })
 watch(() => filterStore.filterQueryString, () => loadClips())
 watch(() => filterStore.timeRange, () => loadClips())
 onMounted(async () => {
   applyTimestampQuery()
-  // loadClips will run via the timeRange watch if applyTimestampQuery set it,
-  // otherwise we need to trigger it explicitly
+  if (route.query.trails === '1') {
+    settings.showTrails = true
+  }
+  if (groupStore.groups.length === 0) {
+    await groupStore.fetchGroups()
+  }
   if (!route.query.t) {
     await loadClips()
   }
@@ -103,8 +134,19 @@ async function handleRetag(clip: Clip) {
 const TRIVIAL_DURATION = 2
 
 const displayedClips = computed(() => {
-  if (!settings.hideShortClips) return clipStore.clips
-  return clipStore.clips.filter(c => c.duration >= TRIVIAL_DURATION)
+  let clips = clipStore.clips
+  // Filter by group cameras
+  if (isGroupMode.value && groupCameraIds.value.size > 0) {
+    clips = clips.filter(c => groupCameraIds.value.has(c.camera))
+  }
+  if (settings.hideShortClips) {
+    clips = clips.filter(c => c.duration >= TRIVIAL_DURATION)
+  }
+  if (trailFilterClipIds.value) {
+    const ids = new Set(trailFilterClipIds.value)
+    clips = clips.filter(c => ids.has(c.uid))
+  }
+  return clips
 })
 
 function isTrivialClip(clip: Clip) {
@@ -116,11 +158,28 @@ const pageSizeOptions = [6, 12, 24, 48, 100]
 function changePageSize(event: Event) {
   const val = Number((event.target as HTMLSelectElement).value)
   settings.clipsPerPage = val
-  clipStore.fetchClips(cameraId.value, 0)
+  const camId = isGroupMode.value ? null : cameraId.value
+  clipStore.fetchClips(camId, 0)
 }
 
 function handleTagClick(_tag: string) {
   // Future: filter by tag
+}
+
+function onTrailRegionClipIds(ids: number[]) {
+  trailFilterClipIds.value = ids.length > 0 ? ids : null
+}
+
+function onTrailHoverClipId(id: number | null) {
+  highlightedClipId.value = id
+}
+
+function clearTrailFilter() {
+  trailFilterClipIds.value = null
+}
+
+function toggleTrails() {
+  settings.showTrails = !settings.showTrails
 }
 
 const reprocessingAll = ref(false)
@@ -145,6 +204,18 @@ async function handleRetagAll() {
     <template #actions>
       <div class="d-flex align-items-center gap-3">
         <button class="btn btn-sm btn-outline-secondary" @click="loadClips" title="Refresh">↻</button>
+        <button
+          class="btn btn-sm"
+          :class="settings.showTrails ? 'btn-primary' : 'btn-outline-secondary'"
+          @click="toggleTrails"
+          title="Toggle trail overlay"
+        >
+          Trails
+        </button>
+        <template v-if="settings.showTrails && isGroupMode">
+          <button class="btn btn-sm btn-outline-secondary" @click="settings.trailColumnWidth = Math.max(200, settings.trailColumnWidth - 50)" title="Shrink trails">−</button>
+          <button class="btn btn-sm btn-outline-secondary" @click="settings.trailColumnWidth = Math.min(800, settings.trailColumnWidth + 50)" title="Enlarge trails">+</button>
+        </template>
         <button
           class="btn btn-sm btn-outline-warning"
           @click="handleRetagAll"
@@ -191,6 +262,39 @@ async function handleRetagAll() {
     <!-- Activity Timeline -->
     <ActivityTimeline />
 
+    <!-- Trails Panel(s) -->
+    <!-- Single camera mode: one panel -->
+    <TrailsPanel
+      v-if="cameraId && !isGroupMode"
+      :camera-id="cameraId"
+      :visible="settings.showTrails"
+      @region-clip-ids="onTrailRegionClipIds"
+      @hover-clip-id="onTrailHoverClipId"
+    />
+    <!-- Group mode: side-by-side panels for each camera -->
+    <div v-if="isGroupMode && settings.showTrails && groupCameras.length > 0" class="trails-row">
+      <div
+        v-for="cam in groupCameras"
+        :key="cam.id"
+        class="trails-row-item"
+        :style="{ minWidth: settings.trailColumnWidth + 'px' }"
+      >
+        <div class="trails-row-label small text-muted-custom">{{ cam.name }}</div>
+        <TrailsPanel
+          :camera-id="cam.id"
+          :visible="true"
+          @region-clip-ids="onTrailRegionClipIds"
+          @hover-clip-id="onTrailHoverClipId"
+        />
+      </div>
+    </div>
+
+    <!-- Trail filter indicator -->
+    <div v-if="trailFilterClipIds" class="trail-filter-indicator">
+      <span class="small">Filtered by trail region ({{ trailFilterClipIds.length }} clips)</span>
+      <button class="btn btn-sm btn-link text-muted-custom p-0 ms-2" @click="clearTrailFilter">✕ Clear</button>
+    </div>
+
     <!-- Main content: sidebar + clips -->
     <div class="clips-layout">
       <div class="clips-main">
@@ -214,6 +318,7 @@ async function handleRetagAll() {
               :key="clip.uid"
               :clip="clip"
               :trivial="isTrivialClip(clip)"
+              :highlighted="clip.uid === highlightedClipId"
               @play="handlePlay"
               @toggle-save="handleToggleSave"
               @delete="handleDeleteRequest"
@@ -412,5 +517,35 @@ async function handleRetagAll() {
   border-radius: 0.5rem;
   padding: 1.5rem;
   min-width: 300px;
+}
+
+.trail-filter-indicator {
+  display: flex;
+  align-items: center;
+  padding: 0.375rem 0.75rem;
+  background: rgba(37, 99, 235, 0.1);
+  border: 1px solid rgba(37, 99, 235, 0.3);
+  border-radius: 0.375rem;
+  margin-bottom: 0.75rem;
+}
+
+.trails-row {
+  display: flex;
+  gap: 0.5rem;
+  overflow-x: auto;
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.trails-row-item {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.trails-row-label {
+  padding: 0.25rem 0.25rem 0;
+  font-weight: 500;
+  opacity: 0.7;
 }
 </style>

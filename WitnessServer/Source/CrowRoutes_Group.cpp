@@ -6,7 +6,7 @@
 void CrowListener::HandleGroupEnum( const crow::request& req, crow::response& res )
 {
 	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, nullptr,
-		CrowAuth::Action::Read, CrowAuth::Privilege::Administrator );
+		CrowAuth::Action::Read, CrowAuth::Privilege::Normal );
 	if( UserUID < 0 )
 	{
 		res.code = 400;

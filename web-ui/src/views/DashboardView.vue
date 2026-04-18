@@ -1,15 +1,27 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, ref, computed } from 'vue'
 import AppLayout from '../components/layout/AppLayout.vue'
 import CameraGrid from '../components/camera/CameraGrid.vue'
 import { useCameraStore } from '../stores/cameras'
 import { useSettingsStore } from '../stores/settings'
+import { useGroupStore } from '../stores/groups'
 
 const cameraStore = useCameraStore()
 const settings = useSettingsStore()
+const groupStore = useGroupStore()
+
+const selectedGroupId = ref<number | null>(null)
+
+const groupCameraIds = computed(() => {
+  if (selectedGroupId.value === null) return null
+  return new Set(groupStore.camerasInGroup(selectedGroupId.value).map(c => c.id))
+})
 
 onMounted(async () => {
   await cameraStore.fetchCameras()
+  if (groupStore.groups.length === 0) {
+    await groupStore.fetchGroups()
+  }
 })
 </script>
 
@@ -18,6 +30,21 @@ onMounted(async () => {
     <template #title>Dashboard</template>
     <template #actions>
       <div class="d-flex align-items-center gap-2">
+        <!-- Group picker -->
+        <div v-if="groupStore.activeGroups.length > 0" class="btn-group btn-group-sm me-2">
+          <button
+            class="btn"
+            :class="selectedGroupId === null ? 'btn-primary' : 'btn-outline-secondary'"
+            @click="selectedGroupId = null"
+          >All</button>
+          <button
+            v-for="group in groupStore.activeGroups"
+            :key="group.id"
+            class="btn"
+            :class="selectedGroupId === group.id ? 'btn-primary' : 'btn-outline-secondary'"
+            @click="selectedGroupId = group.id"
+          >{{ group.displayName }}</button>
+        </div>
         <button
           class="btn btn-sm btn-outline-secondary mobile-hide"
           @click="settings.decreaseScale"
@@ -54,6 +81,6 @@ onMounted(async () => {
       </div>
     </template>
 
-    <CameraGrid />
+    <CameraGrid :group-camera-ids="groupCameraIds" />
   </AppLayout>
 </template>

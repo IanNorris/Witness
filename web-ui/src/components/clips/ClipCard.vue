@@ -10,6 +10,7 @@ import { format, isToday, isYesterday, differenceInDays } from 'date-fns'
 const props = defineProps<{
   clip: Clip
   trivial?: boolean
+  highlighted?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -61,7 +62,7 @@ const lightingClass = computed(() => {
 </script>
 
 <template>
-  <div class="clip-card" :class="{ 'clip-saved': clip.saved, 'clip-trivial': trivial, 'clip-unreviewed': !clip.reviewed }">
+  <div class="clip-card" :class="{ 'clip-saved': clip.saved, 'clip-trivial': trivial, 'clip-unreviewed': !clip.reviewed, 'clip-highlighted': highlighted }">
     <div class="clip-thumb" @click="emit('play', clip)">
       <img :src="thumbUrl" :alt="`Clip ${clip.uid}`" loading="lazy" />
       <div v-if="reprocessProgress" class="clip-reprocess-overlay">
@@ -185,6 +186,10 @@ const lightingClass = computed(() => {
 }
 .clip-unreviewed {
   border-left: 3px solid var(--bs-info, #0dcaf0);
+}
+.clip-highlighted {
+  border-color: #2563eb;
+  box-shadow: 0 0 8px rgba(37, 99, 235, 0.5);
 }
 
 .clip-thumb {

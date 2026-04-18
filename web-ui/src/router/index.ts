@@ -13,6 +13,11 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/clips/group/:groupId',
+    component: () => import('../views/ClipsView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/clips/:cameraId',
     component: () => import('../views/ClipsView.vue'),
     meta: { requiresAuth: true },
@@ -24,8 +29,7 @@ const routes = [
   },
   {
     path: '/trails',
-    component: () => import('../views/TrailsView.vue'),
-    meta: { requiresAuth: true },
+    redirect: '/clips',
   },
   {
     path: '/admin',

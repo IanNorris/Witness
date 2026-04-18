@@ -3,11 +3,13 @@ import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { useAuthStore } from '../../stores/auth'
 import { useCameraStore } from '../../stores/cameras'
+import { useGroupStore } from '../../stores/groups'
 import { useEventStream } from '../../composables/useEventStream'
 import { format } from 'date-fns'
 
 const auth = useAuthStore()
 const cameraStore = useCameraStore()
+const groupStore = useGroupStore()
 const { connected } = useEventStream()
 const route = useRoute()
 
@@ -34,6 +36,7 @@ watch(() => route.path, () => { mobileMenuOpen.value = false })
 onMounted(() => {
   updateClock()
   clockTimer = setInterval(updateClock, 1000)
+  groupStore.fetchGroups()
 })
 onUnmounted(() => { if (clockTimer) clearInterval(clockTimer) })
 </script>
@@ -66,31 +69,40 @@ onUnmounted(() => { if (clockTimer) clearInterval(clockTimer) })
           </RouterLink>
         </div>
 
-        <div class="nav-item">
-          <RouterLink to="/trails" class="nav-link">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-            Trails
-          </RouterLink>
-        </div>
-
-        <div class="sidebar-section">Cameras</div>
-        <div
-          v-for="camera in cameraStore.cameras"
-          :key="camera.id"
-          class="nav-item sidebar-camera"
-        >
-          <RouterLink :to="`/clips/${camera.id}`" class="nav-link">
-            <span
-              class="status-dot"
-              :class="{
-                connected: camera.status === 'Connected',
-                disconnected: camera.status === 'Disconnected',
-                unknown: camera.status !== 'Connected' && camera.status !== 'Disconnected',
-              }"
-            />
-            {{ camera.name }}
-          </RouterLink>
-        </div>
+        <div class="sidebar-section">Clips</div>
+        <!-- Groups mode: show groups that have cameras -->
+        <template v-if="groupStore.activeGroups.length > 0">
+          <div
+            v-for="group in groupStore.activeGroups"
+            :key="group.id"
+            class="nav-item sidebar-camera"
+          >
+            <RouterLink :to="`/clips/group/${group.id}`" class="nav-link">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="opacity: 0.6"><rect x="2" y="2" width="20" height="20" rx="3"/><line x1="2" y1="10" x2="22" y2="10"/><line x1="12" y1="2" x2="12" y2="22"/></svg>
+              {{ group.displayName }}
+            </RouterLink>
+          </div>
+        </template>
+        <!-- Fallback: show individual cameras when no groups configured -->
+        <template v-else>
+          <div
+            v-for="camera in cameraStore.cameras"
+            :key="camera.id"
+            class="nav-item sidebar-camera"
+          >
+            <RouterLink :to="`/clips/${camera.id}`" class="nav-link">
+              <span
+                class="status-dot"
+                :class="{
+                  connected: camera.status === 'Connected',
+                  disconnected: camera.status === 'Disconnected',
+                  unknown: camera.status !== 'Connected' && camera.status !== 'Disconnected',
+                }"
+              />
+              {{ camera.name }}
+            </RouterLink>
+          </div>
+        </template>
 
         <template v-if="auth.isAdmin">
           <div class="sidebar-section">Administration</div>
@@ -174,31 +186,41 @@ onUnmounted(() => { if (clockTimer) clearInterval(clockTimer) })
               All Clips
             </RouterLink>
           </div>
-          <div class="nav-item">
-            <RouterLink to="/trails" class="nav-link" @click="mobileMenuOpen = false">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
-              Trails
-            </RouterLink>
-          </div>
 
-          <div class="sidebar-section">Cameras</div>
-          <div
-            v-for="camera in cameraStore.cameras"
-            :key="camera.id"
-            class="nav-item sidebar-camera"
-          >
-            <RouterLink :to="`/clips/${camera.id}`" class="nav-link" @click="mobileMenuOpen = false">
-              <span
-                class="status-dot"
-                :class="{
-                  connected: camera.status === 'Connected',
-                  disconnected: camera.status === 'Disconnected',
-                  unknown: camera.status !== 'Connected' && camera.status !== 'Disconnected',
-                }"
-              />
-              {{ camera.name }}
-            </RouterLink>
-          </div>
+          <div class="sidebar-section">Clips</div>
+          <!-- Groups mode: show groups that have cameras -->
+          <template v-if="groupStore.activeGroups.length > 0">
+            <div
+              v-for="group in groupStore.activeGroups"
+              :key="group.id"
+              class="nav-item sidebar-camera"
+            >
+              <RouterLink :to="`/clips/group/${group.id}`" class="nav-link" @click="mobileMenuOpen = false">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="opacity: 0.6"><rect x="2" y="2" width="20" height="20" rx="3"/><line x1="2" y1="10" x2="22" y2="10"/><line x1="12" y1="2" x2="12" y2="22"/></svg>
+                {{ group.displayName }}
+              </RouterLink>
+            </div>
+          </template>
+          <!-- Fallback: individual cameras when no groups -->
+          <template v-else>
+            <div
+              v-for="camera in cameraStore.cameras"
+              :key="camera.id"
+              class="nav-item sidebar-camera"
+            >
+              <RouterLink :to="`/clips/${camera.id}`" class="nav-link" @click="mobileMenuOpen = false">
+                <span
+                  class="status-dot"
+                  :class="{
+                    connected: camera.status === 'Connected',
+                    disconnected: camera.status === 'Disconnected',
+                    unknown: camera.status !== 'Connected' && camera.status !== 'Disconnected',
+                  }"
+                />
+                {{ camera.name }}
+              </RouterLink>
+            </div>
+          </template>
 
           <template v-if="auth.isAdmin">
             <div class="sidebar-section">Administration</div>

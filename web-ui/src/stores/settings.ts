@@ -13,6 +13,8 @@ export const useSettingsStore = defineStore('settings', () => {
   const trailAnchor = useLocalStorage<'bottom-center' | 'center' | 'top-center'>('trailAnchor', 'bottom-center')
   const trailOpacity = useLocalStorage('trailOpacity', 60)
   const trailMaxPoints = useLocalStorage('trailMaxPoints', 200)
+  const showTrails = useLocalStorage('showTrails', false)
+  const trailColumnWidth = useLocalStorage('trailColumnWidth', 400)
 
   function increaseScale() {
     cameraPreviewScale.value = Math.min(100, cameraPreviewScale.value + 5)
@@ -44,6 +46,8 @@ export const useSettingsStore = defineStore('settings', () => {
     trailAnchor,
     trailOpacity,
     trailMaxPoints,
+    showTrails,
+    trailColumnWidth,
     increaseScale,
     decreaseScale,
     toggleFullscreen,

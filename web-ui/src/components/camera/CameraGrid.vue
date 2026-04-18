@@ -5,12 +5,21 @@ import { useCameraStore } from '../../stores/cameras'
 import { useSettingsStore } from '../../stores/settings'
 import CameraCard from './CameraCard.vue'
 
+const props = defineProps<{
+  groupCameraIds?: Set<number> | null
+}>()
+
 const cameraStore = useCameraStore()
 const settings = useSettingsStore()
 const router = useRouter()
 
-const fullscreenCols = computed(() => Math.ceil(Math.sqrt(cameraStore.cameras.length)))
-const fullscreenRows = computed(() => Math.ceil(cameraStore.cameras.length / fullscreenCols.value))
+const filteredCameras = computed(() => {
+  if (!props.groupCameraIds || props.groupCameraIds.size === 0) return cameraStore.cameras
+  return cameraStore.cameras.filter(c => props.groupCameraIds!.has(c.id))
+})
+
+const fullscreenCols = computed(() => Math.ceil(Math.sqrt(filteredCameras.value.length)))
+const fullscreenRows = computed(() => Math.ceil(filteredCameras.value.length / fullscreenCols.value))
 
 const gridStyle = computed(() => {
   if (settings.fullscreenMode) {
@@ -51,7 +60,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     </div>
   </div>
 
-  <div v-else-if="cameraStore.cameras.length === 0" class="text-center py-5 text-muted-custom">
+  <div v-else-if="filteredCameras.length === 0" class="text-center py-5 text-muted-custom">
     <p>No cameras configured</p>
   </div>
 
@@ -75,7 +84,7 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
     </button>
 
     <CameraCard
-      v-for="camera in cameraStore.cameras"
+      v-for="camera in filteredCameras"
       :key="camera.id"
       :camera="camera"
       @open-stream="openStream"
