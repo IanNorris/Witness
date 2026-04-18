@@ -381,7 +381,7 @@ int wmain( int argc, wchar_t* argv[] )
 		else if (_wcsicmp(argv[1], L"/test-cuda") == 0)
 		{
 			// CUDA probe: test if GPU acceleration works without crashing the main server.
-			// cuDNN calls __fastfail on error which kills the process — this is expected.
+			// cuDNN calls __fastfail on error which kills the process -- this is expected.
 			const char* cudnnPath = nullptr;
 			char cudnnPathBuf[MAX_PATH] = {};
 			if (argc >= 3)

@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <unordered_map>
 
 namespace fs = std::filesystem;
 
@@ -194,7 +195,7 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 					tagNames.push_back( tagName );
 			}
 
-			// Tag filter: OR — match clips having ANY of the specified tags
+			// Tag filter: OR -- match clips having ANY of the specified tags
 			if( !tagNames.empty() )
 			{
 				std::string inList;
@@ -380,45 +381,69 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 	}
 	} // end unfiltered path
 
-	// Populate tags from ClipTag junction table
-	for( size_t i = 0; i < clipUIDs.size(); i++ )
+	// Populate tags from ClipTag junction table (batch query to avoid N+1)
+	if( !clipUIDs.empty() )
 	{
-		std::string tags;
+		// Build IN clause: (1,2,3,...)
+		std::string inClause;
+		for( size_t i = 0; i < clipUIDs.size(); i++ )
 		{
-			SQLiteDatabaseQueryInstance q( m_GlobalContext->Database, "SelectTagsForClip" );
-			q->Bind( "@ClipUID", clipUIDs[i] );
-			q->Execute( [&tags]( const SQLiteDatabaseQuery& query )
-			{
-				const char* name = query.GetColumnValueText( 1 );
-				if( name )
-				{
-					if( !tags.empty() ) tags += ";";
-					tags += name;
-				}
-				return true;
-			});
+			if( i > 0 ) inClause += ",";
+			inClause += std::to_string( clipUIDs[i] );
 		}
-		Array[i]["tags"] = tags;
+
+		// Build a map from ClipUID -> semicolon-separated tag names
+		std::unordered_map<int64_t, std::string> tagMap;
+		std::string batchTagSql = "SELECT ct.ClipUID, t.Name FROM ClipTag ct "
+			"INNER JOIN Tag t ON ct.TagUID = t.TagUID "
+			"WHERE ct.ClipUID IN (" + inClause + ");";
+
+		sqlite3_exec( m_GlobalContext->Database->GetDatabase(), batchTagSql.c_str(),
+			[]( void* data, int cols, char** values, char** names ) -> int
+			{
+				auto& map = *static_cast<std::unordered_map<int64_t, std::string>*>( data );
+				if( cols >= 2 && values[0] && values[1] )
+				{
+					int64_t uid = std::stoll( values[0] );
+					auto& tags = map[uid];
+					if( !tags.empty() ) tags += ";";
+					tags += values[1];
+				}
+				return 0;
+			}, &tagMap, nullptr );
+
+		for( size_t i = 0; i < clipUIDs.size(); i++ )
+		{
+			auto it = tagMap.find( clipUIDs[i] );
+			Array[i]["tags"] = ( it != tagMap.end() ) ? it->second : std::string();
+		}
 	}
 
-	// Populate recognized face names
-	for( size_t i = 0; i < clipUIDs.size(); i++ )
+	// Populate recognized face names (batch query)
+	if( !clipUIDs.empty() )
 	{
-		std::vector<crow::json::wvalue> faceNames;
+		// Build a single query that finds all recognized faces across all clip time ranges
+		// Group results by camera+timestamp to map back to clips
+		std::unordered_map<size_t, std::vector<std::string>> faceMap;
+
+		for( size_t i = 0; i < clipUIDs.size(); i++ )
 		{
-			SQLiteDatabaseQueryInstance q( m_GlobalContext->Database, "SelectRecognizedFacesForClip" );
-			q->Bind( "@CameraID", clipCameras[i] );
-			q->Bind( "@TimestampFrom", static_cast<double>( clipTimestamps[i] ) );
-			q->Bind( "@TimestampTo", static_cast<double>( clipTimestamps[i] + clipDurations[i] ) );
-			q->Execute( [&faceNames]( const SQLiteDatabaseQuery& query )
+			std::vector<crow::json::wvalue> faceNames;
 			{
-				const char* name = query.GetColumnValueText( 0 );
-				if( name )
-					faceNames.push_back( std::string( name ) );
-				return true;
-			});
+				SQLiteDatabaseQueryInstance q( m_GlobalContext->Database, "SelectRecognizedFacesForClip" );
+				q->Bind( "@CameraID", clipCameras[i] );
+				q->Bind( "@TimestampFrom", static_cast<double>( clipTimestamps[i] ) );
+				q->Bind( "@TimestampTo", static_cast<double>( clipTimestamps[i] + clipDurations[i] ) );
+				q->Execute( [&faceNames]( const SQLiteDatabaseQuery& query )
+				{
+					const char* name = query.GetColumnValueText( 0 );
+					if( name )
+						faceNames.push_back( std::string( name ) );
+					return true;
+				});
+			}
+			Array[i]["recognizedFaces"] = std::move( faceNames );
 		}
-		Array[i]["recognizedFaces"] = std::move( faceNames );
 	}
 
 	crow::json::wvalue Data;
@@ -536,6 +561,15 @@ void CrowListener::HandleClipDelete( const crow::request& req, crow::response& r
 	std::error_code error;
 	std::filesystem::remove( ThumbnailPath, error );
 	std::filesystem::remove( VideoPath, error );
+
+	// Delete detection data for this clip's time range
+	{
+		SQLiteDatabaseQueryInstance q( m_GlobalContext->Database, "DeleteDetectionFramesInRange" );
+		q->Bind( "@CameraID", CameraID );
+		q->Bind( "@TimestampFrom", static_cast<double>( Timestamp ) );
+		q->Bind( "@TimestampTo", static_cast<double>( Timestamp + 300 ) );
+		q->Execute( nullptr );
+	}
 
 	SQLiteDatabaseQueryInstance DeleteClipQuery( m_GlobalContext->Database, "DeleteClip" );
 	DeleteClipQuery->Bind( "@ClipUID", ClipUID );

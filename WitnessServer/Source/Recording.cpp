@@ -106,7 +106,7 @@ void WitnessServer::StopCameraRecording( const ClipStatistics& ClipStats, int Ca
 	UpdateClip->Bind( "@MaxMotion", ClipStats.LargestMotionDelta );
 	UpdateClip->Execute( nullptr );
 
-	// Sync ClipTag junction table — look up ClipUID by timestamp+camera
+	// Sync ClipTag junction table -- look up ClipUID by timestamp+camera
 	{
 		SQLiteDatabaseQueryInstance SelectClip( Context->Database, "SelectClip" );
 		SelectClip->Bind( "@CameraID", CameraID );

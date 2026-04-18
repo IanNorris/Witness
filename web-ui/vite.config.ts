@@ -22,7 +22,7 @@ export default defineConfig({
   base: '/',
   build: {
     outDir: '../WitnessServer/Web',
-    emptyOutDir: false, // preserve setup/ directory
+    emptyOutDir: true,
   },
   server: {
     proxy: {

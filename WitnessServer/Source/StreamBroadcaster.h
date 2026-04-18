@@ -22,7 +22,7 @@
 class StreamBroadcaster
 {
 public:
-	static constexpr size_t MaxPendingPerClient = 128; // Higher than EventBroadcaster — binary data is larger
+	static constexpr size_t MaxPendingPerClient = 128; // Higher than EventBroadcaster -- binary data is larger
 
 	~StreamBroadcaster()
 	{
@@ -181,7 +181,7 @@ private:
 			auto subIt = m_Subscriptions.find( msg->CameraId );
 			if( subIt == m_Subscriptions.end() ) continue;
 
-			// Copy the connection set — we may modify m_Subscriptions during iteration
+			// Copy the connection set -- we may modify m_Subscriptions during iteration
 			std::vector<crow::websocket::connection*> conns( subIt->second.begin(), subIt->second.end() );
 
 			for( auto* conn : conns )
@@ -210,7 +210,7 @@ private:
 
 				pending++;
 
-				// Send data — catch exceptions in case connection closed
+				// Send data -- catch exceptions in case connection closed
 				// between our check and the send
 				try
 				{

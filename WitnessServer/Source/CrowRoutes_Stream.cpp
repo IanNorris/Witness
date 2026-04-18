@@ -32,7 +32,7 @@ void CrowListener::HandlePlaylist( const crow::request& req, crow::response& res
 
 	if( Segments.empty() )
 	{
-		// No segments available (stale or not started) — 503 tells HLS.js to retry
+		// No segments available (stale or not started) -- 503 tells HLS.js to retry
 		res.code = 503;
 		res.end();
 		return;
@@ -95,7 +95,7 @@ void CrowListener::HandlePlaylist( const crow::request& req, crow::response& res
 			LiveStreamSegment& Seg = Segments[segment];
 
 			if( !Seg.Ready && !LowLatency )
-				continue; // Skip in-progress segment — non-LL clients can't use trailing partials
+				continue; // Skip in-progress segment -- non-LL clients can't use trailing partials
 
 			if( Seg.Discontinuity )
 			{

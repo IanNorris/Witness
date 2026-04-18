@@ -26,7 +26,7 @@ bool SetupConfig::ApplyToDatabase( const std::shared_ptr<SQLiteDatabase>& DB ) c
 	setSetting( "server_cache", CachePath );
 	setSetting( "server_startup_mode", StartupMode );
 
-	// Detection settings — always write even if empty (to allow clearing)
+	// Detection settings -- always write even if empty (to allow clearing)
 	setSetting( "detection_backend", DetectionBackend, true );
 	setSetting( "detection_provider", DetectionProvider, true );
 	setSetting( "detection_confidence", DetectionConfidence, true );

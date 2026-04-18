@@ -711,7 +711,7 @@ void CrowListener::RegisterRoutes()
 			int generation = liveStream->GetInitGeneration();
 			auto initData = liveStream->GetInitSegment();
 
-			// Send init segment — client waits for next live keyframe to start
+			// Send init segment -- client waits for next live keyframe to start
 			if( initData && !initData->empty() )
 			{
 				crow::json::wvalue ctrl;
@@ -785,7 +785,7 @@ void CrowListener::RegisterRoutes()
 		res.code = 404;
 	});
 
-	// Static file routes — serve Vue SPA
+	// Static file routes -- serve Vue SPA
 	CROW_ROUTE( m_App, "/" )
 	([this]( const crow::request& req, crow::response& res )
 	{
@@ -888,7 +888,7 @@ void CrowListener::ReadBuildHash()
 		{
 			if( !m_GlobalContext->BuildHash.empty() && m_GlobalContext->BuildHash != hash )
 			{
-				// Build hash changed — invalidate static file cache
+				// Build hash changed -- invalidate static file cache
 				std::lock_guard<std::mutex> lock( m_FileCacheMutex );
 				m_FileCache.clear();
 				LOG_INFO( "Build hash changed (%s -> %s), static file cache cleared", m_GlobalContext->BuildHash.c_str(), hash.c_str() );
@@ -898,6 +898,6 @@ void CrowListener::ReadBuildHash()
 	}
 	else
 	{
-		LOG_WARNING( "No build-hash.txt found — auto-refresh disabled" );
+		LOG_WARNING( "No build-hash.txt found -- auto-refresh disabled" );
 	}
 }

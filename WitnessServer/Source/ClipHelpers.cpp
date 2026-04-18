@@ -80,52 +80,54 @@ void DeleteOldClips( const GlobalContext& Context, int DaysToDelete )
 	const static int SecondsInDay = 60 * 60 * 24;
 	int64_t Timestamp = static_cast<int64_t>(GetUnixTimestamp()) - (DaysToDelete * SecondsInDay);
 
-	SQLiteDatabaseQueryInstance SelectClipsToDelete( Context.Database, "SelectClipsToDelete" );
-	SelectClipsToDelete->Bind( "@Timestamp", Timestamp );
+	int totalDeleted = 0;
+	bool moreToDelete = true;
 
-	std::vector<ClipToDelete> ClipsToDelete;
+	while( moreToDelete )
+	{
+		SQLiteDatabaseQueryInstance SelectClipsToDelete( Context.Database, "SelectClipsToDelete" );
+		SelectClipsToDelete->Bind( "@Timestamp", Timestamp );
 
-	SelectClipsToDelete->Execute(
-		[&]( const SQLiteDatabaseQuery& query )
+		std::vector<ClipToDelete> ClipsToDelete;
+
+		SelectClipsToDelete->Execute(
+			[&]( const SQLiteDatabaseQuery& query )
+			{
+				ClipToDelete Clip;
+				Clip.ClipID = query.GetColumnValueInt64(0);
+				Clip.Timestamp = query.GetColumnValueInt64(1);
+				Clip.CameraID = query.GetColumnValueInt(2);
+				Clip.Manual = query.GetColumnValueInt(6) == 0;
+
+				ClipsToDelete.push_back(Clip);
+
+				return true;
+			}
+		);
+
+		if( ClipsToDelete.empty() )
 		{
-			uint64_t ClipID = query.GetColumnValueInt64(0);
-			int64_t Timestamp = query.GetColumnValueInt64(1);
-			int CameraID = query.GetColumnValueInt(2);
-			int Save = query.GetColumnValueInt(9);
-			bool Manual = query.GetColumnValueInt(6) == 0;
-			const char* TagsStr = query.GetColumnValueText(10);
-
-			LOG_WARNING( "DELETE_DEBUG: ClipUID=%llu cam=%d ts=%lld save=%d mode=%s tags=%s",
-				(unsigned long long)ClipID, CameraID, (long long)Timestamp, Save,
-				Manual ? "Manual" : "Auto", TagsStr ? TagsStr : "" );
-
-			ClipToDelete Clip;
-			Clip.ClipID = ClipID;
-			Clip.CameraID = CameraID;
-			Clip.Manual = Manual;
-			Clip.Timestamp = Timestamp;
-
-			ClipsToDelete.push_back(Clip);
-
-			return true;
+			moreToDelete = false;
+			break;
 		}
-	);
 
-	if( ClipsToDelete.size() )
-	{
-		LOG_WARNING( "DELETE_DEBUG: Would delete %zu clips (DaysToDelete=%d, cutoff timestamp=%lld). SKIPPING - deletion disabled for debugging.",
-			ClipsToDelete.size(), DaysToDelete, (long long)Timestamp );
-	}
-
-	// TEMPORARILY DISABLED FOR DEBUGGING — uncomment when issue is resolved
-	/*
-	for( auto& Clip : ClipsToDelete )
-	{
-		SQLiteDatabaseQueryInstance DeleteClipQuery( Context.Database, "DeleteClip" );
-		DeleteClipQuery->Bind( "@ClipUID", Clip.ClipID );
-
-		if( DeleteClipFiles( Context, Clip.CameraID, Clip.Timestamp, Clip.Manual ) )
+		for( auto& Clip : ClipsToDelete )
 		{
+			// Delete detection data for this clip's time range
+			{
+				SQLiteDatabaseQueryInstance q( Context.Database, "DeleteDetectionFramesInRange" );
+				q->Bind( "@CameraID", Clip.CameraID );
+				q->Bind( "@TimestampFrom", static_cast<double>( Clip.Timestamp ) );
+				q->Bind( "@TimestampTo", static_cast<double>( Clip.Timestamp + 300 ) ); // generous: 5 min max clip
+				q->Execute( nullptr );
+			}
+
+			// Delete clip files from disk
+			DeleteClipFiles( Context, Clip.CameraID, Clip.Timestamp, Clip.Manual );
+
+			// Delete clip record (also deletes ClipTag and Trail rows)
+			SQLiteDatabaseQueryInstance DeleteClipQuery( Context.Database, "DeleteClip" );
+			DeleteClipQuery->Bind( "@ClipUID", Clip.ClipID );
 			DeleteClipQuery->Execute(
 				[&]( const SQLiteDatabaseQuery& query )
 				{
@@ -133,8 +135,18 @@ void DeleteOldClips( const GlobalContext& Context, int DaysToDelete )
 				}
 			);
 		}
+
+		totalDeleted += (int)ClipsToDelete.size();
+
+		// If we got fewer than the batch limit, we're done
+		if( ClipsToDelete.size() < 500 )
+			moreToDelete = false;
 	}
-	*/
+
+	if( totalDeleted > 0 )
+	{
+		LOG_INFO( "Clip cleanup: deleted %d clips older than %d days.", totalDeleted, DaysToDelete );
+	}
 }
 
 void DeleteOldContinuousSegments( const GlobalContext& Context, int DaysToDelete )
@@ -435,6 +447,15 @@ void CleanupOldDetectionFrames( const GlobalContext& Context, int retentionDays 
 	for( int cameraId : cameraIds )
 	{
 		SQLiteDatabaseQueryInstance query( Context.Database, "DeleteDetectionFramesBefore" );
+		query->Bind( "@CameraID", cameraId );
+		query->Bind( "@Timestamp", cutoffEpoch );
+		query->Execute( nullptr );
+	}
+
+	// Also clean up FaceCrop data older than retention period
+	for( int cameraId : cameraIds )
+	{
+		SQLiteDatabaseQueryInstance query( Context.Database, "DeleteFaceCropsBefore" );
 		query->Bind( "@CameraID", cameraId );
 		query->Bind( "@Timestamp", cutoffEpoch );
 		query->Execute( nullptr );

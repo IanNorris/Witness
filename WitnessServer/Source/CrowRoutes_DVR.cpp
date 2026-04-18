@@ -88,12 +88,12 @@ void CrowListener::HandleDvrSegment( const crow::request& req, crow::response& r
 	std::string filePath;
 
 	SQLiteDatabaseQueryInstance query( m_GlobalContext->Database, "SelectContinuousSegments" );
-	// We need a query by SegmentUID — reuse SelectContinuousSegments isn't ideal,
+	// We need a query by SegmentUID -- reuse SelectContinuousSegments isn't ideal,
 	// so let's look up by UID directly. We'll query with a broad range and filter.
 	// Actually, let's just find the file path for this segment UID.
 	// For now, do a simple lookup.
 
-	// We need a dedicated query — let's use a direct approach
+	// We need a dedicated query -- let's use a direct approach
 	std::string sql = "SELECT FilePath FROM ContinuousSegment WHERE SegmentUID = " + std::to_string( segmentId );
 	sqlite3_stmt* stmt = nullptr;
 	int rc = sqlite3_prepare_v2( m_GlobalContext->Database->GetDatabase(), sql.c_str(), -1, &stmt, nullptr );

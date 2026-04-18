@@ -6,7 +6,7 @@
 #include <chrono>
 
 // Global sound manager with priority-based preemption and per-action cooldowns.
-// Thread-safe — called from multiple CameraWorker threads and MotionEvents.
+// Thread-safe -- called from multiple CameraWorker threads and MotionEvents.
 class SoundManager
 {
 public:

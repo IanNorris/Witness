@@ -448,7 +448,7 @@ void SetupServer::HandleElevateStatus( const crow::request& req, crow::response&
 	std::ifstream statusFile( statusPath );
 	if( !statusFile )
 	{
-		// Status file doesn't exist yet — still running
+		// Status file doesn't exist yet -- still running
 		res.code = 200;
 		res.body = R"({"status":"running"})";
 		res.set_header( "Content-Type", "application/json" );

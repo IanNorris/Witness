@@ -537,7 +537,7 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 								cv::Mat faceCrop;
 								cv::resize( mat( faceRect ), faceCrop, cv::Size( 112, 112 ) );
 
-								// Compute sharpness via Laplacian variance — reject blurry crops
+								// Compute sharpness via Laplacian variance -- reject blurry crops
 								cv::Mat faceGray, faceLaplacian;
 								cv::cvtColor( faceCrop, faceGray, cv::COLOR_BGR2GRAY );
 								cv::Laplacian( faceGray, faceLaplacian, CV_64F );
@@ -1029,7 +1029,7 @@ void ClipReprocessWorker::ComputeAndStoreTrails( int64_t clipUID, int cameraID, 
 		std::sort( trail.points.begin(), trail.points.end(),
 			[]( const TrailPoint& a, const TrailPoint& b ) { return a.timestamp < b.timestamp; } );
 
-		// 90th percentile outlier filtering — remove spikey jumps
+		// 90th percentile outlier filtering -- remove spikey jumps
 		if( trail.points.size() >= 4 )
 		{
 			std::vector<double> dists;
@@ -1080,7 +1080,7 @@ void ClipReprocessWorker::ComputeAndStoreTrails( int64_t clipUID, int cameraID, 
 		if( current.size() >= 2 )
 			segments.push_back( std::move( current ) );
 
-		// Store each segment with all points (no RDP — client needs full granularity for frame scrubbing)
+		// Store each segment with all points (no RDP -- client needs full granularity for frame scrubbing)
 		for( auto& seg : segments )
 		{
 			if( seg.size() < 2 )

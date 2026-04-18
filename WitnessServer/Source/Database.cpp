@@ -504,6 +504,7 @@ namespace Database
 	
 	std::string DeleteClip = R"RAW(
 		DELETE FROM ClipTag WHERE ClipUID == @ClipUID;
+		DELETE FROM Trail WHERE ClipUID == @ClipUID;
 		DELETE FROM Clip 
 		WHERE 
 				ClipUID == @ClipUID 
@@ -568,7 +569,8 @@ namespace Database
 		WHERE
 			Timestamp < @Timestamp
 			AND (Save == 0 OR Save IS NULL)
-		LIMIT 50;
+		ORDER BY Timestamp ASC
+		LIMIT 500;
 	)RAW";
 
 	std::string SelectClipForReprocess = R"RAW(
@@ -1127,7 +1129,7 @@ namespace Database
 		sqlite3_exec( DB->GetDatabase(), "UPDATE FaceCrop SET Confidence = Confidence / 10.0 WHERE Confidence > 1.0;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "UPDATE FaceCrop SET Confidence = Confidence / 10.0 WHERE Confidence > 1.0;", nullptr, nullptr, nullptr );
 
-		// Migrate old Tag table schema — drop and recreate if it has the old schema
+		// Migrate old Tag table schema -- drop and recreate if it has the old schema
 		// (old schema had Name CHAR(64), Description TEXT; new needs Name TEXT UNIQUE, Display, Icon, etc.)
 		{
 			char* errMsg = nullptr;
@@ -1140,7 +1142,7 @@ namespace Database
 
 			if( !hasDisplay )
 			{
-				// Old schema — drop and recreate
+				// Old schema -- drop and recreate
 				sqlite3_exec( DB->GetDatabase(), "DROP TABLE IF EXISTS Tag;", nullptr, nullptr, nullptr );
 				sqlite3_exec( DB->GetDatabase(), R"(
 					CREATE TABLE IF NOT EXISTS Tag(
@@ -1172,6 +1174,17 @@ namespace Database
 				FOREIGN KEY (TagUID) REFERENCES Tag(TagUID)
 			);
 		)", nullptr, nullptr, nullptr );
+
+		// Performance indexes -- critical for queries on large Clip tables
+		sqlite3_exec( DB->GetDatabase(), "CREATE INDEX IF NOT EXISTS idx_clip_detversion_ts ON Clip(DetectionVersion, Timestamp DESC);", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "CREATE INDEX IF NOT EXISTS idx_clip_lighting_ts ON Clip(Lighting, Timestamp DESC);", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "CREATE INDEX IF NOT EXISTS idx_clip_reviewed_ts ON Clip(Reviewed, Timestamp DESC);", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "CREATE INDEX IF NOT EXISTS idx_clip_camera_ts ON Clip(Camera, Timestamp DESC);", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "CREATE INDEX IF NOT EXISTS idx_detbox_frame ON DetectionBox(FrameUID);", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "CREATE INDEX IF NOT EXISTS idx_trail_clip ON Trail(ClipUID);", nullptr, nullptr, nullptr );
+
+		// Run ANALYZE to update query planner statistics after adding indexes
+		sqlite3_exec( DB->GetDatabase(), "ANALYZE;", nullptr, nullptr, nullptr );
 
 		CREATE_QUERY( GetSetting );
 		CREATE_QUERY( GetAllSettings );

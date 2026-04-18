@@ -6,6 +6,7 @@
 #include <Log.h>
 #include <set>
 #include <map>
+#include <unordered_map>
 
 // ===== Tag Handlers =====
 
@@ -374,25 +375,36 @@ void CrowListener::HandleClipTimeline( const crow::request& req, crow::response&
 		return true;
 	});
 
-	// Fetch tags — limit to 500 clips max to avoid hammering the DB on huge ranges
+	// Fetch tags -- batch query to avoid N+1
 	std::unordered_map<int64_t, std::vector<std::string>> clipTags;
+	if( !rawClips.empty() )
 	{
+		// Build IN clause from all clip UIDs (or sampled subset for huge ranges)
+		std::vector<int64_t> tagClipUIDs;
 		size_t tagLimit = std::min( rawClips.size(), (size_t)500 );
-		// Sample evenly across clips to get representative tags
 		size_t step = rawClips.size() > tagLimit ? rawClips.size() / tagLimit : 1;
 		for( size_t i = 0; i < rawClips.size(); i += step )
+			tagClipUIDs.push_back( rawClips[i].uid );
+
+		std::string inClause;
+		for( size_t i = 0; i < tagClipUIDs.size(); i++ )
 		{
-			auto& c = rawClips[i];
-			SQLiteDatabaseQueryInstance tq( m_GlobalContext->Database, "SelectTagsForClip" );
-			tq->Bind( "@ClipUID", c.uid );
-			tq->Execute( [&clipTags, uid = c.uid]( const SQLiteDatabaseQuery& query )
-			{
-				const char* name = query.GetColumnValueText( 1 );
-				if( name )
-					clipTags[uid].push_back( name );
-				return true;
-			});
+			if( i > 0 ) inClause += ",";
+			inClause += std::to_string( tagClipUIDs[i] );
 		}
+
+		std::string batchSql = "SELECT ct.ClipUID, t.Name FROM ClipTag ct "
+			"INNER JOIN Tag t ON ct.TagUID = t.TagUID "
+			"WHERE ct.ClipUID IN (" + inClause + ");";
+
+		sqlite3_exec( m_GlobalContext->Database->GetDatabase(), batchSql.c_str(),
+			[]( void* data, int cols, char** values, char** ) -> int
+			{
+				auto& map = *static_cast<std::unordered_map<int64_t, std::vector<std::string>>*>( data );
+				if( cols >= 2 && values[0] && values[1] )
+					map[std::stoll( values[0] )].push_back( values[1] );
+				return 0;
+			}, &clipTags, nullptr );
 	}
 
 	// Aggregate into time buckets
@@ -468,7 +480,7 @@ void CrowListener::HandleClipTimeline( const crow::request& req, crow::response&
 	Data["bucketSeconds"] = bucketSecs;
 	Data["events"] = std::move( events );
 
-	// Include clip retention cutoff — always show if retention days configured
+	// Include clip retention cutoff -- always show if retention days configured
 	{
 		std::string retentionStr;
 		SQLiteDatabaseQueryInstance rq( m_GlobalContext->Database, "GetSetting" );

@@ -232,6 +232,9 @@ SQLiteDatabase::SQLiteDatabase( const std::string& filename, const std::string& 
 	// Allow up to 5 seconds for write contention before returning SQLITE_BUSY
 	sqlite3_busy_timeout( m_database, 5000 );
 
+	// Enable foreign key enforcement (required for ON DELETE CASCADE to work)
+	sqlite3_exec( m_database, "PRAGMA foreign_keys = ON;", nullptr, nullptr, nullptr );
+
 	if( initScript.length() > 0 )
 	{
 		char* errorMessage = nullptr;

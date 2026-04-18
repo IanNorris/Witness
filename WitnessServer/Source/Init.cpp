@@ -278,7 +278,7 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 		}
 		else
 		{
-			LOG_WARNING( "Face recognition model failed to load — feature disabled." );
+			LOG_WARNING( "Face recognition model failed to load -- feature disabled." );
 			Video.FaceRecognitionEnabled = false;
 		}
 	}
@@ -321,7 +321,7 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 
 	const int DaysToDelete = 10;
 
-	// Clip cleanup — disabled by default until verified safe
+	// Clip cleanup -- disabled by default until verified safe
 	std::string clipCleanupEnabled;
 	GetSettingsField( Settings, "clip_cleanup_enabled", clipCleanupEnabled, Errors );
 	if( clipCleanupEnabled == "true" )
@@ -374,15 +374,31 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 		if( quotaBytes > 0 ) EnforceQuotaContinuousSegments( *Context, quotaBytes );
 		CheckDiskSpaceSafety( *Context );
 
-		Timer->AddTimer( [this, contRetentionDays, quotaBytes](){
+		// Detection data retention (separate from continuous recording)
+		std::string detRetentionStr;
+		int detRetentionDays = 3; // default: 3 days (detection overlays are large)
+		if( GetSettingsField( Settings, "detection_retention_days", detRetentionStr, Errors ) && !detRetentionStr.empty() )
+		{
+			int parsed = std::atoi( detRetentionStr.c_str() );
+			if( parsed > 0 ) detRetentionDays = parsed;
+		}
+		LOG_INFO( "Detection data cleanup: retention %d days.", detRetentionDays );
+		CleanupOldDetectionFrames( *Context, detRetentionDays );
+
+		// Reclaim disk space after startup cleanup
+		LOG_INFO( "Running VACUUM to reclaim disk space..." );
+		sqlite3_exec( Context->Database->GetDatabase(), "VACUUM;", nullptr, nullptr, nullptr );
+		LOG_INFO( "VACUUM complete." );
+
+		Timer->AddTimer( [this, contRetentionDays, quotaBytes, detRetentionDays](){
 			DeleteOldContinuousSegments( *Context, contRetentionDays );
 			if( quotaBytes > 0 ) EnforceQuotaContinuousSegments( *Context, quotaBytes );
 			CheckDiskSpaceSafety( *Context );
-			CleanupOldDetectionFrames( *Context, contRetentionDays );
+			CleanupOldDetectionFrames( *Context, detRetentionDays );
 		}, 5 * 60 );
 	}
 
-	// Build hash broadcast — re-read hash file every 30s, broadcast on change
+	// Build hash broadcast -- re-read hash file every 30s, broadcast on change
 	Timer->AddTimer( [this](){
 		Server->ReadBuildHash();
 		auto& ctx = *Context;
@@ -505,7 +521,7 @@ bool WitnessServer::CreateListener( const std::unordered_map< std::string, std::
 
 	if( Secure )
 	{
-		// Cert/key paths are optional in DB — will be validated in CrowListener::Start()
+		// Cert/key paths are optional in DB -- will be validated in CrowListener::Start()
 		GetSettingsField( Settings, "server_tls_cert", CertPath, Errors );
 		GetSettingsField( Settings, "server_tls_key", KeyPath, Errors );
 	}

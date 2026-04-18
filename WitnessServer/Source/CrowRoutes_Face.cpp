@@ -307,7 +307,7 @@ void CrowListener::HandleDetectionCropImage( const crow::request& req, crow::res
 		return;
 	}
 
-	// cropPath is relative to CachePath — validate it doesn't escape
+	// cropPath is relative to CachePath -- validate it doesn't escape
 	fs::path fullPath = fs::path( m_GlobalContext->CachePath ) / "crops" / cropPath;
 	fs::path canonical = fs::weakly_canonical( fullPath );
 	fs::path cacheCanonical = fs::weakly_canonical( fs::path( m_GlobalContext->CachePath ) );

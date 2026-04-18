@@ -160,7 +160,7 @@ void CameraWorker::WorkerInit()
 	
 	Observer = std::make_shared<ObservingMotionFilter>( NoContinuation, Camera.ID, MessageBusObject );
 
-	// Set up detection overlay callback — stores detection boxes and broadcasts via WebSocket
+	// Set up detection overlay callback -- stores detection boxes and broadcasts via WebSocket
 	if( Context && Context->Database && Context->Events )
 	{
 		auto db = Context->Database;
@@ -312,7 +312,7 @@ void CameraWorker::WorkerInit()
 						cv::Mat faceCrop;
 						cv::resize( frame.DecodedFrame( faceRect ), faceCrop, cv::Size( 112, 112 ) );
 
-						// Compute sharpness via Laplacian variance — reject blurry crops
+						// Compute sharpness via Laplacian variance -- reject blurry crops
 						cv::Mat gray, laplacian;
 						cv::cvtColor( faceCrop, gray, cv::COLOR_BGR2GRAY );
 						cv::Laplacian( gray, laplacian, CV_64F );
@@ -403,10 +403,10 @@ void CameraWorker::WorkerInit()
 						int64_t cropUID = query->GetLastInsertionId();
 
 						// Generate face embedding and match against known faces
-						// Skip low-confidence detections — YuNet false positives produce garbage embeddings
+						// Skip low-confidence detections -- YuNet false positives produce garbage embeddings
 						if( faceEmbModel && faceEmbModel->IsModelLoaded() && box.Confidence >= 0.8f )
 						{
-							// Validate landmark geometry — real faces have eyes above nose above mouth
+							// Validate landmark geometry -- real faces have eyes above nose above mouth
 							// YuNet landmarks: 0=right eye, 1=left eye, 2=nose, 3=right mouth, 4=left mouth
 							bool hasLandmarks = false;
 							for( int li = 0; li < 5; li++ )
@@ -430,7 +430,7 @@ void CameraWorker::WorkerInit()
 								float mouthAvgY = ( cropLmY[3] + cropLmY[4] ) * 0.5f;
 								float interEyeDist = std::abs( cropLmX[1] - cropLmX[0] );
 
-								// Orientation checks — reject extreme profile/upside-down faces
+								// Orientation checks -- reject extreme profile/upside-down faces
 								// Relaxed for surveillance cameras which capture natural angles
 								float eyeMidX = ( cropLmX[0] + cropLmX[1] ) * 0.5f;
 								float noseOffsetX = std::abs( cropLmX[2] - eyeMidX );
@@ -451,7 +451,7 @@ void CameraWorker::WorkerInit()
 									auto embedding = faceEmbModel->GetEmbedding( alignedFace );
 									if( !embedding.empty() )
 									{
-										// Match against known faces (for display only — not persisted)
+										// Match against known faces (for display only -- not persisted)
 										std::string matchedName;
 										double matchConf = 0.0;
 										int matchedKnownFaceUID = 0;
@@ -477,7 +477,7 @@ void CameraWorker::WorkerInit()
 											}
 										}
 
-										// Store embedding — auto-assign if enabled and matched
+										// Store embedding -- auto-assign if enabled and matched
 										SQLiteDatabaseQueryInstance embQ( db, "InsertFaceEmbedding" );
 										embQ->Bind( "@FaceCropUID", static_cast<int>( cropUID ) );
 										if( faceAutoAssign && matchedKnownFaceUID > 0 )

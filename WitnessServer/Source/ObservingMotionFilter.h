@@ -39,7 +39,7 @@ struct DetectionFrameData
 	};
 	std::vector<Box> Boxes;
 
-	// Full decoded BGR frame — valid only during callback invocation.
+	// Full decoded BGR frame -- valid only during callback invocation.
 	// Used by callback to crop detection regions for storage.
 	cv::Mat DecodedFrame;
 };

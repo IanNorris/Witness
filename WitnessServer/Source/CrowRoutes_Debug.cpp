@@ -167,7 +167,7 @@ void CrowListener::HandleDebugReloadTLS( const crow::request& req, crow::respons
 
 	crow::json::wvalue Data;
 	Data["success"] = Success;
-	Data["message"] = Success ? "TLS certificate reloaded" : "TLS reload failed — check server logs";
+	Data["message"] = Success ? "TLS certificate reloaded" : "TLS reload failed -- check server logs";
 
 	res.set_header( "Content-Type", "application/json" );
 	res.body = Data.dump();
@@ -557,7 +557,7 @@ void CrowListener::HandleTrailsQuery( const crow::request& req, crow::response& 
 	double from = std::stod( fromParam );
 	double to = std::stod( toParam );
 
-	// Build JSON response manually for performance — avoids crow::json::wvalue overhead
+	// Build JSON response manually for performance -- avoids crow::json::wvalue overhead
 	// and passes PointData through as raw compact arrays
 	std::ostringstream json;
 	json << R"({"cameraId":)" << cameraId << R"(,"trails":[)";
@@ -595,7 +595,7 @@ void CrowListener::HandleTrailsQuery( const crow::request& req, crow::response& 
 			if( faceName )
 				json << R"(,"name":")" << faceName << "\"";
 
-			// Pass PointData through verbatim — already compact [[x,y,t],...]
+			// Pass PointData through verbatim -- already compact [[x,y,t],...]
 			json << R"(,"pts":)" << pointData << "}";
 
 			return true;
@@ -709,7 +709,7 @@ static bool LogCertExpiry( const std::string& certPath )
 		LOG_INFO( "TLS: Certificate expires in %d days (%s)", pday, certPath.c_str() );
 		if( pday < 30 )
 		{
-			LOG_WARNING( "TLS WARNING: Certificate expires in less than 30 days — consider renewing." );
+			LOG_WARNING( "TLS WARNING: Certificate expires in less than 30 days -- consider renewing." );
 		}
 	}
 
@@ -781,7 +781,7 @@ static std::string ResolveBindAddress( const std::string& hostname )
 	if( !ec )
 		return hostname;
 
-	// It's a domain name — bind to all interfaces
+	// It's a domain name -- bind to all interfaces
 	return "0.0.0.0";
 }
 
@@ -790,7 +790,7 @@ bool CrowListener::ReloadTLS()
 #ifdef CROW_ENABLE_SSL
 	if( !m_Secure )
 	{
-		LOG_INFO( "TLS reload skipped — TLS is not enabled." );
+		LOG_INFO( "TLS reload skipped -- TLS is not enabled." );
 		return true;
 	}
 
@@ -825,7 +825,7 @@ bool CrowListener::ReloadTLS()
 
 		SSL_CTX_free( sslCtx );
 
-		// Validated successfully — now do a graceful server restart
+		// Validated successfully -- now do a graceful server restart
 		LOG_INFO( "TLS: Certificate validated, restarting server..." );
 		m_App.stop();
 		if( m_ServerThread.joinable() )
@@ -862,7 +862,7 @@ bool CrowListener::ReloadTLS()
 		return false;
 	}
 #else
-	LOG_INFO( "TLS reload skipped — CROW_ENABLE_SSL not compiled in." );
+	LOG_INFO( "TLS reload skipped -- CROW_ENABLE_SSL not compiled in." );
 	return false;
 #endif
 }
@@ -929,7 +929,7 @@ void CrowListener::Start()
 	}
 	catch( const std::exception& e )
 	{
-		LOG_ERROR( "Failed to start server on %s:%d — %s", bindAddr.c_str(), m_Port, e.what() );
+		LOG_ERROR( "Failed to start server on %s:%d -- %s", bindAddr.c_str(), m_Port, e.what() );
 		return;
 	}
 

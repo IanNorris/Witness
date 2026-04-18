@@ -226,7 +226,7 @@ void CrowListener::HandleFaceAssign( const crow::request& req, crow::response& r
 	}
 	else
 	{
-		// Need to generate embedding first — load crop, align, embed
+		// Need to generate embedding first -- load crop, align, embed
 		std::string filePath;
 		float lmX[5] = {}, lmY[5] = {};
 
@@ -258,7 +258,7 @@ void CrowListener::HandleFaceAssign( const crow::request& req, crow::response& r
 		auto embModel = m_GlobalContext->FaceEmbeddingModel;
 		if( !embModel || !embModel->IsModelLoaded() )
 		{
-			// No model — just insert a placeholder without embedding
+			// No model -- just insert a placeholder without embedding
 			res.code = 400;
 			res.body = R"({"error":"Face recognition model not loaded"})";
 			res.set_header( "Content-Type", "application/json" );
@@ -285,7 +285,7 @@ void CrowListener::HandleFaceAssign( const crow::request& req, crow::response& r
 		if( hasLandmarks )
 		{
 			// Landmarks are stored as normalized (0-1) relative to full frame,
-			// but the crop is already 112x112 — need to convert to crop-relative pixels
+			// but the crop is already 112x112 -- need to convert to crop-relative pixels
 			// The crop coordinates aren't stored directly, so use landmarks as-is scaled to 112
 			float cropLmX[5], cropLmY[5];
 			for( int i = 0; i < 5; i++ )
@@ -747,7 +747,7 @@ void CrowListener::HandleFaceUpload( const crow::request& req, crow::response& r
 		return;
 	}
 
-	// Create face detector and detect faces (lower threshold than live detection —
+	// Create face detector and detect faces (lower threshold than live detection --
 	// uploaded photos vary in quality, and orientation filter catches bad detections)
 	auto detector = cv::FaceDetectorYN::create( faceDetectModelPath, "", image.size(), 0.5f, 0.3f, 5000 );
 	cv::Mat faces;
@@ -912,7 +912,7 @@ void CrowListener::HandleFaceUpload( const crow::request& req, crow::response& r
 	if( accepted == 0 )
 	{
 		std::string msg = faces.rows == 1
-			? "Face orientation not suitable for recognition — use a front-facing photo"
+			? "Face orientation not suitable for recognition -- use a front-facing photo"
 			: "No faces passed orientation check (" + std::to_string( faces.rows ) + " detected, all rejected)";
 		crow::json::wvalue err;
 		err["error"] = msg;

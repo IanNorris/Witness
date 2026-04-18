@@ -156,7 +156,7 @@ namespace TagHelpers
 
 		if( orphanCount > 0 )
 		{
-			LOG_INFO( "Found %d processed clips with no ClipTag rows — resetting for reprocessing", orphanCount );
+			LOG_INFO( "Found %d processed clips with no ClipTag rows -- resetting for reprocessing", orphanCount );
 			sqlite3_exec( DB->GetDatabase(),
 				"UPDATE Clip SET DetectionVersion = 0 WHERE DetectionVersion > 0 AND NOT EXISTS (SELECT 1 FROM ClipTag ct WHERE ct.ClipUID = Clip.ClipUID);",
 				nullptr, nullptr, nullptr );

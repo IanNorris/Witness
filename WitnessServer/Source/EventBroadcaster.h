@@ -134,7 +134,7 @@ private:
 				}
 				catch( ... )
 				{
-					// Connection closing — will be cleaned up via RemoveConnection
+					// Connection closing -- will be cleaned up via RemoveConnection
 				}
 
 				// Decrement pending count
