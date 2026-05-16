@@ -118,14 +118,16 @@ std::string ReolinkClient::SendCommand(const std::string& cmd, const std::string
 
 	if (m_Token.empty() || std::chrono::steady_clock::now() >= m_TokenExpiry)
 	{
-		// Login inline (mutex already held, Login also locks — need to avoid double lock)
+		LOG_INFO("ReolinkClient: Token expired/empty for %s, re-authenticating...", cmd.c_str());
+		// Login inline (mutex already held)
 		std::string loginBody = R"([{"cmd":"Login","action":0,"param":{"User":{"userName":")" +
 			m_Username + R"(","password":")" + m_Password + R"("}}}])";
 
 		auto loginResult = m_HttpClient->Post("/api.cgi?cmd=Login", loginBody, "application/json");
 		if (!loginResult || loginResult->status != 200)
 		{
-			m_LastError = "Login failed in SendCommand";
+			m_LastError = "Login failed in SendCommand: " + (loginResult ? ("HTTP " + std::to_string(loginResult->status)) : "connection error");
+			LOG_ERROR("ReolinkClient: %s", m_LastError.c_str());
 			return "";
 		}
 
@@ -241,17 +243,29 @@ bool ReolinkClient::PtzControl(PtzOp op, int speed)
 
 	std::string response = SendCommand("PtzCtrl", body);
 	if (response.empty())
+	{
+		LOG_ERROR("ReolinkClient::PtzControl: empty response, lastError=%s", m_LastError.c_str());
 		return false;
+	}
 
 	auto json = crow::json::load(response);
 	if (!json || json.size() == 0)
+	{
+		m_LastError = "PtzCtrl: invalid JSON: " + response.substr(0, 200);
+		LOG_ERROR("ReolinkClient: %s", m_LastError.c_str());
 		return false;
+	}
 
 	// Check for success (code 0)
 	auto& resp = json[0];
 	if (resp.has("code") && resp["code"].i() != 0)
 	{
-		m_LastError = "PtzCtrl failed, code=" + std::to_string((int)resp["code"].i());
+		int code = (int)resp["code"].i();
+		m_LastError = "PtzCtrl failed, code=" + std::to_string(code);
+		// Also check for error detail
+		if (resp.has("error") && resp["error"].has("detail"))
+			m_LastError += " detail=" + std::string(resp["error"]["detail"].s());
+		LOG_ERROR("ReolinkClient: %s (response: %s)", m_LastError.c_str(), response.substr(0, 300).c_str());
 		return false;
 	}
 

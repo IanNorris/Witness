@@ -39,7 +39,13 @@ export async function api<T = unknown>(
       }
       throw new Error('Unauthorized')
     }
-    throw new Error(`API error: ${response.status} ${response.statusText}`)
+    // Try to include server error message
+    let errorMsg = `API error: ${response.status} ${response.statusText}`
+    try {
+      const errBody = await response.json()
+      if (errBody?.error) errorMsg = errBody.error
+    } catch { /* ignore parse errors */ }
+    throw new Error(errorMsg)
   }
 
   const text = await response.text()
