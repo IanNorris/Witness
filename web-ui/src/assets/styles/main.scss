@@ -340,7 +340,28 @@ html, body, #app {
     padding: 2px 5px;
   }
 
+  .ptz-toggle {
+    position: absolute;
+    bottom: 8px;
+    left: 40px;
+    z-index: 10;
+    opacity: 0;
+    transition: opacity 0.2s;
+    padding: 2px 5px;
+  }
+
+  .ptz-overlay {
+    position: absolute;
+    bottom: 40px;
+    left: 8px;
+    z-index: 20;
+  }
+
   &:hover .detection-toggle {
+    opacity: 0.8;
+  }
+
+  &:hover .ptz-toggle {
     opacity: 0.8;
   }
 

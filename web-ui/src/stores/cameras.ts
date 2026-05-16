@@ -18,6 +18,7 @@ export const useCameraStore = defineStore('cameras', () => {
       previewUrl: `/camera/preview/${c.id}`,
       streamUrl: `/stream/${c.id}/playlist`,
       lowLatencyHLS: !!c.lowLatencyHLS,
+      ptzEnabled: !!c.ptzEnabled,
       stats: {
         fps: 0,
         bitrate: 0,

@@ -5,6 +5,7 @@ import { useSettingsStore } from '../../stores/settings'
 import { useCameraStore } from '../../stores/cameras'
 import HlsPlayer from './HlsPlayer.vue'
 import MsePlayer from './MsePlayer.vue'
+import PtzControls from './PtzControls.vue'
 
 const props = defineProps<{
   camera: Camera
@@ -32,6 +33,7 @@ const isConnected = ref(false)
 const imgRef = ref<HTMLImageElement | null>(null)
 const hlsPlayerRef = ref<InstanceType<typeof HlsPlayer> | InstanceType<typeof MsePlayer> | null>(null)
 const detectionOverlayActive = ref(false)
+const showPtzControls = ref(false)
 const detectionStorageKey = `witness-detection-overlay-${props.camera.id}`
 let refreshTimer: ReturnType<typeof setInterval> | null = null
 let jpegRunning = false
@@ -202,6 +204,24 @@ onUnmounted(() => {
             <circle cx="12" cy="12" r="3" />
           </svg>
         </button>
+
+        <!-- PTZ toggle button -->
+        <button
+          v-if="camera.ptzEnabled && isConnected"
+          class="btn btn-sm ptz-toggle"
+          :class="showPtzControls ? 'btn-primary' : 'btn-outline-secondary'"
+          @click.stop="showPtzControls = !showPtzControls"
+          title="PTZ controls"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>
+          </svg>
+        </button>
+
+        <!-- PTZ controls overlay -->
+        <div v-if="showPtzControls && camera.ptzEnabled" class="ptz-overlay" @click.stop>
+          <PtzControls :camera-id="camera.id" />
+        </div>
       </div>
     </div>
 
