@@ -370,17 +370,27 @@ ReolinkClient::ZoomFocusState ReolinkClient::GetZoomFocus()
 			auto& zoom = zf["zoom"];
 			if (zoom.has("pos"))
 				state.ZoomPos = (int)zoom["pos"].i();
+			// "max" here is the optical zoom factor (e.g. 6 = 6x), not the max position
 			if (zoom.has("max"))
-				state.ZoomMax = (int)zoom["max"].i();
+			{
+				int maxFactor = (int)zoom["max"].i();
+				// Convert zoom factor to estimated max position
+				// Reolink uses ~1024 units per 1x zoom factor
+				state.ZoomMax = maxFactor * 1024;
+			}
 		}
 		if (zf.has("focus") && zf["focus"].has("pos"))
 			state.FocusPos = (int)zf["focus"]["pos"].i();
 		state.Valid = true;
 	}
 
-	// If we got max from GetZoomFocus, no need to query GetAbility
+	// If we got max from GetZoomFocus, skip GetAbility
 	if (state.ZoomMax > 0)
+	{
+		LOG_INFO("ReolinkClient::GetZoomFocus: pos=%d, maxPos=%d, focus=%d",
+			state.ZoomPos, state.ZoomMax, state.FocusPos);
 		return state;
+	}
 
 	// Try to get zoom range from GetAbility
 	std::string abilityBody = R"([{"cmd":"GetAbility","action":0,"param":{"User":{"userName":")" +
@@ -396,16 +406,17 @@ ReolinkClient::ZoomFocusState ReolinkClient::GetZoomFocus()
 				aResp["value"]["Ability"].has("ptzCtrl") &&
 				aResp["value"]["Ability"]["ptzCtrl"].has("zoomMax"))
 			{
-				state.ZoomMax = (int)aResp["value"]["Ability"]["ptzCtrl"]["zoomMax"].i();
+				int maxFactor = (int)aResp["value"]["Ability"]["ptzCtrl"]["zoomMax"].i();
+				state.ZoomMax = maxFactor * 1024;
 			}
 		}
 	}
 
-	// Fallback
+	// Fallback: 6x * 1024
 	if (state.ZoomMax == 0)
-		state.ZoomMax = 6;  // Conservative default
+		state.ZoomMax = 6144;
 
-	LOG_INFO("ReolinkClient::GetZoomFocus: pos=%d, max=%d, focus=%d",
+	LOG_INFO("ReolinkClient::GetZoomFocus: pos=%d, maxPos=%d, focus=%d",
 		state.ZoomPos, state.ZoomMax, state.FocusPos);
 
 	return state;
@@ -413,11 +424,11 @@ ReolinkClient::ZoomFocusState ReolinkClient::GetZoomFocus()
 
 bool ReolinkClient::SetZoomPos(int zoomPos)
 {
-	// Match the structure returned by GetZoomFocus
-	std::string body = R"([{"cmd":"StartZoomFocus","action":0,"param":{"ZoomFocus":{"channel":0,"zoom":{"pos":)" +
-		std::to_string(zoomPos) + R"(}}}}])";
+	// Use PtzCtrl with ZoomPos op — position goes in "id" field
+	std::string body = R"([{"cmd":"PtzCtrl","action":0,"param":{"channel":0,"op":"ZoomPos","speed":0,"id":)" +
+		std::to_string(zoomPos) + R"(}}])";
 
-	std::string response = SendCommand("StartZoomFocus", body);
+	std::string response = SendCommand("PtzCtrl", body);
 	if (response.empty())
 	{
 		LOG_ERROR("ReolinkClient::SetZoomPos: empty response, lastError=%s", m_LastError.c_str());
@@ -440,10 +451,10 @@ bool ReolinkClient::SetZoomPos(int zoomPos)
 
 bool ReolinkClient::SetFocusPos(int focusPos)
 {
-	std::string body = R"([{"cmd":"StartZoomFocus","action":0,"param":{"channel":0,"op":"FocusPos","pos":{"focus":{"pos":)" +
-		std::to_string(focusPos) + R"(}}}}])";
+	std::string body = R"([{"cmd":"PtzCtrl","action":0,"param":{"channel":0,"op":"FocusPos","speed":0,"id":)" +
+		std::to_string(focusPos) + R"(}}])";
 
-	std::string response = SendCommand("StartZoomFocus", body);
+	std::string response = SendCommand("PtzCtrl", body);
 	if (response.empty())
 		return false;
 
