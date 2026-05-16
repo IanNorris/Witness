@@ -60,7 +60,7 @@ function defaultForm(): CameraFormData {
     groups: [],
     ptzEnabled: 0,
     ptzApiHost: '',
-    ptzApiPort: 80,
+    ptzApiPort: 443,
     ptzUsername: '',
     ptzPassword: '',
     linkedCameraId: 0,

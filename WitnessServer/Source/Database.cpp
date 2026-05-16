@@ -1133,7 +1133,7 @@ namespace Database
 		// PTZ camera configuration columns
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN PtzEnabled INTEGER DEFAULT 0;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN PtzApiHost TEXT DEFAULT '';", nullptr, nullptr, nullptr );
-		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN PtzApiPort INTEGER DEFAULT 80;", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN PtzApiPort INTEGER DEFAULT 443;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN PtzUsername TEXT DEFAULT '';", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN PtzPassword TEXT DEFAULT '';", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN LinkedCameraId INTEGER DEFAULT 0;", nullptr, nullptr, nullptr );

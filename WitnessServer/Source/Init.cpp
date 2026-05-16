@@ -639,10 +639,17 @@ void WitnessServer::StartCamera(const SQLiteDatabaseQuery& query)
 
 			if (ptzHost && strlen(ptzHost) > 0 && ptzUser && ptzPass)
 			{
-				auto ptzClient = std::make_shared<ReolinkClient>(
-					ptzHost, ptzPort > 0 ? ptzPort : 80, ptzUser, ptzPass);
-				Context->PtzClients[Camera.ID] = ptzClient;
-				LOG_INFO("  PTZ enabled for %s (%s:%d)", Camera.Name.c_str(), ptzHost, ptzPort);
+				auto ptzClient = ReolinkClient::AutoDetect(
+					ptzHost, ptzPort > 0 ? ptzPort : 443, ptzUser, ptzPass);
+				if (ptzClient)
+				{
+					Context->PtzClients[Camera.ID] = ptzClient;
+					LOG_INFO("  PTZ enabled for %s (%s)", Camera.Name.c_str(), ptzHost);
+				}
+				else
+				{
+					LOG_ERROR("  PTZ failed to connect for %s (%s:%d)", Camera.Name.c_str(), ptzHost, ptzPort);
+				}
 			}
 		}
 	}

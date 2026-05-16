@@ -23,7 +23,9 @@ static PtzOp ParsePtzCommand(const std::string& cmd)
 
 void CrowListener::HandlePtzCommand(const crow::request& req, crow::response& res, int cameraId, const std::string& command)
 {
-	int UserUID = CrowAuth::IsCameraAuthenticated(*m_GlobalContext, req, nullptr,
+	auto body = crow::json::load(req.body);
+
+	int UserUID = CrowAuth::IsCameraAuthenticated(*m_GlobalContext, req, body ? &body : nullptr,
 		CrowAuth::Action::ReadWrite, CrowAuth::Privilege::Normal, cameraId);
 	if (UserUID <= 0)
 	{
@@ -58,17 +60,12 @@ void CrowListener::HandlePtzCommand(const crow::request& req, crow::response& re
 
 	// Parse speed from body if present
 	int speed = 32;
-	if (!req.body.empty())
-	{
-		auto body = crow::json::load(req.body);
-		if (body && body.has("speed"))
-			speed = (int)body["speed"].i();
-	}
+	if (body && body.has("speed"))
+		speed = (int)body["speed"].i();
 
 	// Handle preset command specially
 	if (command == "preset")
 	{
-		auto body = crow::json::load(req.body);
 		if (!body || !body.has("id"))
 		{
 			res.code = 400;
@@ -168,7 +165,9 @@ void CrowListener::HandlePtzPresets(const crow::request& req, crow::response& re
 
 void CrowListener::HandlePtzPresetSet(const crow::request& req, crow::response& res, int cameraId)
 {
-	int UserUID = CrowAuth::IsCameraAuthenticated(*m_GlobalContext, req, nullptr,
+	auto body = crow::json::load(req.body);
+
+	int UserUID = CrowAuth::IsCameraAuthenticated(*m_GlobalContext, req, body ? &body : nullptr,
 		CrowAuth::Action::ReadWrite, CrowAuth::Privilege::Administrator, cameraId);
 	if (UserUID <= 0)
 	{
@@ -177,7 +176,6 @@ void CrowListener::HandlePtzPresetSet(const crow::request& req, crow::response& 
 		return;
 	}
 
-	auto body = crow::json::load(req.body);
 	if (!body || !body.has("id") || !body.has("name"))
 	{
 		res.code = 400;
@@ -206,7 +204,9 @@ void CrowListener::HandlePtzPresetSet(const crow::request& req, crow::response& 
 
 void CrowListener::HandlePtzPresetDelete(const crow::request& req, crow::response& res, int cameraId)
 {
-	int UserUID = CrowAuth::IsCameraAuthenticated(*m_GlobalContext, req, nullptr,
+	auto body = crow::json::load(req.body);
+
+	int UserUID = CrowAuth::IsCameraAuthenticated(*m_GlobalContext, req, body ? &body : nullptr,
 		CrowAuth::Action::ReadWrite, CrowAuth::Privilege::Administrator, cameraId);
 	if (UserUID <= 0)
 	{
@@ -215,7 +215,6 @@ void CrowListener::HandlePtzPresetDelete(const crow::request& req, crow::respons
 		return;
 	}
 
-	auto body = crow::json::load(req.body);
 	if (!body || !body.has("id"))
 	{
 		res.code = 400;

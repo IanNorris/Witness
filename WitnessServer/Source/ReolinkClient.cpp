@@ -6,20 +6,68 @@
 #include <crow/json.h>
 #include <sstream>
 
-ReolinkClient::ReolinkClient(const std::string& host, int port, const std::string& username, const std::string& password)
+ReolinkClient::ReolinkClient(const std::string& host, int port, bool useTls, const std::string& username, const std::string& password)
 	: m_Host(host)
 	, m_Port(port)
 	, m_Username(username)
 	, m_Password(password)
 	, m_TokenExpiry(std::chrono::steady_clock::now())
 {
-	std::string url = "http://" + m_Host + ":" + std::to_string(m_Port);
+	std::string url = (useTls ? "https://" : "http://") + m_Host + ":" + std::to_string(m_Port);
 	m_HttpClient = std::make_unique<httplib::Client>(url);
 	m_HttpClient->set_connection_timeout(5);
 	m_HttpClient->set_read_timeout(10);
+	if (useTls)
+	{
+		m_HttpClient->enable_server_certificate_verification(false);
+	}
 }
 
 ReolinkClient::~ReolinkClient() = default;
+
+std::shared_ptr<ReolinkClient> ReolinkClient::AutoDetect(const std::string& host, int port, const std::string& username, const std::string& password)
+{
+	// Try HTTPS on the given port first
+	auto client = std::make_shared<ReolinkClient>(host, port, true, username, password);
+	if (client->Login())
+	{
+		LOG_INFO("ReolinkClient: Connected via HTTPS to %s:%d", host.c_str(), port);
+		return client;
+	}
+
+	// Try HTTP on the given port
+	client = std::make_unique<ReolinkClient>(host, port, false, username, password);
+	if (client->Login())
+	{
+		LOG_INFO("ReolinkClient: Connected via HTTP to %s:%d", host.c_str(), port);
+		return client;
+	}
+
+	// If port wasn't 443, try HTTPS on 443
+	if (port != 443)
+	{
+		client = std::make_unique<ReolinkClient>(host, 443, true, username, password);
+		if (client->Login())
+		{
+			LOG_INFO("ReolinkClient: Connected via HTTPS to %s:443", host.c_str());
+			return client;
+		}
+	}
+
+	// If port wasn't 80, try HTTP on 80
+	if (port != 80)
+	{
+		client = std::make_unique<ReolinkClient>(host, 80, false, username, password);
+		if (client->Login())
+		{
+			LOG_INFO("ReolinkClient: Connected via HTTP to %s:80", host.c_str());
+			return client;
+		}
+	}
+
+	LOG_ERROR("ReolinkClient: Could not connect to %s (tried HTTPS and HTTP)", host.c_str());
+	return nullptr;
+}
 
 bool ReolinkClient::Login()
 {

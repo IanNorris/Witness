@@ -43,8 +43,11 @@ struct PtzPreset
 class ReolinkClient
 {
 public:
-	ReolinkClient(const std::string& host, int port, const std::string& username, const std::string& password);
+	ReolinkClient(const std::string& host, int port, bool useTls, const std::string& username, const std::string& password);
 	~ReolinkClient();
+
+	// Auto-detect protocol: tries HTTPS then HTTP on given port, then common ports
+	static std::shared_ptr<ReolinkClient> AutoDetect(const std::string& host, int port, const std::string& username, const std::string& password);
 
 	// Login and obtain a session token (auto-called on first API use)
 	bool Login();

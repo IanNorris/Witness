@@ -616,10 +616,13 @@ void CrowListener::HandleCameraUpdate( const crow::request& req, crow::response&
 	// Update PTZ client
 	if( PtzEnabled && !PtzApiHost.empty() && !PtzUsername.empty() && !PtzPassword.empty() )
 	{
-		auto ptzClient = std::make_shared<ReolinkClient>(
-			PtzApiHost, PtzApiPort > 0 ? PtzApiPort : 80, PtzUsername, PtzPassword);
+		auto ptzClient = ReolinkClient::AutoDetect(
+			PtzApiHost, PtzApiPort > 0 ? PtzApiPort : 443, PtzUsername, PtzPassword);
 		std::unique_lock<std::shared_mutex> lock(m_GlobalContext->Mutex);
-		m_GlobalContext->PtzClients[CameraID] = ptzClient;
+		if (ptzClient)
+			m_GlobalContext->PtzClients[CameraID] = ptzClient;
+		else
+			m_GlobalContext->PtzClients.erase(CameraID);
 	}
 	else
 	{
