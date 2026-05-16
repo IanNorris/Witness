@@ -82,6 +82,36 @@ void WitnessServer::HandleCameraBeginMotionMessage(const CameraBeginMotionMessag
 	}
 
 	StartCameraRecording( Worker, Data.ClipStats.TimestampClipStarted, Data.Camera, false, Data.Result );
+
+	// Trigger recording on cameras that use this camera as their motion source
+	if (Context->Database)
+	{
+		SQLiteDatabaseQueryInstance findPaired(Context->Database, "GetCamerasWithMotionSource");
+		findPaired->Bind("@SourceCameraId", Data.Camera);
+
+		std::vector<int> pairedCameraIds;
+		findPaired->Execute([&](const SQLiteDatabaseQuery& q) {
+			pairedCameraIds.push_back(q.GetColumnValueInt(0));
+			return true;
+		});
+
+		for (int pairedId : pairedCameraIds)
+		{
+			auto pairedState = Context->FindCameraById(pairedId);
+			if (pairedState && !pairedState->IsRecording && !pairedState->IsManualRecording)
+			{
+				pairedState->IsRecording = true;
+
+				crow::json::wvalue pairedEv;
+				pairedEv["cameraID"] = pairedId;
+				pairedEv["recording"] = true;
+				Context->Events->Broadcast("camera:recording", std::move(pairedEv));
+
+				StartCameraRecording(pairedState->Worker, Data.ClipStats.TimestampClipStarted, pairedId, false, Data.Result);
+				LOG_INFO("Motion on camera %d triggered paired camera %d", Data.Camera, pairedId);
+			}
+		}
+	}
 };
 
 void WitnessServer::HandleCameraUpdateMotionMessage(const CameraUpdateMotionMessage& Data)
@@ -125,5 +155,38 @@ void WitnessServer::HandleCameraEndMotionMessage(const CameraEndMotionMessage& D
 	if( Worker )
 	{
 		Context->MessageBus->SendToClient( Worker.get(), StopRecord );
+	}
+
+	// Stop recording on cameras that use this camera as their motion source
+	if (Context->Database)
+	{
+		SQLiteDatabaseQueryInstance findPaired(Context->Database, "GetCamerasWithMotionSource");
+		findPaired->Bind("@SourceCameraId", Data.Camera);
+
+		std::vector<int> pairedCameraIds;
+		findPaired->Execute([&](const SQLiteDatabaseQuery& q) {
+			pairedCameraIds.push_back(q.GetColumnValueInt(0));
+			return true;
+		});
+
+		for (int pairedId : pairedCameraIds)
+		{
+			auto pairedState = Context->FindCameraById(pairedId);
+			if (pairedState && pairedState->IsRecording && !pairedState->IsManualRecording)
+			{
+				pairedState->IsRecording = false;
+
+				crow::json::wvalue pairedEv;
+				pairedEv["cameraID"] = pairedId;
+				pairedEv["recording"] = false;
+				Context->Events->Broadcast("camera:recording", std::move(pairedEv));
+
+				auto pairedStop = std::make_shared<CameraStopRecordMessage>(pairedId, false);
+				if (pairedState->Worker)
+				{
+					Context->MessageBus->SendToClient(pairedState->Worker.get(), pairedStop);
+				}
+			}
+		}
 	}
 };

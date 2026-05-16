@@ -135,7 +135,8 @@ watch(hlsPlayerRef, (player) => {
   }
 })
 
-// Auto-fallback to JPEG when codec is unsupported (e.g. HEVC without browser support)
+// Auto-fallback when codec is unsupported at runtime (e.g. HEVC without browser support)
+// Works for both HLS and MSE player components which both expose codecUnsupported
 const codecFallback = ref(false)
 watch(() => (hlsPlayerRef.value as any)?.codecUnsupported, (unsupported: boolean | undefined) => {
   if (unsupported) {
@@ -143,26 +144,41 @@ watch(() => (hlsPlayerRef.value as any)?.codecUnsupported, (unsupported: boolean
   }
 })
 
+// Helper to check if a codec name represents HEVC
+function isHevcCodec(codec?: string): boolean {
+  return codec === 'hevc' || codec === 'h265' || codec === 'hev1'
+}
+
 // Proactive check: if camera reports HEVC and browser doesn't support it, skip HLS entirely
 const proactiveCodecFallback = computed(() => {
   if (hevcSupported) return false
-  const codec = props.camera.codec
-  return codec === 'hevc' || codec === 'h265' || codec === 'hev1'
+  return isHevcCodec(props.camera.codec)
 })
 
 // Determine if we should use the sub-stream (H.264 fallback) instead of JPEG
+// Only use sub-stream if it exists AND its codec is actually supported
 const useSubStream = computed(() => {
-  return proactiveCodecFallback.value && props.camera.hasSubStream
+  if (!proactiveCodecFallback.value) return false
+  if (!props.camera.hasSubStream) return false
+  // Don't use sub-stream if it's also HEVC and browser doesn't support it
+  if (isHevcCodec(props.camera.subCodec) && !hevcSupported) return false
+  return true
 })
 
 const effectiveModeWithFallback = computed(() => {
-  if (codecFallback.value && !props.camera.hasSubStream) return 'jpeg'
-  if (proactiveCodecFallback.value && !props.camera.hasSubStream) return 'jpeg'
+  // If main codec unsupported and no viable sub-stream, fall back to JPEG
+  if ((codecFallback.value || proactiveCodecFallback.value) && !useSubStream.value) return 'jpeg'
   // Sub-stream always uses MSE (WebSocket-based) since we have a WS route for it
-  if (useSubStream.value || codecFallback.value) {
-    return 'mse'
-  }
+  if (useSubStream.value) return 'mse'
   return effectiveMode.value
+})
+
+// Codec hint for MSE SourceBuffer — use the correct codec string for the stream we're actually playing
+const mseCodecHint = computed(() => {
+  const codec = useSubStream.value ? props.camera.subCodec : props.camera.codec
+  if (isHevcCodec(codec)) return 'hev1.1.6.L93.B0'
+  // Default H.264 baseline
+  return 'avc1.42001e'
 })
 
 onUnmounted(() => {
@@ -190,6 +206,7 @@ onUnmounted(() => {
           ref="hlsPlayerRef"
           :camera-id="camera.id"
           :use-sub-stream="useSubStream"
+          :codec-hint="mseCodecHint"
         />
 
         <!-- JPEG preview mode -->

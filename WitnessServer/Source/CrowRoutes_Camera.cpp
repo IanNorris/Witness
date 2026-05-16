@@ -140,6 +140,8 @@ void CrowListener::HandleCameraEnum( const crow::request& req, crow::response& r
 								Camera["ptzUsername"] = PtzUsername ? PtzUsername : "";
 								Camera["linkedCameraId"] = LinkedCameraId;
 							}
+							int MotionSourceCameraId = query.GetColumnValueInt( 20 );
+							Camera["motionSourceCameraId"] = MotionSourceCameraId;
 						}
 						else
 						{
@@ -586,6 +588,7 @@ void CrowListener::HandleCameraUpdate( const crow::request& req, crow::response&
 	std::string PtzUsername = body.has("ptzUsername") ? std::string(body["ptzUsername"].s()) : "";
 	std::string PtzPassword = body.has("ptzPassword") ? std::string(body["ptzPassword"].s()) : "";
 	int LinkedCameraId = body.has("linkedCameraId") ? (int)body["linkedCameraId"].i() : 0;
+	int MotionSourceCameraId = body.has("motionSourceCameraId") ? (int)body["motionSourceCameraId"].i() : 0;
 
 	SQLiteDatabaseQueryInstance UpdateCamera( m_GlobalContext->Database, "UpdateCamera" );
 	UpdateCamera->Bind( "@CameraId", CameraID );
@@ -608,6 +611,7 @@ void CrowListener::HandleCameraUpdate( const crow::request& req, crow::response&
 	UpdateCamera->Bind( "@PtzUsername", PtzUsername.empty() ? nullptr : PtzUsername.c_str() );
 	UpdateCamera->Bind( "@PtzPassword", PtzPassword.empty() ? nullptr : PtzPassword.c_str() );
 	UpdateCamera->Bind( "@LinkedCameraId", LinkedCameraId );
+	UpdateCamera->Bind( "@MotionSourceCameraId", MotionSourceCameraId );
 
 	if( UpdateCamera->Execute( nullptr ) < 0 )
 	{

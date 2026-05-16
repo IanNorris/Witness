@@ -137,6 +137,7 @@ export interface MseStreamState {
   connectionLost: Ref<boolean>
   isActive: Ref<boolean>
   latencyMs: Ref<number>
+  codecUnsupported: Ref<boolean>
 }
 
 export function useMseStream(
@@ -144,11 +145,13 @@ export function useMseStream(
   videoRef: Ref<HTMLVideoElement | null>,
   suffix: string = '',
   useSubStream: boolean = false,
+  codecHint?: string,
 ): MseStreamState {
   const showSpinner = ref(false)
   const connectionLost = ref(false)
   const isActive = ref(false)
   const latencyMs = ref(0)
+  const codecUnsupported = ref(false)
 
   const diagId = String(cameraId) + (suffix ? '_' + suffix : '_mse')
   const diag = new MseDiagnostics(diagId)
@@ -240,11 +243,13 @@ export function useMseStream(
   function createSourceBuffer(codec?: string) {
     if (!mediaSource || mediaSource.readyState !== 'open') return false
 
-    // Default codec for H.264 baseline — init segment will correct if different
-    const mimeType = `video/mp4; codecs="${codec || 'avc1.42001e'}"`
+    // Use explicit codec if provided, then codecHint from caller, then default H.264 baseline
+    const resolvedCodec = codec || codecHint || 'avc1.42001e'
+    const mimeType = `video/mp4; codecs="${resolvedCodec}"`
 
     if (!MediaSource.isTypeSupported(mimeType)) {
       diag.log('unsupportedCodec', { mimeType })
+      codecUnsupported.value = true
       return false
     }
 
@@ -669,5 +674,5 @@ export function useMseStream(
     stop()
   })
 
-  return { showSpinner, connectionLost, isActive, latencyMs }
+  return { showSpinner, connectionLost, isActive, latencyMs, codecUnsupported }
 }

@@ -572,10 +572,24 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 	unsigned int UsableMotionVectors = 0;
 
 	const unsigned int MotionVectorSkipFactor = 8;
+
+	// For high-resolution streams, reduce skip factor to sample more MVs.
+	// HEVC at 4K produces fewer total MVs, so skipping fewer ensures enough per-bucket data.
+	unsigned int effectiveSkipFactor = MotionVectorSkipFactor;
+	{
+		unsigned int frameWidth = TaskData->Frame.InputFrame->GetWidth();
+		unsigned int frameHeight = TaskData->Frame.InputFrame->GetHeight();
+		if (frameWidth > 1920 || frameHeight > 1080)
+		{
+			double areaRatio = (double)(1920 * 1080) / (double)(frameWidth * frameHeight);
+			effectiveSkipFactor = (unsigned int)(MotionVectorSkipFactor * areaRatio);
+			if (effectiveSkipFactor < 1) effectiveSkipFactor = 1;
+		}
+	}
 	{
 		FilterFrameStatScope Scope( TaskData->Frame.Stats, FilterStat_MVF_VectorPass );
 
-		for (unsigned int i = 0; i < MotionVectors; i+=MotionVectorSkipFactor)
+		for (unsigned int i = 0; i < MotionVectors; i+=effectiveSkipFactor)
 		{
 			const AVMotionVector& MV = MVData[i];
 		
@@ -612,6 +626,23 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 	}
 
 	int RefValue = BucketRefValue * BUCKET_DIMENSION * BUCKET_DIMENSION / MotionVectorSkipFactor;
+
+	// Scale RefValue for high-resolution streams. The filter was calibrated for 1080p H.264
+	// (60×33 = 1980 buckets, ~100k MVs). At 4K (120×67 = 8040 buckets), motion vectors spread
+	// across 4× more buckets, so per-bucket scores are proportionally lower.
+	// HEVC also produces fewer total MVs due to larger CTU blocks (up to 64×64 vs H.264 16×16).
+	{
+		const unsigned int refWidth = 1920;
+		const unsigned int refHeight = 1080;
+		unsigned int frameWidth = TaskData->Frame.InputFrame->GetWidth();
+		unsigned int frameHeight = TaskData->Frame.InputFrame->GetHeight();
+		if (frameWidth > refWidth || frameHeight > refHeight)
+		{
+			double areaRatio = (double)(refWidth * refHeight) / (double)(frameWidth * frameHeight);
+			RefValue = (int)(RefValue * areaRatio);
+			if (RefValue < 1) RefValue = 1;
+		}
+	}
 	//const int RefValue = 50;
 
 	float RescaleX = (float)TaskData->Frame.InputFrame->GetWidth() / (float)(WidthBucketWidth);

@@ -602,6 +602,7 @@ void WitnessServer::StartCamera(const SQLiteDatabaseQuery& query)
 	// ContinuousRecording column added via migration (may be NULL on old DBs)
 	Camera.ContinuousRecording = query.GetColumnValueInt(12);
 	Camera.LowLatencyHLS = query.GetColumnValueInt(13);
+	Camera.MotionSourceCameraId = query.GetColumnValueInt(20);
 
 	Camera.MotionFilterName = MotionFilterName && strlen(MotionFilterName) ? MotionFilterName : Video.MotionFilterName.c_str();
 

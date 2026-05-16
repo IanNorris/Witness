@@ -45,6 +45,13 @@ void CameraWorker::CreateInputStream()
 	Setup.HistoricalPacketBufferSeconds = Video.ClipHistoryPeriod;
 	Setup.ExportMotionVectors = Video.ExportMotionVectors != 0;
 
+	// Cameras with a motion source don't need their own motion analysis — passthrough only
+	if (Camera.MotionSourceCameraId > 0)
+	{
+		Setup.PassthroughOnly = true;
+		LOG_INFO("Camera %d using passthrough mode (motion source: camera %d)", Camera.ID, Camera.MotionSourceCameraId);
+	}
+
 	std::string CamPath = Camera.Path;
 
 	std::string CachePath = std::string(Context->CachePath.begin(), Context->CachePath.end());

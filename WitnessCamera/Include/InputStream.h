@@ -102,6 +102,7 @@ private:
 
 	int UniqueSourceID;
 	int FrameIndex;
+	bool NeedsAnalysisFrame; // Latched when analysis is due; cleared when a keyframe is decoded
 	int64_t TimeStarted;
 	bool IsConnecting;
 

@@ -84,6 +84,7 @@ struct CameraSettings
 	, MDFrameHeight( 720 )
 	, ContinuousRecording( 0 )
 	, LowLatencyHLS( 0 )
+	, MotionSourceCameraId( 0 )
 	{}
 
 	ImageProcessingJobQueue* JobQueue;
@@ -103,6 +104,7 @@ struct CameraSettings
 	int MDFrameHeight;
 	int ContinuousRecording;
 	int LowLatencyHLS;
+	int MotionSourceCameraId; // If set, this camera's motion events come from the source camera
 };
 
 class CameraWorker : public WorkerBase

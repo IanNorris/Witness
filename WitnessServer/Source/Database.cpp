@@ -431,7 +431,8 @@ namespace Database
 			PtzApiPort = @PtzApiPort,
 			PtzUsername = @PtzUsername,
 			PtzPassword = @PtzPassword,
-			LinkedCameraId = @LinkedCameraId
+			LinkedCameraId = @LinkedCameraId,
+			MotionSourceCameraId = @MotionSourceCameraId
 		WHERE CameraUID = @CameraId;
 	)RAW";
 
@@ -470,6 +471,10 @@ namespace Database
 
 	std::string GetLinkedCameraId = R"RAW(
 		SELECT LinkedCameraId FROM Camera WHERE CameraUID = @CameraId AND LinkedCameraId > 0
+	)RAW";
+
+	std::string GetCamerasWithMotionSource = R"RAW(
+		SELECT CameraUID FROM Camera WHERE MotionSourceCameraId = @SourceCameraId AND Enabled = 1
 	)RAW";
 
 	std::string GetCameraPtzConfig = R"RAW(
@@ -1142,6 +1147,9 @@ namespace Database
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN PtzPassword TEXT DEFAULT '';", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN LinkedCameraId INTEGER DEFAULT 0;", nullptr, nullptr, nullptr );
 
+		// Motion source camera: when set, this camera's motion events come from another camera
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN MotionSourceCameraId INTEGER DEFAULT 0;", nullptr, nullptr, nullptr );
+
 		// Trail table migration (new table, CREATE IF NOT EXISTS handles it)
 		sqlite3_exec( DB->GetDatabase(), "CREATE TABLE IF NOT EXISTS Trail(TrailUID INTEGER PRIMARY KEY AUTOINCREMENT, ClipUID INTEGER NOT NULL, CameraID INTEGER NOT NULL, ClassName TEXT NOT NULL, FaceName TEXT, StartTime REAL NOT NULL, EndTime REAL NOT NULL, PointData TEXT NOT NULL, FOREIGN KEY(ClipUID) REFERENCES Clip(ClipUID) ON DELETE CASCADE);", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "CREATE INDEX IF NOT EXISTS idx_trail_camera_time ON Trail(CameraID, StartTime, EndTime);", nullptr, nullptr, nullptr );
@@ -1238,6 +1246,7 @@ namespace Database
 		CREATE_QUERY( GetCamerasForUser );
 		CREATE_QUERY( GetCamerasDetailsForUser );
 		CREATE_QUERY( GetLinkedCameraId );
+		CREATE_QUERY( GetCamerasWithMotionSource );
 		CREATE_QUERY( GetCameraPtzConfig );
 		CREATE_QUERY( DeleteCamera );
 

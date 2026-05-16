@@ -23,6 +23,7 @@ export interface CameraFormData {
   ptzUsername: string
   ptzPassword: string
   linkedCameraId: number
+  motionSourceCameraId: number
 }
 
 const props = defineProps<{
@@ -64,6 +65,7 @@ function defaultForm(): CameraFormData {
     ptzUsername: '',
     ptzPassword: '',
     linkedCameraId: 0,
+    motionSourceCameraId: 0,
   }
 }
 
@@ -212,6 +214,15 @@ function toggleGroup(groupId: number) {
                     <div class="form-text">0 = none (dual-lens link)</div>
                   </div>
                 </template>
+              </div>
+
+              <!-- Motion Source -->
+              <div class="row g-2 mb-3">
+                <div class="col-md-6">
+                  <label class="form-label small">Motion Source Camera ID</label>
+                  <input v-model.number="form.motionSourceCameraId" type="number" min="0" class="form-control form-control-sm" />
+                  <div class="form-text">0 = detect own motion. Set to another camera's ID to pair (this camera records when the source detects motion, uses passthrough decode for minimal CPU)</div>
+                </div>
               </div>
 
               <!-- Groups -->

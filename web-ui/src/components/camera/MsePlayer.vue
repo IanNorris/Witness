@@ -7,15 +7,17 @@ const props = defineProps<{
   cameraId: number
   suffix?: string
   useSubStream?: boolean
+  codecHint?: string
 }>()
 
 const videoRef = ref<HTMLVideoElement | null>(null)
 const canvasRef = ref<HTMLCanvasElement | null>(null)
-const { showSpinner, connectionLost, latencyMs } = useMseStream(
+const { showSpinner, connectionLost, latencyMs, codecUnsupported } = useMseStream(
   props.cameraId,
   videoRef,
   props.suffix ?? '',
   props.useSubStream ?? false,
+  props.codecHint,
 )
 
 const { enabled: overlayEnabled, toggle: toggleOverlay } = useDetectionOverlay(
@@ -24,7 +26,7 @@ const { enabled: overlayEnabled, toggle: toggleOverlay } = useDetectionOverlay(
   videoRef,
 )
 
-defineExpose({ latencyMs, overlayEnabled, toggleOverlay })
+defineExpose({ latencyMs, overlayEnabled, toggleOverlay, codecUnsupported })
 </script>
 
 <template>
