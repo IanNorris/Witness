@@ -6,6 +6,7 @@
 #include "ClipHelpers.h"
 #include "Database.h"
 #include "TagHelpers.h"
+#include "ReolinkClient.h"
 
 #include <Log.h>
 #include <ONNXDetectionFilter.h>
@@ -626,6 +627,24 @@ void WitnessServer::StartCamera(const SQLiteDatabaseQuery& query)
 		auto& State = Context->GetCameraMap()[Camera.ID] = CameraState();
 		State.Worker = Worker;
 		State.Name = Camera.Name;
+
+		// Initialize PTZ client if enabled
+		int ptzEnabled = query.GetColumnValueInt(14);
+		if (ptzEnabled)
+		{
+			const char* ptzHost = query.GetColumnValueText(15);
+			int ptzPort = query.GetColumnValueInt(16);
+			const char* ptzUser = query.GetColumnValueText(17);
+			const char* ptzPass = query.GetColumnValueText(18);
+
+			if (ptzHost && strlen(ptzHost) > 0 && ptzUser && ptzPass)
+			{
+				auto ptzClient = std::make_shared<ReolinkClient>(
+					ptzHost, ptzPort > 0 ? ptzPort : 80, ptzUser, ptzPass);
+				Context->PtzClients[Camera.ID] = ptzClient;
+				LOG_INFO("  PTZ enabled for %s (%s:%d)", Camera.Name.c_str(), ptzHost, ptzPort);
+			}
+		}
 	}
 	else
 	{

@@ -673,6 +673,37 @@ void CrowListener::RegisterRoutes()
 		HandleDvrThumbnail( req, res, cameraId, timestamp );
 	});
 
+	// PTZ control
+	CROW_ROUTE( m_App, "/ptz/<int>/<string>" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res, int cameraId, const std::string& command )
+	{
+		HandlePtzCommand( req, res, cameraId, command );
+	});
+
+	CROW_ROUTE( m_App, "/ptz/<int>/position" )
+	([this]( const crow::request& req, crow::response& res, int cameraId )
+	{
+		HandlePtzPosition( req, res, cameraId );
+	});
+
+	CROW_ROUTE( m_App, "/ptz/<int>/presets" )
+	([this]( const crow::request& req, crow::response& res, int cameraId )
+	{
+		HandlePtzPresets( req, res, cameraId );
+	});
+
+	CROW_ROUTE( m_App, "/ptz/<int>/preset/set" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res, int cameraId )
+	{
+		HandlePtzPresetSet( req, res, cameraId );
+	});
+
+	CROW_ROUTE( m_App, "/ptz/<int>/preset/delete" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res, int cameraId )
+	{
+		HandlePtzPresetDelete( req, res, cameraId );
+	});
+
 	// WebSocket MSE stream
 	CROW_WEBSOCKET_ROUTE( m_App, "/ws/stream/<int>" )
 		.onaccept([this]( const crow::request& req, void** userdata ) -> bool

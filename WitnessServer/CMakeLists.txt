@@ -20,6 +20,7 @@ set(SERVER_SOURCES
     Source/CrowRoutes_FaceRecognition.cpp
     Source/CrowRoutes_DVR.cpp
     Source/CrowRoutes_Group.cpp
+    Source/CrowRoutes_Ptz.cpp
     Source/CrowRoutes_Action.cpp
     Source/CrowRoutes_Setup.cpp
     Source/CrowRoutes_Stream.cpp
@@ -37,6 +38,7 @@ set(SERVER_SOURCES
     Source/MotionEvents.cpp
     Source/ObservingMotionFilter.cpp
     Source/Recording.cpp
+    Source/ReolinkClient.cpp
     Source/SetupConfig.cpp
     Source/SetupServer.cpp
     Source/Shutdown.cpp
@@ -68,6 +70,7 @@ set(SERVER_HEADERS
     Source/MessageBus.h
     Source/Messages.h
     Source/ObservingMotionFilter.h
+    Source/ReolinkClient.h
     Source/SetupConfig.h
     Source/SetupServer.h
     Source/SettingsMap.h
@@ -86,6 +89,7 @@ add_executable(WitnessServer ${SERVER_SOURCES} ${SERVER_HEADERS})
 target_include_directories(WitnessServer PRIVATE
     Source
     ${CMAKE_SOURCE_DIR}/WitnessCamera/Include
+    ${CMAKE_SOURCE_DIR}/ThirdParty/httplib
     ${FFMPEG_INCLUDE_DIRS}
 )
 

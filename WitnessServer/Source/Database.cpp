@@ -425,7 +425,13 @@ namespace Database
 			BlackoutMaskPath = @BlackoutMaskPath,
 			FocusMaskPath = @FocusMaskPath,
 			ContinuousRecording = @ContinuousRecording,
-			LowLatencyHLS = @LowLatencyHLS
+			LowLatencyHLS = @LowLatencyHLS,
+			PtzEnabled = @PtzEnabled,
+			PtzApiHost = @PtzApiHost,
+			PtzApiPort = @PtzApiPort,
+			PtzUsername = @PtzUsername,
+			PtzPassword = @PtzPassword,
+			LinkedCameraId = @LinkedCameraId
 		WHERE CameraUID = @CameraId;
 	)RAW";
 
@@ -460,6 +466,10 @@ namespace Database
 		INNER JOIN UserGroupMapping UGM ON UGM.`Group` = CGM.`Group`
 		WHERE UGM.UserUID = @User
 		AND C.CameraUID = @Camera
+	)RAW";
+
+	std::string GetLinkedCameraId = R"RAW(
+		SELECT LinkedCameraId FROM Camera WHERE CameraUID = @CameraId AND LinkedCameraId > 0
 	)RAW";
 
 	std::string CreateClip = R"RAW(
@@ -1120,6 +1130,14 @@ namespace Database
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Action ADD COLUMN Cooldown INTEGER DEFAULT 30;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE DetectionFrame ADD COLUMN FramePath TEXT;", nullptr, nullptr, nullptr );
 
+		// PTZ camera configuration columns
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN PtzEnabled INTEGER DEFAULT 0;", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN PtzApiHost TEXT DEFAULT '';", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN PtzApiPort INTEGER DEFAULT 80;", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN PtzUsername TEXT DEFAULT '';", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN PtzPassword TEXT DEFAULT '';", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN LinkedCameraId INTEGER DEFAULT 0;", nullptr, nullptr, nullptr );
+
 		// Trail table migration (new table, CREATE IF NOT EXISTS handles it)
 		sqlite3_exec( DB->GetDatabase(), "CREATE TABLE IF NOT EXISTS Trail(TrailUID INTEGER PRIMARY KEY AUTOINCREMENT, ClipUID INTEGER NOT NULL, CameraID INTEGER NOT NULL, ClassName TEXT NOT NULL, FaceName TEXT, StartTime REAL NOT NULL, EndTime REAL NOT NULL, PointData TEXT NOT NULL, FOREIGN KEY(ClipUID) REFERENCES Clip(ClipUID) ON DELETE CASCADE);", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "CREATE INDEX IF NOT EXISTS idx_trail_camera_time ON Trail(CameraID, StartTime, EndTime);", nullptr, nullptr, nullptr );
@@ -1215,6 +1233,7 @@ namespace Database
 		CREATE_QUERY( GetCamera );
 		CREATE_QUERY( GetCamerasForUser );
 		CREATE_QUERY( GetCamerasDetailsForUser );
+		CREATE_QUERY( GetLinkedCameraId );
 		CREATE_QUERY( DeleteCamera );
 
 		CREATE_QUERY( CreateClip );

@@ -181,6 +181,13 @@ private:
 	void HandleDvrSegments( const crow::request& req, crow::response& res, int cameraId, const std::string& fromStr, const std::string& toStr );
 	void HandleDvrThumbnail( const crow::request& req, crow::response& res, int cameraId, const std::string& timestampStr );
 
+	// PTZ control
+	void HandlePtzCommand( const crow::request& req, crow::response& res, int cameraId, const std::string& command );
+	void HandlePtzPosition( const crow::request& req, crow::response& res, int cameraId );
+	void HandlePtzPresets( const crow::request& req, crow::response& res, int cameraId );
+	void HandlePtzPresetSet( const crow::request& req, crow::response& res, int cameraId );
+	void HandlePtzPresetDelete( const crow::request& req, crow::response& res, int cameraId );
+
 	bool ConfigureSSL();
 
 	WitnessApp m_App;

@@ -2,6 +2,7 @@
 #include "CrowAuth.h"
 #include "GlobalContext.h"
 #include "Messages.h"
+#include "ReolinkClient.h"
 void CrowListener::HandlePreview( const crow::request& req, crow::response& res, int cameraId, bool largePreview )
 {
 	int UserUID = CrowAuth::IsCameraAuthenticated( *m_GlobalContext, req, nullptr,
@@ -124,12 +125,31 @@ void CrowListener::HandleCameraEnum( const crow::request& req, crow::response& r
 
 							int LowLatencyHLS = query.GetColumnValueInt( 13 );
 							Camera["lowLatencyHLS"] = LowLatencyHLS;
+
+							// PTZ configuration
+							int PtzEnabled = query.GetColumnValueInt( 14 );
+							Camera["ptzEnabled"] = PtzEnabled;
+							if (PtzEnabled)
+							{
+								const char* PtzApiHost = query.GetColumnValueText( 15 );
+								int PtzApiPort = query.GetColumnValueInt( 16 );
+								const char* PtzUsername = query.GetColumnValueText( 17 );
+								int LinkedCameraId = query.GetColumnValueInt( 19 );
+								Camera["ptzApiHost"] = PtzApiHost ? PtzApiHost : "";
+								Camera["ptzApiPort"] = PtzApiPort;
+								Camera["ptzUsername"] = PtzUsername ? PtzUsername : "";
+								Camera["linkedCameraId"] = LinkedCameraId;
+							}
 						}
 						else
 						{
 							// Non-admin users still need streaming config
 							int LowLatencyHLS = query.GetColumnValueInt( 13 );
 							Camera["lowLatencyHLS"] = LowLatencyHLS;
+
+							// Non-admin users need to know if PTZ is available
+							int PtzEnabled = query.GetColumnValueInt( 14 );
+							Camera["ptzEnabled"] = PtzEnabled;
 						}
 
 						Camera["groups"] = std::move( Groups );
@@ -546,6 +566,12 @@ void CrowListener::HandleCameraUpdate( const crow::request& req, crow::response&
 	std::string FocusMaskPath = body.has("focusMaskPath") ? std::string(body["focusMaskPath"].s()) : "";
 	int ContinuousRecording = body.has("continuousRecording") ? (int)body["continuousRecording"].i() : 0;
 	int LowLatencyHLS = body.has("lowLatencyHLS") ? (int)body["lowLatencyHLS"].i() : 0;
+	int PtzEnabled = body.has("ptzEnabled") ? (int)body["ptzEnabled"].i() : 0;
+	std::string PtzApiHost = body.has("ptzApiHost") ? std::string(body["ptzApiHost"].s()) : "";
+	int PtzApiPort = body.has("ptzApiPort") ? (int)body["ptzApiPort"].i() : 80;
+	std::string PtzUsername = body.has("ptzUsername") ? std::string(body["ptzUsername"].s()) : "";
+	std::string PtzPassword = body.has("ptzPassword") ? std::string(body["ptzPassword"].s()) : "";
+	int LinkedCameraId = body.has("linkedCameraId") ? (int)body["linkedCameraId"].i() : 0;
 
 	SQLiteDatabaseQueryInstance UpdateCamera( m_GlobalContext->Database, "UpdateCamera" );
 	UpdateCamera->Bind( "@CameraId", CameraID );
@@ -562,6 +588,12 @@ void CrowListener::HandleCameraUpdate( const crow::request& req, crow::response&
 	UpdateCamera->Bind( "@FocusMaskPath", FocusMaskPath.empty() ? nullptr : FocusMaskPath.c_str() );
 	UpdateCamera->Bind( "@ContinuousRecording", ContinuousRecording );
 	UpdateCamera->Bind( "@LowLatencyHLS", LowLatencyHLS );
+	UpdateCamera->Bind( "@PtzEnabled", PtzEnabled );
+	UpdateCamera->Bind( "@PtzApiHost", PtzApiHost.empty() ? nullptr : PtzApiHost.c_str() );
+	UpdateCamera->Bind( "@PtzApiPort", PtzApiPort );
+	UpdateCamera->Bind( "@PtzUsername", PtzUsername.empty() ? nullptr : PtzUsername.c_str() );
+	UpdateCamera->Bind( "@PtzPassword", PtzPassword.empty() ? nullptr : PtzPassword.c_str() );
+	UpdateCamera->Bind( "@LinkedCameraId", LinkedCameraId );
 
 	if( UpdateCamera->Execute( nullptr ) < 0 )
 	{
@@ -579,6 +611,20 @@ void CrowListener::HandleCameraUpdate( const crow::request& req, crow::response&
 	if( CameraState && CameraState->Worker )
 	{
 		CameraState->Worker->SetLowLatencyHLS( LowLatencyHLS );
+	}
+
+	// Update PTZ client
+	if( PtzEnabled && !PtzApiHost.empty() && !PtzUsername.empty() && !PtzPassword.empty() )
+	{
+		auto ptzClient = std::make_shared<ReolinkClient>(
+			PtzApiHost, PtzApiPort > 0 ? PtzApiPort : 80, PtzUsername, PtzPassword);
+		std::unique_lock<std::shared_mutex> lock(m_GlobalContext->Mutex);
+		m_GlobalContext->PtzClients[CameraID] = ptzClient;
+	}
+	else
+	{
+		std::unique_lock<std::shared_mutex> lock(m_GlobalContext->Mutex);
+		m_GlobalContext->PtzClients.erase(CameraID);
 	}
 
 	m_GlobalContext->LongPoll->NotifyAll();

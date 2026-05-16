@@ -15,6 +15,7 @@
 #include <shared_mutex>
 
 namespace Witness{ namespace Camera{ class FaceEmbeddingModel; } }
+class ReolinkClient;
 
 struct CameraStateToggleRecordMessage : public Message
 {
@@ -101,6 +102,15 @@ public:
 
 	// Sound actions
 	std::shared_ptr<SoundManager> Sound;
+
+	// PTZ clients (keyed by CameraUID)
+	std::unordered_map<int, std::shared_ptr<ReolinkClient>> PtzClients;
+	std::shared_ptr<ReolinkClient> GetPtzClient(int cameraId)
+	{
+		std::shared_lock<std::shared_mutex> lock(Mutex);
+		auto it = PtzClients.find(cameraId);
+		return (it != PtzClients.end()) ? it->second : nullptr;
+	}
 
 private:
 	std::unordered_map< int, CameraState> Cameras;
