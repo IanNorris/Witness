@@ -17,6 +17,12 @@ export interface CameraFormData {
   continuousRecording: number
   lowLatencyHLS: number
   groups: number[]
+  ptzEnabled: number
+  ptzApiHost: string
+  ptzApiPort: number
+  ptzUsername: string
+  ptzPassword: string
+  linkedCameraId: number
 }
 
 const props = defineProps<{
@@ -52,6 +58,12 @@ function defaultForm(): CameraFormData {
     continuousRecording: 0,
     lowLatencyHLS: 0,
     groups: [],
+    ptzEnabled: 0,
+    ptzApiHost: '',
+    ptzApiPort: 80,
+    ptzUsername: '',
+    ptzPassword: '',
+    linkedCameraId: 0,
   }
 }
 
@@ -166,6 +178,40 @@ function toggleGroup(groupId: number) {
                   <input v-model="form.focusMaskPath" class="form-control form-control-sm font-monospace" placeholder="Path to grayscale mask image" />
                   <div class="form-text">Amplifies regions (white = focus)</div>
                 </div>
+              </div>
+
+              <!-- PTZ Configuration -->
+              <h6 class="text-muted mb-2 small text-uppercase">PTZ Control</h6>
+              <div class="row g-2 mb-3">
+                <div class="col-auto">
+                  <div class="form-check mt-2">
+                    <input class="form-check-input" type="checkbox" id="cam-ptz" :checked="!!form.ptzEnabled" @change="form.ptzEnabled = form.ptzEnabled ? 0 : 1" />
+                    <label class="form-check-label small" for="cam-ptz">PTZ Enabled</label>
+                  </div>
+                </div>
+                <template v-if="form.ptzEnabled">
+                  <div class="col-md-6">
+                    <label class="form-label small">Camera API Host</label>
+                    <input v-model="form.ptzApiHost" class="form-control form-control-sm font-monospace" placeholder="192.168.1.x" />
+                  </div>
+                  <div class="col-md-3">
+                    <label class="form-label small">API Port</label>
+                    <input v-model.number="form.ptzApiPort" type="number" min="1" max="65535" class="form-control form-control-sm" />
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label small">Username</label>
+                    <input v-model="form.ptzUsername" class="form-control form-control-sm" placeholder="admin" />
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label small">Password</label>
+                    <input v-model="form.ptzPassword" type="password" class="form-control form-control-sm" placeholder="••••••" />
+                  </div>
+                  <div class="col-md-4">
+                    <label class="form-label small">Linked Camera ID</label>
+                    <input v-model.number="form.linkedCameraId" type="number" min="0" class="form-control form-control-sm" />
+                    <div class="form-text">0 = none (dual-lens link)</div>
+                  </div>
+                </template>
               </div>
 
               <!-- Groups -->

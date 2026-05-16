@@ -32,6 +32,12 @@ interface AdminCamera {
   continuousRecording: number
   lowLatencyHLS: number
   groups: number[]
+  ptzEnabled?: number
+  ptzApiHost?: string
+  ptzApiPort?: number
+  ptzUsername?: string
+  ptzPassword?: string
+  linkedCameraId?: number
   frameCount?: number
   processingTimeOfEachMS?: number
   processingActualMS?: number
@@ -112,6 +118,12 @@ function openEdit(cam: AdminCamera) {
     continuousRecording: cam.continuousRecording ?? 0,
     lowLatencyHLS: cam.lowLatencyHLS ?? 0,
     groups: [...(cam.groups ?? [])],
+    ptzEnabled: cam.ptzEnabled ?? 0,
+    ptzApiHost: cam.ptzApiHost ?? '',
+    ptzApiPort: cam.ptzApiPort ?? 80,
+    ptzUsername: cam.ptzUsername ?? '',
+    ptzPassword: cam.ptzPassword ?? '',
+    linkedCameraId: cam.linkedCameraId ?? 0,
   }
   showEditor.value = true
 }
