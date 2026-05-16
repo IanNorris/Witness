@@ -172,6 +172,7 @@ export interface HlsStreamState {
   connectionLost: Ref<boolean>
   isActive: Ref<boolean>
   latencyMs: Ref<number>
+  codecUnsupported: Ref<boolean>
 }
 
 export function useHls(
@@ -185,6 +186,7 @@ export function useHls(
   const connectionLost = ref(false)
   const isActive = ref(false)
   const latencyMs = ref(0)
+  const codecUnsupported = ref(false)
 
   const diagId = String(cameraId) + suffix
   const sourceUrl = `/stream/${cameraId}`
@@ -225,6 +227,18 @@ export function useHls(
     h.on(Hls.Events.ERROR, (_event, data) => {
       diag.stats.errorCount++
       diag.log('error', { detail: data.details, fatal: data.fatal, type: data.type })
+
+      // Detect codec unsupported (HEVC on browsers without support)
+      const detail = data.details as string
+      if (detail.toLowerCase().includes('codec') ||
+          (data.fatal && data.type === Hls.ErrorTypes.MEDIA_ERROR &&
+           (data as any).reason?.toLowerCase()?.includes('codec'))) {
+        codecUnsupported.value = true
+        diag.log('codecUnsupported', { detail })
+        // Don't restart — codec won't magically become available
+        return
+      }
+
       if (data.fatal) {
         isActive.value = false
         if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
@@ -431,5 +445,5 @@ export function useHls(
 
   onUnmounted(() => clearInterval(checkInterval))
 
-  return { showSpinner, connectionLost, isActive, latencyMs }
+  return { showSpinner, connectionLost, isActive, latencyMs, codecUnsupported }
 }

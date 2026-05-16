@@ -198,8 +198,11 @@ void CrowListener::HandlePtzZoomGet(const crow::request& req, crow::response& re
 	crow::json::wvalue result;
 	result["valid"] = state.Valid;
 	result["zoom"] = state.ZoomPos;
-	result["focus"] = state.FocusPos;
+	result["zoomMin"] = state.ZoomMin;
 	result["zoomMax"] = state.ZoomMax;
+	result["focus"] = state.FocusPos;
+	result["focusMin"] = state.FocusMin;
+	result["focusMax"] = state.FocusMax;
 	res.code = 200;
 	res.write(result.dump());
 	res.end();

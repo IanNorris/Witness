@@ -63,9 +63,12 @@ public:
 	// Zoom/Focus absolute position control
 	struct ZoomFocusState
 	{
-		int ZoomPos = 0;   // Current zoom position
+		int ZoomPos = 0;   // Current zoom position (device units, e.g. 0-33)
+		int ZoomMin = 0;   // Min zoom position (from device range)
+		int ZoomMax = 0;   // Max zoom position (from device range, e.g. 33)
 		int FocusPos = 0;  // Current focus position
-		int ZoomMax = 0;   // Max zoom value (from GetAbility or hardcoded)
+		int FocusMin = 0;  // Min focus position
+		int FocusMax = 0;  // Max focus position (e.g. 223)
 		bool Valid = false;
 	};
 	ZoomFocusState GetZoomFocus();

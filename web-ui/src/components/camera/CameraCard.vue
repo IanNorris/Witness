@@ -130,6 +130,19 @@ watch(hlsPlayerRef, (player) => {
   }
 })
 
+// Auto-fallback to JPEG when codec is unsupported (e.g. HEVC without browser support)
+const codecFallback = ref(false)
+watch(() => (hlsPlayerRef.value as any)?.codecUnsupported, (unsupported: boolean | undefined) => {
+  if (unsupported) {
+    codecFallback.value = true
+  }
+})
+
+const effectiveModeWithFallback = computed(() => {
+  if (codecFallback.value) return 'jpeg'
+  return effectiveMode.value
+})
+
 onUnmounted(() => {
   jpegRunning = false
   if (refreshTimer) clearTimeout(refreshTimer)
@@ -143,7 +156,7 @@ onUnmounted(() => {
       <div class="camera-video-wrap" @click.prevent="onSingleClick" @dblclick.prevent="onDoubleClick">
         <!-- HLS preview mode -->
         <HlsPlayer
-          v-if="effectiveMode === 'hls' && isConnected"
+          v-if="effectiveModeWithFallback === 'hls' && isConnected"
           ref="hlsPlayerRef"
           :camera-id="camera.id"
           :low-latency="camera.lowLatencyHLS"
@@ -151,14 +164,14 @@ onUnmounted(() => {
 
         <!-- MSE preview mode -->
         <MsePlayer
-          v-else-if="effectiveMode === 'mse' && isConnected"
+          v-else-if="effectiveModeWithFallback === 'mse' && isConnected"
           ref="hlsPlayerRef"
           :camera-id="camera.id"
         />
 
         <!-- JPEG preview mode -->
         <img
-          v-else-if="imgSrc && effectiveMode === 'jpeg'"
+          v-else-if="imgSrc && effectiveModeWithFallback === 'jpeg'"
           ref="imgRef"
           :src="imgSrc"
           :alt="camera.name"

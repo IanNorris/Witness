@@ -10,17 +10,16 @@ const isMoving = ref(false)
 const error = ref('')
 const speed = ref(32)
 const zoomPos = ref(0)
-const zoomMax = ref(6144)
+const zoomMin = ref(0)
+const zoomMax = ref(33)
 const zoomLoaded = ref(false)
 let zoomSendTimeout: ReturnType<typeof setTimeout> | null = null
 
 const zoomMultiplier = computed(() => {
-  if (zoomMax.value === 0) return '1.0x'
-  // Position scale: 0 = 1x, zoomMax = full optical zoom
-  // zoomMax is zoomFactor * 1024, so divide by 1024 to get factor
-  const maxFactor = zoomMax.value / 1024
-  const x = 1 + (zoomPos.value / zoomMax.value) * (maxFactor - 1)
-  return x.toFixed(1) + 'x'
+  if (zoomMax.value <= zoomMin.value) return '1.0x'
+  const range = zoomMax.value - zoomMin.value
+  const fraction = (zoomPos.value - zoomMin.value) / range
+  return (fraction * 100).toFixed(0) + '%'
 })
 
 async function sendPtz(command: string) {
@@ -49,11 +48,12 @@ function stopMove() {
 
 async function fetchZoomState() {
   try {
-    const data = await api<{ valid: boolean; zoom: number; zoomMax: number }>(
+    const data = await api<{ valid: boolean; zoom: number; zoomMin: number; zoomMax: number }>(
       `/ptz/${props.cameraId}/zoom`
     )
     if (data?.valid) {
       zoomPos.value = data.zoom
+      if (data.zoomMin !== undefined) zoomMin.value = data.zoomMin
       if (data.zoomMax > 0) zoomMax.value = data.zoomMax
       zoomLoaded.value = true
     }
@@ -64,6 +64,8 @@ async function fetchZoomState() {
 
 async function setZoomAbsolute(pos: number) {
   error.value = ''
+  // Clamp to valid range
+  pos = Math.max(zoomMin.value, Math.min(zoomMax.value, Math.round(pos)))
   try {
     await api(`/ptz/${props.cameraId}/zoom/set`, {
       method: 'POST',
@@ -177,7 +179,7 @@ onUnmounted(() => {
         <input
           type="range"
           :value="zoomPos"
-          min="0"
+          :min="zoomMin"
           :max="zoomMax"
           step="1"
           class="ptz-zoom-slider"
