@@ -9,6 +9,7 @@ const props = defineProps<{
 const isMoving = ref(false)
 const error = ref('')
 const speed = ref(32)
+const zoomLevel = ref(50)
 
 async function sendPtz(command: string) {
   error.value = ''
@@ -33,12 +34,44 @@ function stopMove() {
     sendPtz('stop')
   }
 }
+
+let zoomDirection = ''
+let zoomInterval: ReturnType<typeof setInterval> | null = null
+
+function onZoomInput(event: Event) {
+  const target = event.target as HTMLInputElement
+  const newVal = Number(target.value)
+  const diff = newVal - zoomLevel.value
+  if (diff === 0) return
+
+  const command = diff > 0 ? 'zoomin' : 'zoomout'
+  zoomLevel.value = newVal
+
+  // Start continuous zoom in the detected direction
+  if (zoomDirection !== command) {
+    zoomDirection = command
+    sendPtz(command)
+    if (zoomInterval) clearInterval(zoomInterval)
+    zoomInterval = setInterval(() => sendPtz(command), 500)
+  }
+}
+
+function onZoomChange() {
+  if (zoomInterval) {
+    clearInterval(zoomInterval)
+    zoomInterval = null
+  }
+  zoomDirection = ''
+  sendPtz('stop')
+}
 </script>
 
 <template>
   <div class="ptz-controls">
-    <!-- D-pad -->
-    <div class="ptz-dpad">
+    <!-- D-pad + Zoom row -->
+    <div class="ptz-main">
+      <!-- D-pad -->
+      <div class="ptz-dpad">
       <button
         class="ptz-btn ptz-up"
         @mousedown="startMove('up')"
@@ -104,36 +137,24 @@ function stopMove() {
           <path d="M12 20l8-8H4z"/>
         </svg>
       </button>
-    </div>
+      </div>
 
-    <!-- Zoom controls -->
-    <div class="ptz-zoom">
-      <button
-        class="ptz-btn ptz-zoom-btn"
-        @mousedown="startMove('zoomin')"
-        @mouseup="stopMove"
-        @mouseleave="stopMove"
-        @touchstart.prevent="startMove('zoomin')"
-        @touchend.prevent="stopMove"
-        title="Zoom In"
-      >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-        </svg>
-      </button>
-      <button
-        class="ptz-btn ptz-zoom-btn"
-        @mousedown="startMove('zoomout')"
-        @mouseup="stopMove"
-        @mouseleave="stopMove"
-        @touchstart.prevent="startMove('zoomout')"
-        @touchend.prevent="stopMove"
-        title="Zoom Out"
-      >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-          <line x1="5" y1="12" x2="19" y2="12"/>
-        </svg>
-      </button>
+      <!-- Zoom slider (vertical) -->
+      <div class="ptz-zoom">
+        <span class="ptz-zoom-label">+</span>
+        <input
+          type="range"
+          v-model.number="zoomLevel"
+          min="0"
+          max="100"
+          step="1"
+          class="ptz-zoom-slider"
+          orient="vertical"
+          @input="onZoomInput"
+          @change="onZoomChange"
+        />
+        <span class="ptz-zoom-label">−</span>
+      </div>
     </div>
 
     <!-- Speed slider -->
@@ -166,6 +187,12 @@ function stopMove() {
   border-radius: 8px;
   backdrop-filter: blur(4px);
   user-select: none;
+}
+
+.ptz-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .ptz-dpad {
@@ -205,12 +232,25 @@ function stopMove() {
 
 .ptz-zoom {
   display: flex;
-  gap: 4px;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
 }
 
-.ptz-zoom-btn {
-  width: 36px;
-  height: 28px;
+.ptz-zoom-label {
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 14px;
+  font-weight: bold;
+  line-height: 1;
+}
+
+.ptz-zoom-slider {
+  writing-mode: vertical-lr;
+  direction: rtl;
+  width: 20px;
+  height: 80px;
+  accent-color: #3b82f6;
+  cursor: pointer;
 }
 
 .ptz-speed {
