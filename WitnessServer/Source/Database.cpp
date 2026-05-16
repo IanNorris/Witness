@@ -472,6 +472,10 @@ namespace Database
 		SELECT LinkedCameraId FROM Camera WHERE CameraUID = @CameraId AND LinkedCameraId > 0
 	)RAW";
 
+	std::string GetCameraPtzConfig = R"RAW(
+		SELECT PtzEnabled, PtzApiHost, PtzApiPort, PtzUsername, PtzPassword FROM Camera WHERE CameraUID = @CameraId
+	)RAW";
+
 	std::string CreateClip = R"RAW(
 		INSERT INTO Clip (Timestamp,Camera,MotionTimestamp,ActiveDuration,Duration,RecordMode,MaxMotion,Description,Save,Tags)
 		VALUES(@Timestamp,@Camera,@MotionTimestamp,@ActiveDuration,@Duration,@RecordMode,@MaxMotion,@Description,@Save,@Tags);
@@ -1234,6 +1238,7 @@ namespace Database
 		CREATE_QUERY( GetCamerasForUser );
 		CREATE_QUERY( GetCamerasDetailsForUser );
 		CREATE_QUERY( GetLinkedCameraId );
+		CREATE_QUERY( GetCameraPtzConfig );
 		CREATE_QUERY( DeleteCamera );
 
 		CREATE_QUERY( CreateClip );

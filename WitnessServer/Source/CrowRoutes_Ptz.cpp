@@ -3,6 +3,67 @@
 #include "GlobalContext.h"
 #include "ReolinkClient.h"
 
+// Try to lazily initialize a PTZ client if it wasn't created at startup
+static std::shared_ptr<ReolinkClient> TryInitPtzClient(GlobalContext& ctx, int cameraId)
+{
+	SQLiteDatabaseQueryInstance GetPtzConfig(ctx.Database, "GetCameraPtzConfig");
+	GetPtzConfig->Bind("@CameraId", cameraId);
+
+	std::shared_ptr<ReolinkClient> client;
+	GetPtzConfig->Execute([&](const SQLiteDatabaseQuery& query)
+	{
+		int ptzEnabled = query.GetColumnValueInt(0);
+		if (!ptzEnabled) return true;
+
+		const char* host = query.GetColumnValueText(1);
+		int port = query.GetColumnValueInt(2);
+		const char* user = query.GetColumnValueText(3);
+		const char* pass = query.GetColumnValueText(4);
+
+		if (host && strlen(host) > 0 && user && pass)
+		{
+			client = ReolinkClient::AutoDetect(host, port > 0 ? port : 443, user, pass);
+			if (client)
+			{
+				ctx.PtzClients[cameraId] = client;
+				LOG_INFO("PTZ lazy-init succeeded for camera %d (%s)", cameraId, host);
+			}
+		}
+		return true;
+	});
+
+	return client;
+}
+
+// Get PTZ client, trying linked camera and lazy init
+static std::shared_ptr<ReolinkClient> GetPtzClientForCamera(GlobalContext& ctx, int cameraId)
+{
+	auto client = ctx.GetPtzClient(cameraId);
+	if (client) return client;
+
+	// Check linked camera
+	SQLiteDatabaseQueryInstance GetLinked(ctx.Database, "GetLinkedCameraId");
+	GetLinked->Bind("@CameraId", cameraId);
+	int linkedId = 0;
+	GetLinked->Execute([&](const SQLiteDatabaseQuery& query)
+	{
+		linkedId = query.GetColumnValueInt(0);
+		return true;
+	});
+
+	if (linkedId > 0)
+	{
+		client = ctx.GetPtzClient(linkedId);
+		if (client) return client;
+		// Try lazy init on linked camera
+		client = TryInitPtzClient(ctx, linkedId);
+		if (client) return client;
+	}
+
+	// Try lazy init on the camera itself
+	return TryInitPtzClient(ctx, cameraId);
+}
+
 static PtzOp ParsePtzCommand(const std::string& cmd)
 {
 	if (cmd == "left")      return PtzOp::Left;
@@ -34,19 +95,7 @@ void CrowListener::HandlePtzCommand(const crow::request& req, crow::response& re
 		return;
 	}
 
-	auto client = m_GlobalContext->GetPtzClient(cameraId);
-	if (!client)
-	{
-		// Check if there's a linked camera with PTZ
-		SQLiteDatabaseQueryInstance GetLinked(m_GlobalContext->Database, "GetLinkedCameraId");
-		GetLinked->Bind("@CameraId", cameraId);
-		GetLinked->Execute([&](const SQLiteDatabaseQuery& query)
-		{
-			int linkedId = query.GetColumnValueInt(0);
-			client = m_GlobalContext->GetPtzClient(linkedId);
-			return true;
-		});
-	}
+	auto client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
 
 	if (!client)
 	{
@@ -108,7 +157,7 @@ void CrowListener::HandlePtzPosition(const crow::request& req, crow::response& r
 		return;
 	}
 
-	auto client = m_GlobalContext->GetPtzClient(cameraId);
+	auto client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
 	if (!client)
 	{
 		res.code = 400;
@@ -137,7 +186,7 @@ void CrowListener::HandlePtzZoomGet(const crow::request& req, crow::response& re
 		return;
 	}
 
-	auto client = m_GlobalContext->GetPtzClient(cameraId);
+	auto client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
 	if (!client)
 	{
 		res.code = 400;
@@ -179,7 +228,7 @@ void CrowListener::HandlePtzZoomSet(const crow::request& req, crow::response& re
 		return;
 	}
 
-	auto client = m_GlobalContext->GetPtzClient(cameraId);
+	auto client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
 	if (!client)
 	{
 		res.code = 400;
@@ -209,7 +258,7 @@ void CrowListener::HandlePtzPresets(const crow::request& req, crow::response& re
 		return;
 	}
 
-	auto client = m_GlobalContext->GetPtzClient(cameraId);
+	auto client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
 	if (!client)
 	{
 		res.code = 400;
@@ -255,7 +304,7 @@ void CrowListener::HandlePtzPresetSet(const crow::request& req, crow::response& 
 		return;
 	}
 
-	auto client = m_GlobalContext->GetPtzClient(cameraId);
+	auto client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
 	if (!client)
 	{
 		res.code = 400;
@@ -294,7 +343,7 @@ void CrowListener::HandlePtzPresetDelete(const crow::request& req, crow::respons
 		return;
 	}
 
-	auto client = m_GlobalContext->GetPtzClient(cameraId);
+	auto client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
 	if (!client)
 	{
 		res.code = 400;
