@@ -21,6 +21,7 @@ struct CAMERA_API InputStreamSetup
 		, MotionDetectThreshold( 0.1 )
 		, HistoricalPacketBufferSeconds( 5.0 )
 		, ExportMotionVectors( true )
+		, PassthroughOnly( false )
 	{}
 
 	bool Validate();
@@ -32,6 +33,7 @@ struct CAMERA_API InputStreamSetup
 	double MotionDetectThreshold;
 	double HistoricalPacketBufferSeconds;
 	bool ExportMotionVectors;
+	bool PassthroughOnly; // Skip decoding — only read packets and write to live/record streams
 };
 
 class CAMERA_API InputStream : public Stream

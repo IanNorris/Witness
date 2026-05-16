@@ -109,29 +109,32 @@ CameraStreamError InputStream::Initialize()
 	ID.CodecContext = avcodec_alloc_context3(OutputCodec);
 	avcodec_parameters_to_context( ID.CodecContext, ID.FormatContext->streams[ ID.ChosenStreamIndex ]->codecpar );
 	
-	//Export motion vectors for use by our motion detection algorithm
-	AVDictionary* CodecOptions = nullptr;
-	if( StreamSetup.ExportMotionVectors )
+	if (!StreamSetup.PassthroughOnly)
 	{
-		av_dict_set( &CodecOptions, "flags2", "+export_mvs", 0 );
+		//Export motion vectors for use by our motion detection algorithm
+		AVDictionary* CodecOptions = nullptr;
+		if( StreamSetup.ExportMotionVectors )
+		{
+			av_dict_set( &CodecOptions, "flags2", "+export_mvs", 0 );
+		}
+
+		Result = avcodec_open2( ID.CodecContext, OutputCodec, &CodecOptions );
+		if( Result < 0 )
+		{
+			STREAM_ERROR( UnsupportedStreamFormat, Result );
+		}
+
+		/*unsigned int OutputHeight = min( 400, ID.CodecContext->height );
+		unsigned int OutputWidth = (int)(((float)ID.CodecContext->width / (float)ID.CodecContext->height) * (float)OutputHeight);
+
+		OutputHeight &= (~15);
+		OutputWidth &= (~15);*/
+
+		AVPixelFormat OutputPixelFormat = AV_PIX_FMT_BGR24;
+			
+		//ID.Output = std::make_shared<FFMPEG::Frame>( OutputWidth, OutputHeight, OutputPixelFormat );
+		ID.Input = std::make_shared<FFMPEG::Frame>( ID.CodecContext->width, ID.CodecContext->height, ID.CodecContext->pix_fmt );
 	}
-
-	Result = avcodec_open2( ID.CodecContext, OutputCodec, &CodecOptions );
-	if( Result < 0 )
-	{
-		STREAM_ERROR( UnsupportedStreamFormat, Result );
-	}
-
-	/*unsigned int OutputHeight = min( 400, ID.CodecContext->height );
-	unsigned int OutputWidth = (int)(((float)ID.CodecContext->width / (float)ID.CodecContext->height) * (float)OutputHeight);
-
-	OutputHeight &= (~15);
-	OutputWidth &= (~15);*/
-
-	AVPixelFormat OutputPixelFormat = AV_PIX_FMT_BGR24;
-		
-	//ID.Output = std::make_shared<FFMPEG::Frame>( OutputWidth, OutputHeight, OutputPixelFormat );
-	ID.Input = std::make_shared<FFMPEG::Frame>( ID.CodecContext->width, ID.CodecContext->height, ID.CodecContext->pix_fmt );
 
 	return CameraStreamError::Success;
 }
@@ -278,8 +281,11 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 		}
 
 		OutputEnd = std::chrono::high_resolution_clock::now().time_since_epoch().count();
-	
-		Result = avcodec_send_packet( m_InternalData->CodecContext, &ID.Packet );
+
+		// In passthrough mode, skip decoding entirely — just forward packets
+		if (!StreamSetup.PassthroughOnly)
+		{
+			Result = avcodec_send_packet( m_InternalData->CodecContext, &ID.Packet );
 		if( Result == AVERROR(EAGAIN) )
 		{
 			av_packet_unref( &ID.Packet );
@@ -371,6 +377,7 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 				}
 			}
 		}
+		} // end if (!PassthroughOnly)
 	}
 
 	av_packet_unref( &ID.Packet );

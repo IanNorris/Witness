@@ -1,6 +1,7 @@
 #pragma once
 
 #include "WorkerBase.h"
+#include "SubStreamWorker.h"
 
 #include <InputStream.h>
 #include <OutputStream.h>
@@ -140,6 +141,18 @@ public:
 		return LiveStream;
 	}
 
+	SubStreamWorker* GetSubStreamWorker() const
+	{
+		return m_SubStreamWorker.get();
+	}
+
+	std::shared_ptr<LiveOutputStream> GetSubStreamLive() const
+	{
+		if (m_SubStreamWorker)
+			return m_SubStreamWorker->GetLiveStream();
+		return nullptr;
+	}
+
 	const CameraSettings& GetCameraSettings() const
 	{
 		return Camera;
@@ -178,4 +191,6 @@ private:
 
 	bool IsConnected;
 	bool IsRTSP;
+
+	std::unique_ptr<SubStreamWorker> m_SubStreamWorker;
 };

@@ -8,6 +8,8 @@ export interface Camera {
   streamUrl: string
   stats: CameraStats
   codec?: string
+  hasSubStream?: boolean
+  subCodec?: string
   lowLatencyHLS?: boolean
   ptzEnabled?: boolean
 }
@@ -34,6 +36,8 @@ export interface CameraData {
   lastTimestamp: number
   frameCount: number
   codec?: string
+  hasSubStream?: boolean
+  subCodec?: string
   connectionString?: string
   connectionStringSub?: string
   lowLatencyHLS?: number

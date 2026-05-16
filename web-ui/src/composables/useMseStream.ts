@@ -143,6 +143,7 @@ export function useMseStream(
   cameraId: number,
   videoRef: Ref<HTMLVideoElement | null>,
   suffix: string = '',
+  useSubStream: boolean = false,
 ): MseStreamState {
   const showSpinner = ref(false)
   const connectionLost = ref(false)
@@ -174,7 +175,8 @@ export function useMseStream(
 
   function getWsUrl(): string {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
-    return `${proto}//${location.host}/ws/stream/${cameraId}`
+    const path = useSubStream ? `/ws/stream/sub/${cameraId}` : `/ws/stream/${cameraId}`
+    return `${proto}//${location.host}${path}`
   }
 
   function processAppendQueue() {

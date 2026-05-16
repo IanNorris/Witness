@@ -172,6 +172,15 @@ void CrowListener::HandleCameraEnum( const crow::request& req, crow::response& r
 								if( !codecName.empty() )
 									Camera["codec"] = codecName;
 
+								// Report sub-stream availability
+								if( CameraState->Worker->GetSubStreamWorker() )
+								{
+									Camera["hasSubStream"] = true;
+									std::string subCodec = CameraState->Worker->GetSubStreamWorker()->GetCodecName();
+									if( !subCodec.empty() )
+										Camera["subCodec"] = subCodec;
+								}
+
 								auto StreamStats = CameraState->Worker->GetStreamStats();
 
 								auto ImgStats = m_GlobalContext->CommonImageProcessingJobQueue->GetStats( ID );

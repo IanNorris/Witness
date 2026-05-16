@@ -694,10 +694,21 @@ void CameraWorker::WorkerInit()
 	UpdateLastTimedAction("Starting camera connection...");
 
 	CreateInputStream();
+
+	// Start sub-stream worker if a sub-stream URL is configured
+	if (!Camera.PathSub.empty())
+	{
+		std::string cachePath = std::string(Context->CachePath.begin(), Context->CachePath.end());
+		m_SubStreamWorker = std::make_unique<SubStreamWorker>(Camera.ID, Camera.PathSub, cachePath, Context);
+		m_SubStreamWorker->Start();
+	}
 }
 
 void CameraWorker::WorkerShutdown()
 {
+	// Stop sub-stream worker first
+	m_SubStreamWorker.reset();
+
 	//Ensure destruction is done on the worker thread
 	Filter = nullptr;
 	ContinuousStream = nullptr;

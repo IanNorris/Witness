@@ -150,8 +150,18 @@ const proactiveCodecFallback = computed(() => {
   return codec === 'hevc' || codec === 'h265' || codec === 'hev1'
 })
 
+// Determine if we should use the sub-stream (H.264 fallback) instead of JPEG
+const useSubStream = computed(() => {
+  return proactiveCodecFallback.value && props.camera.hasSubStream
+})
+
 const effectiveModeWithFallback = computed(() => {
-  if (codecFallback.value || proactiveCodecFallback.value) return 'jpeg'
+  if (codecFallback.value && !props.camera.hasSubStream) return 'jpeg'
+  if (proactiveCodecFallback.value && !props.camera.hasSubStream) return 'jpeg'
+  // Sub-stream always uses MSE (WebSocket-based) since we have a WS route for it
+  if (useSubStream.value || codecFallback.value) {
+    return 'mse'
+  }
   return effectiveMode.value
 })
 
@@ -179,6 +189,7 @@ onUnmounted(() => {
           v-else-if="effectiveModeWithFallback === 'mse' && isConnected"
           ref="hlsPlayerRef"
           :camera-id="camera.id"
+          :use-sub-stream="useSubStream"
         />
 
         <!-- JPEG preview mode -->
@@ -207,8 +218,11 @@ onUnmounted(() => {
         </div>
 
         <!-- H.265 fallback indicator -->
-        <div v-if="proactiveCodecFallback && isConnected" class="codec-fallback-overlay">
+        <div v-if="proactiveCodecFallback && !useSubStream && isConnected" class="codec-fallback-overlay">
           H.265 → JPEG
+        </div>
+        <div v-else-if="useSubStream && isConnected" class="codec-fallback-overlay">
+          Sub
         </div>
 
         <!-- Camera name overlay in fullscreen -->

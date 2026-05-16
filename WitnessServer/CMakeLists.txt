@@ -45,6 +45,7 @@ set(SERVER_SOURCES
     Source/SoundManager.cpp
     Source/SQLite.cpp
     Source/StatusEvents.cpp
+    Source/SubStreamWorker.cpp
     Source/TagHelpers.cpp
     Source/TimerWorker.cpp
     Source/WatchdogWorker.cpp
@@ -76,6 +77,7 @@ set(SERVER_HEADERS
     Source/SettingsMap.h
     Source/SoundManager.h
     Source/SQLite.h
+    Source/SubStreamWorker.h
     Source/TagHelpers.h
     Source/EventBroadcaster.h
     Source/TimerWorker.h

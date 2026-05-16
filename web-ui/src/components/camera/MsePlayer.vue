@@ -6,6 +6,7 @@ import { useDetectionOverlay } from '../../composables/useDetectionOverlay'
 const props = defineProps<{
   cameraId: number
   suffix?: string
+  useSubStream?: boolean
 }>()
 
 const videoRef = ref<HTMLVideoElement | null>(null)
@@ -14,6 +15,7 @@ const { showSpinner, connectionLost, latencyMs } = useMseStream(
   props.cameraId,
   videoRef,
   props.suffix ?? '',
+  props.useSubStream ?? false,
 )
 
 const { enabled: overlayEnabled, toggle: toggleOverlay } = useDetectionOverlay(
