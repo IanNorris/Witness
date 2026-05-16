@@ -244,8 +244,19 @@ bool ReolinkClient::PtzControl(PtzOp op, int speed)
 	std::string response = SendCommand("PtzCtrl", body);
 	if (response.empty())
 	{
-		LOG_ERROR("ReolinkClient::PtzControl: empty response, lastError=%s", m_LastError.c_str());
-		return false;
+		// For zoom ops, try alternative names (some firmware uses ZoomIn/ZoomOut)
+		if (op == PtzOp::ZoomInc || op == PtzOp::ZoomDec)
+		{
+			const char* altOp = (op == PtzOp::ZoomInc) ? "ZoomIn" : "ZoomOut";
+			body = R"([{"cmd":"PtzCtrl","action":0,"param":{"channel":0,"op":")" +
+				std::string(altOp) + R"(","speed":)" + std::to_string(speed) + R"(}}])";
+			response = SendCommand("PtzCtrl", body);
+		}
+		if (response.empty())
+		{
+			LOG_ERROR("ReolinkClient::PtzControl: empty response, lastError=%s", m_LastError.c_str());
+			return false;
+		}
 	}
 
 	auto json = crow::json::load(response);
@@ -261,8 +272,27 @@ bool ReolinkClient::PtzControl(PtzOp op, int speed)
 	if (resp.has("code") && resp["code"].i() != 0)
 	{
 		int code = (int)resp["code"].i();
+
+		// For zoom ops, try alternative names on failure
+		if ((op == PtzOp::ZoomInc || op == PtzOp::ZoomDec) && code != 0)
+		{
+			const char* altOp = (op == PtzOp::ZoomInc) ? "ZoomIn" : "ZoomOut";
+			body = R"([{"cmd":"PtzCtrl","action":0,"param":{"channel":0,"op":")" +
+				std::string(altOp) + R"(","speed":)" + std::to_string(speed) + R"(}}])";
+			response = SendCommand("PtzCtrl", body);
+			if (!response.empty())
+			{
+				json = crow::json::load(response);
+				if (json && json.size() > 0)
+				{
+					auto& retryResp = json[0];
+					if (!retryResp.has("code") || retryResp["code"].i() == 0)
+						return true;
+				}
+			}
+		}
+
 		m_LastError = "PtzCtrl failed, code=" + std::to_string(code);
-		// Also check for error detail
 		if (resp.has("error") && resp["error"].has("detail"))
 			m_LastError += " detail=" + std::string(resp["error"]["detail"].s());
 		LOG_ERROR("ReolinkClient: %s (response: %s)", m_LastError.c_str(), response.substr(0, 300).c_str());
