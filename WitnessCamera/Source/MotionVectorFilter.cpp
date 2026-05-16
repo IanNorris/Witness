@@ -573,17 +573,17 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 
 	const unsigned int MotionVectorSkipFactor = 8;
 
-	// For high-resolution streams, reduce skip factor to sample more MVs.
-	// HEVC at 4K produces fewer total MVs, so skipping fewer ensures enough per-bucket data.
+	// For high-resolution streams, don't skip any MVs.
+	// HEVC at 4K produces significantly fewer total MVs (CTU up to 64×64 vs H.264 16×16),
+	// so we need every vector to detect small objects like animals.
 	unsigned int effectiveSkipFactor = MotionVectorSkipFactor;
 	{
 		unsigned int frameWidth = TaskData->Frame.InputFrame->GetWidth();
 		unsigned int frameHeight = TaskData->Frame.InputFrame->GetHeight();
 		if (frameWidth > 1920 || frameHeight > 1080)
 		{
-			double areaRatio = (double)(1920 * 1080) / (double)(frameWidth * frameHeight);
-			effectiveSkipFactor = (unsigned int)(MotionVectorSkipFactor * areaRatio);
-			if (effectiveSkipFactor < 1) effectiveSkipFactor = 1;
+			// At 4K with HEVC, vectors are too sparse to skip any
+			effectiveSkipFactor = 1;
 		}
 	}
 	{
@@ -629,8 +629,8 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 
 	// Scale RefValue for high-resolution streams. The filter was calibrated for 1080p H.264
 	// (60×33 = 1980 buckets, ~100k MVs). At 4K (120×67 = 8040 buckets), motion vectors spread
-	// across 4× more buckets, so per-bucket scores are proportionally lower.
-	// HEVC also produces fewer total MVs due to larger CTU blocks (up to 64×64 vs H.264 16×16).
+	// across 4× more buckets AND HEVC produces fewer total MVs due to larger CTU blocks.
+	// Use area ratio squared to account for both effects (spread + sparsity).
 	{
 		const unsigned int refWidth = 1920;
 		const unsigned int refHeight = 1080;
@@ -639,7 +639,9 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 		if (frameWidth > refWidth || frameHeight > refHeight)
 		{
 			double areaRatio = (double)(refWidth * refHeight) / (double)(frameWidth * frameHeight);
-			RefValue = (int)(RefValue * areaRatio);
+			// Square the ratio: 4K gives areaRatio=0.25, squared=0.0625 → RefValue ≈ 96
+			// This compensates for both the 4× bucket spread and HEVC's sparser MV data
+			RefValue = (int)(RefValue * areaRatio * areaRatio);
 			if (RefValue < 1) RefValue = 1;
 		}
 	}
