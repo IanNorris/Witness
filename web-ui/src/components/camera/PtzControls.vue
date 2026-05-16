@@ -9,14 +9,19 @@ const props = defineProps<{
 const isMoving = ref(false)
 const error = ref('')
 const speed = ref(32)
-const zoomPos = ref(0)
-const zoomMax = ref(3200)
+const zoomPos = ref(1)
+const zoomMax = ref(6)
 const zoomLoaded = ref(false)
 let zoomSendTimeout: ReturnType<typeof setTimeout> | null = null
 
 const zoomMultiplier = computed(() => {
-  if (zoomMax.value === 0) return '1.0x'
-  const x = 1 + (zoomPos.value / zoomMax.value) * 31 // Assumes up to 32x
+  if (zoomMax.value === 0) return '1x'
+  // If max is small (e.g. 6), values are literal zoom multipliers
+  // If max is large (e.g. 3200), it's a position scale
+  if (zoomMax.value <= 100) {
+    return zoomPos.value + 'x'
+  }
+  const x = 1 + (zoomPos.value / zoomMax.value) * (zoomMax.value / 100 - 1)
   return x.toFixed(1) + 'x'
 })
 

@@ -365,14 +365,24 @@ ReolinkClient::ZoomFocusState ReolinkClient::GetZoomFocus()
 	if (resp.has("value") && resp["value"].has("ZoomFocus"))
 	{
 		auto& zf = resp["value"]["ZoomFocus"];
-		if (zf.has("zoom") && zf["zoom"].has("pos"))
-			state.ZoomPos = (int)zf["zoom"]["pos"].i();
+		if (zf.has("zoom"))
+		{
+			auto& zoom = zf["zoom"];
+			if (zoom.has("pos"))
+				state.ZoomPos = (int)zoom["pos"].i();
+			if (zoom.has("max"))
+				state.ZoomMax = (int)zoom["max"].i();
+		}
 		if (zf.has("focus") && zf["focus"].has("pos"))
 			state.FocusPos = (int)zf["focus"]["pos"].i();
 		state.Valid = true;
 	}
 
-	// Also try to get zoom range
+	// If we got max from GetZoomFocus, no need to query GetAbility
+	if (state.ZoomMax > 0)
+		return state;
+
+	// Try to get zoom range from GetAbility
 	std::string abilityBody = R"([{"cmd":"GetAbility","action":0,"param":{"User":{"userName":")" +
 		m_Username + R"("}}}])";
 	std::string abilityResponse = SendCommand("GetAbility", abilityBody);
@@ -391,16 +401,20 @@ ReolinkClient::ZoomFocusState ReolinkClient::GetZoomFocus()
 		}
 	}
 
-	// Fallback: if we didn't get zoomMax from ability, try common defaults
+	// Fallback
 	if (state.ZoomMax == 0)
-		state.ZoomMax = 3200;  // Common Reolink default (32x = 3200 at 100 per 1x)
+		state.ZoomMax = 6;  // Conservative default
+
+	LOG_INFO("ReolinkClient::GetZoomFocus: pos=%d, max=%d, focus=%d",
+		state.ZoomPos, state.ZoomMax, state.FocusPos);
 
 	return state;
 }
 
 bool ReolinkClient::SetZoomPos(int zoomPos)
 {
-	std::string body = R"([{"cmd":"StartZoomFocus","action":0,"param":{"channel":0,"op":"ZoomPos","pos":{"zoom":{"pos":)" +
+	// Match the structure returned by GetZoomFocus
+	std::string body = R"([{"cmd":"StartZoomFocus","action":0,"param":{"ZoomFocus":{"channel":0,"zoom":{"pos":)" +
 		std::to_string(zoomPos) + R"(}}}}])";
 
 	std::string response = SendCommand("StartZoomFocus", body);
