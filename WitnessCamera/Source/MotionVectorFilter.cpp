@@ -409,6 +409,7 @@ float KFNoiseScale = 0.1f;*/
 	std::atomic<bool> ClearObjectData;
 
 	unsigned int ObjectIDCounter;
+	unsigned int DiagFrameCounter = 0;
 
 	int MVSinceKF;
 	int Frames;
@@ -662,6 +663,10 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 	{
 		FilterFrameStatScope Scope( TaskData->Frame.Stats, FilterStat_MVF_ClusterPass );
 
+		float maxScore = 0;
+		int activatedBuckets = 0;
+		int bucketsWithVectors = 0;
+
 		for( unsigned int y = 0; y < HeightBucketHeight; y++ )
 		{
 			const unsigned int BucketBase = WidthBucketWidth * y;
@@ -670,13 +675,16 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 				auto& Ref = ID.Buckets[BucketBase+x];
 
 				float Score = ((Ref.x*Ref.x) + (Ref.y*Ref.y)) * Ref.Mask / (float)(Ref.c+1);
-				//float Score = Ref.x * Mask;
+
+				if (Ref.c > 0) bucketsWithVectors++;
+				if (Score > maxScore) maxScore = Score;
 
 				bool thresholdReached = Score >= RefValue && Ref.c >= MinVectorCount;
 
 				if( thresholdReached )
 				{
 					ID.Points.push_back( Point2f( (float)x, (float)y ) );
+					activatedBuckets++;
 				}
 
 				if( WantDebuggingInfo && DrawSummaryVectors && Score > MinSummaryPrintout && Ref.c >= MinVectorCount )
@@ -727,6 +735,26 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 				Ref.x = 0;
 				Ref.y = 0;
 			}
+		}
+
+		// Periodic MV diagnostics: log every 150 frames (~5s at 30fps) when there's any activity
+		ID.DiagFrameCounter++;
+		if (ID.DiagFrameCounter >= 150)
+		{
+			ID.DiagFrameCounter = 0;
+			LOG_INFO("MVFilter src=%d: %dx%d, MVs=%u usable=%u, buckets=%u/%u active=%d, maxScore=%.0f, refValue=%d, skip=%u",
+				TaskData->Frame.SourceID,
+				TaskData->Frame.InputFrame->GetWidth(), TaskData->Frame.InputFrame->GetHeight(),
+				MotionVectors, UsableMotionVectors,
+				bucketsWithVectors, BucketCount, activatedBuckets,
+				maxScore, RefValue, effectiveSkipFactor);
+		}
+		else if (activatedBuckets > 0)
+		{
+			// Always log when buckets activate (potential motion)
+			LOG_INFO("MVFilter src=%d: MOTION %d buckets, maxScore=%.0f (ref=%d), MVs=%u usable=%u",
+				TaskData->Frame.SourceID, activatedBuckets, maxScore, RefValue,
+				MotionVectors, UsableMotionVectors);
 		}
 	}
 
