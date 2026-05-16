@@ -165,6 +165,11 @@ function toggleGroup(groupId: number) {
                   <label class="form-label small">Motion Filter</label>
                   <input v-model="form.motionFilter" class="form-control form-control-sm" placeholder="Default (from server config)" />
                 </div>
+                <div class="col-md-6">
+                  <label class="form-label small">Motion Source Camera ID</label>
+                  <input v-model.number="form.motionSourceCameraId" type="number" min="0" class="form-control form-control-sm" />
+                  <div class="form-text">0 = own motion. Set to pair (passthrough decode, records on source motion)</div>
+                </div>
               </div>
 
               <!-- Masks -->
@@ -214,15 +219,6 @@ function toggleGroup(groupId: number) {
                     <div class="form-text">0 = none (dual-lens link)</div>
                   </div>
                 </template>
-              </div>
-
-              <!-- Motion Source -->
-              <div class="row g-2 mb-3">
-                <div class="col-md-6">
-                  <label class="form-label small">Motion Source Camera ID</label>
-                  <input v-model.number="form.motionSourceCameraId" type="number" min="0" class="form-control form-control-sm" />
-                  <div class="form-text">0 = detect own motion. Set to another camera's ID to pair (this camera records when the source detects motion, uses passthrough decode for minimal CPU)</div>
-                </div>
               </div>
 
               <!-- Groups -->
