@@ -21,7 +21,7 @@ enum class CameraStreamError
 	EndOfFile,
 	ConnectionError,
 	NoStreams,
-	NoH264Support,
+	NoCodecSupport,
 	UnsupportedStreamFormat,
 	UnsupportedStreamType,
 	EncodeFailed,
@@ -57,8 +57,8 @@ static const char* GetCameraStreamErrorMessage( CameraStreamError Error )
 	case CameraStreamError::NoStreams:
 		return "No streams";
 
-	case CameraStreamError::NoH264Support:
-		return "No H264 support";
+	case CameraStreamError::NoCodecSupport:
+		return "No codec support";
 
 	case CameraStreamError::UnsupportedStreamFormat:
 		return "Unsupported stream format";

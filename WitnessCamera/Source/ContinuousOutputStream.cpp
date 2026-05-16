@@ -88,7 +88,7 @@ CameraStreamError ContinuousOutputStream::StartNewSegment()
 	// Create video stream only (no audio)
 	const AVCodec* encoder = avcodec_find_encoder(inData.CodecID);
 	if (!encoder)
-		return CameraStreamError::NoH264Support;
+		return CameraStreamError::NoCodecSupport;
 
 	m_OutStream = avformat_new_stream(m_FormatContext, encoder);
 	if (!m_OutStream)

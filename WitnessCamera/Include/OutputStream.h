@@ -75,6 +75,7 @@ private:
 	bool m_Isolated;
 	bool m_Part;
 	bool m_InitSegment;
+	bool m_Passthrough;
 
 	double m_ClipLength;
 	int m_SegmentIndex;

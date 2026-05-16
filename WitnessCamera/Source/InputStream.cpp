@@ -99,10 +99,11 @@ CameraStreamError InputStream::Initialize()
 	
 	av_read_play( ID.FormatContext );
 
-	const AVCodec* OutputCodec = avcodec_find_decoder(AV_CODEC_ID_H264);
+	AVCodecID streamCodecId = ID.FormatContext->streams[ID.ChosenStreamIndex]->codecpar->codec_id;
+	const AVCodec* OutputCodec = avcodec_find_decoder(streamCodecId);
 	if( !OutputCodec )
 	{
-		STREAM_ERROR( NoH264Support, 0 );
+		STREAM_ERROR( NoCodecSupport, 0 );
 	}
 
 	ID.CodecContext = avcodec_alloc_context3(OutputCodec);

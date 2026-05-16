@@ -20,6 +20,7 @@ OutputStream::OutputStream( const std::string& Path, InputStream * InputStream, 
 , m_Part(Part)
 , m_Isolated(false)
 , m_InitSegment(InitSegment)
+, m_Passthrough(false)
 , m_ClipLength( 0.0 )
 , m_SegmentIndex(-1)
 , m_PartIndex(-1)
@@ -70,6 +71,7 @@ OutputStream::OutputStream( const std::string& Path, unsigned int Width, unsigne
 , m_Part( false )
 , m_Isolated(false)
 , m_InitSegment(false)
+, m_Passthrough(false)
 , m_ClipLength( 0.0 )
 , m_SegmentIndex(-1)
 , m_LastWrittenDTS( AV_NOPTS_VALUE )
@@ -133,21 +135,72 @@ CameraStreamError OutputStream::Initialize()
 
 	if (m_InMemory)
 	{
-		//TODO
-		//ID.FormatContext->oformat->flags |= AVFMT_NOFILE;
-
 		ID.FormatContext->pb = m_IOContext->GetContext();
 	}
 
+	// Passthrough mode: when we have an InputStream and won't be re-encoding frames,
+	// copy codec parameters directly without creating an encoder. This allows any codec
+	// (H.264, HEVC, etc.) to pass through even without the corresponding encoder library.
+	if( m_InputStream && !m_Live )
+	{
+		m_Passthrough = true;
+
+		auto& InID = m_InputStream->GetData();
+
+		AVStream* OutStream = avformat_new_stream( ID.FormatContext, nullptr );
+		if( !OutStream )
+		{
+			STREAM_ERROR( UnknownError, 0 );
+		}
+
+		// Copy codec parameters directly from the input stream's decoder context
+		Result = avcodec_parameters_from_context( OutStream->codecpar, InID.CodecContext );
+		if( Result < 0 )
+		{
+			STREAM_ERROR( DecoderReceiverError, Result );
+		}
+
+		// Remap deprecated pixel formats
+		switch( OutStream->codecpar->format )
+		{
+		case AV_PIX_FMT_YUVJ420P: OutStream->codecpar->format = AV_PIX_FMT_YUV420P; break;
+		case AV_PIX_FMT_YUVJ422P: OutStream->codecpar->format = AV_PIX_FMT_YUV422P; break;
+		case AV_PIX_FMT_YUVJ444P: OutStream->codecpar->format = AV_PIX_FMT_YUV444P; break;
+		case AV_PIX_FMT_YUVJ440P: OutStream->codecpar->format = AV_PIX_FMT_YUV440P; break;
+		}
+
+		OutStream->codecpar->codec_tag = 0;
+		OutStream->time_base = InID.FormatContext->streams[InID.ChosenStreamIndex]->time_base;
+
+		// Open output file
+		if( !( ID.FormatContext->oformat->flags & AVFMT_NOFILE ) )
+		{
+			Result = avio_open( &ID.FormatContext->pb, ID.Path.c_str(), AVIO_FLAG_WRITE );
+			if( Result < 0 )
+			{
+				STREAM_ERROR( FileNotWriteable, Result );
+			}
+			m_FileOpened = true;
+		}
+
+		Result = avformat_write_header( ID.FormatContext, nullptr );
+		if( Result < 0 )
+		{
+			STREAM_ERROR( WriteFailed, Result );
+		}
+
+		return CameraStreamError::Success;
+	}
+
+	// Re-encoding path: create encoder for the target codec
 	const AVCodec* Encoder = avcodec_find_encoder( ID.CodecID );
 
 	if( !Encoder )
 	{
-		STREAM_ERROR( NoH264Support, 0 );
+		STREAM_ERROR( NoCodecSupport, 0 );
 	}
 
 	AVStream* OutStream = avformat_new_stream( ID.FormatContext, Encoder );
-	//TODO: Do we not need to delete this? :|
 	if( !OutStream )
 	{
 		STREAM_ERROR( UnknownError, 0 );
@@ -156,7 +209,7 @@ CameraStreamError OutputStream::Initialize()
 	ID.CodecContext = avcodec_alloc_context3( Encoder );
 	if( !ID.CodecContext )
 	{
-		STREAM_ERROR( NoH264Support, 0 );
+		STREAM_ERROR( NoCodecSupport, 0 );
 	}
 
 	if( ID.IsVideo )
@@ -241,32 +294,6 @@ CameraStreamError OutputStream::Initialize()
 	}
 
 	AVDictionary* EncoderOptions = nullptr;
-	/*av_dict_set( &EncoderOptions, "deadline", "realtime", 0 );
-	av_dict_set( &EncoderOptions, "speed", "8", 0 );*/
-	/*Result = av_dict_set( &EncoderOptions, "x264-params", "keyint", 1 );
-	if( Result < 0 )
-	{
-		STREAM_ERROR( EncoderCreationError );
-	}
-
-	Result = av_dict_set( &EncoderOptions, "sdr_x264_preset", "fast", 0 );
-	if( Result < 0 )
-	{
-		STREAM_ERROR( EncoderCreationError );
-	}
-
-	Result = av_dict_set( &EncoderOptions, "sdr_x264_crf", "0", 0 );
-	if( Result < 0 )
-	{
-		STREAM_ERROR( EncoderCreationError );
-	}*/
-
-	/*
-	//https://github.com/iinfer/leandromoreira_ffmpeg-libav-tutorial
-	if (m_Live)
-	{
-		av_dict_set(&EncoderOptions, "movflags", "frag_keyframe+empty_moov+default_base_moof", 0);
-	}*/
 
 	Result = avcodec_open2( ID.CodecContext, Encoder, &EncoderOptions );
 	if( Result < 0 )
@@ -280,10 +307,6 @@ CameraStreamError OutputStream::Initialize()
 		STREAM_ERROR( EncoderCreationError, Result );
 	}
 
-	/*if (ID.FormatContext->oformat->flags & AVFMT_GLOBALHEADER)
-	{
-		ID.CodecContext->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
-	}*/
 	ID.CodecContext->flags |= AV_CODEC_FLAG_GLOBAL_HEADER;
 
 	OutStream->time_base = ID.CodecContext->time_base;
@@ -314,8 +337,6 @@ CameraStreamError OutputStream::Initialize()
 		av_dict_set(&options, "movflags", "empty_moov+omit_tfhd_offset+dash", 0);
 	}
 
-	//ID.FormatContext->avoid_negative_ts = AVFMT_AVOID_NEG_TS_MAKE_NON_NEGATIVE;
-
 	Result = avformat_write_header( ID.FormatContext, &options);
 	if( Result < 0 )
 	{
@@ -325,7 +346,6 @@ CameraStreamError OutputStream::Initialize()
 	if (!m_Live)
 	{
 		ID.Output = std::make_unique<FFMPEG::Frame>(ID.CodecContext->width, ID.CodecContext->height, ID.CodecContext->pix_fmt);
-		//ID.Output->Prepare(); //Necessary?
 	}
 
 	//Remap deprecated formats to avoid the warning output.
@@ -577,7 +597,7 @@ CameraStreamError OutputStream::CloseFile(bool Flush, bool WriteTrailer)
 {
 	auto& ID = *m_InternalData;
 
-	if (Flush)
+	if (Flush && !m_Passthrough)
 	{
 		while (true)
 		{
