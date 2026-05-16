@@ -28,6 +28,11 @@ const effectiveMode = computed(() => {
   }
   return settings.streamingMode
 })
+
+// Proactive HEVC detection: check if browser supports H.265 in MSE
+const hevcSupported = typeof MediaSource !== 'undefined' &&
+  (MediaSource.isTypeSupported('video/mp4; codecs="hev1.1.6.L93.B0"') ||
+   MediaSource.isTypeSupported('video/mp4; codecs="hvc1.1.6.L93.B0"'))
 const imgSrc = ref('')
 const isConnected = ref(false)
 const imgRef = ref<HTMLImageElement | null>(null)
@@ -138,8 +143,15 @@ watch(() => (hlsPlayerRef.value as any)?.codecUnsupported, (unsupported: boolean
   }
 })
 
+// Proactive check: if camera reports HEVC and browser doesn't support it, skip HLS entirely
+const proactiveCodecFallback = computed(() => {
+  if (hevcSupported) return false
+  const codec = props.camera.codec
+  return codec === 'hevc' || codec === 'h265' || codec === 'hev1'
+})
+
 const effectiveModeWithFallback = computed(() => {
-  if (codecFallback.value) return 'jpeg'
+  if (codecFallback.value || proactiveCodecFallback.value) return 'jpeg'
   return effectiveMode.value
 })
 
@@ -192,6 +204,11 @@ onUnmounted(() => {
         <!-- REC overlay -->
         <div v-if="camera.isRecording" class="rec-overlay">
           <span class="rec-dot" /> REC
+        </div>
+
+        <!-- H.265 fallback indicator -->
+        <div v-if="proactiveCodecFallback && isConnected" class="codec-fallback-overlay">
+          H.265 → JPEG
         </div>
 
         <!-- Camera name overlay in fullscreen -->

@@ -80,6 +80,9 @@ public:
 
 	StreamStats GetStats() { return Stats; }
 
+	// Returns the codec short name (e.g. "h264", "hevc") or empty if not initialized
+	std::string GetCodecName() const;
+
 	int GetSourceId() const { return UniqueSourceID; }
 
 private:

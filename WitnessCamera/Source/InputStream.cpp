@@ -474,6 +474,16 @@ double InputStream::GetFramerateDouble()
 	}
 }
 
+std::string InputStream::GetCodecName() const
+{
+	auto& ID = *m_InternalData;
+	if( ID.CodecContext && ID.CodecContext->codec )
+	{
+		return ID.CodecContext->codec->name;
+	}
+	return "";
+}
+
 CameraStreamError InputStream::WriteInterleavedPacket(const AVPacket* Packet)
 {
 	STREAM_ERROR(InvalidSetup, 0);

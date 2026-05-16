@@ -25,6 +25,16 @@
 #include <unordered_map>
 #include "SoundManager.h"
 
+std::string CameraWorker::GetVideoCodecName() const
+{
+	std::shared_ptr<InputStream> Stream = CameraStream;
+	if( Stream )
+	{
+		return Stream->GetCodecName();
+	}
+	return "";
+}
+
 void CameraWorker::CreateInputStream()
 {
 	InputStreamSetup Setup;

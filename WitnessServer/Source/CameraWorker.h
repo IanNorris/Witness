@@ -132,6 +132,9 @@ public:
 		}
 	}
 
+	// Returns the video codec name (e.g. "h264", "hevc") or empty if not connected
+	std::string GetVideoCodecName() const;
+
 	std::shared_ptr<LiveOutputStream>& GetLiveStream()
 	{
 		return LiveStream;

@@ -330,6 +330,20 @@ html, body, #app {
     font-variant-numeric: tabular-nums;
   }
 
+  .codec-fallback-overlay {
+    position: absolute;
+    top: 6px;
+    right: 8px;
+    color: #fbbf24;
+    font-size: 0.65rem;
+    font-weight: 500;
+    background: rgba(0, 0, 0, 0.6);
+    padding: 2px 6px;
+    border-radius: 3px;
+    pointer-events: none;
+    z-index: 2;
+  }
+
   .detection-toggle {
     position: absolute;
     bottom: 8px;
