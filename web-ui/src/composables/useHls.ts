@@ -204,10 +204,13 @@ export function useHls(
   let stuckBackoffMs = 3000
   let restartBackoffMs = 10000
   let destroyed = false
+  let lastCurrentTime = 0
+  let currentTimeStuckSince = 0
 
   function attachEvents(h: Hls, element: HTMLVideoElement) {
     h.on(Hls.Events.FRAG_BUFFERED, () => {
       lastFragTime = Date.now()
+      restartInProgress = false
       diag.stats.totalFragments++
       let latMs: number | null = null
       if (h.latency != null && h.latency > 0) {
@@ -280,6 +283,8 @@ export function useHls(
     gapSkipCooldownUntil = 0
     hls.loadSource(sourceUrl)
     hls.attachMedia(element)
+    lastCurrentTime = 0
+    currentTimeStuckSince = 0
   }
 
   function start() {
@@ -388,6 +393,44 @@ export function useHls(
         }
       } else {
         lowReadyStateSince = 0
+      }
+
+      // Silent-stuck detection: video has readyState >= 3 (appears healthy)
+      // and fragments are flowing, but currentTime hasn't advanced. This
+      // happens when the demuxer gets stuck on a corrupted or misaligned
+      // segment boundary — the buffer has data but the decoder won't advance.
+      if (!element.paused && element.readyState >= 3 && lastFragTime > 0 && Date.now() - lastFragTime < HLS_SPINNER_TIMEOUT_MS) {
+        if (Math.abs(element.currentTime - lastCurrentTime) < 0.01) {
+          if (currentTimeStuckSince === 0) {
+            currentTimeStuckSince = Date.now()
+          } else if (Date.now() - currentTimeStuckSince > 2000) {
+            // Show spinner after 2s of no playback progress
+            showSpinner.value = true
+          }
+          if (Date.now() - currentTimeStuckSince > 4000) {
+            // currentTime hasn't moved for 4s while fragments flow — seek forward
+            diag.log('silentStuck', {
+              currentTime: element.currentTime,
+              liveSyncPosition: hls?.liveSyncPosition,
+              readyState: element.readyState,
+              timeSinceLastFrag: Date.now() - lastFragTime,
+            })
+            currentTimeStuckSince = 0
+            // Try seeking to the live sync position
+            if (hls?.liveSyncPosition != null && hls.liveSyncPosition > element.currentTime + 1) {
+              element.currentTime = hls.liveSyncPosition
+            } else {
+              // Seek failed to help, restart stream
+              restartStream('silentStuck')
+              return
+            }
+          }
+        } else {
+          currentTimeStuckSince = 0
+          lastCurrentTime = element.currentTime
+        }
+      } else {
+        lastCurrentTime = element.currentTime
       }
 
       if (lastFragTime === 0) {
