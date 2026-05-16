@@ -60,6 +60,18 @@ public:
 	// Position query
 	PtzPosition GetPosition();
 
+	// Zoom/Focus absolute position control
+	struct ZoomFocusState
+	{
+		int ZoomPos = 0;   // Current zoom position
+		int FocusPos = 0;  // Current focus position
+		int ZoomMax = 0;   // Max zoom value (from GetAbility or hardcoded)
+		bool Valid = false;
+	};
+	ZoomFocusState GetZoomFocus();
+	bool SetZoomPos(int zoomPos);
+	bool SetFocusPos(int focusPos);
+
 	// Preset management
 	std::vector<PtzPreset> GetPresets();
 	bool SetPreset(int id, const std::string& name);

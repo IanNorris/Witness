@@ -348,6 +348,104 @@ PtzPosition ReolinkClient::GetPosition()
 	return pos;
 }
 
+ReolinkClient::ZoomFocusState ReolinkClient::GetZoomFocus()
+{
+	ZoomFocusState state;
+
+	std::string body = R"([{"cmd":"GetZoomFocus","action":0,"param":{"channel":0}}])";
+	std::string response = SendCommand("GetZoomFocus", body);
+	if (response.empty())
+		return state;
+
+	auto json = crow::json::load(response);
+	if (!json || json.size() == 0)
+		return state;
+
+	auto& resp = json[0];
+	if (resp.has("value") && resp["value"].has("ZoomFocus"))
+	{
+		auto& zf = resp["value"]["ZoomFocus"];
+		if (zf.has("zoom") && zf["zoom"].has("pos"))
+			state.ZoomPos = (int)zf["zoom"]["pos"].i();
+		if (zf.has("focus") && zf["focus"].has("pos"))
+			state.FocusPos = (int)zf["focus"]["pos"].i();
+		state.Valid = true;
+	}
+
+	// Also try to get zoom range
+	std::string abilityBody = R"([{"cmd":"GetAbility","action":0,"param":{"User":{"userName":")" +
+		m_Username + R"("}}}])";
+	std::string abilityResponse = SendCommand("GetAbility", abilityBody);
+	if (!abilityResponse.empty())
+	{
+		auto abilityJson = crow::json::load(abilityResponse);
+		if (abilityJson && abilityJson.size() > 0)
+		{
+			auto& aResp = abilityJson[0];
+			if (aResp.has("value") && aResp["value"].has("Ability") &&
+				aResp["value"]["Ability"].has("ptzCtrl") &&
+				aResp["value"]["Ability"]["ptzCtrl"].has("zoomMax"))
+			{
+				state.ZoomMax = (int)aResp["value"]["Ability"]["ptzCtrl"]["zoomMax"].i();
+			}
+		}
+	}
+
+	// Fallback: if we didn't get zoomMax from ability, try common defaults
+	if (state.ZoomMax == 0)
+		state.ZoomMax = 3200;  // Common Reolink default (32x = 3200 at 100 per 1x)
+
+	return state;
+}
+
+bool ReolinkClient::SetZoomPos(int zoomPos)
+{
+	std::string body = R"([{"cmd":"StartZoomFocus","action":0,"param":{"channel":0,"op":"ZoomPos","pos":{"zoom":{"pos":)" +
+		std::to_string(zoomPos) + R"(}}}}])";
+
+	std::string response = SendCommand("StartZoomFocus", body);
+	if (response.empty())
+	{
+		LOG_ERROR("ReolinkClient::SetZoomPos: empty response, lastError=%s", m_LastError.c_str());
+		return false;
+	}
+
+	auto json = crow::json::load(response);
+	if (!json || json.size() == 0)
+		return false;
+
+	auto& resp = json[0];
+	if (resp.has("code") && resp["code"].i() != 0)
+	{
+		m_LastError = "SetZoomPos failed, code=" + std::to_string((int)resp["code"].i());
+		LOG_ERROR("ReolinkClient: %s (response: %s)", m_LastError.c_str(), response.substr(0, 300).c_str());
+		return false;
+	}
+	return true;
+}
+
+bool ReolinkClient::SetFocusPos(int focusPos)
+{
+	std::string body = R"([{"cmd":"StartZoomFocus","action":0,"param":{"channel":0,"op":"FocusPos","pos":{"focus":{"pos":)" +
+		std::to_string(focusPos) + R"(}}}}])";
+
+	std::string response = SendCommand("StartZoomFocus", body);
+	if (response.empty())
+		return false;
+
+	auto json = crow::json::load(response);
+	if (!json || json.size() == 0)
+		return false;
+
+	auto& resp = json[0];
+	if (resp.has("code") && resp["code"].i() != 0)
+	{
+		m_LastError = "SetFocusPos failed, code=" + std::to_string((int)resp["code"].i());
+		return false;
+	}
+	return true;
+}
+
 std::vector<PtzPreset> ReolinkClient::GetPresets()
 {
 	std::vector<PtzPreset> presets;

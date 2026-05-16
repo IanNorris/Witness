@@ -686,6 +686,18 @@ void CrowListener::RegisterRoutes()
 		HandlePtzPosition( req, res, cameraId );
 	});
 
+	CROW_ROUTE( m_App, "/ptz/<int>/zoom" )
+	([this]( const crow::request& req, crow::response& res, int cameraId )
+	{
+		HandlePtzZoomGet( req, res, cameraId );
+	});
+
+	CROW_ROUTE( m_App, "/ptz/<int>/zoom/set" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res, int cameraId )
+	{
+		HandlePtzZoomSet( req, res, cameraId );
+	});
+
 	CROW_ROUTE( m_App, "/ptz/<int>/presets" )
 	([this]( const crow::request& req, crow::response& res, int cameraId )
 	{

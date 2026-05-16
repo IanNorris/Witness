@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { api } from '../../composables/useApi'
 
 const props = defineProps<{
@@ -9,7 +9,16 @@ const props = defineProps<{
 const isMoving = ref(false)
 const error = ref('')
 const speed = ref(32)
-const zoomLevel = ref(50)
+const zoomPos = ref(0)
+const zoomMax = ref(3200)
+const zoomLoaded = ref(false)
+let zoomSendTimeout: ReturnType<typeof setTimeout> | null = null
+
+const zoomMultiplier = computed(() => {
+  if (zoomMax.value === 0) return '1.0x'
+  const x = 1 + (zoomPos.value / zoomMax.value) * 31 // Assumes up to 32x
+  return x.toFixed(1) + 'x'
+})
 
 async function sendPtz(command: string) {
   error.value = ''
@@ -35,35 +44,55 @@ function stopMove() {
   }
 }
 
-let zoomDirection = ''
-let zoomInterval: ReturnType<typeof setInterval> | null = null
+async function fetchZoomState() {
+  try {
+    const data = await api<{ valid: boolean; zoom: number; zoomMax: number }>(
+      `/ptz/${props.cameraId}/zoom`
+    )
+    if (data?.valid) {
+      zoomPos.value = data.zoom
+      if (data.zoomMax > 0) zoomMax.value = data.zoomMax
+      zoomLoaded.value = true
+    }
+  } catch {
+    // Ignore - might not support absolute zoom
+  }
+}
+
+async function setZoomAbsolute(pos: number) {
+  error.value = ''
+  try {
+    await api(`/ptz/${props.cameraId}/zoom/set`, {
+      method: 'POST',
+      body: { zoom: pos },
+    })
+  } catch (e: any) {
+    error.value = e.message
+  }
+}
 
 function onZoomInput(event: Event) {
   const target = event.target as HTMLInputElement
   const newVal = Number(target.value)
-  const diff = newVal - zoomLevel.value
-  if (diff === 0) return
+  zoomPos.value = newVal
 
-  const command = diff > 0 ? 'zoomin' : 'zoomout'
-  zoomLevel.value = newVal
-
-  // Start continuous zoom in the detected direction
-  if (zoomDirection !== command) {
-    zoomDirection = command
-    sendPtz(command)
-    if (zoomInterval) clearInterval(zoomInterval)
-    zoomInterval = setInterval(() => sendPtz(command), 500)
-  }
+  // Debounce: send after 100ms of no further input
+  if (zoomSendTimeout) clearTimeout(zoomSendTimeout)
+  zoomSendTimeout = setTimeout(() => setZoomAbsolute(newVal), 100)
 }
 
-function onZoomChange() {
-  if (zoomInterval) {
-    clearInterval(zoomInterval)
-    zoomInterval = null
-  }
-  zoomDirection = ''
-  sendPtz('stop')
-}
+// Poll zoom position periodically while controls are visible
+let pollInterval: ReturnType<typeof setInterval> | null = null
+
+onMounted(() => {
+  fetchZoomState()
+  pollInterval = setInterval(fetchZoomState, 5000)
+})
+
+onUnmounted(() => {
+  if (pollInterval) clearInterval(pollInterval)
+  if (zoomSendTimeout) clearTimeout(zoomSendTimeout)
+})
 </script>
 
 <template>
@@ -144,16 +173,16 @@ function onZoomChange() {
         <span class="ptz-zoom-label">+</span>
         <input
           type="range"
-          v-model.number="zoomLevel"
+          :value="zoomPos"
           min="0"
-          max="100"
+          :max="zoomMax"
           step="1"
           class="ptz-zoom-slider"
           orient="vertical"
           @input="onZoomInput"
-          @change="onZoomChange"
         />
         <span class="ptz-zoom-label">−</span>
+        <span class="ptz-zoom-level">{{ zoomMultiplier }}</span>
       </div>
     </div>
 
@@ -251,6 +280,14 @@ function onZoomChange() {
   height: 80px;
   accent-color: #3b82f6;
   cursor: pointer;
+}
+
+.ptz-zoom-level {
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 9px;
+  font-weight: 600;
+  white-space: nowrap;
+  margin-top: 2px;
 }
 
 .ptz-speed {

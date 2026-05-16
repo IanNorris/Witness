@@ -184,6 +184,8 @@ private:
 	// PTZ control
 	void HandlePtzCommand( const crow::request& req, crow::response& res, int cameraId, const std::string& command );
 	void HandlePtzPosition( const crow::request& req, crow::response& res, int cameraId );
+	void HandlePtzZoomGet( const crow::request& req, crow::response& res, int cameraId );
+	void HandlePtzZoomSet( const crow::request& req, crow::response& res, int cameraId );
 	void HandlePtzPresets( const crow::request& req, crow::response& res, int cameraId );
 	void HandlePtzPresetSet( const crow::request& req, crow::response& res, int cameraId );
 	void HandlePtzPresetDelete( const crow::request& req, crow::response& res, int cameraId );

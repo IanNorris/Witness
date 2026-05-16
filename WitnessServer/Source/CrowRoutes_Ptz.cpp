@@ -126,6 +126,78 @@ void CrowListener::HandlePtzPosition(const crow::request& req, crow::response& r
 	res.end();
 }
 
+void CrowListener::HandlePtzZoomGet(const crow::request& req, crow::response& res, int cameraId)
+{
+	int UserUID = CrowAuth::IsCameraAuthenticated(*m_GlobalContext, req, nullptr,
+		CrowAuth::Action::Read, CrowAuth::Privilege::Normal, cameraId);
+	if (UserUID <= 0)
+	{
+		res.code = 403;
+		res.end();
+		return;
+	}
+
+	auto client = m_GlobalContext->GetPtzClient(cameraId);
+	if (!client)
+	{
+		res.code = 400;
+		res.end();
+		return;
+	}
+
+	auto state = client->GetZoomFocus();
+	crow::json::wvalue result;
+	result["valid"] = state.Valid;
+	result["zoom"] = state.ZoomPos;
+	result["focus"] = state.FocusPos;
+	result["zoomMax"] = state.ZoomMax;
+	res.code = 200;
+	res.write(result.dump());
+	res.end();
+}
+
+void CrowListener::HandlePtzZoomSet(const crow::request& req, crow::response& res, int cameraId)
+{
+	auto body = crow::json::load(req.body);
+
+	int UserUID = CrowAuth::IsCameraAuthenticated(*m_GlobalContext, req, body ? &body : nullptr,
+		CrowAuth::Action::ReadWrite, CrowAuth::Privilege::Normal, cameraId);
+	if (UserUID <= 0)
+	{
+		res.code = 403;
+		res.end();
+		return;
+	}
+
+	if (!body || !body.has("zoom"))
+	{
+		res.code = 400;
+		crow::json::wvalue err;
+		err["error"] = "Missing 'zoom' parameter";
+		res.write(err.dump());
+		res.end();
+		return;
+	}
+
+	auto client = m_GlobalContext->GetPtzClient(cameraId);
+	if (!client)
+	{
+		res.code = 400;
+		res.end();
+		return;
+	}
+
+	int zoomPos = (int)body["zoom"].i();
+	bool ok = client->SetZoomPos(zoomPos);
+
+	crow::json::wvalue result;
+	result["success"] = ok;
+	if (!ok) result["error"] = client->GetLastError();
+	res.code = ok ? 200 : 500;
+	res.write(result.dump());
+	res.end();
+}
+
 void CrowListener::HandlePtzPresets(const crow::request& req, crow::response& res, int cameraId)
 {
 	int UserUID = CrowAuth::IsCameraAuthenticated(*m_GlobalContext, req, nullptr,
