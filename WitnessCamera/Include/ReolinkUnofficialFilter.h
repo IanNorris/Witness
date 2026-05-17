@@ -35,6 +35,9 @@ public:
 
 	bool IsConnected() const;
 
+	// Access the underlying Baichuan client (for PTZ commands)
+	std::shared_ptr<ReolinkBaichuanClient> GetClient() const { return m_Client; }
+
 private:
 	std::shared_ptr<ReolinkBaichuanClient> m_Client;
 };

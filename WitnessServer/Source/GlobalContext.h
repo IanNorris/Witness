@@ -14,7 +14,7 @@
 
 #include <shared_mutex>
 
-namespace Witness{ namespace Camera{ class FaceEmbeddingModel; } }
+namespace Witness{ namespace Camera{ class FaceEmbeddingModel; class ReolinkBaichuanClient; } }
 class ReolinkClient;
 
 struct CameraStateToggleRecordMessage : public Message
@@ -110,6 +110,15 @@ public:
 		std::shared_lock<std::shared_mutex> lock(Mutex);
 		auto it = PtzClients.find(cameraId);
 		return (it != PtzClients.end()) ? it->second : nullptr;
+	}
+
+	// Baichuan clients for PTZ-over-Baichuan (keyed by CameraUID)
+	std::unordered_map<int, std::shared_ptr<Witness::Camera::ReolinkBaichuanClient>> BaichuanClients;
+	std::shared_ptr<Witness::Camera::ReolinkBaichuanClient> GetBaichuanClient(int cameraId)
+	{
+		std::shared_lock<std::shared_mutex> lock(Mutex);
+		auto it = BaichuanClients.find(cameraId);
+		return (it != BaichuanClients.end()) ? it->second : nullptr;
 	}
 
 private:

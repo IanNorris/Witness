@@ -55,6 +55,11 @@ public:
 	// Get current detection state (thread-safe)
 	ReolinkDetectionState GetDetections() const;
 
+	// PTZ commands (sent over existing Baichuan connection)
+	bool PtzControl(const std::string& command, int speed = 32, int channel = 0);
+	bool PtzGoToPreset(int presetId, int channel = 0);
+	bool PtzStop(int channel = 0);
+
 	// Connection status
 	bool IsConnected() const { return m_Connected.load(); }
 	std::string GetLastError() const;
@@ -77,6 +82,7 @@ private:
 
 	// Socket
 	uintptr_t m_Socket = ~(uintptr_t)0; // INVALID_SOCKET
+	mutable std::mutex m_SendMutex; // Protects socket writes from multiple threads
 
 	// Thread
 	std::thread m_Thread;

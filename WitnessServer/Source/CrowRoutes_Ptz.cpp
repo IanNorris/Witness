@@ -2,6 +2,8 @@
 #include "CrowAuth.h"
 #include "GlobalContext.h"
 #include "ReolinkClient.h"
+#include "ReolinkBaichuanClient.h"
+#include "SQLite.h"
 #include "UrlHelpers.h"
 
 // Try to lazily initialize a PTZ client if it wasn't created at startup
@@ -124,6 +126,47 @@ static PtzOp ParsePtzCommand(const std::string& cmd)
 	return PtzOp::Stop;
 }
 
+static const char* PtzOpToBaichuanCommand(PtzOp op)
+{
+	switch (op)
+	{
+		case PtzOp::Left:      return "Left";
+		case PtzOp::Right:     return "Right";
+		case PtzOp::Up:        return "Up";
+		case PtzOp::Down:      return "Down";
+		case PtzOp::LeftUp:    return "LeftUp";
+		case PtzOp::LeftDown:  return "LeftDown";
+		case PtzOp::RightUp:   return "RightUp";
+		case PtzOp::RightDown: return "RightDown";
+		case PtzOp::ZoomInc:   return "ZoomInc";
+		case PtzOp::ZoomDec:   return "ZoomDec";
+		case PtzOp::FocusInc:  return "FocusInc";
+		case PtzOp::FocusDec:  return "FocusDec";
+		case PtzOp::Stop:      return "Stop";
+		default:               return "Stop";
+	}
+}
+
+// Try PTZ command via Baichuan protocol (returns true if handled)
+static bool TryBaichuanPtz(std::shared_ptr<Witness::Camera::ReolinkBaichuanClient> bcClient, PtzOp op, int speed, int channel = 0)
+{
+	if (!bcClient || !bcClient->IsConnected())
+		return false;
+
+	if (op == PtzOp::Stop)
+		return bcClient->PtzStop(channel);
+
+	return bcClient->PtzControl(PtzOpToBaichuanCommand(op), speed, channel);
+}
+
+static bool TryBaichuanPreset(std::shared_ptr<Witness::Camera::ReolinkBaichuanClient> bcClient, int presetId, int channel = 0)
+{
+	if (!bcClient || !bcClient->IsConnected())
+		return false;
+
+	return bcClient->PtzGoToPreset(presetId, channel);
+}
+
 void CrowListener::HandlePtzCommand(const crow::request& req, crow::response& res, int cameraId, const std::string& command)
 {
 	auto body = crow::json::load(req.body);
@@ -139,7 +182,23 @@ void CrowListener::HandlePtzCommand(const crow::request& req, crow::response& re
 
 	auto client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
 
-	if (!client)
+	// Try Baichuan client: direct camera first, then linked camera
+	auto bcClient = m_GlobalContext->GetBaichuanClient(cameraId);
+	if (!bcClient)
+	{
+		SQLiteDatabaseQueryInstance GetLinked(m_GlobalContext->Database, "GetLinkedCameraId");
+		GetLinked->Bind("@CameraId", cameraId);
+		int linkedId = 0;
+		GetLinked->Execute([&](const SQLiteDatabaseQuery& query)
+		{
+			linkedId = query.GetColumnValueInt(0);
+			return true;
+		});
+		if (linkedId > 0)
+			bcClient = m_GlobalContext->GetBaichuanClient(linkedId);
+	}
+
+	if (!client && !bcClient)
 	{
 		crow::json::wvalue err;
 		err["error"] = "Camera does not have PTZ enabled";
@@ -167,10 +226,15 @@ void CrowListener::HandlePtzCommand(const crow::request& req, crow::response& re
 			return;
 		}
 		int presetId = (int)body["id"].i();
-		bool ok = client->PtzGoToPreset(presetId);
+
+		// Try Baichuan first (more reliable for Reolink cameras)
+		bool ok = TryBaichuanPreset(bcClient, presetId);
+		if (!ok && client)
+			ok = client->PtzGoToPreset(presetId);
+
 		crow::json::wvalue result;
 		result["success"] = ok;
-		if (!ok) result["error"] = client->GetLastError();
+		if (!ok) result["error"] = client ? client->GetLastError() : "No PTZ connection available";
 		res.code = ok ? 200 : 500;
 		res.write(result.dump());
 		res.end();
@@ -178,11 +242,15 @@ void CrowListener::HandlePtzCommand(const crow::request& req, crow::response& re
 	}
 
 	PtzOp op = ParsePtzCommand(command);
-	bool ok = client->PtzControl(op, speed);
+
+	// Try Baichuan first (more reliable for Reolink cameras)
+	bool ok = TryBaichuanPtz(bcClient, op, speed);
+	if (!ok && client)
+		ok = client->PtzControl(op, speed);
 
 	crow::json::wvalue result;
 	result["success"] = ok;
-	if (!ok) result["error"] = client->GetLastError();
+	if (!ok) result["error"] = client ? client->GetLastError() : "No PTZ connection available";
 	res.code = ok ? 200 : 500;
 	res.write(result.dump());
 	res.end();

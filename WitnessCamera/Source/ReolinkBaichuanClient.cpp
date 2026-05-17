@@ -829,6 +829,145 @@ void ReolinkBaichuanClient::ParseAlarmEvent(const std::string& xml)
 }
 
 // ============================================================================
+// PTZ commands
+// ============================================================================
+
+bool ReolinkBaichuanClient::PtzControl(const std::string& command, int speed, int channel)
+{
+	if (!m_Connected.load())
+		return false;
+
+	std::string xml = "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n<body>\n"
+		"<PtzControl version=\"1.1\">\n"
+		"<channelId>" + std::to_string(channel) + "</channelId>\n"
+		"<command>" + command + "</command>\n"
+		"<speed>" + std::to_string(speed) + "</speed>\n"
+		"</PtzControl>\n"
+		"</body>";
+
+	std::lock_guard<std::mutex> lock(m_SendMutex);
+	uint32_t msgId = ++m_MessageCounter;
+
+	// AES-encrypt the body for modern header commands
+	std::vector<uint8_t> body(xml.begin(), xml.end());
+	std::vector<uint8_t> encBody;
+	if (!m_AesKey.empty())
+	{
+		// AES-128-CFB encrypt
+		EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+		if (ctx)
+		{
+			encBody.resize(body.size() + 16);
+			int outLen = 0;
+			EVP_EncryptInit_ex(ctx, EVP_aes_128_cfb128(), nullptr, m_AesKey.data(), AES_CFB_IV);
+			EVP_CIPHER_CTX_set_padding(ctx, 0);
+			EVP_EncryptUpdate(ctx, encBody.data(), &outLen, body.data(), (int)body.size());
+			int finalLen = 0;
+			EVP_EncryptFinal_ex(ctx, encBody.data() + outLen, &finalLen);
+			EVP_CIPHER_CTX_free(ctx);
+			encBody.resize(outLen + finalLen);
+		}
+		else
+		{
+			encBody = body; // fallback to unencrypted
+		}
+	}
+	else
+	{
+		encBody = body;
+	}
+
+	// Modern 24-byte header, cmd_id=18 (PtzControl), ch_id = channel+1
+	BcHeader24 header{};
+	header.Magic = BC_MAGIC;
+	header.CmdId = 18;
+	header.BodyLen = (uint32_t)encBody.size();
+	header.ChannelId = (uint8_t)(channel + 1);
+	header.StreamType = (uint8_t)(msgId & 0xFF);
+	header.MsgNum = (uint16_t)((msgId >> 8) & 0xFFFF);
+	header.ResponseCode = 0x0000;
+	header.MessageClass = BC_CLASS_MODERN;
+	header.PayloadOffset = 0;
+
+	if (!SendRaw(reinterpret_cast<uint8_t*>(&header), sizeof(header)))
+		return false;
+	if (!SendRaw(encBody.data(), encBody.size()))
+		return false;
+
+	return true;
+}
+
+bool ReolinkBaichuanClient::PtzStop(int channel)
+{
+	return PtzControl("Stop", 0, channel);
+}
+
+bool ReolinkBaichuanClient::PtzGoToPreset(int presetId, int channel)
+{
+	if (!m_Connected.load())
+		return false;
+
+	std::string xml = "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n<body>\n"
+		"<PtzPreset version=\"1.1\">\n"
+		"<channelId>" + std::to_string(channel) + "</channelId>\n"
+		"<presetList>\n<preset>\n"
+		"<id>" + std::to_string(presetId) + "</id>\n"
+		"<command>toPos</command>\n"
+		"</preset>\n</presetList>\n"
+		"</PtzPreset>\n"
+		"</body>";
+
+	std::lock_guard<std::mutex> lock(m_SendMutex);
+	uint32_t msgId = ++m_MessageCounter;
+
+	std::vector<uint8_t> body(xml.begin(), xml.end());
+	std::vector<uint8_t> encBody;
+	if (!m_AesKey.empty())
+	{
+		EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+		if (ctx)
+		{
+			encBody.resize(body.size() + 16);
+			int outLen = 0;
+			EVP_EncryptInit_ex(ctx, EVP_aes_128_cfb128(), nullptr, m_AesKey.data(), AES_CFB_IV);
+			EVP_CIPHER_CTX_set_padding(ctx, 0);
+			EVP_EncryptUpdate(ctx, encBody.data(), &outLen, body.data(), (int)body.size());
+			int finalLen = 0;
+			EVP_EncryptFinal_ex(ctx, encBody.data() + outLen, &finalLen);
+			EVP_CIPHER_CTX_free(ctx);
+			encBody.resize(outLen + finalLen);
+		}
+		else
+		{
+			encBody = body;
+		}
+	}
+	else
+	{
+		encBody = body;
+	}
+
+	// cmd_id=19 (PtzPreset), ch_id = channel+1
+	BcHeader24 header{};
+	header.Magic = BC_MAGIC;
+	header.CmdId = 19;
+	header.BodyLen = (uint32_t)encBody.size();
+	header.ChannelId = (uint8_t)(channel + 1);
+	header.StreamType = (uint8_t)(msgId & 0xFF);
+	header.MsgNum = (uint16_t)((msgId >> 8) & 0xFFFF);
+	header.ResponseCode = 0x0000;
+	header.MessageClass = BC_CLASS_MODERN;
+	header.PayloadOffset = 0;
+
+	if (!SendRaw(reinterpret_cast<uint8_t*>(&header), sizeof(header)))
+		return false;
+	if (!SendRaw(encBody.data(), encBody.size()))
+		return false;
+
+	return true;
+}
+
+// ============================================================================
 // Low-level I/O
 // ============================================================================
 

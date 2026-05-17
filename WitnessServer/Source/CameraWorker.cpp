@@ -706,8 +706,16 @@ void CameraWorker::WorkerInit()
 
 		if (!bcHost.empty() && !bcUser.empty() && !bcPass.empty())
 		{
-			RootFilter = std::make_shared<Witness::Camera::ReolinkUnofficialFilter>(
+			auto filter = std::make_shared<Witness::Camera::ReolinkUnofficialFilter>(
 				MVF, bcHost, bcPort, bcUser, bcPass);
+			RootFilter = filter;
+
+			// Register Baichuan client for PTZ use
+			if (auto bcClient = filter->GetClient())
+			{
+				Context->BaichuanClients[Camera.ID] = bcClient;
+			}
+
 			LOG_INFO("Camera %d: Using reolink_unofficial motion filter (Baichuan %s:%d)",
 				Camera.ID, bcHost.c_str(), bcPort);
 		}
