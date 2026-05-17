@@ -189,6 +189,7 @@ private:
 	void HandlePtzPresets( const crow::request& req, crow::response& res, int cameraId );
 	void HandlePtzPresetSet( const crow::request& req, crow::response& res, int cameraId );
 	void HandlePtzPresetDelete( const crow::request& req, crow::response& res, int cameraId );
+	void HandlePtzTest( const crow::request& req, crow::response& res );
 
 	bool ConfigureSSL();
 

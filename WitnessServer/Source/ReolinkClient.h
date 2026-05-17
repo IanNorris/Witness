@@ -49,6 +49,9 @@ public:
 	// Auto-detect protocol: tries HTTPS then HTTP on given port, then common ports
 	static std::shared_ptr<ReolinkClient> AutoDetect(const std::string& host, int port, const std::string& username, const std::string& password);
 
+	// Clear cached login failures for a host (call when credentials change)
+	static void ClearFailureCache(const std::string& host);
+
 	// Login and obtain a session token (auto-called on first API use)
 	bool Login();
 

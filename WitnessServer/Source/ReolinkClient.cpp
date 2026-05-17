@@ -5,6 +5,26 @@
 #include <Log.h>
 #include <crow/json.h>
 #include <sstream>
+#include <shared_mutex>
+#include <unordered_map>
+
+// Cache failed AutoDetect attempts to avoid hammering cameras with repeated login failures
+static std::shared_mutex s_FailureCacheMutex;
+static std::unordered_map<std::string, std::chrono::steady_clock::time_point> s_FailureCache;
+static constexpr auto FAILURE_CACHE_DURATION = std::chrono::seconds(60);
+
+void ReolinkClient::ClearFailureCache(const std::string& host)
+{
+	std::unique_lock<std::shared_mutex> lock(s_FailureCacheMutex);
+	// Clear all entries matching this host (any port)
+	for (auto it = s_FailureCache.begin(); it != s_FailureCache.end();)
+	{
+		if (it->first.find(host) == 0)
+			it = s_FailureCache.erase(it);
+		else
+			++it;
+	}
+}
 
 ReolinkClient::ReolinkClient(const std::string& host, int port, bool useTls, const std::string& username, const std::string& password)
 	: m_Host(host)
@@ -27,6 +47,30 @@ ReolinkClient::~ReolinkClient() = default;
 
 std::shared_ptr<ReolinkClient> ReolinkClient::AutoDetect(const std::string& host, int port, const std::string& username, const std::string& password)
 {
+	LOG_INFO("ReolinkClient::AutoDetect: host=%s, port=%d, user=%s, password=%s",
+		host.c_str(), port, username.c_str(),
+		password.empty() ? "EMPTY" : "present");
+
+	if (password.empty())
+	{
+		LOG_ERROR("ReolinkClient::AutoDetect: password is empty for %s — cannot authenticate", host.c_str());
+		return nullptr;
+	}
+
+	// Check failure cache to avoid hammering a camera with repeated failed logins
+	std::string cacheKey = host + ":" + std::to_string(port) + ":" + username;
+	{
+		std::shared_lock<std::shared_mutex> lock(s_FailureCacheMutex);
+		auto it = s_FailureCache.find(cacheKey);
+		if (it != s_FailureCache.end() && std::chrono::steady_clock::now() < it->second)
+		{
+			LOG_INFO("ReolinkClient::AutoDetect: skipping %s (cached failure, retry in %llds)",
+				host.c_str(),
+				std::chrono::duration_cast<std::chrono::seconds>(it->second - std::chrono::steady_clock::now()).count());
+			return nullptr;
+		}
+	}
+
 	// Try HTTPS on the given port first
 	auto client = std::make_shared<ReolinkClient>(host, port, true, username, password);
 	if (client->Login())
@@ -65,6 +109,12 @@ std::shared_ptr<ReolinkClient> ReolinkClient::AutoDetect(const std::string& host
 		}
 	}
 
+	// Record failure in cache
+	{
+		std::unique_lock<std::shared_mutex> lock(s_FailureCacheMutex);
+		s_FailureCache[cacheKey] = std::chrono::steady_clock::now() + FAILURE_CACHE_DURATION;
+	}
+
 	LOG_ERROR("ReolinkClient: Could not connect to %s (tried HTTPS and HTTP)", host.c_str());
 	return nullptr;
 }
@@ -77,9 +127,29 @@ bool ReolinkClient::Login()
 		m_Username + R"(","password":")" + m_Password + R"("}}}])";
 
 	auto result = m_HttpClient->Post("/api.cgi?cmd=Login", body, "application/json");
-	if (!result || result->status != 200)
+	if (!result)
 	{
-		m_LastError = "Login request failed: " + (result ? std::to_string(result->status) : "connection error");
+		m_LastError = "Login request failed: connection error";
+		LOG_ERROR("ReolinkClient: %s (%s:%d)", m_LastError.c_str(), m_Host.c_str(), m_Port);
+		return false;
+	}
+
+	// Handle HTTP 302 redirect (camera redirecting HTTP to HTTPS)
+	if (result->status == 301 || result->status == 302)
+	{
+		auto location = result->get_header_value("Location");
+		if (!location.empty() && location.find("https://") == 0)
+		{
+			LOG_INFO("ReolinkClient: Got %d redirect to %s, will retry as HTTPS", result->status, location.c_str());
+		}
+		m_LastError = "Login request failed: " + std::to_string(result->status) + " redirect";
+		LOG_ERROR("ReolinkClient: %s (%s:%d)", m_LastError.c_str(), m_Host.c_str(), m_Port);
+		return false;
+	}
+
+	if (result->status != 200)
+	{
+		m_LastError = "Login request failed: " + std::to_string(result->status);
 		LOG_ERROR("ReolinkClient: %s (%s:%d)", m_LastError.c_str(), m_Host.c_str(), m_Port);
 		return false;
 	}
@@ -108,7 +178,7 @@ bool ReolinkClient::Login()
 		code = (int)resp["code"].i();
 
 	m_LastError = "Login failed, code=" + std::to_string(code);
-	LOG_ERROR("ReolinkClient: %s (%s:%d)", m_LastError.c_str(), m_Host.c_str(), m_Port);
+	LOG_ERROR("ReolinkClient: %s (%s:%d, user=%s)", m_LastError.c_str(), m_Host.c_str(), m_Port, m_Username.c_str());
 	return false;
 }
 

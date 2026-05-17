@@ -366,3 +366,57 @@ void CrowListener::HandlePtzPresetDelete(const crow::request& req, crow::respons
 	res.write(result.dump());
 	res.end();
 }
+
+void CrowListener::HandlePtzTest(const crow::request& req, crow::response& res)
+{
+	auto body = crow::json::load(req.body);
+
+	int UserUID = CrowAuth::IsAuthenticated(*m_GlobalContext, req, body ? &body : nullptr,
+		CrowAuth::Action::ReadWrite, CrowAuth::Privilege::Administrator);
+	if (UserUID <= 0)
+	{
+		res.code = 403;
+		res.end();
+		return;
+	}
+
+	if (!body || !body.has("host") || !body.has("username") || !body.has("password"))
+	{
+		crow::json::wvalue err;
+		err["error"] = "Missing required fields: host, username, password";
+		res.code = 400;
+		res.write(err.dump());
+		res.end();
+		return;
+	}
+
+	std::string host = std::string(body["host"].s());
+	int port = body.has("port") ? (int)body["port"].i() : 443;
+	std::string username = std::string(body["username"].s());
+	std::string password = std::string(body["password"].s());
+
+	// Clear failure cache for this host so the test always actually tries
+	ReolinkClient::ClearFailureCache(host);
+
+	auto client = ReolinkClient::AutoDetect(host, port > 0 ? port : 443, username, password);
+
+	crow::json::wvalue result;
+	if (client)
+	{
+		result["success"] = true;
+		result["message"] = "Connected successfully";
+
+		// Try getting position to verify full functionality
+		auto pos = client->GetPosition();
+		result["positionValid"] = pos.Valid;
+	}
+	else
+	{
+		result["success"] = false;
+		result["message"] = "Connection failed — check host, port, username, and password";
+	}
+
+	res.code = 200;
+	res.write(result.dump());
+	res.end();
+}

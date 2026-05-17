@@ -716,6 +716,12 @@ void CrowListener::RegisterRoutes()
 		HandlePtzPresetDelete( req, res, cameraId );
 	});
 
+	CROW_ROUTE( m_App, "/ptz/test" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandlePtzTest( req, res );
+	});
+
 	// WebSocket MSE stream
 	CROW_WEBSOCKET_ROUTE( m_App, "/ws/stream/<int>" )
 		.onaccept([this]( const crow::request& req, void** userdata ) -> bool
