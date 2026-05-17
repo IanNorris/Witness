@@ -222,19 +222,17 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 	}
 
 	// Set up SwsContext for pixel format conversion to BGR24
-	SwsContext* swsCtx = sws_getContext(
-		codecCtx->width, codecCtx->height, codecCtx->pix_fmt,
-		codecCtx->width, codecCtx->height, AV_PIX_FMT_BGR24,
-		SWS_BILINEAR, nullptr, nullptr, nullptr
-	);
+	// Deferred until first frame is decoded — for HEVC the pixel format
+	// is often AV_PIX_FMT_NONE until the decoder processes the VPS/SPS.
+	SwsContext* swsCtx = nullptr;
 
-	if( !swsCtx )
+	if( codecCtx->pix_fmt != AV_PIX_FMT_NONE )
 	{
-		LOG_ERROR( "ClipReprocess: Failed to create SwsContext for clip %lld, marking as processed", (long long)clipUID );
-		avcodec_free_context( &codecCtx );
-		avformat_close_input( &fmtCtx );
-		MarkClipProcessed( clipUID );
-		return;
+		swsCtx = sws_getContext(
+			codecCtx->width, codecCtx->height, codecCtx->pix_fmt,
+			codecCtx->width, codecCtx->height, AV_PIX_FMT_BGR24,
+			SWS_BILINEAR, nullptr, nullptr, nullptr
+		);
 	}
 
 	// Determine clip duration for sampling every 2 seconds
@@ -265,11 +263,23 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 		delDet->Execute( nullptr );
 	}
 
-	// Allocate BGR frame buffer
-	int bgrBufSize = av_image_get_buffer_size( AV_PIX_FMT_BGR24, frameWidth, frameHeight, 1 );
-	std::vector<uint8_t> bgrBuffer( bgrBufSize );
-	av_image_fill_arrays( bgrFrame->data, bgrFrame->linesize, bgrBuffer.data(),
-		AV_PIX_FMT_BGR24, frameWidth, frameHeight, 1 );
+	// BGR frame buffer — may be deferred if dimensions unknown until first decode (HEVC)
+	std::vector<uint8_t> bgrBuffer;
+	bool bgrBufferReady = false;
+
+	auto initBgrBuffer = [&]( int w, int h )
+	{
+		frameWidth = w;
+		frameHeight = h;
+		int bgrBufSize = av_image_get_buffer_size( AV_PIX_FMT_BGR24, w, h, 1 );
+		bgrBuffer.resize( bgrBufSize );
+		av_image_fill_arrays( bgrFrame->data, bgrFrame->linesize, bgrBuffer.data(),
+			AV_PIX_FMT_BGR24, w, h, 1 );
+		bgrBufferReady = true;
+	};
+
+	if( frameWidth > 0 && frameHeight > 0 )
+		initBgrBuffer( frameWidth, frameHeight );
 
 	// Sample frames at DetectionMaxFPS rate (matching live pipeline)
 	double sampleInterval = ( DetectionMaxFPS > 0.0 ) ? ( 1.0 / DetectionMaxFPS ) : 0.1;
@@ -317,6 +327,32 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 				continue;
 			}
 			nextSampleTime = frameTime + sampleInterval;
+
+			// Lazy-init SwsContext and BGR buffer on first decoded frame.
+			// HEVC decoders often don't set pix_fmt/width/height until decode.
+			if( !swsCtx )
+			{
+				if( frame->format == AV_PIX_FMT_NONE || frame->width == 0 || frame->height == 0 )
+				{
+					LOG_WARNING( "ClipReprocess: clip %lld first frame has unknown pixel format, skipping frame", (long long)clipUID );
+					av_frame_unref( frame );
+					continue;
+				}
+				swsCtx = sws_getContext(
+					frame->width, frame->height, (AVPixelFormat)frame->format,
+					frame->width, frame->height, AV_PIX_FMT_BGR24,
+					SWS_BILINEAR, nullptr, nullptr, nullptr
+				);
+				if( !swsCtx )
+				{
+					LOG_ERROR( "ClipReprocess: Failed to create SwsContext for clip %lld (pix_fmt=%d, %dx%d), marking as processed",
+						(long long)clipUID, frame->format, frame->width, frame->height );
+					av_frame_unref( frame );
+					break;
+				}
+				if( !bgrBufferReady || frame->width != frameWidth || frame->height != frameHeight )
+					initBgrBuffer( frame->width, frame->height );
+			}
 
 			// Convert to BGR24 cv::Mat
 			sws_scale( swsCtx, frame->data, frame->linesize, 0, frameHeight,

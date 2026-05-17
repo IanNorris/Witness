@@ -742,7 +742,7 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 		if (ID.DiagFrameCounter >= 150)
 		{
 			ID.DiagFrameCounter = 0;
-			LOG_INFO("MVFilter src=%d: %dx%d, MVs=%u usable=%u, buckets=%u/%u active=%d, maxScore=%.0f, refValue=%d, skip=%u",
+			LOG_DEBUG("MVFilter src=%d: %dx%d, MVs=%u usable=%u, buckets=%u/%u active=%d, maxScore=%.0f, refValue=%d, skip=%u",
 				TaskData->Frame.SourceID,
 				TaskData->Frame.InputFrame->GetWidth(), TaskData->Frame.InputFrame->GetHeight(),
 				MotionVectors, UsableMotionVectors,
@@ -752,7 +752,7 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 		else if (activatedBuckets > 0)
 		{
 			// Always log when buckets activate (potential motion)
-			LOG_INFO("MVFilter src=%d: MOTION %d buckets, maxScore=%.0f (ref=%d), MVs=%u usable=%u",
+			LOG_DEBUG("MVFilter src=%d: MOTION %d buckets, maxScore=%.0f (ref=%d), MVs=%u usable=%u",
 				TaskData->Frame.SourceID, activatedBuckets, maxScore, RefValue,
 				MotionVectors, UsableMotionVectors);
 		}
