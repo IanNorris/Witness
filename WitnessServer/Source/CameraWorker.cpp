@@ -795,6 +795,7 @@ void CameraWorker::WorkerMain()
 		if( !IsConnected )
 		{
 			IsConnected = true;
+			m_AuthFailureBackoff = 3000; // Reset backoff on successful connection
 
 			LOG_INFO("[HLS] Camera %d connected, live stream generation %d",
 				Camera.ID, LiveStream ? LiveStream->GetInitGeneration() : 0);
@@ -827,7 +828,22 @@ void CameraWorker::WorkerMain()
 
 		if( Error != CameraStreamError::EndOfFile )
 		{
-			std::this_thread::sleep_for(std::chrono::milliseconds(3000));
+			// Use exponential backoff for authentication failures (no point retrying quickly with bad credentials)
+			bool isAuthError = (ErrorStrA.find("401") != std::string::npos ||
+				ErrorStrA.find("Unauthorized") != std::string::npos ||
+				ErrorStrA.find("authorization") != std::string::npos);
+
+			if (isAuthError)
+			{
+				LOG_INFO("Camera %d: auth failure, backing off %dms before retry", Camera.ID, m_AuthFailureBackoff);
+				std::this_thread::sleep_for(std::chrono::milliseconds(m_AuthFailureBackoff));
+				// Exponential backoff: 3s -> 6s -> 12s -> 24s -> 30s cap
+				m_AuthFailureBackoff = std::min(m_AuthFailureBackoff * 2, 30000);
+			}
+			else
+			{
+				std::this_thread::sleep_for(std::chrono::milliseconds(3000));
+			}
 		}
 	}
 

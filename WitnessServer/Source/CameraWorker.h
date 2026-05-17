@@ -119,6 +119,7 @@ public:
 	, LastDeleteTime( 0 )
 	, IsConnected( false )
 	, IsRTSP( false )
+	, m_AuthFailureBackoff( 3000 )
 	{
 	}
 
@@ -193,6 +194,7 @@ private:
 
 	bool IsConnected;
 	bool IsRTSP;
+	int m_AuthFailureBackoff; // milliseconds, grows exponentially on auth failures
 
 	std::unique_ptr<SubStreamWorker> m_SubStreamWorker;
 };

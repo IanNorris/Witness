@@ -41,4 +41,5 @@ private:
 	std::thread m_Thread;
 	std::atomic<bool> m_Running{false};
 	std::atomic<bool> m_Connected{false};
+	int m_ReconnectBackoff{5000}; // milliseconds, grows for auth failures
 };

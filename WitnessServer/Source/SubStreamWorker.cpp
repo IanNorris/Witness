@@ -116,6 +116,7 @@ void SubStreamWorker::ThreadFunc()
 		}
 
 		m_Connected = true;
+		m_ReconnectBackoff = 5000; // Reset backoff on successful connection
 		LOG_INFO("[SubStream] Camera %d sub-stream connected", m_CameraId);
 
 		// Process packets in a loop
@@ -127,12 +128,29 @@ void SubStreamWorker::ThreadFunc()
 			{
 				m_Connected = false;
 				std::string errorMsg = GetCameraStreamErrorMessage(error);
+				if (m_InputStream->GetFFMPEGErrorMessage()[0] != '\0')
+				{
+					errorMsg += ": ";
+					errorMsg += m_InputStream->GetFFMPEGErrorMessage();
+				}
 				LOG_WARNING("[SubStream] Camera %d sub-stream error: %s", m_CameraId, errorMsg.c_str());
 
-				// Wait before reconnecting
+				// Wait before reconnecting (with exponential backoff for auth failures)
 				if (error != CameraStreamError::EndOfFile)
 				{
-					std::this_thread::sleep_for(std::chrono::seconds(5));
+					bool isAuthError = (errorMsg.find("401") != std::string::npos ||
+						errorMsg.find("Unauthorized") != std::string::npos ||
+						errorMsg.find("authorization") != std::string::npos);
+
+					if (isAuthError)
+					{
+						std::this_thread::sleep_for(std::chrono::milliseconds(m_ReconnectBackoff));
+						m_ReconnectBackoff = std::min(m_ReconnectBackoff * 2, 60000);
+					}
+					else
+					{
+						std::this_thread::sleep_for(std::chrono::seconds(5));
+					}
 				}
 				break; // Break inner loop to reconnect
 			}
