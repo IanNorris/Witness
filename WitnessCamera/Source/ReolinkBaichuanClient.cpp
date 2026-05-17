@@ -125,7 +125,7 @@ static std::string Md5HexUpper(const std::string& input)
 
 static std::string Md5Modern(const std::string& input)
 {
-	return Md5HexUpper(input).substr(0, 31);
+	return Md5HexUpper(input).substr(0, 32);
 }
 
 static void BcXorEncrypt(const uint8_t* in, uint8_t* out, size_t len, uint8_t offset)
@@ -233,7 +233,13 @@ void ReolinkBaichuanClient::ThreadFunc()
 
 		if (!m_Running.load()) break;
 
-		LOG_WARNING("[Baichuan] Camera %s:%d disconnected, retrying in %dms", m_Host.c_str(), m_Port, backoff);
+		std::string lastErr;
+		{
+			std::lock_guard<std::mutex> lock(m_ErrorMutex);
+			lastErr = m_LastError;
+		}
+		LOG_WARNING("[Baichuan] Camera %s:%d disconnected (%s), retrying in %dms",
+			m_Host.c_str(), m_Port, lastErr.empty() ? "unknown" : lastErr.c_str(), backoff);
 		std::this_thread::sleep_for(std::chrono::milliseconds(backoff));
 		backoff = std::min(backoff * 2, 60000);
 	}
@@ -318,7 +324,8 @@ bool ReolinkBaichuanClient::Authenticate()
 		return false;
 	}
 
-	// Read negotiation response
+	// Read negotiation response — could be 20 or 24 byte header
+	// Read the first 20 bytes to determine header type
 	BcHeader20 negResp{};
 	if (!ReadExact(reinterpret_cast<uint8_t*>(&negResp), sizeof(negResp)))
 	{
@@ -330,9 +337,25 @@ bool ReolinkBaichuanClient::Authenticate()
 	if (negResp.Magic != BC_MAGIC)
 	{
 		std::lock_guard<std::mutex> lock(m_ErrorMutex);
-		m_LastError = "Invalid magic in negotiation response";
+		m_LastError = "Invalid magic in negotiation response: 0x" +
+			([&]{ std::ostringstream s; s << std::hex << negResp.Magic; return s.str(); })();
 		return false;
 	}
+
+	// If modern header, read the extra 4 bytes (PayloadOffset)
+	uint32_t payloadOffset = 0;
+	if (HeaderHasPayloadOffset(negResp.MessageClass))
+	{
+		if (!ReadExact(reinterpret_cast<uint8_t*>(&payloadOffset), 4))
+		{
+			std::lock_guard<std::mutex> lock(m_ErrorMutex);
+			m_LastError = "Failed to read negotiation header extension";
+			return false;
+		}
+	}
+
+	LOG_INFO("[Baichuan] %s:%d negotiation response: cmd=%u, class=0x%04X, bodyLen=%u, respCode=%u",
+		m_Host.c_str(), m_Port, negResp.CmdId, negResp.MessageClass, negResp.BodyLen, negResp.ResponseCode);
 
 	// Read nonce from response body (BC-XOR encrypted XML)
 	std::string nonce;
@@ -350,8 +373,10 @@ bool ReolinkBaichuanClient::Authenticate()
 		std::vector<uint8_t> decBody(negResp.BodyLen);
 		BcXorDecrypt(encBody.data(), decBody.data(), negResp.BodyLen, negResp.ChannelId);
 
-		// Extract nonce from XML: <nonce>...</nonce>
 		std::string xml(decBody.begin(), decBody.end());
+		LOG_INFO("[Baichuan] %s:%d negotiation XML: %s", m_Host.c_str(), m_Port, xml.c_str());
+
+		// Extract nonce from XML: <nonce>...</nonce>
 		auto nonceStart = xml.find("<nonce>");
 		auto nonceEnd = xml.find("</nonce>");
 		if (nonceStart != std::string::npos && nonceEnd != std::string::npos)
@@ -363,8 +388,7 @@ bool ReolinkBaichuanClient::Authenticate()
 
 	if (nonce.empty())
 	{
-		// Some cameras don't use nonce — try direct credentials
-		nonce = "";
+		LOG_WARNING("[Baichuan] %s:%d no nonce received, using direct credentials", m_Host.c_str(), m_Port);
 	}
 
 	// Phase 2: Login with MD5-hashed credentials (Modern header)
@@ -414,41 +438,62 @@ bool ReolinkBaichuanClient::Authenticate()
 		return false;
 	}
 
-	// Read login response
-	BcHeader24 loginResp{};
-	if (!ReadExact(reinterpret_cast<uint8_t*>(&loginResp), sizeof(loginResp)))
+	// Read login response — first 20 bytes, then check if modern
+	BcHeader20 loginRespBase{};
+	if (!ReadExact(reinterpret_cast<uint8_t*>(&loginRespBase), sizeof(loginRespBase)))
 	{
-		// Might be 20-byte header
-		// Try reading just 20 bytes first
 		std::lock_guard<std::mutex> lock(m_ErrorMutex);
 		m_LastError = "Failed to read login response";
 		return false;
 	}
 
-	if (loginResp.Magic != BC_MAGIC)
+	if (loginRespBase.Magic != BC_MAGIC)
 	{
 		std::lock_guard<std::mutex> lock(m_ErrorMutex);
-		m_LastError = "Invalid magic in login response";
+		m_LastError = "Invalid magic in login response: 0x" +
+			([&]{ std::ostringstream s; s << std::hex << loginRespBase.Magic; return s.str(); })();
 		return false;
 	}
 
-	// Skip response body
-	if (loginResp.BodyLen > 0 && loginResp.BodyLen < 65536)
+	// If modern header, consume extra 4 bytes
+	if (HeaderHasPayloadOffset(loginRespBase.MessageClass))
 	{
-		std::vector<uint8_t> respBody(loginResp.BodyLen);
-		if (!ReadExact(respBody.data(), loginResp.BodyLen))
+		uint32_t off = 0;
+		if (!ReadExact(reinterpret_cast<uint8_t*>(&off), 4))
+		{
+			std::lock_guard<std::mutex> lock(m_ErrorMutex);
+			m_LastError = "Failed to read login response header extension";
+			return false;
+		}
+	}
+
+	LOG_INFO("[Baichuan] %s:%d login response: cmd=%u, class=0x%04X, bodyLen=%u, respCode=%u",
+		m_Host.c_str(), m_Port, loginRespBase.CmdId, loginRespBase.MessageClass,
+		loginRespBase.BodyLen, loginRespBase.ResponseCode);
+
+	// Skip response body
+	if (loginRespBase.BodyLen > 0 && loginRespBase.BodyLen < 65536)
+	{
+		std::vector<uint8_t> respBody(loginRespBase.BodyLen);
+		if (!ReadExact(respBody.data(), loginRespBase.BodyLen))
 		{
 			std::lock_guard<std::mutex> lock(m_ErrorMutex);
 			m_LastError = "Failed to read login response body";
 			return false;
 		}
+
+		// Decrypt and log for diagnostics
+		std::vector<uint8_t> decResp(loginRespBase.BodyLen);
+		BcXorDecrypt(respBody.data(), decResp.data(), loginRespBase.BodyLen, loginRespBase.ChannelId);
+		std::string respXml(decResp.begin(), decResp.end());
+		LOG_INFO("[Baichuan] %s:%d login response body: %s", m_Host.c_str(), m_Port, respXml.c_str());
 	}
 
-	if (loginResp.ResponseCode != 200)
+	if (loginRespBase.ResponseCode != 200)
 	{
 		std::lock_guard<std::mutex> lock(m_ErrorMutex);
-		m_LastError = "Login failed, code=" + std::to_string(loginResp.ResponseCode);
-		LOG_ERROR("[Baichuan] Login failed for %s:%d (code %u)", m_Host.c_str(), m_Port, loginResp.ResponseCode);
+		m_LastError = "Login failed, code=" + std::to_string(loginRespBase.ResponseCode);
+		LOG_ERROR("[Baichuan] Login failed for %s:%d (code %u)", m_Host.c_str(), m_Port, loginRespBase.ResponseCode);
 		return false;
 	}
 
