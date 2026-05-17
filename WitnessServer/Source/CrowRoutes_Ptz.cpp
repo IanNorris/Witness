@@ -35,6 +35,15 @@ static std::shared_ptr<ReolinkClient> TryInitPtzClient(GlobalContext& ctx, int c
 	return client;
 }
 
+static void RespondNoPtz(crow::response& res)
+{
+	crow::json::wvalue err;
+	err["error"] = "Camera does not have PTZ enabled";
+	res.code = 400;
+	res.write(err.dump());
+	res.end();
+}
+
 // Get PTZ client, trying linked camera and lazy init
 static std::shared_ptr<ReolinkClient> GetPtzClientForCamera(GlobalContext& ctx, int cameraId)
 {
@@ -160,8 +169,7 @@ void CrowListener::HandlePtzPosition(const crow::request& req, crow::response& r
 	auto client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
 	if (!client)
 	{
-		res.code = 400;
-		res.end();
+		RespondNoPtz(res);
 		return;
 	}
 
@@ -189,8 +197,7 @@ void CrowListener::HandlePtzZoomGet(const crow::request& req, crow::response& re
 	auto client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
 	if (!client)
 	{
-		res.code = 400;
-		res.end();
+		RespondNoPtz(res);
 		return;
 	}
 
@@ -234,8 +241,7 @@ void CrowListener::HandlePtzZoomSet(const crow::request& req, crow::response& re
 	auto client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
 	if (!client)
 	{
-		res.code = 400;
-		res.end();
+		RespondNoPtz(res);
 		return;
 	}
 
@@ -264,8 +270,7 @@ void CrowListener::HandlePtzPresets(const crow::request& req, crow::response& re
 	auto client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
 	if (!client)
 	{
-		res.code = 400;
-		res.end();
+		RespondNoPtz(res);
 		return;
 	}
 
@@ -310,8 +315,7 @@ void CrowListener::HandlePtzPresetSet(const crow::request& req, crow::response& 
 	auto client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
 	if (!client)
 	{
-		res.code = 400;
-		res.end();
+		RespondNoPtz(res);
 		return;
 	}
 
@@ -349,8 +353,7 @@ void CrowListener::HandlePtzPresetDelete(const crow::request& req, crow::respons
 	auto client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
 	if (!client)
 	{
-		res.code = 400;
-		res.end();
+		RespondNoPtz(res);
 		return;
 	}
 

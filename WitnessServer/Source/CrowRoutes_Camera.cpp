@@ -587,8 +587,24 @@ void CrowListener::HandleCameraUpdate( const crow::request& req, crow::response&
 	int PtzApiPort = body.has("ptzApiPort") ? (int)body["ptzApiPort"].i() : 80;
 	std::string PtzUsername = body.has("ptzUsername") ? std::string(body["ptzUsername"].s()) : "";
 	std::string PtzPassword = body.has("ptzPassword") ? std::string(body["ptzPassword"].s()) : "";
+	bool PtzPasswordProvided = body.has("ptzPassword") && PtzPassword.length() > 0;
 	int LinkedCameraId = body.has("linkedCameraId") ? (int)body["linkedCameraId"].i() : 0;
 	int MotionSourceCameraId = body.has("motionSourceCameraId") ? (int)body["motionSourceCameraId"].i() : 0;
+
+	// If no new password was provided, read the existing one from the DB
+	// so we don't wipe it out on every camera edit
+	if (!PtzPasswordProvided)
+	{
+		SQLiteDatabaseQueryInstance GetPtzConfig(m_GlobalContext->Database, "GetCameraPtzConfig");
+		GetPtzConfig->Bind("@CameraId", CameraID);
+		GetPtzConfig->Execute([&](const SQLiteDatabaseQuery& query)
+		{
+			const char* existingPass = query.GetColumnValueText(4);
+			if (existingPass && strlen(existingPass) > 0)
+				PtzPassword = existingPass;
+			return true;
+		});
+	}
 
 	SQLiteDatabaseQueryInstance UpdateCamera( m_GlobalContext->Database, "UpdateCamera" );
 	UpdateCamera->Bind( "@CameraId", CameraID );
@@ -642,11 +658,13 @@ void CrowListener::HandleCameraUpdate( const crow::request& req, crow::response&
 		else
 			m_GlobalContext->PtzClients.erase(CameraID);
 	}
-	else
+	else if (!PtzEnabled)
 	{
+		// Only erase PTZ client if PTZ was explicitly disabled
 		std::unique_lock<std::shared_mutex> lock(m_GlobalContext->Mutex);
 		m_GlobalContext->PtzClients.erase(CameraID);
 	}
+	// If PtzEnabled but credentials are incomplete, keep existing client
 
 	m_GlobalContext->LongPoll->NotifyAll();
 

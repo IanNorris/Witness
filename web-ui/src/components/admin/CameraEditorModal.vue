@@ -211,7 +211,8 @@ function toggleGroup(groupId: number) {
                   </div>
                   <div class="col-md-4">
                     <label class="form-label small">Password</label>
-                    <input v-model="form.ptzPassword" type="password" class="form-control form-control-sm" placeholder="••••••" />
+                    <input v-model="form.ptzPassword" type="password" class="form-control form-control-sm" :placeholder="isEditing && form.ptzEnabled ? '(unchanged)' : 'password'" />
+                    <div v-if="isEditing && !form.ptzPassword" class="form-text">Leave blank to keep existing password</div>
                   </div>
                   <div class="col-md-4">
                     <label class="form-label small">Linked Camera ID</label>
