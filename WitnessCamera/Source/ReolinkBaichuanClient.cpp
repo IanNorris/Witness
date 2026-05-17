@@ -837,13 +837,16 @@ bool ReolinkBaichuanClient::PtzControl(const std::string& command, int speed, in
 	if (!m_Connected.load())
 		return false;
 
+	LOG_INFO("[Baichuan] PTZ cmd=%s speed=%d ch=%d (%s:%d)", command.c_str(), speed, channel, m_Host.c_str(), m_Port);
+
+	// Build XML — speed is optional (reolink_aio omits it by default)
 	std::string xml = "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n<body>\n"
 		"<PtzControl version=\"1.1\">\n"
 		"<channelId>" + std::to_string(channel) + "</channelId>\n"
-		"<command>" + command + "</command>\n"
-		"<speed>" + std::to_string(speed) + "</speed>\n"
-		"</PtzControl>\n"
-		"</body>";
+		"<command>" + command + "</command>\n";
+	if (speed > 0)
+		xml += "<speed>" + std::to_string(speed) + "</speed>\n";
+	xml += "</PtzControl>\n</body>";
 
 	std::lock_guard<std::mutex> lock(m_SendMutex);
 	uint32_t msgId = ++m_MessageCounter;

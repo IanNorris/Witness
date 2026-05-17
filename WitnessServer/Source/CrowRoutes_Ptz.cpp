@@ -156,7 +156,12 @@ static bool TryBaichuanPtz(std::shared_ptr<Witness::Camera::ReolinkBaichuanClien
 	if (op == PtzOp::Stop)
 		return bcClient->PtzStop(channel);
 
-	return bcClient->PtzControl(PtzOpToBaichuanCommand(op), speed, channel);
+	// Zoom/focus commands work better without speed on Reolink cameras
+	int bcSpeed = speed;
+	if (op == PtzOp::ZoomInc || op == PtzOp::ZoomDec || op == PtzOp::FocusInc || op == PtzOp::FocusDec)
+		bcSpeed = 0;
+
+	return bcClient->PtzControl(PtzOpToBaichuanCommand(op), bcSpeed, channel);
 }
 
 static bool TryBaichuanPreset(std::shared_ptr<Witness::Camera::ReolinkBaichuanClient> bcClient, int presetId, int channel = 0)
