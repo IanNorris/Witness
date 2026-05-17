@@ -644,6 +644,7 @@ void WitnessServer::StartCamera(const SQLiteDatabaseQuery& query)
 			std::string passStr = (ptzPass && strlen(ptzPass) > 0) ? ptzPass : "";
 
 			// Fall back to RTSP URL credentials if PTZ-specific ones are empty
+			// Note: we only take host/user/pass, NOT port (RTSP uses 554, API uses 443/80)
 			if (userStr.empty() || passStr.empty() || hostStr.empty())
 			{
 				std::string rtspUser, rtspPass, rtspHost;
@@ -653,7 +654,6 @@ void WitnessServer::StartCamera(const SQLiteDatabaseQuery& query)
 				if (userStr.empty()) userStr = rtspUser;
 				if (passStr.empty()) passStr = rtspPass;
 				if (hostStr.empty()) hostStr = rtspHost;
-				if (ptzPort <= 0 && rtspPort > 0) ptzPort = rtspPort;
 			}
 
 			if (!hostStr.empty() && !userStr.empty() && !passStr.empty())

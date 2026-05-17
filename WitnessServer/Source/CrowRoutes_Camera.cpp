@@ -657,6 +657,7 @@ void CrowListener::HandleCameraUpdate( const crow::request& req, crow::response&
 		int ptzPort = PtzApiPort;
 
 		// Fall back to RTSP URL credentials if PTZ-specific ones are empty
+		// Note: we only take host/user/pass, NOT port (RTSP uses 554, API uses 443/80)
 		if (ptzUser.empty() || ptzPass.empty() || ptzHost.empty())
 		{
 			std::string rtspUser, rtspPass, rtspHost;
@@ -666,7 +667,6 @@ void CrowListener::HandleCameraUpdate( const crow::request& req, crow::response&
 			if (ptzUser.empty()) ptzUser = rtspUser;
 			if (ptzPass.empty()) ptzPass = rtspPass;
 			if (ptzHost.empty()) ptzHost = rtspHost;
-			if (ptzPort <= 0 && rtspPort > 0) ptzPort = rtspPort;
 		}
 
 		if (!ptzHost.empty() && !ptzUser.empty() && !ptzPass.empty())

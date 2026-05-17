@@ -27,16 +27,19 @@ static std::shared_ptr<ReolinkClient> TryInitPtzClient(GlobalContext& ctx, int c
 		std::string passStr = (pass && strlen(pass) > 0) ? pass : "";
 
 		// Fall back to RTSP URL credentials if PTZ-specific ones are empty
+		// Note: we only take host/user/pass from RTSP URL, NOT port (RTSP uses 554, API uses 443/80)
 		if (rtspPath && strlen(rtspPath) > 0 && (userStr.empty() || passStr.empty() || hostStr.empty()))
 		{
 			std::string rtspUser, rtspPass, rtspHost;
 			int rtspPort = 0;
 			ParseRtspUrl(rtspPath, rtspUser, rtspPass, rtspHost, rtspPort);
 
+			LOG_INFO("PTZ lazy-init: falling back to RTSP URL creds for camera %d (host=%s, user=%s, pass=%s)",
+				cameraId, rtspHost.c_str(), rtspUser.c_str(), rtspPass.empty() ? "<empty>" : "<present>");
+
 			if (userStr.empty()) userStr = rtspUser;
 			if (passStr.empty()) passStr = rtspPass;
 			if (hostStr.empty()) hostStr = rtspHost;
-			if (port <= 0 && rtspPort > 0) port = rtspPort;
 		}
 
 		if (!hostStr.empty() && !userStr.empty() && !passStr.empty())
@@ -47,6 +50,17 @@ static std::shared_ptr<ReolinkClient> TryInitPtzClient(GlobalContext& ctx, int c
 				ctx.PtzClients[cameraId] = client;
 				LOG_INFO("PTZ lazy-init succeeded for camera %d (%s)", cameraId, hostStr.c_str());
 			}
+			else
+			{
+				LOG_ERROR("PTZ lazy-init failed for camera %d (%s:%d, user=%s)", cameraId, hostStr.c_str(), port > 0 ? port : 443, userStr.c_str());
+			}
+		}
+		else
+		{
+			LOG_ERROR("PTZ lazy-init: insufficient credentials for camera %d (host=%s, user=%s, pass=%s)",
+				cameraId, hostStr.empty() ? "<empty>" : hostStr.c_str(),
+				userStr.empty() ? "<empty>" : userStr.c_str(),
+				passStr.empty() ? "<empty>" : "<present>");
 		}
 		return true;
 	});

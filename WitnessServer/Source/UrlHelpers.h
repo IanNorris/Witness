@@ -3,6 +3,36 @@
 #include <string>
 #include <cstdlib>
 
+// Decode percent-encoded characters in a URL component (e.g., %40 -> @)
+inline std::string UrlDecode(const std::string& input)
+{
+	std::string result;
+	result.reserve(input.size());
+	for (size_t i = 0; i < input.size(); ++i)
+	{
+		if (input[i] == '%' && i + 2 < input.size())
+		{
+			char hi = input[i + 1];
+			char lo = input[i + 2];
+			auto hexVal = [](char c) -> int {
+				if (c >= '0' && c <= '9') return c - '0';
+				if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+				if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+				return -1;
+			};
+			int h = hexVal(hi), l = hexVal(lo);
+			if (h >= 0 && l >= 0)
+			{
+				result += static_cast<char>((h << 4) | l);
+				i += 2;
+				continue;
+			}
+		}
+		result += input[i];
+	}
+	return result;
+}
+
 // Parse credentials and host from an RTSP URL: rtsp://user:pass@host:port/path
 inline void ParseRtspUrl(const std::string& url, std::string& outUser, std::string& outPass, std::string& outHost, int& outPort)
 {
@@ -18,8 +48,8 @@ inline void ParseRtspUrl(const std::string& url, std::string& outUser, std::stri
 	auto colonPos = creds.find(':');
 	if (colonPos == std::string::npos) return;
 
-	outUser = creds.substr(0, colonPos);
-	outPass = creds.substr(colonPos + 1);
+	outUser = UrlDecode(creds.substr(0, colonPos));
+	outPass = UrlDecode(creds.substr(colonPos + 1));
 
 	// Extract host:port
 	size_t hostStart = atPos + 1;
