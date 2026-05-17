@@ -10,6 +10,7 @@
 extern "C" {
 #include <libavformat/avformat.h>
 #include <libavcodec/avcodec.h>
+#include <libavutil/pixfmt.h>
 }
 
 namespace fs = std::filesystem;
@@ -85,21 +86,36 @@ CameraStreamError ContinuousOutputStream::StartNewSegment()
 		return CameraStreamError::UnknownError;
 	}
 
-	// Create video stream only (no audio)
-	const AVCodec* encoder = avcodec_find_encoder(inData.CodecID);
-	if (!encoder)
-		return CameraStreamError::NoCodecSupport;
-
-	m_OutStream = avformat_new_stream(m_FormatContext, encoder);
+	// Create video stream — passthrough mode (no encoder needed).
+	// Copy codec parameters directly from the input stream so any codec
+	// (H.264, HEVC, etc.) works even without the corresponding encoder library.
+	m_OutStream = avformat_new_stream(m_FormatContext, nullptr);
 	if (!m_OutStream)
+	{
+		avformat_free_context(m_FormatContext);
+		m_FormatContext = nullptr;
 		return CameraStreamError::UnknownError;
+	}
 
-	// Copy codec parameters from input
 	result = avcodec_parameters_from_context(m_OutStream->codecpar, inData.CodecContext);
 	if (result < 0)
+	{
+		avformat_free_context(m_FormatContext);
+		m_FormatContext = nullptr;
 		return CameraStreamError::UnknownError;
+	}
+
+	// Remap deprecated pixel formats
+	switch (m_OutStream->codecpar->format)
+	{
+	case AV_PIX_FMT_YUVJ420P: m_OutStream->codecpar->format = AV_PIX_FMT_YUV420P; break;
+	case AV_PIX_FMT_YUVJ422P: m_OutStream->codecpar->format = AV_PIX_FMT_YUV422P; break;
+	case AV_PIX_FMT_YUVJ444P: m_OutStream->codecpar->format = AV_PIX_FMT_YUV444P; break;
+	case AV_PIX_FMT_YUVJ440P: m_OutStream->codecpar->format = AV_PIX_FMT_YUV440P; break;
+	}
 
 	m_OutStream->codecpar->codec_tag = 0; // Let muxer choose
+	m_OutStream->time_base = inData.FormatContext->streams[inData.ChosenStreamIndex]->time_base;
 
 	// Open output file
 	if (!(m_FormatContext->oformat->flags & AVFMT_NOFILE))

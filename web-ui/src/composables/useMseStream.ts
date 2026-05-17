@@ -175,6 +175,8 @@ export function useMseStream(
   let expectingBinary: 'init' | 'partial' | null = null
   let waitingForKeyframe = true  // Skip partials until first independent (keyframe)
   let hasInitialBuffer = false   // Seek to buffered range after first append
+  let pendingInitData: ArrayBuffer | null = null  // Buffered init segment when MediaSource isn't open yet
+  let consecutiveAppendErrors = 0  // Track consecutive appendBuffer failures for restart
 
   function getWsUrl(): string {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -196,7 +198,13 @@ export function useMseStream(
         setTimeout(() => processAppendQueue(), 100)
       } else {
         diag.stats.errorCount++
-        diag.log('appendError', { message: e.message })
+        consecutiveAppendErrors++
+        diag.log('appendError', { message: e.message, consecutive: consecutiveAppendErrors })
+        // Restart after 5 consecutive append failures — SourceBuffer is likely corrupted
+        if (consecutiveAppendErrors >= 5) {
+          restartStream('appendErrors')
+          return
+        }
       }
     }
   }
@@ -227,8 +235,18 @@ export function useMseStream(
 
     mediaSource.addEventListener('sourceopen', () => {
       diag.log('sourceOpen')
-      // SourceBuffer is created when we receive the init segment
-      // and know the codec from the control message
+      // If we received an init segment before sourceopen, process it now
+      if (pendingInitData) {
+        const data = pendingInitData
+        pendingInitData = null
+        if (!sourceBuffer) {
+          createSourceBuffer()
+        }
+        if (sourceBuffer) {
+          appendData(data)
+          diag.log('pendingInitAppended')
+        }
+      }
     })
 
     mediaSource.addEventListener('sourceended', () => {
@@ -257,6 +275,7 @@ export function useMseStream(
       sourceBuffer = mediaSource.addSourceBuffer(mimeType)
       sourceBuffer.mode = 'sequence'
       sourceBuffer.addEventListener('updateend', () => {
+        consecutiveAppendErrors = 0  // Reset on successful append
         processAppendQueue()
 
         // After first data is buffered, start playback from keyframe at buffer start
@@ -279,7 +298,11 @@ export function useMseStream(
       })
       sourceBuffer.addEventListener('error', () => {
         diag.stats.errorCount++
-        diag.log('sourceBufferError')
+        consecutiveAppendErrors++
+        diag.log('sourceBufferError', { consecutive: consecutiveAppendErrors })
+        if (consecutiveAppendErrors >= 5) {
+          restartStream('sourceBufferErrors')
+        }
       })
       diag.log('sourceBufferCreated', { mimeType })
       return true
@@ -353,6 +376,10 @@ export function useMseStream(
       }
       if (sourceBuffer) {
         appendData(data)
+      } else {
+        // MediaSource not open yet — buffer the init data for sourceopen handler
+        pendingInitData = data
+        diag.log('initBuffered', { reason: 'mediaSourceNotOpen' })
       }
       expectingBinary = null
     } else if (expectingBinary === 'partial') {
@@ -393,6 +420,10 @@ export function useMseStream(
 
     waitingForKeyframe = true
     hasInitialBuffer = false
+    pendingInitData = null
+    consecutiveAppendErrors = 0
+    lastFragTime = 0  // Reset so watchdog correctly detects stale connections
+    streamStartTime = Date.now()
     lastCurrentTime = -1
     currentTimeStalledSince = 0
   }
@@ -459,6 +490,8 @@ export function useMseStream(
         expectingBinary = null
         waitingForKeyframe = true
         hasInitialBuffer = false
+        pendingInitData = null
+        consecutiveAppendErrors = 0
         lastCurrentTime = -1
         currentTimeStalledSince = 0
 
@@ -502,6 +535,8 @@ export function useMseStream(
     expectingBinary = null
     waitingForKeyframe = true
     hasInitialBuffer = false
+    pendingInitData = null
+    consecutiveAppendErrors = 0
     lastCurrentTime = -1
     currentTimeStalledSince = 0
 
