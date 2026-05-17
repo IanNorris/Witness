@@ -282,6 +282,7 @@ onMounted(() => {
       :show="showEditor"
       :camera="editingCamera"
       :available-groups="groups"
+      :available-cameras="cameras.map(c => ({ id: c.id, displayName: c.displayName }))"
       @save="onSave"
       @cancel="showEditor = false"
     />

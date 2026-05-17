@@ -30,6 +30,7 @@ const props = defineProps<{
   show: boolean
   camera?: CameraFormData | null
   availableGroups?: { id: number; displayName: string }[]
+  availableCameras?: { id: number; displayName: string }[]
 }>()
 
 const emit = defineEmits<{
@@ -166,9 +167,14 @@ function toggleGroup(groupId: number) {
                   <input v-model="form.motionFilter" class="form-control form-control-sm" placeholder="Default (from server config)" />
                 </div>
                 <div class="col-md-6">
-                  <label class="form-label small">Motion Source Camera ID</label>
-                  <input v-model.number="form.motionSourceCameraId" type="number" min="0" class="form-control form-control-sm" />
-                  <div class="form-text">0 = own motion. Set to pair (passthrough decode, records on source motion)</div>
+                  <label class="form-label small">Motion Source Camera</label>
+                  <select v-model.number="form.motionSourceCameraId" class="form-select form-select-sm">
+                    <option :value="0">None (own motion detection)</option>
+                    <option v-for="cam in availableCameras?.filter(c => c.id !== form.id)" :key="cam.id" :value="cam.id">
+                      {{ cam.displayName }} (ID: {{ cam.id }})
+                    </option>
+                  </select>
+                  <div class="form-text">Pair with another camera: passthrough decode, records when source detects motion</div>
                 </div>
               </div>
 
@@ -215,9 +221,14 @@ function toggleGroup(groupId: number) {
                     <div v-if="isEditing && !form.ptzPassword" class="form-text">Leave blank to keep existing password</div>
                   </div>
                   <div class="col-md-4">
-                    <label class="form-label small">Linked Camera ID</label>
-                    <input v-model.number="form.linkedCameraId" type="number" min="0" class="form-control form-control-sm" />
-                    <div class="form-text">0 = none (dual-lens link)</div>
+                    <label class="form-label small">Linked Camera</label>
+                    <select v-model.number="form.linkedCameraId" class="form-select form-select-sm">
+                      <option :value="0">None</option>
+                      <option v-for="cam in availableCameras?.filter(c => c.id !== form.id)" :key="cam.id" :value="cam.id">
+                        {{ cam.displayName }} (ID: {{ cam.id }})
+                      </option>
+                    </select>
+                    <div class="form-text">Dual-lens link for PTZ</div>
                   </div>
                 </template>
               </div>
