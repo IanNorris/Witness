@@ -1,5 +1,7 @@
 find_package(FFMPEG REQUIRED)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs videoio objdetect video)
+find_package(lz4 CONFIG REQUIRED)
+find_package(OpenSSL REQUIRED)
 
 # ONNX Runtime (onnxruntime-gpu vcpkg port installs raw headers/libs, no CMake config)
 find_path(ONNXRUNTIME_INCLUDE_DIR onnxruntime_cxx_api.h)
@@ -16,6 +18,8 @@ set(CAMERA_SOURCES
     Source/MotionVectorFilter.cpp
     Source/ONNXDetectionFilter.cpp
     Source/PersonRecognitionFilter.cpp
+    Source/ReolinkBaichuanClient.cpp
+    Source/ReolinkUnofficialFilter.cpp
     Source/FFMPEG/Frame.cpp
     Source/ImageProcessingJobQueue.cpp
     Source/InputStream.cpp
@@ -43,6 +47,8 @@ set(CAMERA_HEADERS
     Include/Pimpl.h
     Include/RecordFilter.h
     Include/RecordFilterBase.h
+    Include/ReolinkBaichuanClient.h
+    Include/ReolinkUnofficialFilter.h
     Include/SourceStats.h
     Include/Stream.h
     Source/FFMPEG/Common.h
@@ -75,6 +81,8 @@ target_link_libraries(WitnessCamera
         ${FFMPEG_LIBRARIES}
         ${OpenCV_LIBS}
         ${ONNXRUNTIME_LIB}
+        lz4::lz4
+        OpenSSL::Crypto
     PUBLIC
         WitnessCommon
 )

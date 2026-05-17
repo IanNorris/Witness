@@ -1,6 +1,7 @@
 #include "CameraWorker.h"
 #include "GlobalContext.h"
 #include "MotionVectorFilter.h"
+#include "ReolinkUnofficialFilter.h"
 #include "ObservingMotionFilter.h"
 #include "PersonRecognitionFilter.h"
 #include "ONNXDetectionFilter.h"
@@ -11,6 +12,7 @@
 #include "SQLite.h"
 #include "EventBroadcaster.h"
 #include "StreamBroadcaster.h"
+#include "UrlHelpers.h"
 #include "crow/json.h"
 
 #include <Log.h>
@@ -692,7 +694,34 @@ void CameraWorker::WorkerInit()
 	MVF.InclusiveFilter = ClassificationResult::Motion_Motion;
 	MVF.ExclusiveFilter = 0;
 
-	std::shared_ptr<MotionVectorFilter> RootFilter = std::make_shared<MotionVectorFilter>( MVF, Camera.BlackoutMaskPath.c_str(), Camera.FocusMaskPath.c_str() );
+	std::shared_ptr<IRecordFilter> RootFilter;
+
+	if (Camera.MotionFilterName == "reolink_unofficial")
+	{
+		// Extract host/credentials from RTSP URL for the Baichuan connection
+		std::string bcHost, bcUser, bcPass;
+		int bcPort = 9000;
+		ParseRtspUrl(Camera.Path, bcUser, bcPass, bcHost, bcPort);
+		bcPort = 9000; // Baichuan always uses port 9000, not RTSP port
+
+		if (!bcHost.empty() && !bcUser.empty() && !bcPass.empty())
+		{
+			RootFilter = std::make_shared<Witness::Camera::ReolinkUnofficialFilter>(
+				MVF, bcHost, bcPort, bcUser, bcPass);
+			LOG_INFO("Camera %d: Using reolink_unofficial motion filter (Baichuan %s:%d)",
+				Camera.ID, bcHost.c_str(), bcPort);
+		}
+		else
+		{
+			LOG_WARNING("Camera %d: reolink_unofficial filter needs RTSP URL with credentials, falling back to MV filter",
+				Camera.ID);
+			RootFilter = std::make_shared<MotionVectorFilter>(MVF, Camera.BlackoutMaskPath.c_str(), Camera.FocusMaskPath.c_str());
+		}
+	}
+	else
+	{
+		RootFilter = std::make_shared<MotionVectorFilter>(MVF, Camera.BlackoutMaskPath.c_str(), Camera.FocusMaskPath.c_str());
+	}
 
 	Filter = RootFilter;
 
