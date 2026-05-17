@@ -213,16 +213,22 @@ std::string ReolinkBaichuanClient::GetLastError() const
 void ReolinkBaichuanClient::ThreadFunc()
 {
 	int backoff = 5000;
+	int consecutiveFailures = 0;
 
 	while (m_Running.load())
 	{
 		if (Connect() && Authenticate() && RequestStream())
 		{
 			backoff = 5000;
+			consecutiveFailures = 0;
 			m_Connected = true;
 			LOG_INFO("[Baichuan] Camera %s:%d connected, receiving detections", m_Host.c_str(), m_Port);
 			ReadLoop();
 			m_Connected = false;
+		}
+		else
+		{
+			consecutiveFailures++;
 		}
 
 		if (m_Socket != (uintptr_t)INVALID_SOCKET)
@@ -238,8 +244,14 @@ void ReolinkBaichuanClient::ThreadFunc()
 			std::lock_guard<std::mutex> lock(m_ErrorMutex);
 			lastErr = m_LastError;
 		}
-		LOG_WARNING("[Baichuan] Camera %s:%d disconnected (%s), retrying in %dms",
-			m_Host.c_str(), m_Port, lastErr.empty() ? "unknown" : lastErr.c_str(), backoff);
+
+		// Only log first few failures and then periodically
+		if (consecutiveFailures <= 3 || consecutiveFailures % 10 == 0)
+		{
+			LOG_WARNING("[Baichuan] Camera %s:%d disconnected (%s), retrying in %dms (attempt %d)",
+				m_Host.c_str(), m_Port, lastErr.empty() ? "unknown" : lastErr.c_str(), backoff, consecutiveFailures);
+		}
+
 		std::this_thread::sleep_for(std::chrono::milliseconds(backoff));
 		backoff = std::min(backoff * 2, 60000);
 	}
@@ -313,9 +325,12 @@ bool ReolinkBaichuanClient::Authenticate()
 	negHeader.BodyLen = 0;
 	negHeader.ChannelId = 0;
 	negHeader.StreamType = 0;
-	negHeader.MsgNum = ++m_MessageCounter;
+	negHeader.MsgNum = 0; // First message is always 0
 	negHeader.ResponseCode = ENC_REQUEST_NONE; // Request no encryption
 	negHeader.MessageClass = BC_CLASS_LEGACY;
+
+	LOG_INFO("[Baichuan] %s:%d sending negotiation: magic=0x%08X cmd=%u class=0x%04X resp=0x%04X",
+		m_Host.c_str(), m_Port, negHeader.Magic, negHeader.CmdId, negHeader.MessageClass, negHeader.ResponseCode);
 
 	if (!SendRaw(reinterpret_cast<uint8_t*>(&negHeader), sizeof(negHeader)))
 	{
@@ -948,7 +963,22 @@ bool ReolinkBaichuanClient::ReadExact(uint8_t* buffer, size_t length)
 		int bytesRead = recv((SOCKET)m_Socket, reinterpret_cast<char*>(buffer + totalRead),
 			(int)(length - totalRead), 0);
 		if (bytesRead <= 0)
+		{
+			if (bytesRead == 0)
+			{
+				LOG_WARNING("[Baichuan] Connection closed by peer (read %zu/%zu bytes)", totalRead, length);
+			}
+			else
+			{
+#ifdef _WIN32
+				int err = WSAGetLastError();
+				LOG_WARNING("[Baichuan] recv error %d (read %zu/%zu bytes)", err, totalRead, length);
+#else
+				LOG_WARNING("[Baichuan] recv error %d (read %zu/%zu bytes)", errno, totalRead, length);
+#endif
+			}
 			return false;
+		}
 		totalRead += bytesRead;
 	}
 	return totalRead == length;
