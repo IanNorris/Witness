@@ -50,12 +50,21 @@ static constexpr uint16_t BC_CLASS_LEGACY = 0x6514;
 static constexpr uint16_t BC_CLASS_MODERN = 0x6414;
 
 // Encryption negotiation codes
-static constexpr uint16_t ENC_REQUEST_NONE = 0xDC00;
+static constexpr uint16_t ENC_REQUEST_BC = 0xDC12;    // BC-XOR encryption supported (reolink_aio: "12dc")
 static constexpr uint16_t ENC_RESPONSE_NONE = 0xDD00;
 static constexpr uint16_t ENC_RESPONSE_XOR = 0xDD01;
+static constexpr uint16_t ENC_RESPONSE_XOR2 = 0xDD12;
+static constexpr uint16_t ENC_RESPONSE_AES = 0xDD02;
+static constexpr uint16_t ENC_RESPONSE_AES2 = 0xDD03;
 
 // BC-XOR key for XML encryption
 static constexpr uint8_t BC_XML_KEY[8] = { 0x1F, 0x2D, 0x3C, 0x4B, 0x5A, 0x69, 0x78, 0xFF };
+
+// AES-128-CFB IV: "0123456789abcdef"
+static constexpr uint8_t AES_CFB_IV[16] = {
+	0x30, 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37,
+	0x38, 0x39, 0x61, 0x62, 0x63, 0x64, 0x65, 0x66
+};
 
 // BcMedia magic values (little-endian uint32)
 static constexpr uint32_t MAGIC_IFRAME_BASE = 0x63643030; // "00dc" as LE
@@ -127,7 +136,8 @@ static std::string Md5HexUpper(const std::string& input)
 
 static std::string Md5Modern(const std::string& input)
 {
-	return Md5HexUpper(input).substr(0, 32);
+	// Reolink uses 31-char truncated uppercase MD5 (matches reolink_aio md5_str_modern)
+	return Md5HexUpper(input).substr(0, 31);
 }
 
 static void BcXorEncrypt(const uint8_t* in, uint8_t* out, size_t len, uint8_t offset)
@@ -417,14 +427,11 @@ bool ReolinkBaichuanClient::Authenticate()
 	negHeader.Magic = BC_MAGIC;
 	negHeader.CmdId = 1;
 	negHeader.BodyLen = 0;
-	negHeader.ChannelId = 0;
-	negHeader.StreamType = 0;
-	negHeader.MsgNum = 0; // First message is always 0
-	negHeader.ResponseCode = ENC_REQUEST_NONE; // Request no encryption
+	negHeader.ChannelId = 250; // host channel per reolink_aio
+	negHeader.StreamType = (uint8_t)(++m_MessageCounter & 0xFF); // Low byte of 3-byte mess_id
+	negHeader.MsgNum = (uint16_t)((m_MessageCounter >> 8) & 0xFFFF); // High 2 bytes of mess_id
+	negHeader.ResponseCode = ENC_REQUEST_BC; // BC-XOR encryption
 	negHeader.MessageClass = BC_CLASS_LEGACY;
-
-	LOG_INFO("[Baichuan] %s:%d sending negotiation: magic=0x%08X cmd=%u class=0x%04X resp=0x%04X",
-		m_Host.c_str(), m_Port, negHeader.Magic, negHeader.CmdId, negHeader.MessageClass, negHeader.ResponseCode);
 
 	if (!SendRaw(reinterpret_cast<uint8_t*>(&negHeader), sizeof(negHeader)))
 	{
@@ -433,8 +440,7 @@ bool ReolinkBaichuanClient::Authenticate()
 		return false;
 	}
 
-	// Read negotiation response — could be 20 or 24 byte header
-	// Read the first 20 bytes to determine header type
+	// Read negotiation response
 	BcHeader20 negResp{};
 	if (!ReadExact(reinterpret_cast<uint8_t*>(&negResp), sizeof(negResp)))
 	{
@@ -463,9 +469,6 @@ bool ReolinkBaichuanClient::Authenticate()
 		}
 	}
 
-	LOG_INFO("[Baichuan] %s:%d negotiation response: cmd=%u, class=0x%04X, bodyLen=%u, respCode=%u",
-		m_Host.c_str(), m_Port, negResp.CmdId, negResp.MessageClass, negResp.BodyLen, negResp.ResponseCode);
-
 	// Read nonce from response body (BC-XOR encrypted XML)
 	std::string nonce;
 	if (negResp.BodyLen > 0 && negResp.BodyLen < 4096)
@@ -483,7 +486,6 @@ bool ReolinkBaichuanClient::Authenticate()
 		BcXorDecrypt(encBody.data(), decBody.data(), negResp.BodyLen, negResp.ChannelId);
 
 		std::string xml(decBody.begin(), decBody.end());
-		LOG_INFO("[Baichuan] %s:%d negotiation XML: %s", m_Host.c_str(), m_Port, xml.c_str());
 
 		// Extract nonce from XML: <nonce>...</nonce>
 		auto nonceStart = xml.find("<nonce>");
@@ -498,6 +500,12 @@ bool ReolinkBaichuanClient::Authenticate()
 	if (nonce.empty())
 	{
 		LOG_WARNING("[Baichuan] %s:%d no nonce received, using direct credentials", m_Host.c_str(), m_Port);
+	}
+	else
+	{
+		// Derive AES key for push event decryption: MD5(nonce + "-" + password)[0:16] as ASCII bytes
+		std::string aesKeyStr = Md5Modern(nonce + "-" + m_Password).substr(0, 16);
+		m_AesKey.assign(aesKeyStr.begin(), aesKeyStr.end());
 	}
 
 	// Phase 2: Login with MD5-hashed credentials (Modern header)
@@ -518,19 +526,21 @@ bool ReolinkBaichuanClient::Authenticate()
 
 	std::vector<uint8_t> loginPayload(loginXml.begin(), loginXml.end());
 
-	// BC-XOR encrypt the login body
+	// BC-XOR encrypt the login body (offset = ChannelId used in header)
+	static constexpr uint8_t LOGIN_CHANNEL_ID = 250; // "host" channel per reolink_aio
 	std::vector<uint8_t> encPayload(loginPayload.size());
-	BcXorEncrypt(loginPayload.data(), encPayload.data(), loginPayload.size(), 0);
+	BcXorEncrypt(loginPayload.data(), encPayload.data(), loginPayload.size(), LOGIN_CHANNEL_ID);
 
-	// Send with modern 24-byte header
+	// Send with modern 24-byte header (reolink_aio login uses default message_class="1464", status="0000")
 	BcHeader24 loginHeader{};
 	loginHeader.Magic = BC_MAGIC;
 	loginHeader.CmdId = 1;
 	loginHeader.BodyLen = (uint32_t)encPayload.size();
-	loginHeader.ChannelId = 0;
-	loginHeader.StreamType = 0;
-	loginHeader.MsgNum = ++m_MessageCounter;
-	loginHeader.ResponseCode = 0;
+	loginHeader.ChannelId = LOGIN_CHANNEL_ID;
+	uint32_t msgId = ++m_MessageCounter;
+	loginHeader.StreamType = (uint8_t)(msgId & 0xFF);
+	loginHeader.MsgNum = (uint16_t)((msgId >> 8) & 0xFFFF);
+	loginHeader.ResponseCode = 0x0000;
 	loginHeader.MessageClass = BC_CLASS_MODERN;
 	loginHeader.PayloadOffset = 0;
 
@@ -576,9 +586,8 @@ bool ReolinkBaichuanClient::Authenticate()
 		}
 	}
 
-	LOG_INFO("[Baichuan] %s:%d login response: cmd=%u, class=0x%04X, bodyLen=%u, respCode=%u",
-		m_Host.c_str(), m_Port, loginRespBase.CmdId, loginRespBase.MessageClass,
-		loginRespBase.BodyLen, loginRespBase.ResponseCode);
+	LOG_INFO("[Baichuan] %s:%d login response: respCode=%u",
+		m_Host.c_str(), m_Port, loginRespBase.ResponseCode);
 
 	// Skip response body
 	if (loginRespBase.BodyLen > 0 && loginRespBase.BodyLen < 65536)
@@ -590,15 +599,9 @@ bool ReolinkBaichuanClient::Authenticate()
 			m_LastError = "Failed to read login response body";
 			return false;
 		}
-
-		// Decrypt and log for diagnostics
-		std::vector<uint8_t> decResp(loginRespBase.BodyLen);
-		BcXorDecrypt(respBody.data(), decResp.data(), loginRespBase.BodyLen, loginRespBase.ChannelId);
-		std::string respXml(decResp.begin(), decResp.end());
-		LOG_INFO("[Baichuan] %s:%d login response body: %s", m_Host.c_str(), m_Port, respXml.c_str());
 	}
 
-	if (loginRespBase.ResponseCode != 200)
+	if (loginRespBase.ResponseCode != 200 && loginRespBase.ResponseCode != 201 && loginRespBase.ResponseCode != 300)
 	{
 		std::lock_guard<std::mutex> lock(m_ErrorMutex);
 		m_LastError = "Login failed, code=" + std::to_string(loginRespBase.ResponseCode);
@@ -612,48 +615,30 @@ bool ReolinkBaichuanClient::Authenticate()
 
 bool ReolinkBaichuanClient::RequestStream()
 {
-	// Request video stream (cmd_id=3) with extension + payload XML
-	std::string extXml = "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n"
-		"<Extension version=\"1.1\">\n"
-		"<channelId>0</channelId>\n"
-		"</Extension>";
-	std::string payXml = "<?xml version=\"1.0\" encoding=\"UTF-8\" ?>\n"
-		"<body>\n"
-		"<Preview version=\"1.0\">\n"
-		"<handle>0</handle>\n"
-		"<streamType>mainStream</streamType>\n"
-		"</Preview>\n"
-		"</body>";
+	// Subscribe to push events (cmd_id=31) — this gives us motion/AI detection events
+	// without needing to parse BcMedia video frames.
+	// reolink_aio sends: cmd_id=31, ch_id=251 (push channel), no body
+	static constexpr uint8_t PUSH_CHANNEL_ID = 251;
 
-	std::vector<uint8_t> extData(extXml.begin(), extXml.end());
-	std::vector<uint8_t> payData(payXml.begin(), payXml.end());
+	BcHeader24 subHeader{};
+	subHeader.Magic = BC_MAGIC;
+	subHeader.CmdId = 31;
+	subHeader.BodyLen = 0;
+	subHeader.ChannelId = PUSH_CHANNEL_ID;
+	uint32_t subMsgId = ++m_MessageCounter;
+	subHeader.StreamType = (uint8_t)(subMsgId & 0xFF);
+	subHeader.MsgNum = (uint16_t)((subMsgId >> 8) & 0xFFFF);
+	subHeader.ResponseCode = 0x0000;
+	subHeader.MessageClass = BC_CLASS_MODERN;
+	subHeader.PayloadOffset = 0;
 
-	// BC-XOR encrypt both parts
-	std::vector<uint8_t> encExt(extData.size());
-	std::vector<uint8_t> encPay(payData.size());
-	BcXorEncrypt(extData.data(), encExt.data(), extData.size(), 0);
-	BcXorEncrypt(payData.data(), encPay.data(), payData.size(), 0);
+	LOG_INFO("[Baichuan] %s:%d subscribing to push events (cmd_id=31)", m_Host.c_str(), m_Port);
 
-	// Build message: header + extension + payload
-	uint32_t totalBody = (uint32_t)(encExt.size() + encPay.size());
-
-	BcHeader24 streamHeader{};
-	streamHeader.Magic = BC_MAGIC;
-	streamHeader.CmdId = 3;
-	streamHeader.BodyLen = totalBody;
-	streamHeader.ChannelId = 0;
-	streamHeader.StreamType = 0;
-	streamHeader.MsgNum = ++m_MessageCounter;
-	streamHeader.ResponseCode = 0;
-	streamHeader.MessageClass = BC_CLASS_MODERN;
-	streamHeader.PayloadOffset = (uint32_t)encExt.size();
-
-	if (!SendRaw(reinterpret_cast<uint8_t*>(&streamHeader), sizeof(streamHeader)))
+	if (!SendRaw(reinterpret_cast<uint8_t*>(&subHeader), sizeof(subHeader)))
+	{
+		LOG_ERROR("[Baichuan] %s:%d failed to send event subscription", m_Host.c_str(), m_Port);
 		return false;
-	if (!SendRaw(encExt.data(), encExt.size()))
-		return false;
-	if (!SendRaw(encPay.data(), encPay.size()))
-		return false;
+	}
 
 	return true;
 }
@@ -683,7 +668,7 @@ void ReolinkBaichuanClient::ReadLoop()
 
 		// Read body
 		if (header.BodyLen == 0) continue;
-		if (header.BodyLen > 20 * 1024 * 1024)
+		if (header.BodyLen > 1 * 1024 * 1024) // 1MB max for event XML
 		{
 			LOG_WARNING("[Baichuan] Body too large (%u), reconnecting", header.BodyLen);
 			break;
@@ -693,356 +678,154 @@ void ReolinkBaichuanClient::ReadLoop()
 		if (!ReadExact(body.data(), header.BodyLen))
 			break;
 
-		// If this is a video stream message (cmd_id=3), parse BcMedia frames
-		if (header.CmdId == 3)
+		// Decrypt body based on header type and encryption indicator
+		std::string xml;
+		bool isModernHeader = HeaderHasPayloadOffset(header.MessageClass);
+
+		if (isModernHeader)
 		{
-			ParseBcMediaFrames(body.data(), body.size());
-		}
-	}
-}
-
-void ReolinkBaichuanClient::ParseBcMediaFrames(const uint8_t* data, size_t length)
-{
-	size_t offset = 0;
-
-	while (offset + 24 <= length)
-	{
-		uint32_t magic = *(const uint32_t*)(data + offset);
-
-		// Check if this is an I-frame or P-frame
-		bool isIFrame = (magic >= 0x63643030 && magic <= 0x63643039);
-		bool isPFrame = (magic >= 0x63643130 && magic <= 0x63643139);
-
-		if (!isIFrame && !isPFrame)
-		{
-			// Could be InfoV1/V2, audio, or other — skip
-			// InfoV1/V2 are 32 bytes with known magic
-			uint32_t infoMagic = magic;
-			if (infoMagic == 0x31303031 || infoMagic == 0x32303031)
+			// Modern 24-byte header: body is AES encrypted
+			if (!AesDecrypt(body.data(), header.BodyLen, xml))
 			{
-				// Info packet — 32 bytes
-				offset += 32;
-				continue;
-			}
-			// Audio (AAC or ADPCM)
-			if (magic == 0x62773530 || magic == 0x62773130)
-			{
-				if (offset + 8 > length) break;
-				uint16_t audioLen = *(const uint16_t*)(data + offset + 4);
-				size_t padLen = (audioLen % 8 == 0) ? 0 : (8 - audioLen % 8);
-				offset += 8 + audioLen + padLen;
-				continue;
-			}
-			// Unknown — try advancing
-			offset += 4;
-			continue;
-		}
-
-		// Parse video frame header (24 bytes)
-		// Layout: magic(4) + encoding(4) + payloadSize(4) + additionalHeaderSize(4) + micros(4) + unknown(4)
-		if (offset + 24 > length) break;
-
-		uint32_t payloadSize = *(const uint32_t*)(data + offset + 8);
-		uint32_t additionalHeaderSize = *(const uint32_t*)(data + offset + 12);
-		// uint32_t microseconds = *(const uint32_t*)(data + offset + 16);
-
-		size_t frameHeaderEnd = offset + 24;
-
-		// Additional header comes FIRST (after the 24-byte frame header)
-		if (additionalHeaderSize > 0 && frameHeaderEnd + additionalHeaderSize <= length)
-		{
-			ParseDetectionData(data + frameHeaderEnd, additionalHeaderSize, isIFrame);
-		}
-
-		// Skip past additional header + payload + padding
-		size_t payloadStart = frameHeaderEnd + additionalHeaderSize;
-		size_t padSize = (payloadSize % 8 == 0) ? 0 : (8 - payloadSize % 8);
-		offset = payloadStart + payloadSize + padSize;
-
-		if (offset > length)
-			break;
-	}
-}
-
-void ReolinkBaichuanClient::ParseDetectionData(const uint8_t* data, size_t length, bool isIFrame)
-{
-	// Check for AI frame size TLV anywhere in the data
-	for (size_t i = 0; i + 7 <= length; i++)
-	{
-		if (data[i] == FRAME_SIZE_TLV[0] && data[i + 1] == FRAME_SIZE_TLV[1] && data[i + 2] == FRAME_SIZE_TLV[2])
-		{
-			uint16_t w = *(const uint16_t*)(data + i + 3);
-			uint16_t h = *(const uint16_t*)(data + i + 5);
-			if (w >= 64 && w <= 8192 && h >= 64 && h <= 8192)
-			{
-				m_AiWidth = w;
-				m_AiHeight = h;
-			}
-		}
-	}
-
-	// For I-frames, the standard marker is at offset 8 (skip 8-byte prefix)
-	// For P-frames, it's at offset 0
-	size_t markerOffset = isIFrame ? 8 : 0;
-
-	if (length <= markerOffset + 8)
-	{
-		// Too short for any detection data
-		std::lock_guard<std::mutex> lock(m_DetectionMutex);
-		m_CurrentDetections.Detections.clear();
-		m_CurrentDetections.Timestamp = std::chrono::steady_clock::now();
-		m_CurrentDetections.HasData = true;
-		return;
-	}
-
-	// Check for standard marker: FF xx 00 01 0B 00 01 08
-	bool hasMarker = (data[markerOffset] == 0xFF &&
-		data[markerOffset + 2] == 0x00 &&
-		data[markerOffset + 3] == 0x01 &&
-		data[markerOffset + 4] == 0x0B &&
-		data[markerOffset + 5] == 0x00 &&
-		data[markerOffset + 6] == 0x01 &&
-		data[markerOffset + 7] == 0x08);
-
-	if (!hasMarker)
-	{
-		// No standard marker — no detection data
-		std::lock_guard<std::mutex> lock(m_DetectionMutex);
-		m_CurrentDetections.Detections.clear();
-		m_CurrentDetections.Timestamp = std::chrono::steady_clock::now();
-		m_CurrentDetections.HasData = true;
-		return;
-	}
-
-	// Baseline header (128 bytes for P-frame, 136 for I-frame) = no overlay
-	size_t baselineSize = isIFrame ? 136 : 128;
-	if (length <= baselineSize)
-	{
-		std::lock_guard<std::mutex> lock(m_DetectionMutex);
-		m_CurrentDetections.Detections.clear();
-		m_CurrentDetections.Timestamp = std::chrono::steady_clock::now();
-		m_CurrentDetections.HasData = true;
-		return;
-	}
-
-	// Parse outer TLV structure starting after the marker
-	// The structure is: marker(8) + counter(4) + TLV stream
-	size_t tlvStart = markerOffset + 12; // 8-byte marker + 4-byte counter
-
-	ParseOuterTLV(data + tlvStart, length - tlvStart);
-}
-
-void ReolinkBaichuanClient::ParseOuterTLV(const uint8_t* data, size_t length)
-{
-	// Walk outer TLV looking for the LZ4 compressed block
-	// Structure: type(1) + length(2) + value(length)
-	// We're looking for the pattern: type=0xFF wrapping type=2 wrapping type=2 with LZ4F magic
-
-	size_t offset = 0;
-	while (offset + 3 < length)
-	{
-		uint8_t type = data[offset];
-		if (type == 0) break; // End marker
-
-		uint16_t tlvLen = *(const uint16_t*)(data + offset + 1);
-		size_t valueStart = offset + 3;
-
-		if (valueStart + tlvLen > length) break;
-
-		if (type == 0xFF)
-		{
-			// Recurse into the 0xFF wrapper
-			ParseOuterTLV(data + valueStart, tlvLen);
-			return; // Only one top-level 0xFF expected
-		}
-		else if (type == 0x02)
-		{
-			// This might contain the LZ4 data or another nested TLV
-			const uint8_t* value = data + valueStart;
-			if (tlvLen >= 4 && memcmp(value, LZ4F_MAGIC, 4) == 0)
-			{
-				// Direct LZ4 compressed data
-				DecompressAndParseTLV(value, tlvLen);
-				return;
-			}
-			else
-			{
-				// Nested TLV — look for type=2 with LZ4 inside
-				size_t innerOff = 0;
-				while (innerOff + 3 < tlvLen)
-				{
-					uint8_t innerType = value[innerOff];
-					if (innerType == 0) break;
-					uint16_t innerLen = *(const uint16_t*)(value + innerOff + 1);
-					size_t innerVal = innerOff + 3;
-					if (innerVal + innerLen > tlvLen) break;
-
-					if (innerType == 0x02 && innerLen >= 4 &&
-						memcmp(value + innerVal, LZ4F_MAGIC, 4) == 0)
-					{
-						DecompressAndParseTLV(value + innerVal, innerLen);
-						return;
-					}
-					innerOff = innerVal + innerLen;
-				}
-			}
-		}
-
-		offset = valueStart + tlvLen;
-	}
-
-	// No LZ4 data found — clear detections
-	std::lock_guard<std::mutex> lock(m_DetectionMutex);
-	m_CurrentDetections.Detections.clear();
-	m_CurrentDetections.Timestamp = std::chrono::steady_clock::now();
-	m_CurrentDetections.HasData = true;
-}
-
-void ReolinkBaichuanClient::DecompressAndParseTLV(const uint8_t* data, size_t length)
-{
-	// LZ4 Frame decompression
-	LZ4F_dctx* dctx = nullptr;
-	LZ4F_errorCode_t err = LZ4F_createDecompressionContext(&dctx, LZ4F_VERSION);
-	if (LZ4F_isError(err))
-	{
-		std::lock_guard<std::mutex> lock(m_DetectionMutex);
-		m_CurrentDetections.Detections.clear();
-		m_CurrentDetections.Timestamp = std::chrono::steady_clock::now();
-		m_CurrentDetections.HasData = true;
-		return;
-	}
-
-	std::vector<uint8_t> decompressed;
-	decompressed.reserve(4096);
-
-	size_t srcOffset = 0;
-	uint8_t chunk[4096];
-
-	while (srcOffset < length)
-	{
-		size_t srcSize = length - srcOffset;
-		size_t dstSize = sizeof(chunk);
-		size_t consumed = LZ4F_decompress(dctx, chunk, &dstSize, data + srcOffset, &srcSize, nullptr);
-
-		if (LZ4F_isError(consumed))
-			break;
-
-		if (dstSize > 0)
-			decompressed.insert(decompressed.end(), chunk, chunk + dstSize);
-
-		srcOffset += srcSize;
-		if (consumed == 0) break;
-	}
-
-	LZ4F_freeDecompressionContext(dctx);
-
-	if (decompressed.empty())
-	{
-		std::lock_guard<std::mutex> lock(m_DetectionMutex);
-		m_CurrentDetections.Detections.clear();
-		m_CurrentDetections.Timestamp = std::chrono::steady_clock::now();
-		m_CurrentDetections.HasData = true;
-		return;
-	}
-
-	// Parse decompressed TLV for detection boxes
-	ParseInnerDetectionTLV(decompressed.data(), decompressed.size());
-}
-
-void ReolinkBaichuanClient::ParseInnerDetectionTLV(const uint8_t* data, size_t length)
-{
-	// The inner TLV uses nested context: type1 (class), type2 (view), type3 (leaf)
-	// type1: 1=people, 2=vehicle, 3=animal
-	// Leaf boxes: type=4 with length 10/13/14, or type=2 with length=10
-
-	std::vector<ReolinkDetection> detections;
-	ParseTLVRecursive(data, length, 0, 0, detections);
-
-	// Update state
-	std::lock_guard<std::mutex> lock(m_DetectionMutex);
-	m_CurrentDetections.Detections = std::move(detections);
-	m_CurrentDetections.Timestamp = std::chrono::steady_clock::now();
-	m_CurrentDetections.HasData = true;
-}
-
-void ReolinkBaichuanClient::ParseTLVRecursive(const uint8_t* data, size_t length,
-	uint8_t contextType1, uint8_t contextType2, std::vector<ReolinkDetection>& detections)
-{
-	size_t offset = 0;
-
-	while (offset + 3 <= length)
-	{
-		uint8_t type = data[offset];
-		if (type == 0) break;
-
-		uint16_t tlvLen = *(const uint16_t*)(data + offset + 1);
-		size_t valueStart = offset + 3;
-
-		if (valueStart + tlvLen > length) break;
-
-		// Check if this is a box record
-		bool isBox = false;
-		if (contextType1 != 0 && contextType2 != 0)
-		{
-			if ((type == 4 && (tlvLen == 10 || tlvLen == 13 || tlvLen == 14)) ||
-				(type == 2 && tlvLen == 10))
-			{
-				isBox = true;
-			}
-		}
-
-		if (isBox)
-		{
-			// Parse box: x1(2) + y1(2) + x2(2) + y2(2) + conf(2)
-			const uint8_t* box = data + valueStart;
-			uint16_t x1 = *(const uint16_t*)(box + 0);
-			uint16_t y1 = *(const uint16_t*)(box + 2);
-			uint16_t x2 = *(const uint16_t*)(box + 4);
-			uint16_t y2 = *(const uint16_t*)(box + 6);
-			uint16_t conf = *(const uint16_t*)(box + 8);
-
-			if (x2 > x1 && y2 > y1 && conf > 0 && conf <= 100)
-			{
-				ReolinkDetection det;
-				det.X1 = (float)x1 / (float)m_AiWidth;
-				det.Y1 = (float)y1 / (float)m_AiHeight;
-				det.X2 = (float)x2 / (float)m_AiWidth;
-				det.Y2 = (float)y2 / (float)m_AiHeight;
-				det.Confidence = (float)conf / 100.0f;
-
-				switch (contextType1)
-				{
-				case 1: det.DetectionClass = ReolinkDetection::People; break;
-				case 2: det.DetectionClass = ReolinkDetection::Vehicle; break;
-				case 3: det.DetectionClass = ReolinkDetection::Animal; break;
-				default: det.DetectionClass = ReolinkDetection::People; break;
-				}
-
-				detections.push_back(det);
+				// Fallback: try BC-XOR
+				std::vector<uint8_t> decBody(header.BodyLen);
+				BcXorDecrypt(body.data(), decBody.data(), header.BodyLen, header.ChannelId);
+				xml.assign(decBody.begin(), decBody.end());
 			}
 		}
 		else
 		{
-			// Nested TLV — update context and recurse
-			uint8_t newType1 = contextType1;
-			uint8_t newType2 = contextType2;
-
-			if (contextType1 == 0)
-				newType1 = type;
-			else if (contextType2 == 0)
-				newType2 = type;
-
-			ParseTLVRecursive(data + valueStart, tlvLen, newType1, newType2, detections);
+			// Legacy 20-byte header: check ResponseCode for encryption type
+			if (header.ResponseCode == ENC_RESPONSE_NONE)
+			{
+				xml.assign(body.begin(), body.end());
+			}
+			else if (header.ResponseCode == ENC_RESPONSE_AES || header.ResponseCode == ENC_RESPONSE_AES2)
+			{
+				if (!AesDecrypt(body.data(), header.BodyLen, xml))
+				{
+					std::vector<uint8_t> decBody(header.BodyLen);
+					BcXorDecrypt(body.data(), decBody.data(), header.BodyLen, header.ChannelId);
+					xml.assign(decBody.begin(), decBody.end());
+				}
+			}
+			else
+			{
+				// BC-XOR (0xDD01, 0xDD12, or other)
+				std::vector<uint8_t> decBody(header.BodyLen);
+				BcXorDecrypt(body.data(), decBody.data(), header.BodyLen, header.ChannelId);
+				xml.assign(decBody.begin(), decBody.end());
+			}
 		}
 
-		offset = valueStart + tlvLen;
+		// Validate decryption — if not XML, try alternate method
+		if (!xml.empty() && xml.substr(0, 5) != "<?xml")
+		{
+			// AES didn't produce XML, try BC-XOR
+			std::vector<uint8_t> decBody(header.BodyLen);
+			BcXorDecrypt(body.data(), decBody.data(), header.BodyLen, header.ChannelId);
+			std::string altXml(decBody.begin(), decBody.end());
+			if (altXml.substr(0, 5) == "<?xml")
+				xml = std::move(altXml);
+		}
+
+		// Handle push events
+		if (header.CmdId == 33)
+		{
+			// Motion/AI detection event — parse AlarmEvent XML
+			ParseAlarmEvent(xml);
+		}
+		else if (header.CmdId == 78)
+		{
+			// Channel status push — ignore for now
+		}
+		else if (header.CmdId == 31)
+		{
+			// Subscribe response — log success
+			LOG_INFO("[Baichuan] %s:%d event subscription confirmed (resp=%u)",
+				m_Host.c_str(), m_Port, header.ResponseCode);
+		}
+		else if (header.CmdId == 79 || header.CmdId == 291)
+		{
+			// Channel status (79) and floodlight status (291) — ignore silently
+		}
+		else
+		{
+			// Other push events — log for debugging
+			LOG_INFO("[Baichuan] %s:%d received cmd_id=%u body=%u bytes",
+				m_Host.c_str(), m_Port, header.CmdId, header.BodyLen);
+		}
 	}
 }
 
-bool ReolinkBaichuanClient::ParseBcMediaFrame(const std::vector<uint8_t>& frame)
+void ReolinkBaichuanClient::ParseAlarmEvent(const std::string& xml)
 {
-	// Handled by ParseBcMediaFrames
-	return true;
+	// Parse cmd_id=33 AlarmEvent XML for motion and AI detection states
+	// Format:
+	// <body><AlarmEventList><AlarmEvent>
+	//   <channelId>0</channelId>
+	//   <status>MD</status>  (or "none")
+	//   <AItype>people,vehicle</AItype>  (comma-separated, or "none")
+	//   <smartAiTypeList>...</smartAiTypeList>  (optional, with bounding info)
+	// </AlarmEvent></AlarmEventList></body>
+
+	std::vector<ReolinkDetection> detections;
+
+	// Simple XML parsing for status and AItype
+	auto findTag = [&](const std::string& tag) -> std::string
+	{
+		std::string openTag = "<" + tag + ">";
+		std::string closeTag = "</" + tag + ">";
+		auto start = xml.find(openTag);
+		if (start == std::string::npos) return "";
+		start += openTag.size();
+		auto end = xml.find(closeTag, start);
+		if (end == std::string::npos) return "";
+		return xml.substr(start, end - start);
+	};
+
+	std::string status = findTag("status");
+	std::string aiTypes = findTag("AItype");
+
+	bool hasMotion = (status.find("MD") != std::string::npos);
+	bool hasPeople = (aiTypes.find("people") != std::string::npos);
+	bool hasVehicle = (aiTypes.find("vehicle") != std::string::npos);
+	bool hasAnimal = (aiTypes.find("dog_cat") != std::string::npos);
+
+	// Create detection entries for each detected AI type
+	if (hasPeople)
+	{
+		ReolinkDetection det;
+		det.DetectionClass = ReolinkDetection::People;
+		det.Confidence = 1.0f;
+		det.X1 = 0; det.Y1 = 0; det.X2 = 1; det.Y2 = 1; // No bbox from events
+		detections.push_back(det);
+	}
+	if (hasVehicle)
+	{
+		ReolinkDetection det;
+		det.DetectionClass = ReolinkDetection::Vehicle;
+		det.Confidence = 1.0f;
+		det.X1 = 0; det.Y1 = 0; det.X2 = 1; det.Y2 = 1;
+		detections.push_back(det);
+	}
+	if (hasAnimal)
+	{
+		ReolinkDetection det;
+		det.DetectionClass = ReolinkDetection::Animal;
+		det.Confidence = 1.0f;
+		det.X1 = 0; det.Y1 = 0; det.X2 = 1; det.Y2 = 1;
+		detections.push_back(det);
+	}
+
+	// Update detection state
+	{
+		std::lock_guard<std::mutex> lock(m_DetectionMutex);
+		m_CurrentDetections.Detections = std::move(detections);
+		m_CurrentDetections.Timestamp = std::chrono::steady_clock::now();
+		m_CurrentDetections.HasData = true;
+		m_CurrentDetections.HasMotion = hasMotion;
+	}
 }
 
 // ============================================================================
@@ -1141,6 +924,40 @@ bool ReolinkBaichuanClient::SendBcMessage(uint32_t cmdId, uint32_t msgId, const 
 		if (!SendRaw(payload.data(), payload.size()))
 			return false;
 	}
+	return true;
+}
+
+bool ReolinkBaichuanClient::AesDecrypt(const uint8_t* in, size_t len, std::string& out)
+{
+	if (m_AesKey.empty() || m_AesKey.size() != 16)
+		return false;
+
+	// AES-128-CFB decryption using OpenSSL EVP
+	EVP_CIPHER_CTX* ctx = EVP_CIPHER_CTX_new();
+	if (!ctx) return false;
+
+	if (EVP_DecryptInit_ex(ctx, EVP_aes_128_cfb128(), nullptr, m_AesKey.data(), AES_CFB_IV) != 1)
+	{
+		EVP_CIPHER_CTX_free(ctx);
+		return false;
+	}
+
+	// CFB doesn't need padding
+	EVP_CIPHER_CTX_set_padding(ctx, 0);
+
+	std::vector<uint8_t> plaintext(len + 16);
+	int outLen = 0;
+	if (EVP_DecryptUpdate(ctx, plaintext.data(), &outLen, in, (int)len) != 1)
+	{
+		EVP_CIPHER_CTX_free(ctx);
+		return false;
+	}
+
+	int finalLen = 0;
+	EVP_DecryptFinal_ex(ctx, plaintext.data() + outLen, &finalLen);
+	EVP_CIPHER_CTX_free(ctx);
+
+	out.assign(reinterpret_cast<char*>(plaintext.data()), outLen + finalLen);
 	return true;
 }
 

@@ -56,6 +56,7 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 add_subdirectory(WitnessCommon)
 add_subdirectory(WitnessCamera)
 add_subdirectory(WitnessServer)
+add_subdirectory(Tools/BaichuanTest)
 
 # Build the .NET 8 Installer as a self-contained exe (DEPRECATED — use built-in /setup wizard)
 # Build with: cmake --build build --target Installer

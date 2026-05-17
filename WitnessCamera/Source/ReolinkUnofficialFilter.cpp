@@ -62,13 +62,13 @@ bool ReolinkUnofficialFilter::ProcessFrame(SharedClassificationTask TaskData)
 		return true;
 	}
 
-	if (state.Detections.empty())
+	if (state.Detections.empty() && !state.HasMotion)
 	{
 		TaskData->Result.MotionAmount = 0.0f;
 		return true;
 	}
 
-	// We have active detections — set motion flags and ROI
+	// We have active detections or motion — set motion flags
 	TaskData->Result.MotionAmount = 1.0f;
 	TaskData->Result.ClassificationSuperset |= ClassificationResult::Motion_Motion;
 
