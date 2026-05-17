@@ -3,6 +3,7 @@
 #include "GlobalContext.h"
 #include "Messages.h"
 #include "ReolinkClient.h"
+#include "UrlHelpers.h"
 void CrowListener::HandlePreview( const crow::request& req, crow::response& res, int cameraId, bool largePreview )
 {
 	int UserUID = CrowAuth::IsCameraAuthenticated( *m_GlobalContext, req, nullptr,
@@ -648,18 +649,38 @@ void CrowListener::HandleCameraUpdate( const crow::request& req, crow::response&
 	}
 
 	// Update PTZ client
-	if( PtzEnabled && !PtzApiHost.empty() && !PtzUsername.empty() && !PtzPassword.empty() )
+	if( PtzEnabled )
 	{
-		// Clear any cached login failures for this host since credentials may have changed
-		ReolinkClient::ClearFailureCache(PtzApiHost);
+		std::string ptzHost = PtzApiHost;
+		std::string ptzUser = PtzUsername;
+		std::string ptzPass = PtzPassword;
+		int ptzPort = PtzApiPort;
 
-		auto ptzClient = ReolinkClient::AutoDetect(
-			PtzApiHost, PtzApiPort > 0 ? PtzApiPort : 443, PtzUsername, PtzPassword);
-		std::unique_lock<std::shared_mutex> lock(m_GlobalContext->Mutex);
-		if (ptzClient)
-			m_GlobalContext->PtzClients[CameraID] = ptzClient;
-		else
-			m_GlobalContext->PtzClients.erase(CameraID);
+		// Fall back to RTSP URL credentials if PTZ-specific ones are empty
+		if (ptzUser.empty() || ptzPass.empty() || ptzHost.empty())
+		{
+			std::string rtspUser, rtspPass, rtspHost;
+			int rtspPort = 0;
+			ParseRtspUrl(ConnectionString, rtspUser, rtspPass, rtspHost, rtspPort);
+
+			if (ptzUser.empty()) ptzUser = rtspUser;
+			if (ptzPass.empty()) ptzPass = rtspPass;
+			if (ptzHost.empty()) ptzHost = rtspHost;
+			if (ptzPort <= 0 && rtspPort > 0) ptzPort = rtspPort;
+		}
+
+		if (!ptzHost.empty() && !ptzUser.empty() && !ptzPass.empty())
+		{
+			ReolinkClient::ClearFailureCache(ptzHost);
+
+			auto ptzClient = ReolinkClient::AutoDetect(
+				ptzHost, ptzPort > 0 ? ptzPort : 443, ptzUser, ptzPass);
+			std::unique_lock<std::shared_mutex> lock(m_GlobalContext->Mutex);
+			if (ptzClient)
+				m_GlobalContext->PtzClients[CameraID] = ptzClient;
+			else
+				m_GlobalContext->PtzClients.erase(CameraID);
+		}
 	}
 	else if (!PtzEnabled)
 	{

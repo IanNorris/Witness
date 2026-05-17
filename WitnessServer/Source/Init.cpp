@@ -7,6 +7,7 @@
 #include "Database.h"
 #include "TagHelpers.h"
 #include "ReolinkClient.h"
+#include "UrlHelpers.h"
 
 #include <Log.h>
 #include <ONNXDetectionFilter.h>
@@ -638,18 +639,35 @@ void WitnessServer::StartCamera(const SQLiteDatabaseQuery& query)
 			const char* ptzUser = query.GetColumnValueText(17);
 			const char* ptzPass = query.GetColumnValueText(18);
 
-			if (ptzHost && strlen(ptzHost) > 0 && ptzUser && ptzPass)
+			std::string hostStr = (ptzHost && strlen(ptzHost) > 0) ? ptzHost : "";
+			std::string userStr = (ptzUser && strlen(ptzUser) > 0) ? ptzUser : "";
+			std::string passStr = (ptzPass && strlen(ptzPass) > 0) ? ptzPass : "";
+
+			// Fall back to RTSP URL credentials if PTZ-specific ones are empty
+			if (userStr.empty() || passStr.empty() || hostStr.empty())
+			{
+				std::string rtspUser, rtspPass, rtspHost;
+				int rtspPort = 0;
+				ParseRtspUrl(Camera.Path, rtspUser, rtspPass, rtspHost, rtspPort);
+
+				if (userStr.empty()) userStr = rtspUser;
+				if (passStr.empty()) passStr = rtspPass;
+				if (hostStr.empty()) hostStr = rtspHost;
+				if (ptzPort <= 0 && rtspPort > 0) ptzPort = rtspPort;
+			}
+
+			if (!hostStr.empty() && !userStr.empty() && !passStr.empty())
 			{
 				auto ptzClient = ReolinkClient::AutoDetect(
-					ptzHost, ptzPort > 0 ? ptzPort : 443, ptzUser, ptzPass);
+					hostStr, ptzPort > 0 ? ptzPort : 443, userStr, passStr);
 				if (ptzClient)
 				{
 					Context->PtzClients[Camera.ID] = ptzClient;
-					LOG_INFO("  PTZ enabled for %s (%s)", Camera.Name.c_str(), ptzHost);
+					LOG_INFO("  PTZ enabled for %s (%s)", Camera.Name.c_str(), hostStr.c_str());
 				}
 				else
 				{
-					LOG_ERROR("  PTZ failed to connect for %s (%s:%d)", Camera.Name.c_str(), ptzHost, ptzPort);
+					LOG_ERROR("  PTZ failed to connect for %s (%s:%d)", Camera.Name.c_str(), hostStr.c_str(), ptzPort);
 				}
 			}
 		}

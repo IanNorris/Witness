@@ -478,7 +478,7 @@ namespace Database
 	)RAW";
 
 	std::string GetCameraPtzConfig = R"RAW(
-		SELECT PtzEnabled, PtzApiHost, PtzApiPort, PtzUsername, PtzPassword FROM Camera WHERE CameraUID = @CameraId
+		SELECT PtzEnabled, PtzApiHost, PtzApiPort, PtzUsername, PtzPassword, Path FROM Camera WHERE CameraUID = @CameraId
 	)RAW";
 
 	std::string CreateClip = R"RAW(

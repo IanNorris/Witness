@@ -2,6 +2,7 @@
 #include "CrowAuth.h"
 #include "GlobalContext.h"
 #include "ReolinkClient.h"
+#include "UrlHelpers.h"
 
 // Try to lazily initialize a PTZ client if it wasn't created at startup
 static std::shared_ptr<ReolinkClient> TryInitPtzClient(GlobalContext& ctx, int cameraId)
@@ -19,14 +20,32 @@ static std::shared_ptr<ReolinkClient> TryInitPtzClient(GlobalContext& ctx, int c
 		int port = query.GetColumnValueInt(2);
 		const char* user = query.GetColumnValueText(3);
 		const char* pass = query.GetColumnValueText(4);
+		const char* rtspPath = query.GetColumnValueText(5);
 
-		if (host && strlen(host) > 0 && user && pass)
+		std::string hostStr = (host && strlen(host) > 0) ? host : "";
+		std::string userStr = (user && strlen(user) > 0) ? user : "";
+		std::string passStr = (pass && strlen(pass) > 0) ? pass : "";
+
+		// Fall back to RTSP URL credentials if PTZ-specific ones are empty
+		if (rtspPath && strlen(rtspPath) > 0 && (userStr.empty() || passStr.empty() || hostStr.empty()))
 		{
-			client = ReolinkClient::AutoDetect(host, port > 0 ? port : 443, user, pass);
+			std::string rtspUser, rtspPass, rtspHost;
+			int rtspPort = 0;
+			ParseRtspUrl(rtspPath, rtspUser, rtspPass, rtspHost, rtspPort);
+
+			if (userStr.empty()) userStr = rtspUser;
+			if (passStr.empty()) passStr = rtspPass;
+			if (hostStr.empty()) hostStr = rtspHost;
+			if (port <= 0 && rtspPort > 0) port = rtspPort;
+		}
+
+		if (!hostStr.empty() && !userStr.empty() && !passStr.empty())
+		{
+			client = ReolinkClient::AutoDetect(hostStr, port > 0 ? port : 443, userStr, passStr);
 			if (client)
 			{
 				ctx.PtzClients[cameraId] = client;
-				LOG_INFO("PTZ lazy-init succeeded for camera %d (%s)", cameraId, host);
+				LOG_INFO("PTZ lazy-init succeeded for camera %d (%s)", cameraId, hostStr.c_str());
 			}
 		}
 		return true;
