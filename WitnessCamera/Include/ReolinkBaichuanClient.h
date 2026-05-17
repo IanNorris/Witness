@@ -104,6 +104,14 @@ private:
 	// AI coordinate space (from camera, typically 896x480)
 	uint16_t m_AiWidth = 896;
 	uint16_t m_AiHeight = 480;
+
+	// TLS state (for cameras with Baichuan over TLS)
+	void* m_SslCtx = nullptr;  // SSL_CTX*
+	void* m_Ssl = nullptr;     // SSL*
+	bool m_UseTls = false;
+
+	void CleanupTls();
+	bool TryTlsConnect();
 };
 
 }}

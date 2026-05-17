@@ -32,9 +32,11 @@ typedef int SOCKET;
 #include <sstream>
 #include <iomanip>
 
-// MD5 — use OpenSSL which is already a vcpkg dependency
+// OpenSSL — MD5 + TLS for Baichuan over TLS (newer firmware)
 #include <openssl/md5.h>
 #include <openssl/evp.h>
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 
 namespace Witness {
 namespace Camera {
@@ -183,6 +185,7 @@ void ReolinkBaichuanClient::Start()
 void ReolinkBaichuanClient::Stop()
 {
 	m_Running = false;
+	CleanupTls();
 	if (m_Socket != (uintptr_t)INVALID_SOCKET)
 	{
 #ifdef _WIN32
@@ -222,14 +225,32 @@ void ReolinkBaichuanClient::ThreadFunc()
 			backoff = 5000;
 			consecutiveFailures = 0;
 			m_Connected = true;
-			LOG_INFO("[Baichuan] Camera %s:%d connected, receiving detections", m_Host.c_str(), m_Port);
+			LOG_INFO("[Baichuan] Camera %s:%d connected%s, receiving detections",
+				m_Host.c_str(), m_Port, m_UseTls ? " (TLS)" : "");
 			ReadLoop();
 			m_Connected = false;
 		}
 		else
 		{
 			consecutiveFailures++;
+
+			// If plain TCP fails immediately on first attempt, try TLS
+			if (!m_UseTls && consecutiveFailures == 1)
+			{
+				std::string lastErr;
+				{
+					std::lock_guard<std::mutex> lock(m_ErrorMutex);
+					lastErr = m_LastError;
+				}
+				if (lastErr.find("Failed to read encryption negotiation") != std::string::npos)
+				{
+					LOG_INFO("[Baichuan] %s:%d plain TCP rejected, switching to TLS", m_Host.c_str(), m_Port);
+					m_UseTls = true;
+				}
+			}
 		}
+
+		CleanupTls();
 
 		if (m_Socket != (uintptr_t)INVALID_SOCKET)
 		{
@@ -251,6 +272,10 @@ void ReolinkBaichuanClient::ThreadFunc()
 			LOG_WARNING("[Baichuan] Camera %s:%d disconnected (%s), retrying in %dms (attempt %d)",
 				m_Host.c_str(), m_Port, lastErr.empty() ? "unknown" : lastErr.c_str(), backoff, consecutiveFailures);
 		}
+
+		// Don't wait on TLS upgrade (first retry is immediate)
+		if (m_UseTls && consecutiveFailures == 1)
+			continue;
 
 		std::this_thread::sleep_for(std::chrono::milliseconds(backoff));
 		backoff = std::min(backoff * 2, 60000);
@@ -313,7 +338,76 @@ bool ReolinkBaichuanClient::Connect()
 #endif
 
 	m_Socket = (uintptr_t)sock;
+
+	// Establish TLS if required
+	if (m_UseTls)
+	{
+		if (!TryTlsConnect())
+		{
+			closesocket(sock);
+			m_Socket = (uintptr_t)INVALID_SOCKET;
+			return false;
+		}
+	}
+
 	return true;
+}
+
+bool ReolinkBaichuanClient::TryTlsConnect()
+{
+	SSL_CTX* ctx = SSL_CTX_new(TLS_client_method());
+	if (!ctx)
+	{
+		std::lock_guard<std::mutex> lock(m_ErrorMutex);
+		m_LastError = "Failed to create SSL context";
+		return false;
+	}
+
+	// Accept self-signed certs (cameras use self-signed)
+	SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, nullptr);
+
+	SSL* ssl = SSL_new(ctx);
+	if (!ssl)
+	{
+		SSL_CTX_free(ctx);
+		std::lock_guard<std::mutex> lock(m_ErrorMutex);
+		m_LastError = "Failed to create SSL object";
+		return false;
+	}
+
+	SSL_set_fd(ssl, (int)(uintptr_t)m_Socket);
+
+	int sslRet = SSL_connect(ssl);
+	if (sslRet != 1)
+	{
+		int err = SSL_get_error(ssl, sslRet);
+		SSL_free(ssl);
+		SSL_CTX_free(ctx);
+		std::lock_guard<std::mutex> lock(m_ErrorMutex);
+		m_LastError = "TLS handshake failed (SSL error " + std::to_string(err) + ")";
+		return false;
+	}
+
+	m_SslCtx = ctx;
+	m_Ssl = ssl;
+
+	LOG_INFO("[Baichuan] TLS handshake successful with %s:%d", m_Host.c_str(), m_Port);
+	return true;
+}
+
+void ReolinkBaichuanClient::CleanupTls()
+{
+	if (m_Ssl)
+	{
+		SSL_shutdown((SSL*)m_Ssl);
+		SSL_free((SSL*)m_Ssl);
+		m_Ssl = nullptr;
+	}
+	if (m_SslCtx)
+	{
+		SSL_CTX_free((SSL_CTX*)m_SslCtx);
+		m_SslCtx = nullptr;
+	}
 }
 
 bool ReolinkBaichuanClient::Authenticate()
@@ -960,8 +1054,18 @@ bool ReolinkBaichuanClient::ReadExact(uint8_t* buffer, size_t length)
 	size_t totalRead = 0;
 	while (totalRead < length && m_Running.load())
 	{
-		int bytesRead = recv((SOCKET)m_Socket, reinterpret_cast<char*>(buffer + totalRead),
-			(int)(length - totalRead), 0);
+		int bytesRead;
+		if (m_Ssl)
+		{
+			bytesRead = SSL_read((SSL*)m_Ssl, reinterpret_cast<char*>(buffer + totalRead),
+				(int)(length - totalRead));
+		}
+		else
+		{
+			bytesRead = recv((SOCKET)m_Socket, reinterpret_cast<char*>(buffer + totalRead),
+				(int)(length - totalRead), 0);
+		}
+
 		if (bytesRead <= 0)
 		{
 			if (bytesRead == 0)
@@ -970,12 +1074,20 @@ bool ReolinkBaichuanClient::ReadExact(uint8_t* buffer, size_t length)
 			}
 			else
 			{
+				if (m_Ssl)
+				{
+					int sslErr = SSL_get_error((SSL*)m_Ssl, bytesRead);
+					LOG_WARNING("[Baichuan] SSL read error %d (read %zu/%zu bytes)", sslErr, totalRead, length);
+				}
+				else
+				{
 #ifdef _WIN32
-				int err = WSAGetLastError();
-				LOG_WARNING("[Baichuan] recv error %d (read %zu/%zu bytes)", err, totalRead, length);
+					int err = WSAGetLastError();
+					LOG_WARNING("[Baichuan] recv error %d (read %zu/%zu bytes)", err, totalRead, length);
 #else
-				LOG_WARNING("[Baichuan] recv error %d (read %zu/%zu bytes)", errno, totalRead, length);
+					LOG_WARNING("[Baichuan] recv error %d (read %zu/%zu bytes)", errno, totalRead, length);
 #endif
+				}
 			}
 			return false;
 		}
@@ -989,8 +1101,18 @@ bool ReolinkBaichuanClient::SendRaw(const uint8_t* data, size_t length)
 	size_t totalSent = 0;
 	while (totalSent < length)
 	{
-		int sent = send((SOCKET)m_Socket, reinterpret_cast<const char*>(data + totalSent),
-			(int)(length - totalSent), 0);
+		int sent;
+		if (m_Ssl)
+		{
+			sent = SSL_write((SSL*)m_Ssl, reinterpret_cast<const char*>(data + totalSent),
+				(int)(length - totalSent));
+		}
+		else
+		{
+			sent = send((SOCKET)m_Socket, reinterpret_cast<const char*>(data + totalSent),
+				(int)(length - totalSent), 0);
+		}
+
 		if (sent <= 0)
 			return false;
 		totalSent += sent;

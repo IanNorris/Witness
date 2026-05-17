@@ -83,6 +83,7 @@ target_link_libraries(WitnessCamera
         ${ONNXRUNTIME_LIB}
         lz4::lz4
         OpenSSL::Crypto
+        OpenSSL::SSL
     PUBLIC
         WitnessCommon
 )
