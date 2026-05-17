@@ -3,6 +3,46 @@
 #include <string>
 #include <cstdlib>
 
+// Camera profiles — auto-detected from RTSP URL patterns
+enum class CameraProfile
+{
+	Generic,    // Standard camera, uses motion vector filter
+	Reolink     // Reolink camera, uses Baichuan AI detection + Reolink PTZ API
+};
+
+// Returns a human-readable name for a camera profile
+inline const char* CameraProfileName(CameraProfile profile)
+{
+	switch (profile)
+	{
+	case CameraProfile::Reolink: return "reolink";
+	default: return "generic";
+	}
+}
+
+// Detect camera manufacturer/profile from RTSP URL path patterns.
+// Reolink uses: /h264Preview_XX_main, /h265Preview_XX_main, /h264Preview_XX_sub, etc.
+inline CameraProfile DetectCameraProfile(const std::string& url)
+{
+	// Find the path component after host
+	auto schemeEnd = url.find("://");
+	if (schemeEnd == std::string::npos) return CameraProfile::Generic;
+
+	auto pathStart = url.find('/', schemeEnd + 3);
+	if (pathStart == std::string::npos) return CameraProfile::Generic;
+
+	std::string path = url.substr(pathStart);
+
+	// Reolink pattern: /h264Preview_XX_main or /h265Preview_XX_sub or /Preview_XX_main
+	if (path.find("Preview_") != std::string::npos &&
+		(path.find("_main") != std::string::npos || path.find("_sub") != std::string::npos))
+	{
+		return CameraProfile::Reolink;
+	}
+
+	return CameraProfile::Generic;
+}
+
 // Decode percent-encoded characters in a URL component (e.g., %40 -> @)
 inline std::string UrlDecode(const std::string& input)
 {

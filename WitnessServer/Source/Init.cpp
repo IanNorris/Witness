@@ -605,7 +605,22 @@ void WitnessServer::StartCamera(const SQLiteDatabaseQuery& query)
 	Camera.LowLatencyHLS = query.GetColumnValueInt(13);
 	Camera.MotionSourceCameraId = query.GetColumnValueInt(20);
 
-	Camera.MotionFilterName = MotionFilterName && strlen(MotionFilterName) ? MotionFilterName : Video.MotionFilterName.c_str();
+	// Auto-detect camera profile from RTSP URL
+	CameraProfile profile = DetectCameraProfile(Camera.Path);
+
+	// Motion filter selection: explicit DB value > profile default > global default
+	if (MotionFilterName && strlen(MotionFilterName))
+	{
+		Camera.MotionFilterName = MotionFilterName;
+	}
+	else if (profile == CameraProfile::Reolink)
+	{
+		Camera.MotionFilterName = "reolink_unofficial";
+	}
+	else
+	{
+		Camera.MotionFilterName = Video.MotionFilterName;
+	}
 
 	auto FaceCascadeName = Video.FaceCascadeFilter + ".xml";
 	auto FaceCascade = (std::filesystem::path(Video.DataPath) / "Cascades" / FaceCascadeName).string();
@@ -620,7 +635,14 @@ void WitnessServer::StartCamera(const SQLiteDatabaseQuery& query)
 
 	if (Camera.Enabled)
 	{
-		LOG_INFO( "Starting %s camera...", Camera.Name.c_str() );
+		if (profile != CameraProfile::Generic)
+		{
+			LOG_INFO("Starting %s camera (profile: %s)...", Camera.Name.c_str(), CameraProfileName(profile));
+		}
+		else
+		{
+			LOG_INFO("Starting %s camera...", Camera.Name.c_str());
+		}
 
 		auto Worker = std::make_shared<CameraWorker>(Video, Camera, Context->MessageBus, Context);
 		Worker->Start(WorkerBase::Priority::HighPriority);
@@ -630,9 +652,11 @@ void WitnessServer::StartCamera(const SQLiteDatabaseQuery& query)
 		State.Worker = Worker;
 		State.Name = Camera.Name;
 
-		// Initialize PTZ client if enabled
+		// Initialize PTZ client if enabled (explicit or auto-detected via profile)
 		int ptzEnabled = query.GetColumnValueInt(14);
-		if (ptzEnabled)
+		bool autoEnablePtz = (!ptzEnabled && profile == CameraProfile::Reolink);
+
+		if (ptzEnabled || autoEnablePtz)
 		{
 			const char* ptzHost = query.GetColumnValueText(15);
 			int ptzPort = query.GetColumnValueInt(16);

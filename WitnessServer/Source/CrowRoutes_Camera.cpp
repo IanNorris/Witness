@@ -87,6 +87,7 @@ void CrowListener::HandleCameraEnum( const crow::request& req, crow::response& r
 						Camera["name"] = Name;
 						Camera["description"] = Description;
 						Camera["enabled"] = Enabled;
+						Camera["profile"] = CameraProfileName(DetectCameraProfile(ConnectionString));
 
 						std::vector<crow::json::wvalue> Groups;
 
