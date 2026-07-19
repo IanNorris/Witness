@@ -86,6 +86,9 @@ public:
 	// AI/motion detection state query
 	bool GetMotionState(int channel = 0);
 
+	// Reboot the camera (used as last resort when RTSP server is stuck)
+	bool Reboot();
+
 	// Connection test
 	bool IsReachable();
 

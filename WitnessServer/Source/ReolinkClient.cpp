@@ -613,6 +613,40 @@ bool ReolinkClient::GetMotionState(int channel)
 	return false;
 }
 
+bool ReolinkClient::Reboot()
+{
+	LOG_INFO("ReolinkClient: Sending reboot command to %s:%d", m_Host.c_str(), m_Port);
+
+	std::string body = R"([{"cmd":"Reboot","action":0,"param":{}}])";
+	std::string response = SendCommand("Reboot", body);
+	if (response.empty())
+	{
+		LOG_ERROR("ReolinkClient: Reboot command failed for %s: %s", m_Host.c_str(), m_LastError.c_str());
+		return false;
+	}
+
+	auto json = crow::json::load(response);
+	if (json && json.size() > 0)
+	{
+		auto& resp = json[0];
+		if (resp.has("value") && resp["value"].has("rspCode"))
+		{
+			int code = resp["value"]["rspCode"].i();
+			if (code == 200)
+			{
+				LOG_INFO("ReolinkClient: Reboot accepted by %s", m_Host.c_str());
+				return true;
+			}
+			LOG_ERROR("ReolinkClient: Reboot rejected by %s (code=%d)", m_Host.c_str(), code);
+			return false;
+		}
+	}
+
+	// Some firmware returns empty value on success
+	LOG_INFO("ReolinkClient: Reboot sent to %s (no rspCode in response, assuming success)", m_Host.c_str());
+	return true;
+}
+
 bool ReolinkClient::IsReachable()
 {
 	auto result = m_HttpClient->Get("/");

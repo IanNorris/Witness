@@ -13,6 +13,7 @@
 #include "EventBroadcaster.h"
 #include "StreamBroadcaster.h"
 #include "UrlHelpers.h"
+#include "ReolinkClient.h"
 #include "crow/json.h"
 
 #include <Log.h>
@@ -833,6 +834,13 @@ void CameraWorker::WorkerMain()
 		{
 			IsConnected = true;
 			m_AuthFailureBackoff = 3000; // Reset backoff on successful connection
+			m_ConsecutiveConnectFailures = 0;
+
+			if (m_RebootRequested)
+			{
+				LOG_INFO("Camera %d: reconnected after reboot", Camera.ID);
+				m_RebootRequested = false;
+			}
 
 			LOG_INFO("[HLS] Camera %d connected, live stream generation %d",
 				Camera.ID, LiveStream ? LiveStream->GetInitGeneration() : 0);
@@ -863,6 +871,8 @@ void CameraWorker::WorkerMain()
 
 		Camera.JobQueue->RemoveAllForSource( Camera.ID );
 
+		m_ConsecutiveConnectFailures++;
+
 		if( Error != CameraStreamError::EndOfFile )
 		{
 			// Use exponential backoff for authentication failures (no point retrying quickly with bad credentials)
@@ -879,7 +889,46 @@ void CameraWorker::WorkerMain()
 			}
 			else
 			{
-				std::this_thread::sleep_for(std::chrono::milliseconds(3000));
+				// Reolink cameras: auto-reboot when RTSP server is stuck
+				// 20 consecutive failures = ~2.5 minutes of being unable to connect
+				bool isReolink = (DetectCameraProfile(Camera.Path) == CameraProfile::Reolink);
+				if (isReolink && !m_RebootRequested && m_ConsecutiveConnectFailures >= 20)
+				{
+					LOG_WARNING("Camera %d (%s): %d consecutive connect failures, attempting camera reboot via HTTP API",
+						Camera.ID, Camera.Name.c_str(), m_ConsecutiveConnectFailures);
+
+					auto ptzClient = Context->GetPtzClient(Camera.ID);
+					if (!ptzClient)
+					{
+						// Try to create one on-the-fly from RTSP URL credentials
+						std::string rtspUser, rtspPass, rtspHost;
+						int rtspPort = 0;
+						ParseRtspUrl(Camera.Path, rtspUser, rtspPass, rtspHost, rtspPort);
+						if (!rtspHost.empty() && !rtspUser.empty())
+						{
+							ptzClient = ReolinkClient::AutoDetect(rtspHost, 443, rtspUser, rtspPass);
+						}
+					}
+
+					if (ptzClient && ptzClient->Reboot())
+					{
+						m_RebootRequested = true;
+						m_ConsecutiveConnectFailures = 0;
+						LOG_INFO("Camera %d: reboot command sent, waiting 90s for camera to restart", Camera.ID);
+						std::this_thread::sleep_for(std::chrono::seconds(90));
+					}
+					else
+					{
+						LOG_ERROR("Camera %d: failed to send reboot command (HTTP API unreachable?)", Camera.ID);
+						// Don't retry reboot too quickly — reset counter partway so we try again in ~1 min
+						m_ConsecutiveConnectFailures = 12;
+						std::this_thread::sleep_for(std::chrono::milliseconds(3000));
+					}
+				}
+				else
+				{
+					std::this_thread::sleep_for(std::chrono::milliseconds(3000));
+				}
 			}
 		}
 	}
