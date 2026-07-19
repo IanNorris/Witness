@@ -171,6 +171,7 @@ export function useMseStream(
   let currentTimeStalledSince = 0
   let destroyed = false
   let intentionalClose = false
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let initGeneration = -1
   let expectingBinary: 'init' | 'partial' | null = null
   let waitingForKeyframe = true  // Skip partials until first independent (keyframe)
@@ -433,6 +434,13 @@ export function useMseStream(
     const element = videoRef.value
     if (!element) return
 
+    // Prevent leaked WebSocket: close any existing connection before opening a new one
+    if (ws) {
+      intentionalClose = true
+      ws.close()
+      ws = null
+    }
+
     if (!mediaSource) {
       setupMediaSource(element)
     }
@@ -497,7 +505,10 @@ export function useMseStream(
 
         diag.stats.restartCount++
         diag.log('reconnect', { backoffMs: restartBackoffMs })
-        setTimeout(() => connectWebSocket(), restartBackoffMs)
+        reconnectTimer = setTimeout(() => {
+          reconnectTimer = null
+          connectWebSocket()
+        }, restartBackoffMs)
         restartBackoffMs = Math.min(restartBackoffMs * 1.5, 30000)
       }
       intentionalClose = false
@@ -508,6 +519,12 @@ export function useMseStream(
     if (destroyed) return
     diag.stats.restartCount++
     diag.log('restart', { reason, generation: initGeneration })
+
+    // Cancel any pending reconnect timer to prevent duplicate WebSocket creation
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
 
     // Tear down everything
     intentionalClose = true
@@ -541,7 +558,10 @@ export function useMseStream(
     currentTimeStalledSince = 0
 
     // Reconnect
-    setTimeout(() => connectWebSocket(), restartBackoffMs)
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null
+      connectWebSocket()
+    }, restartBackoffMs)
     restartBackoffMs = Math.min(restartBackoffMs * 1.5, 30000)
   }
 
@@ -669,6 +689,12 @@ export function useMseStream(
 
   function stop() {
     destroyed = true
+
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer)
+      reconnectTimer = null
+    }
+
     ws?.close()
     ws = null
 
