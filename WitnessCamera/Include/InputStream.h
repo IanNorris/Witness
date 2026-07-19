@@ -89,7 +89,8 @@ public:
 
 private:
 
-	const static int64_t ConnectionTimeout = 5;
+	const static int64_t ConnectTimeoutSeconds = 10;
+	const static int64_t ReadTimeoutSeconds = 20;
 
 	static int InterruptCallback( void* Opaque );
 
@@ -104,7 +105,7 @@ private:
 	int FrameIndex;
 	bool NeedsAnalysisFrame; // Latched when analysis is due; cleared when a keyframe is decoded
 	int64_t TimeStarted;
-	bool IsConnecting;
+	int64_t ActiveTimeoutSeconds; // 0 = no timeout active
 
 	PacketCallback m_PacketCallback;
 };

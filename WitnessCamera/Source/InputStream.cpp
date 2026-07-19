@@ -20,7 +20,7 @@ InputStream::InputStream( const InputStreamSetup& Setup, int SourceID, ImageProc
 , FrameIndex(0)
 , NeedsAnalysisFrame(true)
 , TimeStarted( 0 )
-, IsConnecting( false )
+, ActiveTimeoutSeconds( 0 )
 {
 	m_InternalData->Path = StreamURL;
 	m_InternalData->StreamIndex = StreamIndex;
@@ -68,10 +68,10 @@ CameraStreamError InputStream::Initialize()
 
 	av_dict_set( &ID.StreamOptions, "nobuffer", "0", 0 );
 	
-	IsConnecting = true;
+	ActiveTimeoutSeconds = ConnectTimeoutSeconds;
 	TimeStarted = std::chrono::high_resolution_clock::now().time_since_epoch().count();
 	int Result = avformat_open_input( &ID.FormatContext, ID.Path.c_str(), nullptr, &ID.StreamOptions );
-	IsConnecting = false;
+	ActiveTimeoutSeconds = 0;
 
 	if( Result < 0 )
 	{
@@ -173,7 +173,7 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 
 	auto& ID = *m_InternalData;
 
-	IsConnecting = true;
+	ActiveTimeoutSeconds = ReadTimeoutSeconds;
 	TimeStarted = std::chrono::high_resolution_clock::now().time_since_epoch().count();
 
 	
@@ -183,7 +183,7 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 
 	auto ReadEnd = std::chrono::high_resolution_clock::now().time_since_epoch().count();
 
-	IsConnecting = false;
+	ActiveTimeoutSeconds = 0;
 	if( Result == AVERROR_EOF )
 	{
 		STREAM_ERROR( EndOfFile, Result );
@@ -456,11 +456,12 @@ int InputStream::InterruptCallback( void* Opaque )
 {
 	InputStream* This = (InputStream*)Opaque;
 
-	if( This->IsConnecting )
+	int64_t timeout = This->ActiveTimeoutSeconds;
+	if( timeout > 0 )
 	{
 		int64_t TimeNow = std::chrono::high_resolution_clock::now().time_since_epoch().count();
 
-		if (TimeNow - (ConnectionTimeout * 1000ll * 1000ll * 1000ll) > This->TimeStarted)
+		if (TimeNow - (timeout * 1000ll * 1000ll * 1000ll) > This->TimeStarted)
 		{
 			return 1;
 		}
