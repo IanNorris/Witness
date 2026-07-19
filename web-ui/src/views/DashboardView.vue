@@ -10,7 +10,18 @@ const cameraStore = useCameraStore()
 const settings = useSettingsStore()
 const groupStore = useGroupStore()
 
-const selectedGroupId = ref<number | null>(null)
+const DASHBOARD_GROUP_KEY = 'witness-dashboard-group'
+const savedGroup = localStorage.getItem(DASHBOARD_GROUP_KEY)
+const selectedGroupId = ref<number | null>(savedGroup !== null ? Number(savedGroup) : null)
+
+function selectGroup(id: number | null) {
+  selectedGroupId.value = id
+  if (id === null) {
+    localStorage.removeItem(DASHBOARD_GROUP_KEY)
+  } else {
+    localStorage.setItem(DASHBOARD_GROUP_KEY, String(id))
+  }
+}
 
 const groupCameraIds = computed(() => {
   if (selectedGroupId.value === null) return null
@@ -21,6 +32,11 @@ onMounted(async () => {
   await cameraStore.fetchCameras()
   if (groupStore.groups.length === 0) {
     await groupStore.fetchGroups()
+  }
+  // Clear saved group if it no longer exists
+  if (selectedGroupId.value !== null &&
+      !groupStore.activeGroups.some(g => g.id === selectedGroupId.value)) {
+    selectGroup(null)
   }
 })
 </script>
@@ -35,14 +51,14 @@ onMounted(async () => {
           <button
             class="btn"
             :class="selectedGroupId === null ? 'btn-primary' : 'btn-outline-secondary'"
-            @click="selectedGroupId = null"
+            @click="selectGroup(null)"
           >All</button>
           <button
             v-for="group in groupStore.activeGroups"
             :key="group.id"
             class="btn"
             :class="selectedGroupId === group.id ? 'btn-primary' : 'btn-outline-secondary'"
-            @click="selectedGroupId = group.id"
+            @click="selectGroup(group.id)"
           >{{ group.displayName }}</button>
         </div>
         <button
