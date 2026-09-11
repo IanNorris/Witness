@@ -25,8 +25,11 @@ LiveOutputStream::LiveOutputStream(const std::string& LiveCachePath, InputStream
 	, _InitSegmentCaptured( false )
 	, _HasInitialDTS( false )
 	, _HasBFrames( false )
+	, _HasAudioStream( false )
 	, _InitialDTS( 0 )
+	, _InitialTimestampUs( AV_NOPTS_VALUE )
 	, _LastWrittenDTS( AV_NOPTS_VALUE )
+	, _AudioInputStreamIndex( -1 )
 	, _SegmentStartDTS( 0 )
 	, _CurrentSegmentDuration( 0.0 )
 	, _CurrentSegmentIndex(0)
@@ -69,7 +72,7 @@ void LiveOutputStream::Shutdown()
 	{
 		if (_FormatContext->pb)
 		{
-			av_write_frame(_FormatContext, nullptr);
+			av_interleaved_write_frame(_FormatContext, nullptr);
 			avio_flush(_FormatContext->pb);
 		}
 
@@ -127,8 +130,11 @@ void LiveOutputStream::ResetForReconnect(InputStream* NewInputStream)
 	_InitSegmentCaptured = false;
 	_HasInitialDTS = false;
 	_HasBFrames = false;
+	_HasAudioStream = false;
 	_InitialDTS = 0;
+	_InitialTimestampUs = AV_NOPTS_VALUE;
 	_LastWrittenDTS = AV_NOPTS_VALUE;
+	_AudioInputStreamIndex = -1;
 	_PartialBufferOffset = 0;
 	_CurrentPartialDuration = 0.0;
 	_CurrentPartialIsIndependent = false;
@@ -255,6 +261,21 @@ CameraStreamError LiveOutputStream::InitFormatContext()
 	OutStream->codecpar->codec_tag = 0;
 	OutStream->time_base = InID.FormatContext->streams[InID.ChosenStreamIndex]->time_base;
 
+	if (InID.HasAudio)
+	{
+		AVStream* AudioInStream = InID.FormatContext->streams[InID.ChosenAudioStreamIndex];
+		AVStream* AudioOutStream = avformat_new_stream(_FormatContext, nullptr);
+		if (!AudioOutStream || avcodec_parameters_copy(AudioOutStream->codecpar, AudioInStream->codecpar) < 0)
+		{
+			STREAM_ERROR(DecoderReceiverError, 0);
+		}
+		AudioOutStream->codecpar->codec_tag = 0;
+		AudioOutStream->time_base = AudioInStream->time_base;
+		_HasAudioStream = true;
+		_AudioInputStreamIndex = InID.ChosenAudioStreamIndex;
+		LOG_INFO("[HLS] AAC audio passthrough enabled");
+	}
+
 	// Set up in-memory I/O
 	SetupMemoryIO();
 
@@ -271,8 +292,12 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 			return Result;
 		}
 	}
+	const bool IsAudio = _HasAudioStream && Packet->stream_index == _AudioInputStreamIndex;
+	const bool IsVideo = Packet->stream_index == _InputStream->GetData().ChosenStreamIndex;
+	if (!IsAudio && !IsVideo)
+		return CameraStreamError::Success;
 
-	if (Packet->flags & AV_PKT_FLAG_KEY)
+	if (IsVideo && (Packet->flags & AV_PKT_FLAG_KEY))
 	{
 		// Enforce a minimum segment duration of 1 second.
 		// Cameras like Tapo send keyframes every ~50-100ms, which would
@@ -308,21 +333,27 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 		STREAM_ERROR(RefError, Result);
 	}
 
-	// Normalize timestamps: subtract the initial DTS so the stream starts at 0.
-	// This handles cameras (e.g. Tapo) whose RTSP streams start with large DTS values.
-	if (!_HasInitialDTS && PacketCopy.dts != AV_NOPTS_VALUE)
+	if (PacketCopy.dts == AV_NOPTS_VALUE)
 	{
-		_InitialDTS = PacketCopy.dts;
-		_HasInitialDTS = true;
+		av_packet_unref(&PacketCopy);
+		return CameraStreamError::InvalidPacket;
 	}
+	if (PacketCopy.pts == AV_NOPTS_VALUE)
+		PacketCopy.pts = PacketCopy.dts;
 
-	if (_HasInitialDTS)
+	AVRational InputTimebase = _InputStream->GetData().FormatContext->streams[Packet->stream_index]->time_base;
+	int64_t PacketTimestampUs = av_rescale_q(PacketCopy.dts, InputTimebase, AV_TIME_BASE_Q);
+	if (_InitialTimestampUs == AV_NOPTS_VALUE && IsVideo)
+		_InitialTimestampUs = PacketTimestampUs;
+	if (_InitialTimestampUs == AV_NOPTS_VALUE || PacketTimestampUs < _InitialTimestampUs)
 	{
-		if (PacketCopy.dts != AV_NOPTS_VALUE)
-			PacketCopy.dts -= _InitialDTS;
-		if (PacketCopy.pts != AV_NOPTS_VALUE)
-			PacketCopy.pts -= _InitialDTS;
+		av_packet_unref(&PacketCopy);
+		return CameraStreamError::Success;
 	}
+	PacketCopy.dts = av_rescale_q(PacketTimestampUs - _InitialTimestampUs, AV_TIME_BASE_Q, InputTimebase);
+	PacketCopy.pts = av_rescale_q(
+		av_rescale_q(PacketCopy.pts, InputTimebase, AV_TIME_BASE_Q) - _InitialTimestampUs,
+		AV_TIME_BASE_Q, InputTimebase);
 
 	// Guard against negative timestamps from B-frame reordering at stream start
 	if (PacketCopy.dts != AV_NOPTS_VALUE && PacketCopy.dts < 0)
@@ -334,41 +365,44 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 	// For streams without B-frames, PTS naturally equals DTS — force it to
 	// be safe. For B-frame streams, preserve PTS so the browser can
 	// reorder frames correctly (MSE handles this natively).
-	if (!_HasBFrames)
+	if (IsVideo && !_HasBFrames)
 	{
 		PacketCopy.pts = PacketCopy.dts;
 	}
 
-	PacketCopy.stream_index = 0;
+	PacketCopy.stream_index = IsAudio ? 1 : 0;
 	PacketCopy.pos = -1;
 
 	// Drop packets with non-monotonic DTS — a safety net in case the
 	// demuxer delivers out-of-order or duplicate packets.
-	if (_LastWrittenDTS != AV_NOPTS_VALUE && PacketCopy.dts <= _LastWrittenDTS)
+	if (IsVideo && _LastWrittenDTS != AV_NOPTS_VALUE && PacketCopy.dts <= _LastWrittenDTS)
 	{
 		av_packet_unref(&PacketCopy);
 		return CameraStreamError::Success;
 	}
-	_LastWrittenDTS = PacketCopy.dts;
+	if (IsVideo)
+		_LastWrittenDTS = PacketCopy.dts;
 
 	// Clamp negative durations (B-frame reordering artifacts)
 	if (PacketCopy.duration < 0)
 		PacketCopy.duration = 0;
 
-	AVRational TimeBase = _FormatContext->streams[0]->time_base;
-	double PacketDurationSec = (double)(PacketCopy.duration * TimeBase.num) / TimeBase.den;
-	_CurrentSegmentDuration += PacketDurationSec;
-	_CurrentPartialDuration += PacketDurationSec;
+	if (IsVideo)
+	{
+		AVRational TimeBase = _FormatContext->streams[0]->time_base;
+		double PacketDurationSec = (double)(PacketCopy.duration * TimeBase.num) / TimeBase.den;
+		_CurrentSegmentDuration += PacketDurationSec;
+		_CurrentPartialDuration += PacketDurationSec;
+	}
 
 	// Track whether this partial contains a keyframe (first partial of segment)
-	if (PacketCopy.flags & AV_PKT_FLAG_KEY)
+	if (IsVideo && (PacketCopy.flags & AV_PKT_FLAG_KEY))
 		_CurrentPartialIsIndependent = true;
 
-	// Use av_write_frame (non-interleaving) — packets arrive in DTS order
-	// from the RTSP demuxer, so interleaving is unnecessary and its internal
-	// reorder buffer causes spurious "non monotonically increasing dts" errors
-	// with B-frame streams (e.g. Tapo cameras).
-	Result = av_write_frame(_FormatContext, &PacketCopy);
+	av_packet_rescale_ts(&PacketCopy, InputTimebase,
+		_FormatContext->streams[PacketCopy.stream_index]->time_base);
+	// Multi-track fMP4 needs FFmpeg's interleaver to emit a valid fragment.
+	Result = av_interleaved_write_frame(_FormatContext, &PacketCopy);
 	av_packet_unref(&PacketCopy);
 	if (Result < 0)
 	{
@@ -376,7 +410,7 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 	}
 
 	// Flush a partial segment when we've accumulated enough duration
-	if (_CurrentPartialDuration >= _PartialTargetDuration)
+	if (IsVideo && _CurrentPartialDuration >= _PartialTargetDuration)
 	{
 		FlushPartialSegment(_CurrentPartialIsIndependent);
 	}
@@ -390,7 +424,7 @@ void LiveOutputStream::FlushPartialSegment(bool IsIndependent)
 		return;
 
 	// Flush current fragment data into the buffer
-	av_write_frame(_FormatContext, nullptr);
+	av_interleaved_write_frame(_FormatContext, nullptr);
 	avio_flush(_FormatContext->pb);
 
 	// Only create a partial if we actually accumulated data since the last flush
@@ -478,6 +512,8 @@ CameraStreamError LiveOutputStream::StartNewSegment(const AVPacket* Packet)
 			Event.EventType = LiveStreamEvent::InitSegmentReady;
 			Event.Data = _InitSegmentData;
 			Event.Generation = _InitGeneration;
+			if (_HasAudioStream)
+				Event.AudioCodec = "mp4a.40.2";
 			_EventCallback(Event);
 		}
 	}

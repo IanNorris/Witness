@@ -25,6 +25,7 @@ const cameraId = computed(() => Number(route.params.cameraId))
 const camera = computed(() => cameraStore.getCameraById(cameraId.value))
 const hlsPlayerRef = ref<InstanceType<typeof HlsPlayer> | InstanceType<typeof MsePlayer> | null>(null)
 const detectionOverlayActive = ref(false)
+const audioActive = ref(false)
 
 const latencyLabel = computed(() => {
   const ms = hlsPlayerRef.value?.latencyMs ?? 0
@@ -39,6 +40,13 @@ function toggleDetectionOverlay() {
     player.toggleOverlay()
     detectionOverlayActive.value = player.overlayEnabled ?? false
     localStorage.setItem(`witness-detection-overlay-${cameraId.value}`, detectionOverlayActive.value ? '1' : '0')
+  }
+}
+
+function toggleAudio() {
+  const player = hlsPlayerRef.value
+  if (player?.toggleAudio) {
+    audioActive.value = player.toggleAudio()
   }
 }
 
@@ -70,6 +78,12 @@ watch(hlsPlayerRef, (player) => {
         @click="toggleDetectionOverlay"
         title="Toggle detection overlay"
       >🔲</button>
+      <button
+        class="btn btn-sm"
+        :class="audioActive ? 'btn-success' : 'btn-outline-secondary'"
+        @click="toggleAudio"
+        :title="audioActive ? 'Mute live audio' : 'Play live audio'"
+      >{{ audioActive ? '🔊' : '🔇' }}</button>
       <button class="btn btn-sm btn-outline-secondary" @click="router.push('/')">
         ← Back
       </button>

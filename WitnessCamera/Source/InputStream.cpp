@@ -85,14 +85,29 @@ CameraStreamError InputStream::Initialize()
 	}
 
 	ID.ChosenStreamIndex = 0;
+	ID.ChosenAudioStreamIndex = -1;
+	ID.HasAudio = false;
+	bool FoundVideo = false;
 	for( unsigned int i = 0; i < ID.FormatContext->nb_streams; i++ )
 	{
 		if( ID.FormatContext->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_VIDEO )
 		{
-			if( ID.StreamIndex == i || ID.StreamIndex == 0 )
+			if( !FoundVideo && (ID.StreamIndex == i || ID.StreamIndex == 0) )
 			{
 				ID.ChosenStreamIndex = i;
-				break;
+				FoundVideo = true;
+			}
+		}
+		else if( ID.FormatContext->streams[i]->codecpar->codec_type == AVMEDIA_TYPE_AUDIO
+			&& ID.ChosenAudioStreamIndex < 0 )
+		{
+			// AAC can be remuxed into MP4/fMP4 and played by all supported browsers.
+			// Other camera audio codecs are deliberately ignored rather than creating
+			// recordings or MSE fragments browsers cannot decode.
+			if( ID.FormatContext->streams[i]->codecpar->codec_id == AV_CODEC_ID_AAC )
+			{
+				ID.ChosenAudioStreamIndex = (int)i;
+				ID.HasAudio = true;
 			}
 		}
 	}
@@ -408,6 +423,28 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 		}
 			} // end if (shouldDecode)
 		} // end if (!PassthroughOnly)
+	}
+	else if( ID.HasAudio && ID.Packet.stream_index == ID.ChosenAudioStreamIndex )
+	{
+		if( TargetStream )
+		{
+			CameraStreamError WriteError = TargetStream->WriteInterleavedPacket( &ID.Packet );
+			if( WriteError != CameraStreamError::Success )
+				return WriteError;
+		}
+
+		if( LiveStream )
+		{
+			CameraStreamError WriteError = LiveStream->WriteInterleavedPacket( &ID.Packet );
+			if( WriteError != CameraStreamError::Success )
+			{
+				memcpy( m_ErrorMessage, LiveStream->GetFFMPEGErrorMessage(), 256 );
+				return WriteError;
+			}
+		}
+
+		if( m_PacketCallback )
+			m_PacketCallback( &ID.Packet );
 	}
 
 	av_packet_unref( &ID.Packet );

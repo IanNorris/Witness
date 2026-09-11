@@ -38,6 +38,7 @@ struct CAMERA_API LiveStreamEvent
 	double Duration = 0.0;
 	bool Independent = false; // True if partial starts with keyframe
 	int Generation = 0;       // Init segment generation counter
+	std::string AudioCodec;    // MSE codec string when the init has an audio track
 };
 
 using LiveStreamEventCallback = std::function<void(const LiveStreamEvent&)>;
@@ -157,9 +158,12 @@ private:
 	bool _InitSegmentCaptured;
 	bool _HasInitialDTS;
 	bool _HasBFrames;
+	bool _HasAudioStream;
 
 	int64_t _InitialDTS;
+	int64_t _InitialTimestampUs;
 	int64_t _LastWrittenDTS;
+	int _AudioInputStreamIndex;
 	int64_t _SegmentStartDTS;
 	double _CurrentSegmentDuration;
 

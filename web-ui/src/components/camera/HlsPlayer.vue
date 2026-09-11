@@ -26,7 +26,15 @@ const { enabled: overlayEnabled, toggle: toggleOverlay } = useDetectionOverlay(
   videoRef,
 )
 
-defineExpose({ latencyMs, overlayEnabled, toggleOverlay, codecUnsupported })
+function toggleAudio() {
+  const video = videoRef.value
+  if (!video) return false
+  video.muted = !video.muted
+  if (!video.muted) video.play().catch(() => {})
+  return !video.muted
+}
+
+defineExpose({ latencyMs, overlayEnabled, toggleOverlay, codecUnsupported, toggleAudio })
 </script>
 
 <template>

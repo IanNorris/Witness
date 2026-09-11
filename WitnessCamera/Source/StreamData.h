@@ -54,6 +54,8 @@ struct StreamData
 	, CodecTag( 0 )
 	, StreamIndex( 0 )
 	, ChosenStreamIndex( 0 )
+	, ChosenAudioStreamIndex( -1 )
+	, HasAudio( false )
 	, IsVideo( true )
 	, IsFirstFrame( true )
 	, HasOneTimeInitialized( false )
@@ -143,11 +145,13 @@ struct StreamData
 
 	unsigned int		StreamIndex;
 	unsigned int		ChosenStreamIndex;
+	int				ChosenAudioStreamIndex;
 
 	unsigned int		Width;
 	unsigned int		Height;
 
 	bool				IsVideo;
+	bool				HasAudio;
 	bool				IsFirstFrame;
 	bool				HasOneTimeInitialized;
 	bool				HasInitialized;

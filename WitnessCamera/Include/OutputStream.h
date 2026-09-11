@@ -81,6 +81,9 @@ private:
 	int m_SegmentIndex;
 	int m_PartIndex;
 	int64_t m_LastWrittenDTS;
+	bool m_HasAudioStream;
+	int m_AudioInputStreamIndex;
+	int64_t m_InitialTimestampUs;
 };
 
 }}

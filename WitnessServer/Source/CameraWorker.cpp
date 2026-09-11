@@ -84,6 +84,8 @@ void CameraWorker::CreateInputStream()
 			case Witness::Camera::LiveStreamEvent::InitSegmentReady:
 				ctrl["type"] = "initSegment";
 				ctrl["generation"] = ev.Generation;
+				if (!ev.AudioCodec.empty())
+					ctrl["audioCodec"] = ev.AudioCodec;
 				streams->SendControl(cameraId, ctrl.dump());
 				streams->SendBinary(cameraId, ev.Data);
 				break;

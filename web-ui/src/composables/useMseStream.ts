@@ -259,12 +259,14 @@ export function useMseStream(
     })
   }
 
+  let audioCodec: string | undefined
+
   function createSourceBuffer(codec?: string) {
     if (!mediaSource || mediaSource.readyState !== 'open') return false
 
     // Use explicit codec if provided, then codecHint from caller, then default H.264 baseline
     const resolvedCodec = codec || codecHint || 'avc1.42001e'
-    const mimeType = `video/mp4; codecs="${resolvedCodec}"`
+    const mimeType = `video/mp4; codecs="${resolvedCodec}${audioCodec ? `,${audioCodec}` : ''}"`
 
     if (!MediaSource.isTypeSupported(mimeType)) {
       diag.log('unsupportedCodec', { mimeType })
@@ -320,8 +322,9 @@ export function useMseStream(
       switch (msg.type) {
         case 'initSegment':
           initGeneration = msg.generation
+          audioCodec = typeof msg.audioCodec === 'string' ? msg.audioCodec : undefined
           expectingBinary = 'init'
-          diag.log('initSegment', { generation: msg.generation })
+          diag.log('initSegment', { generation: msg.generation, audioCodec })
           break
 
         case 'partial':

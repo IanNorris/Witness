@@ -24,9 +24,11 @@ ContinuousOutputStream::ContinuousOutputStream(const std::string& basePath, int 
 	, m_InputStream(inputStream)
 	, m_FormatContext(nullptr)
 	, m_OutStream(nullptr)
+	, m_AudioOutStream(nullptr)
 	, m_SegmentOpen(false)
 	, m_SegmentStartTimestamp(0)
 	, m_FirstDTS(AV_NOPTS_VALUE)
+	, m_FirstTimestampUs(AV_NOPTS_VALUE)
 	, m_LastWrittenDTS(AV_NOPTS_VALUE)
 	, m_SegmentDuration(0.0)
 	, m_TargetSegmentDuration(300) // 5 minutes
@@ -118,6 +120,21 @@ CameraStreamError ContinuousOutputStream::StartNewSegment()
 	m_OutStream->codecpar->codec_tag = 0; // Let muxer choose
 	m_OutStream->time_base = inStream->time_base;
 
+	if (inData.HasAudio)
+	{
+		AVStream* audioInStream = inData.FormatContext->streams[inData.ChosenAudioStreamIndex];
+		m_AudioOutStream = avformat_new_stream(m_FormatContext, nullptr);
+		if (!m_AudioOutStream || avcodec_parameters_copy(m_AudioOutStream->codecpar, audioInStream->codecpar) < 0)
+		{
+			avformat_free_context(m_FormatContext);
+			m_FormatContext = nullptr;
+			m_AudioOutStream = nullptr;
+			return CameraStreamError::UnknownError;
+		}
+		m_AudioOutStream->codecpar->codec_tag = 0;
+		m_AudioOutStream->time_base = audioInStream->time_base;
+	}
+
 	// Open output file
 	if (!(m_FormatContext->oformat->flags & AVFMT_NOFILE))
 	{
@@ -143,6 +160,7 @@ CameraStreamError ContinuousOutputStream::StartNewSegment()
 
 	m_SegmentOpen = true;
 	m_FirstDTS = AV_NOPTS_VALUE;
+	m_FirstTimestampUs = AV_NOPTS_VALUE;
 	m_LastWrittenDTS = AV_NOPTS_VALUE;
 	m_SegmentDuration = 0.0;
 	m_WaitingForKeyframe = false;
@@ -176,6 +194,7 @@ CameraStreamError ContinuousOutputStream::FinalizeCurrentSegment()
 	avformat_free_context(m_FormatContext);
 	m_FormatContext = nullptr;
 	m_OutStream = nullptr;
+	m_AudioOutStream = nullptr;
 
 	auto now = std::chrono::system_clock::now();
 	int64_t endTimestamp = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
@@ -204,14 +223,15 @@ CameraStreamError ContinuousOutputStream::WritePacket(const AVPacket* packet)
 
 	auto& inData = m_InputStream->GetData();
 
-	// Skip non-video packets (audio, subtitles, etc.)
-	if (packet->stream_index != (int)inData.ChosenStreamIndex)
+	const bool isVideo = packet->stream_index == (int)inData.ChosenStreamIndex;
+	const bool isAudio = inData.HasAudio && packet->stream_index == inData.ChosenAudioStreamIndex;
+	if (!isVideo && !isAudio)
 		return CameraStreamError::Success;
 
 	// Get the stream timebase from the input format context (NOT inData.Timebase which is unset on InputStream)
-	AVRational inputTimebase = inData.FormatContext->streams[inData.ChosenStreamIndex]->time_base;
+	AVRational inputTimebase = inData.FormatContext->streams[packet->stream_index]->time_base;
 
-	bool isKeyframe = (packet->flags & AV_PKT_FLAG_KEY) != 0;
+	bool isKeyframe = isVideo && (packet->flags & AV_PKT_FLAG_KEY) != 0;
 
 	// If waiting for a keyframe to split on, and this is one — finalize and start new
 	if (m_WaitingForKeyframe && isKeyframe)
@@ -225,7 +245,7 @@ CameraStreamError ContinuousOutputStream::WritePacket(const AVPacket* packet)
 	if (!m_SegmentOpen)
 	{
 		// Must start on a keyframe
-		if (!isKeyframe)
+		if (!isVideo || !isKeyframe)
 			return CameraStreamError::Success;
 
 		CameraStreamError err = StartNewSegment();
@@ -247,31 +267,36 @@ CameraStreamError ContinuousOutputStream::WritePacket(const AVPacket* packet)
 	if (pktCopy.pts == AV_NOPTS_VALUE)
 		pktCopy.pts = pktCopy.dts;
 
-	// Normalize DTS/PTS to start from 0
-	if (m_FirstDTS == AV_NOPTS_VALUE)
-	{
-		m_FirstDTS = pktCopy.dts;
-	}
-	pktCopy.dts -= m_FirstDTS;
-	pktCopy.pts -= m_FirstDTS;
-
-	pktCopy.pos = -1;
-	pktCopy.stream_index = 0; // We only have one stream
-
-	// Drop non-monotonic DTS
-	if (m_LastWrittenDTS != AV_NOPTS_VALUE && pktCopy.dts <= m_LastWrittenDTS)
+	int64_t packetTimestampUs = av_rescale_q(pktCopy.dts, inputTimebase, AV_TIME_BASE_Q);
+	if (m_FirstTimestampUs == AV_NOPTS_VALUE && isVideo)
+		m_FirstTimestampUs = packetTimestampUs;
+	if (m_FirstTimestampUs == AV_NOPTS_VALUE || packetTimestampUs < m_FirstTimestampUs)
 	{
 		av_packet_unref(&pktCopy);
 		return CameraStreamError::Success;
 	}
-	m_LastWrittenDTS = pktCopy.dts;
+	pktCopy.dts = av_rescale_q(packetTimestampUs - m_FirstTimestampUs, AV_TIME_BASE_Q, inputTimebase);
+	pktCopy.pts = av_rescale_q(av_rescale_q(pktCopy.pts, inputTimebase, AV_TIME_BASE_Q) - m_FirstTimestampUs, AV_TIME_BASE_Q, inputTimebase);
+
+	pktCopy.pos = -1;
+	pktCopy.stream_index = isAudio ? m_AudioOutStream->index : m_OutStream->index;
+
+	// Drop non-monotonic DTS
+	if (isVideo && m_LastWrittenDTS != AV_NOPTS_VALUE && pktCopy.dts <= m_LastWrittenDTS)
+	{
+		av_packet_unref(&pktCopy);
+		return CameraStreamError::Success;
+	}
+	if (isVideo)
+		m_LastWrittenDTS = pktCopy.dts;
 
 	// Clamp negative durations
 	if (pktCopy.duration < 0)
 		pktCopy.duration = 0;
 
 	// Track segment duration using input stream timebase
-	m_SegmentDuration = (double)(pktCopy.dts * inputTimebase.num) / inputTimebase.den;
+	if (isVideo)
+		m_SegmentDuration = (double)(pktCopy.dts * inputTimebase.num) / inputTimebase.den;
 
 	// Log progress periodically (every ~30 seconds)
 	int durationInt = (int)m_SegmentDuration;
@@ -281,7 +306,8 @@ CameraStreamError ContinuousOutputStream::WritePacket(const AVPacket* packet)
 	}
 
 	// Rescale timestamps to output timebase
-	av_packet_rescale_ts(&pktCopy, inputTimebase, m_OutStream->time_base);
+	av_packet_rescale_ts(&pktCopy, inputTimebase,
+		isAudio ? m_AudioOutStream->time_base : m_OutStream->time_base);
 
 	result = av_interleaved_write_frame(m_FormatContext, &pktCopy);
 	if (result < 0)

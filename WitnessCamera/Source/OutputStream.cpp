@@ -25,6 +25,9 @@ OutputStream::OutputStream( const std::string& Path, InputStream * InputStream, 
 , m_SegmentIndex(-1)
 , m_PartIndex(-1)
 , m_LastWrittenDTS( AV_NOPTS_VALUE )
+, m_HasAudioStream( false )
+, m_AudioInputStreamIndex( -1 )
+, m_InitialTimestampUs( AV_NOPTS_VALUE )
 {
 	m_InputStream->Initialize();
 
@@ -75,6 +78,9 @@ OutputStream::OutputStream( const std::string& Path, unsigned int Width, unsigne
 , m_ClipLength( 0.0 )
 , m_SegmentIndex(-1)
 , m_LastWrittenDTS( AV_NOPTS_VALUE )
+, m_HasAudioStream( false )
+, m_AudioInputStreamIndex( -1 )
+, m_InitialTimestampUs( AV_NOPTS_VALUE )
 {
 	auto& ID = *m_InternalData;
 
@@ -171,6 +177,20 @@ CameraStreamError OutputStream::Initialize()
 
 		OutStream->codecpar->codec_tag = 0;
 		OutStream->time_base = InStream->time_base;
+
+		if( InID.HasAudio )
+		{
+			AVStream* AudioInStream = InID.FormatContext->streams[InID.ChosenAudioStreamIndex];
+			AVStream* AudioOutStream = avformat_new_stream( ID.FormatContext, nullptr );
+			if( !AudioOutStream || avcodec_parameters_copy( AudioOutStream->codecpar, AudioInStream->codecpar ) < 0 )
+			{
+				STREAM_ERROR( DecoderReceiverError, 0 );
+			}
+			AudioOutStream->codecpar->codec_tag = 0;
+			AudioOutStream->time_base = AudioInStream->time_base;
+			m_HasAudioStream = true;
+			m_AudioInputStreamIndex = InID.ChosenAudioStreamIndex;
+		}
 
 		// Open output file
 		if( !( ID.FormatContext->oformat->flags & AVFMT_NOFILE ) )
@@ -417,6 +437,12 @@ CameraStreamError OutputStream::WriteInterleavedPacket( const AVPacket* Packet )
 	{
 		STREAM_ERROR( RefError, Result );
 	}
+	const bool IsAudio = m_HasAudioStream && PacketCopy.stream_index == m_AudioInputStreamIndex;
+	if( !IsAudio && PacketCopy.stream_index != m_InputStream->GetData().ChosenStreamIndex )
+	{
+		av_packet_unref( &PacketCopy );
+		return CameraStreamError::Success;
+	}
 	if( PacketCopy.dts == AV_NOPTS_VALUE )
 	{
 		av_packet_unref( &PacketCopy );
@@ -433,35 +459,40 @@ CameraStreamError OutputStream::WriteInterleavedPacket( const AVPacket* Packet )
 	}
 	else
 	{
-		if (ID.IsFirstFrame)
+		AVRational InputTimebase = m_InputStream->GetData().FormatContext->streams[Packet->stream_index]->time_base;
+		int64_t PacketTimestampUs = av_rescale_q( PacketCopy.dts, InputTimebase, AV_TIME_BASE_Q );
+		if( m_InitialTimestampUs == AV_NOPTS_VALUE && !IsAudio )
+			m_InitialTimestampUs = PacketTimestampUs;
+		if( m_InitialTimestampUs == AV_NOPTS_VALUE || PacketTimestampUs < m_InitialTimestampUs )
 		{
-			ID.DTS = PacketCopy.dts;
+			av_packet_unref( &PacketCopy );
+			return CameraStreamError::Success;
+		}
+		int64_t OffsetUs = PacketTimestampUs - m_InitialTimestampUs;
+		PacketCopy.dts = av_rescale_q( OffsetUs, AV_TIME_BASE_Q, InputTimebase );
+		PacketCopy.pts = av_rescale_q( av_rescale_q(PacketCopy.pts, InputTimebase, AV_TIME_BASE_Q) - m_InitialTimestampUs, AV_TIME_BASE_Q, InputTimebase );
+		if( !IsAudio && ID.IsFirstFrame )
+		{
+			ID.DTS = 0;
 			// PTS and DTS must share the same origin. Normalizing them
 			// independently destroys the composition offset used by B-frames.
 			ID.PTS = ID.DTS;
-			PacketCopy.dts -= ID.DTS;
-			PacketCopy.pts -= ID.DTS;
-
 			ID.IsFirstFrame = false;
-		}
-		else
-		{
-			PacketCopy.dts -= ID.DTS;
-			PacketCopy.pts -= ID.DTS;
 		}
 	}
 
 	PacketCopy.pos = -1;
-	PacketCopy.stream_index = 0;
+	PacketCopy.stream_index = IsAudio ? 1 : 0;
 
 	// Drop packets with non-monotonic DTS — B-frame streams (e.g. Tapo)
 	// can deliver packets that cause av_interleaved_write_frame to fail.
-	if (m_LastWrittenDTS != AV_NOPTS_VALUE && PacketCopy.dts <= m_LastWrittenDTS)
+	if (!IsAudio && m_LastWrittenDTS != AV_NOPTS_VALUE && PacketCopy.dts <= m_LastWrittenDTS)
 	{
 		av_packet_unref(&PacketCopy);
 		return CameraStreamError::Success;
 	}
-	m_LastWrittenDTS = PacketCopy.dts;
+	if (!IsAudio)
+		m_LastWrittenDTS = PacketCopy.dts;
 
 	// Clamp negative durations from B-frame reordering
 	if (PacketCopy.duration < 0)
@@ -475,15 +506,16 @@ CameraStreamError OutputStream::WriteInterleavedPacket( const AVPacket* Packet )
 	}
 	else
 	{
-		m_ClipLength = (double)((PacketCopy.dts + PacketCopy.duration) * ID.Timebase.num) / ID.Timebase.den;
+		if (!IsAudio)
+			m_ClipLength = (double)((PacketCopy.dts + PacketCopy.duration) * ID.Timebase.num) / ID.Timebase.den;
 	}
 
 	if( !m_Live )
 	{
 		av_packet_rescale_ts(
 			&PacketCopy,
-			ID.Timebase,
-			ID.FormatContext->streams[0]->time_base);
+			m_InputStream->GetData().FormatContext->streams[Packet->stream_index]->time_base,
+			ID.FormatContext->streams[PacketCopy.stream_index]->time_base);
 	}
 
 	Result = av_interleaved_write_frame( ID.FormatContext, &PacketCopy );

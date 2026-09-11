@@ -34,7 +34,7 @@ public:
 	// Target segment duration in seconds (actual will be longer, split on next keyframe)
 	void SetTargetSegmentDuration(int seconds);
 
-	// Write a video packet. Audio packets are skipped.
+	// Write a selected video or AAC audio packet without transcoding.
 	CameraStreamError WritePacket(const AVPacket* packet);
 
 	// Finalize the current segment (e.g. on disconnect or shutdown)
@@ -54,9 +54,11 @@ private:
 	// Current segment state
 	AVFormatContext* m_FormatContext;
 	AVStream* m_OutStream;
+	AVStream* m_AudioOutStream;
 	bool m_SegmentOpen;
 	int64_t m_SegmentStartTimestamp;	// Unix timestamp when segment started
 	int64_t m_FirstDTS;				// First DTS of current segment (for normalization)
+	int64_t m_FirstTimestampUs;		// Common video/audio timeline origin
 	int64_t m_LastWrittenDTS;
 	double m_SegmentDuration;			// Accumulated duration in seconds
 
