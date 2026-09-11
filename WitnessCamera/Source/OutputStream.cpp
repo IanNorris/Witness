@@ -153,8 +153,8 @@ CameraStreamError OutputStream::Initialize()
 			STREAM_ERROR( UnknownError, 0 );
 		}
 
-		// Copy codec parameters directly from the input stream's decoder context
-		Result = avcodec_parameters_from_context( OutStream->codecpar, InID.CodecContext );
+		AVStream* InStream = InID.FormatContext->streams[InID.ChosenStreamIndex];
+		Result = avcodec_parameters_copy( OutStream->codecpar, InStream->codecpar );
 		if( Result < 0 )
 		{
 			STREAM_ERROR( DecoderReceiverError, Result );
@@ -170,7 +170,7 @@ CameraStreamError OutputStream::Initialize()
 		}
 
 		OutStream->codecpar->codec_tag = 0;
-		OutStream->time_base = InID.FormatContext->streams[InID.ChosenStreamIndex]->time_base;
+		OutStream->time_base = InStream->time_base;
 
 		// Open output file
 		if( !( ID.FormatContext->oformat->flags & AVFMT_NOFILE ) )
@@ -417,6 +417,13 @@ CameraStreamError OutputStream::WriteInterleavedPacket( const AVPacket* Packet )
 	{
 		STREAM_ERROR( RefError, Result );
 	}
+	if( PacketCopy.dts == AV_NOPTS_VALUE )
+	{
+		av_packet_unref( &PacketCopy );
+		return CameraStreamError::InvalidPacket;
+	}
+	if( PacketCopy.pts == AV_NOPTS_VALUE )
+		PacketCopy.pts = PacketCopy.dts;
 
 	auto& ID = *m_InternalData;
 	
@@ -428,25 +435,24 @@ CameraStreamError OutputStream::WriteInterleavedPacket( const AVPacket* Packet )
 	{
 		if (ID.IsFirstFrame)
 		{
-			ID.DTS = Packet->dts;
-			ID.PTS = Packet->pts;
-			PacketCopy.dts = 0;
-			PacketCopy.pts = 0;
+			ID.DTS = PacketCopy.dts;
+			// PTS and DTS must share the same origin. Normalizing them
+			// independently destroys the composition offset used by B-frames.
+			ID.PTS = ID.DTS;
+			PacketCopy.dts -= ID.DTS;
+			PacketCopy.pts -= ID.DTS;
 
 			ID.IsFirstFrame = false;
 		}
 		else
 		{
 			PacketCopy.dts -= ID.DTS;
-			PacketCopy.pts -= ID.PTS;
+			PacketCopy.pts -= ID.DTS;
 		}
 	}
 
-	// Handle missing PTS — some cameras deliver AV_NOPTS_VALUE
-	if (PacketCopy.pts == AV_NOPTS_VALUE)
-		PacketCopy.pts = PacketCopy.dts;
-
 	PacketCopy.pos = -1;
+	PacketCopy.stream_index = 0;
 
 	// Drop packets with non-monotonic DTS — B-frame streams (e.g. Tapo)
 	// can deliver packets that cause av_interleaved_write_frame to fail.
@@ -469,7 +475,7 @@ CameraStreamError OutputStream::WriteInterleavedPacket( const AVPacket* Packet )
 	}
 	else
 	{
-		m_ClipLength = (double)((PacketCopy.dts + PacketCopy.duration) * ID.FormatContext->streams[0]->time_base.num) / ID.FormatContext->streams[0]->time_base.den;
+		m_ClipLength = (double)((PacketCopy.dts + PacketCopy.duration) * ID.Timebase.num) / ID.Timebase.den;
 	}
 
 	if( !m_Live )

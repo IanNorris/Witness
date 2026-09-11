@@ -97,7 +97,8 @@ CameraStreamError ContinuousOutputStream::StartNewSegment()
 		return CameraStreamError::UnknownError;
 	}
 
-	result = avcodec_parameters_from_context(m_OutStream->codecpar, inData.CodecContext);
+	AVStream* inStream = inData.FormatContext->streams[inData.ChosenStreamIndex];
+	result = avcodec_parameters_copy(m_OutStream->codecpar, inStream->codecpar);
 	if (result < 0)
 	{
 		avformat_free_context(m_FormatContext);
@@ -115,7 +116,7 @@ CameraStreamError ContinuousOutputStream::StartNewSegment()
 	}
 
 	m_OutStream->codecpar->codec_tag = 0; // Let muxer choose
-	m_OutStream->time_base = inData.FormatContext->streams[inData.ChosenStreamIndex]->time_base;
+	m_OutStream->time_base = inStream->time_base;
 
 	// Open output file
 	if (!(m_FormatContext->oformat->flags & AVFMT_NOFILE))
@@ -238,6 +239,13 @@ CameraStreamError ContinuousOutputStream::WritePacket(const AVPacket* packet)
 	int result = av_packet_ref(&pktCopy, packet);
 	if (result < 0)
 		return CameraStreamError::RefError;
+	if (pktCopy.dts == AV_NOPTS_VALUE)
+	{
+		av_packet_unref(&pktCopy);
+		return CameraStreamError::InvalidPacket;
+	}
+	if (pktCopy.pts == AV_NOPTS_VALUE)
+		pktCopy.pts = pktCopy.dts;
 
 	// Normalize DTS/PTS to start from 0
 	if (m_FirstDTS == AV_NOPTS_VALUE)
@@ -246,10 +254,6 @@ CameraStreamError ContinuousOutputStream::WritePacket(const AVPacket* packet)
 	}
 	pktCopy.dts -= m_FirstDTS;
 	pktCopy.pts -= m_FirstDTS;
-
-	// Handle missing PTS
-	if (pktCopy.pts == AV_NOPTS_VALUE)
-		pktCopy.pts = pktCopy.dts;
 
 	pktCopy.pos = -1;
 	pktCopy.stream_index = 0; // We only have one stream
