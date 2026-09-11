@@ -445,6 +445,23 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 
 		if( m_PacketCallback )
 			m_PacketCallback( &ID.Packet );
+
+		// Keep audio in the same keyframe-bounded history as video so event
+		// recordings retain synchronized pre-trigger sound.
+		if( !ID.KeyframeStates.empty() )
+		{
+			auto& State = ID.KeyframeStates.back();
+			State.PacketCount++;
+			if( State.Timestamp == 0 )
+				State.Timestamp = CurrentTime;
+
+			ID.PacketsBacklog.push_back( AVPacket() );
+			AVPacket& NewPacket = ID.PacketsBacklog.back();
+			memset( &NewPacket, 0, sizeof(NewPacket) );
+			Result = av_packet_ref( &NewPacket, &ID.Packet );
+			if( Result < 0 )
+				STREAM_ERROR( RefError, Result );
+		}
 	}
 
 	av_packet_unref( &ID.Packet );

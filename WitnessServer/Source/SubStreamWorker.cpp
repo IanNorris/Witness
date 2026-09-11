@@ -81,6 +81,8 @@ void SubStreamWorker::ThreadFunc()
 				case LiveStreamEvent::InitSegmentReady:
 					ctrl["type"] = "initSegment";
 					ctrl["generation"] = ev.Generation;
+					if (!ev.AudioCodec.empty())
+						ctrl["audioCodec"] = ev.AudioCodec;
 					streams->SendControl(subChannelId, ctrl.dump());
 					streams->SendBinary(subChannelId, ev.Data);
 					break;

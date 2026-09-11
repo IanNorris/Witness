@@ -106,6 +106,12 @@ public:
 		return _InitGeneration;
 	}
 
+	std::string GetAudioCodec()
+	{
+		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
+		return _HasAudioStream ? "mp4a.40.2" : "";
+	}
+
 	double GetPartialTargetDuration()
 	{
 		return _PartialTargetDuration;

@@ -73,6 +73,7 @@ void LiveOutputStream::Shutdown()
 		if (_FormatContext->pb)
 		{
 			av_interleaved_write_frame(_FormatContext, nullptr);
+			av_write_frame(_FormatContext, nullptr);
 			avio_flush(_FormatContext->pb);
 		}
 
@@ -425,6 +426,7 @@ void LiveOutputStream::FlushPartialSegment(bool IsIndependent)
 
 	// Flush current fragment data into the buffer
 	av_interleaved_write_frame(_FormatContext, nullptr);
+	av_write_frame(_FormatContext, nullptr);
 	avio_flush(_FormatContext->pb);
 
 	// Only create a partial if we actually accumulated data since the last flush

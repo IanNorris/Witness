@@ -759,6 +759,7 @@ void CrowListener::RegisterRoutes()
 
 			int generation = liveStream->GetInitGeneration();
 			auto initData = liveStream->GetInitSegment();
+			auto audioCodec = liveStream->GetAudioCodec();
 
 			// Send init segment -- client waits for next live keyframe to start
 			if( initData && !initData->empty() )
@@ -766,6 +767,8 @@ void CrowListener::RegisterRoutes()
 				crow::json::wvalue ctrl;
 				ctrl["type"] = "initSegment";
 				ctrl["generation"] = generation;
+				if( !audioCodec.empty() )
+					ctrl["audioCodec"] = audioCodec;
 				m_GlobalContext->Streams->SendControlDirect( &conn, ctrl.dump() );
 				m_GlobalContext->Streams->SendBinaryDirect( &conn, initData );
 			}
@@ -816,12 +819,15 @@ void CrowListener::RegisterRoutes()
 
 			int generation = liveStream->GetInitGeneration();
 			auto initData = liveStream->GetInitSegment();
+			auto audioCodec = liveStream->GetAudioCodec();
 
 			if( initData && !initData->empty() )
 			{
 				crow::json::wvalue ctrl;
 				ctrl["type"] = "initSegment";
 				ctrl["generation"] = generation;
+				if( !audioCodec.empty() )
+					ctrl["audioCodec"] = audioCodec;
 				m_GlobalContext->Streams->SendControlDirect( &conn, ctrl.dump() );
 				m_GlobalContext->Streams->SendBinaryDirect( &conn, initData );
 			}
