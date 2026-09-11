@@ -757,20 +757,18 @@ void CrowListener::RegisterRoutes()
 			auto& liveStream = state->Worker->GetLiveStream();
 			if( !liveStream ) return;
 
-			int generation = liveStream->GetInitGeneration();
-			auto initData = liveStream->GetInitSegment();
-			auto audioCodec = liveStream->GetAudioCodec();
+			auto init = liveStream->GetInitSnapshot();
 
 			// Send init segment -- client waits for next live keyframe to start
-			if( initData && !initData->empty() )
+			if( init.Data && !init.Data->empty() )
 			{
 				crow::json::wvalue ctrl;
 				ctrl["type"] = "initSegment";
-				ctrl["generation"] = generation;
-				if( !audioCodec.empty() )
-					ctrl["audioCodec"] = audioCodec;
+				ctrl["generation"] = init.Generation;
+				if( !init.AudioCodec.empty() )
+					ctrl["audioCodec"] = init.AudioCodec;
 				m_GlobalContext->Streams->SendControlDirect( &conn, ctrl.dump() );
-				m_GlobalContext->Streams->SendBinaryDirect( &conn, initData );
+				m_GlobalContext->Streams->SendBinaryDirect( &conn, init.Data );
 			}
 
 			LOG_INFO( "[MSE] Stream client connected for camera %d", cameraId );
@@ -817,19 +815,17 @@ void CrowListener::RegisterRoutes()
 			auto liveStream = state->Worker->GetSubStreamLive();
 			if( !liveStream ) return;
 
-			int generation = liveStream->GetInitGeneration();
-			auto initData = liveStream->GetInitSegment();
-			auto audioCodec = liveStream->GetAudioCodec();
+			auto init = liveStream->GetInitSnapshot();
 
-			if( initData && !initData->empty() )
+			if( init.Data && !init.Data->empty() )
 			{
 				crow::json::wvalue ctrl;
 				ctrl["type"] = "initSegment";
-				ctrl["generation"] = generation;
-				if( !audioCodec.empty() )
-					ctrl["audioCodec"] = audioCodec;
+				ctrl["generation"] = init.Generation;
+				if( !init.AudioCodec.empty() )
+					ctrl["audioCodec"] = init.AudioCodec;
 				m_GlobalContext->Streams->SendControlDirect( &conn, ctrl.dump() );
-				m_GlobalContext->Streams->SendBinaryDirect( &conn, initData );
+				m_GlobalContext->Streams->SendBinaryDirect( &conn, init.Data );
 			}
 
 			LOG_INFO( "[MSE] Sub-stream client connected for camera %d", cameraId );

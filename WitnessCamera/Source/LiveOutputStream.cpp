@@ -4,6 +4,7 @@
 #include "StreamData.h"
 
 #include <Log.h>
+#include <algorithm>
 #include <sstream>
 #include <chrono>
 #include <cmath>
@@ -36,6 +37,7 @@ LiveOutputStream::LiveOutputStream(const std::string& LiveCachePath, InputStream
 	, _CurrentPartialIndex(0)
 	, _PartialStartDTS(AV_NOPTS_VALUE)
 	, _CurrentPartialDuration(0.0)
+	, _CurrentPartialAudioDuration(0.0)
 	, _PartialTargetDuration(0.15)
 	, _CurrentPartialIsIndependent(false)
 	, _PartialBufferOffset(0)
@@ -138,9 +140,13 @@ void LiveOutputStream::ResetForReconnect(InputStream* NewInputStream)
 	_AudioInputStreamIndex = -1;
 	_PartialBufferOffset = 0;
 	_CurrentPartialDuration = 0.0;
+	_CurrentPartialAudioDuration = 0.0;
 	_CurrentPartialIsIndependent = false;
 	_DiscontinuityPending = true;
-	_InitGeneration++;
+	{
+		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
+		_InitGeneration++;
+	}
 
 	// Notify MSE subscribers of discontinuity before new init segment arrives
 	if (_EventCallback)
@@ -395,6 +401,11 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 		_CurrentSegmentDuration += PacketDurationSec;
 		_CurrentPartialDuration += PacketDurationSec;
 	}
+	else if (IsAudio)
+	{
+		double PacketDurationSec = (double)(PacketCopy.duration * InputTimebase.num) / InputTimebase.den;
+		_CurrentPartialAudioDuration += PacketDurationSec;
+	}
 
 	// Track whether this partial contains a keyframe (first partial of segment)
 	if (IsVideo && (PacketCopy.flags & AV_PKT_FLAG_KEY))
@@ -431,8 +442,13 @@ void LiveOutputStream::FlushPartialSegment(bool IsIndependent)
 
 	// Only create a partial if we actually accumulated data since the last flush
 	size_t CurrentSize = _CurrentBuffer->size();
-	if (CurrentSize <= _PartialBufferOffset || _CurrentPartialDuration <= 0.0)
+	double PartialDuration = std::max(_CurrentPartialDuration, _CurrentPartialAudioDuration);
+	if (CurrentSize <= _PartialBufferOffset)
 		return;
+	// Some RTSP sources omit AAC packet durations. The fragment still needs to
+	// be delivered; use the configured target as a conservative playlist value.
+	if (PartialDuration <= 0.0)
+		PartialDuration = _PartialTargetDuration;
 
 	// Create a partial that references the byte range [_PartialBufferOffset, CurrentSize)
 	// within the single segment buffer
@@ -445,7 +461,7 @@ void LiveOutputStream::FlushPartialSegment(bool IsIndependent)
 
 	LiveStreamPartialSegment Partial;
 	Partial.Data = PartialData;
-	Partial.Duration = _CurrentPartialDuration;
+	Partial.Duration = PartialDuration;
 	Partial.PartIndex = _CurrentPartialIndex;
 	Partial.Independent = IsIndependent;
 
@@ -460,6 +476,7 @@ void LiveOutputStream::FlushPartialSegment(bool IsIndependent)
 
 	_CurrentPartialIndex++;
 	_CurrentPartialDuration = 0.0;
+	_CurrentPartialAudioDuration = 0.0;
 	_CurrentPartialIsIndependent = false;
 
 	// Notify MSE subscribers of new partial
@@ -500,9 +517,16 @@ CameraStreamError LiveOutputStream::StartNewSegment(const AVPacket* Packet)
 		avio_flush(_FormatContext->pb);
 
 		// Store the init segment (ftyp + moov)
+		LiveStreamEvent InitEvent;
 		{
 			const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
 			_InitSegmentData = _CurrentBuffer;
+			_InitSegmentGeneration = _InitGeneration;
+			_InitAudioCodec = _HasAudioStream ? "mp4a.40.2" : "";
+			InitEvent.EventType = LiveStreamEvent::InitSegmentReady;
+			InitEvent.Data = _InitSegmentData;
+			InitEvent.Generation = _InitGeneration;
+			InitEvent.AudioCodec = _InitAudioCodec;
 		}
 
 		_InitSegmentCaptured = true;
@@ -510,13 +534,7 @@ CameraStreamError LiveOutputStream::StartNewSegment(const AVPacket* Packet)
 		// Notify MSE subscribers of init segment
 		if (_EventCallback)
 		{
-			LiveStreamEvent Event;
-			Event.EventType = LiveStreamEvent::InitSegmentReady;
-			Event.Data = _InitSegmentData;
-			Event.Generation = _InitGeneration;
-			if (_HasAudioStream)
-				Event.AudioCodec = "mp4a.40.2";
-			_EventCallback(Event);
+			_EventCallback(InitEvent);
 		}
 	}
 
@@ -527,6 +545,7 @@ CameraStreamError LiveOutputStream::StartNewSegment(const AVPacket* Packet)
 	_CurrentSegmentDuration = 0.0;
 	_CurrentPartialIndex = 0;
 	_CurrentPartialDuration = 0.0;
+	_CurrentPartialAudioDuration = 0.0;
 	_CurrentPartialIsIndependent = true; // first partial starts with keyframe
 	_PartialBufferOffset = 0;
 	_CurrentSegmentWallTime = std::chrono::system_clock::now();

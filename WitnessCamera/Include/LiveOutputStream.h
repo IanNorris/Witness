@@ -20,6 +20,13 @@ namespace Camera{
 
 typedef std::shared_ptr<std::vector<uint8_t>> SegmentBuffer;
 
+struct LiveStreamInitSnapshot
+{
+	SegmentBuffer Data;
+	int Generation = 0;
+	std::string AudioCodec;
+};
+
 // Notification events emitted by LiveOutputStream for MSE WebSocket streaming
 struct CAMERA_API LiveStreamEvent
 {
@@ -103,13 +110,14 @@ public:
 
 	int GetInitGeneration()
 	{
+		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
 		return _InitGeneration;
 	}
 
-	std::string GetAudioCodec()
+	LiveStreamInitSnapshot GetInitSnapshot()
 	{
 		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
-		return _HasAudioStream ? "mp4a.40.2" : "";
+		return { _InitSegmentData, _InitSegmentGeneration, _InitAudioCodec };
 	}
 
 	double GetPartialTargetDuration()
@@ -159,6 +167,8 @@ private:
 
 	// Init segment stored in memory
 	SegmentBuffer _InitSegmentData;
+	int _InitSegmentGeneration = 0;
+	std::string _InitAudioCodec;
 
 	bool _HeaderWritten;
 	bool _InitSegmentCaptured;
@@ -178,6 +188,7 @@ private:
 	int _CurrentPartialIndex;
 	int64_t _PartialStartDTS;
 	double _CurrentPartialDuration;
+	double _CurrentPartialAudioDuration;
 	double _PartialTargetDuration;
 	bool _CurrentPartialIsIndependent;
 	size_t _PartialBufferOffset;
