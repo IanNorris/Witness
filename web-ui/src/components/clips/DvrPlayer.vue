@@ -442,12 +442,14 @@ function loadSegment(idx: number, seekTo = 0) {
     back.playbackRate = playbackRate.value
     let completed = false
     let seekFallback: ReturnType<typeof setTimeout> | null = null
+    let loadTimeout: ReturnType<typeof setTimeout> | null = null
 
     const cleanup = () => {
       back.removeEventListener('canplay', onReady)
       back.removeEventListener('error', onError)
       back.removeEventListener('seeked', doSwap)
       if (seekFallback) clearTimeout(seekFallback)
+      if (loadTimeout) clearTimeout(loadTimeout)
     }
 
     const doSwap = () => {
@@ -498,6 +500,18 @@ function loadSegment(idx: number, seekTo = 0) {
 
     back.addEventListener('canplay', onReady)
     back.addEventListener('error', onError)
+    loadTimeout = setTimeout(() => {
+      if (generation !== loadGeneration || completed) {
+        cleanup()
+        return
+      }
+      completed = true
+      cleanup()
+      swapPending = false
+      error.value = 'DVR segment load timed out'
+      back.removeAttribute('src')
+      back.load()
+    }, 10000)
     back.load()
   }
 }

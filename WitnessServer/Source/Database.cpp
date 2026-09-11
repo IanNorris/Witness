@@ -1000,7 +1000,11 @@ namespace Database
 		UNION ALL
 		SELECT fc.FilePath FROM FaceCrop fc
 		WHERE fc.CameraID = @CameraID AND fc.Timestamp < @Timestamp AND fc.FilePath IS NOT NULL
-			AND NOT EXISTS (SELECT 1 FROM FaceEmbedding fe WHERE fe.FaceCropUID = fc.CropUID AND fe.Verified = 1)
+			AND NOT EXISTS (
+				SELECT 1 FROM FaceCrop protected
+				JOIN FaceEmbedding fe ON fe.FaceCropUID = protected.CropUID
+				WHERE protected.FilePath = fc.FilePath AND fe.Verified = 1
+			)
 			AND NOT EXISTS (
 				SELECT 1 FROM Clip c WHERE c.Camera = @CameraID
 					AND fc.Timestamp >= c.Timestamp
@@ -1009,6 +1013,26 @@ namespace Database
 			AND NOT EXISTS (
 				SELECT 1 FROM ContinuousSegment s WHERE s.CameraUID = @CameraID
 					AND fc.Timestamp >= s.StartTimestamp AND fc.Timestamp <= s.EndTimestamp
+			);
+	)RAW";
+
+	std::string SelectDetectionAssetPathsInRange = R"RAW(
+		SELECT f.FramePath FROM DetectionFrame f
+		WHERE f.CameraID = @CameraID AND f.Timestamp >= @TimestampFrom AND f.Timestamp <= @TimestampTo
+			AND f.FramePath IS NOT NULL
+		UNION ALL
+		SELECT b.CropPath FROM DetectionBox b
+		JOIN DetectionFrame f ON f.FrameUID = b.FrameUID
+		WHERE f.CameraID = @CameraID AND f.Timestamp >= @TimestampFrom AND f.Timestamp <= @TimestampTo
+			AND b.CropPath IS NOT NULL
+		UNION ALL
+		SELECT fc.FilePath FROM FaceCrop fc
+		WHERE fc.CameraID = @CameraID AND fc.Timestamp >= @TimestampFrom AND fc.Timestamp <= @TimestampTo
+			AND fc.FilePath IS NOT NULL
+			AND NOT EXISTS (
+				SELECT 1 FROM FaceCrop protected
+				JOIN FaceEmbedding fe ON fe.FaceCropUID = protected.CropUID
+				WHERE protected.FilePath = fc.FilePath AND fe.Verified = 1
 			);
 	)RAW";
 
@@ -1450,6 +1474,7 @@ namespace Database
 		CREATE_QUERY( DeleteDetectionFramesBefore );
 		CREATE_QUERY( SelectDetectionAssetCameraIDsBefore );
 		CREATE_QUERY( SelectDetectionAssetPathsBefore );
+		CREATE_QUERY( SelectDetectionAssetPathsInRange );
 		CREATE_QUERY( DeleteAllDetectionFrames );
 		CREATE_QUERY( DeleteDetectionFramesInRange );
 

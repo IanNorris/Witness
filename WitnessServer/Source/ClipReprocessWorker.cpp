@@ -2,6 +2,7 @@
 #include "TagHelpers.h"
 #include "ObjectTracker.h"
 #include "FaceRecognitionCache.h"
+#include "ClipHelpers.h"
 
 #include <Log.h>
 #include <FaceEmbeddingModel.h>
@@ -256,11 +257,17 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 	{
 		double fromTs = static_cast<double>( timestamp );
 		double toTs = static_cast<double>( timestamp ) + durationSec + 1.0;
-		SQLiteDatabaseQueryInstance delDet( Database, "DeleteDetectionFramesInRange" );
-		delDet->Bind( "@CameraID", camera );
-		delDet->Bind( "@TimestampFrom", fromTs );
-		delDet->Bind( "@TimestampTo", toTs );
-		delDet->Execute( nullptr );
+		if( !DeleteDetectionAssetsInRange( Database, CachePath, camera, fromTs, toTs ) )
+		{
+			LOG_ERROR( "ClipReprocess: Could not remove old detection assets for clip %lld; retrying later", (long long)clipUID );
+			av_packet_free( &pkt );
+			av_frame_free( &frame );
+			av_frame_free( &bgrFrame );
+			if( swsCtx ) sws_freeContext( swsCtx );
+			avcodec_free_context( &codecCtx );
+			avformat_close_input( &fmtCtx );
+			return;
+		}
 	}
 
 	// BGR frame buffer — may be deferred if dimensions unknown until first decode (HEVC)

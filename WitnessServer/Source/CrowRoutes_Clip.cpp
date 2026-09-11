@@ -562,15 +562,6 @@ void CrowListener::HandleClipDelete( const crow::request& req, crow::response& r
 	std::filesystem::remove( ThumbnailPath, error );
 	std::filesystem::remove( VideoPath, error );
 
-	// Delete detection data for this clip's time range
-	{
-		SQLiteDatabaseQueryInstance q( m_GlobalContext->Database, "DeleteDetectionFramesInRange" );
-		q->Bind( "@CameraID", CameraID );
-		q->Bind( "@TimestampFrom", static_cast<double>( Timestamp ) );
-		q->Bind( "@TimestampTo", static_cast<double>( Timestamp + 300 ) );
-		q->Execute( nullptr );
-	}
-
 	SQLiteDatabaseQueryInstance DeleteClipQuery( m_GlobalContext->Database, "DeleteClip" );
 	DeleteClipQuery->Bind( "@ClipUID", ClipUID );
 	DeleteClipQuery->Execute( [&]( const SQLiteDatabaseQuery& query ) { return true; } );

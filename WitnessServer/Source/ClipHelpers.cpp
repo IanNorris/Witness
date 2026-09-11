@@ -424,6 +424,83 @@ void CheckDiskSpaceSafety( const GlobalContext& Context )
 	}
 }
 
+static bool DeleteManagedDetectionAssets( const std::string& CachePath, int CameraID, const std::vector<std::string>& AssetPaths )
+{
+	std::error_code pathError;
+	const fs::path cachePath = fs::absolute( CachePath, pathError ).lexically_normal();
+	if( pathError )
+	{
+		LOG_WARNING( "Could not resolve the cache path for detection cleanup: %s", pathError.message().c_str() );
+		return false;
+	}
+
+	bool filesDeleted = true;
+	for( const auto& assetPath : AssetPaths )
+	{
+		std::error_code absoluteError;
+		const fs::path absolutePath = fs::absolute( assetPath, absoluteError ).lexically_normal();
+		const fs::path relative = absolutePath.lexically_relative( cachePath );
+		if( absoluteError || relative.empty() )
+		{
+			LOG_WARNING( "Refusing to remove unresolved detection asset path %s", assetPath.c_str() );
+			filesDeleted = false;
+			continue;
+		}
+
+		auto component = relative.begin();
+		if( component == relative.end() || *component == ".." ||
+			(*component != "frames" && *component != "crops" && *component != "faces") )
+		{
+			LOG_WARNING( "Refusing to remove unmanaged detection asset path %s", assetPath.c_str() );
+			filesDeleted = false;
+			continue;
+		}
+		++component;
+		if( component == relative.end() || *component != std::to_string( CameraID ) )
+		{
+			LOG_WARNING( "Refusing to remove detection asset outside camera %d: %s", CameraID, assetPath.c_str() );
+			filesDeleted = false;
+			continue;
+		}
+
+		std::error_code ec;
+		fs::remove( absolutePath, ec );
+		if( ec )
+		{
+			LOG_WARNING( "Failed to remove expired detection asset %s: %s", assetPath.c_str(), ec.message().c_str() );
+			filesDeleted = false;
+		}
+	}
+
+	return filesDeleted;
+}
+
+bool DeleteDetectionAssetsInRange( const std::shared_ptr<SQLiteDatabase>& Database, const std::string& CachePath,
+	int CameraID, double TimestampFrom, double TimestampTo )
+{
+	std::vector<std::string> assetPaths;
+	SQLiteDatabaseQueryInstance assets( Database, "SelectDetectionAssetPathsInRange" );
+	assets->Bind( "@CameraID", CameraID );
+	assets->Bind( "@TimestampFrom", TimestampFrom );
+	assets->Bind( "@TimestampTo", TimestampTo );
+	assets->Execute( [&]( const SQLiteDatabaseQuery& query )
+	{
+		const char* path = query.GetColumnValueText( 0 );
+		if( path && *path ) assetPaths.emplace_back( path );
+		return true;
+	} );
+
+	if( !DeleteManagedDetectionAssets( CachePath, CameraID, assetPaths ) )
+		return false;
+
+	SQLiteDatabaseQueryInstance query( Database, "DeleteDetectionFramesInRange" );
+	query->Bind( "@CameraID", CameraID );
+	query->Bind( "@TimestampFrom", TimestampFrom );
+	query->Bind( "@TimestampTo", TimestampTo );
+	query->Execute( nullptr );
+	return true;
+}
+
 void CleanupOldDetectionFrames( const GlobalContext& Context, int retentionDays )
 {
 	auto now = std::chrono::system_clock::now();
@@ -441,14 +518,6 @@ void CleanupOldDetectionFrames( const GlobalContext& Context, int retentionDays 
 		return true;
 	} );
 
-	std::error_code pathError;
-	const fs::path cachePath = fs::absolute( Context.CachePath, pathError ).lexically_normal();
-	if( pathError )
-	{
-		LOG_WARNING( "Could not resolve the cache path for detection cleanup: %s", pathError.message().c_str() );
-		return;
-	}
-
 	for( int cameraId : cameraIds )
 	{
 		std::vector<std::string> assetPaths;
@@ -462,45 +531,7 @@ void CleanupOldDetectionFrames( const GlobalContext& Context, int retentionDays 
 			return true;
 		} );
 
-		bool filesDeleted = true;
-		for( const auto& assetPath : assetPaths )
-		{
-			std::error_code absoluteError;
-			const fs::path absolutePath = fs::absolute( assetPath, absoluteError ).lexically_normal();
-			const fs::path relative = absolutePath.lexically_relative( cachePath );
-			if( absoluteError || relative.empty() )
-			{
-				LOG_WARNING( "Refusing to remove unresolved detection asset path %s", assetPath.c_str() );
-				filesDeleted = false;
-				continue;
-			}
-
-			auto component = relative.begin();
-			if( component == relative.end() || *component == ".." ||
-				(*component != "frames" && *component != "crops" && *component != "faces") )
-			{
-				LOG_WARNING( "Refusing to remove unmanaged detection asset path %s", assetPath.c_str() );
-				filesDeleted = false;
-				continue;
-			}
-			++component;
-			if( component == relative.end() || *component == "uploads" )
-			{
-				LOG_WARNING( "Refusing to remove protected detection asset path %s", assetPath.c_str() );
-				filesDeleted = false;
-				continue;
-			}
-
-			std::error_code ec;
-			fs::remove( absolutePath, ec );
-			if( ec )
-			{
-				LOG_WARNING( "Failed to remove expired detection asset %s: %s", assetPath.c_str(), ec.message().c_str() );
-				filesDeleted = false;
-			}
-		}
-
-		if( !filesDeleted )
+		if( !DeleteManagedDetectionAssets( Context.CachePath, cameraId, assetPaths ) )
 		{
 			LOG_WARNING( "Detection cleanup for camera %d will be retried because one or more files could not be removed.", cameraId );
 			continue;

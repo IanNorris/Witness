@@ -4,6 +4,7 @@
 #include <cstdint>
 
 class GlobalContext;
+class SQLiteDatabase;
 
 std::string GetClipName( const GlobalContext& Context, int CameraID, int64_t Timestamp, bool Manual, bool Video );
 void DeleteOldClips( const GlobalContext& Context, int DaysToDelete );
@@ -13,3 +14,5 @@ void CleanupOrphanedContinuousSegments( const GlobalContext& Context );
 void EnforceQuotaContinuousSegments( const GlobalContext& Context, int64_t quotaBytes );
 void CheckDiskSpaceSafety( const GlobalContext& Context );
 void CleanupOldDetectionFrames( const GlobalContext& Context, int retentionDays );
+bool DeleteDetectionAssetsInRange( const std::shared_ptr<SQLiteDatabase>& Database, const std::string& CachePath,
+	int CameraID, double TimestampFrom, double TimestampTo );
