@@ -442,7 +442,8 @@ void LiveOutputStream::FlushPartialSegment(bool IsIndependent)
 
 	// Only create a partial if we actually accumulated data since the last flush
 	size_t CurrentSize = _CurrentBuffer->size();
-	double PartialDuration = std::max(_CurrentPartialDuration, _CurrentPartialAudioDuration);
+	// windows.h defines max as a macro in this translation unit.
+	double PartialDuration = (std::max)(_CurrentPartialDuration, _CurrentPartialAudioDuration);
 	if (CurrentSize <= _PartialBufferOffset)
 		return;
 	// Some RTSP sources omit AAC packet durations. The fragment still needs to
