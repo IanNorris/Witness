@@ -217,6 +217,12 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 					StreamData["backlogSize"] = Diag.BacklogSize;
 					StreamData["initGeneration"] = Diag.InitGeneration;
 					StreamData["timestampNormalizationActive"] = Diag.TimestampNormalizationActive;
+					StreamData["acceptedVideoPackets"] = (int64_t)Diag.AcceptedVideoPackets;
+					StreamData["acceptedVideoKeyframes"] = (int64_t)Diag.AcceptedVideoKeyframes;
+					StreamData["repairedVideoTimestamps"] = (int64_t)Diag.RepairedVideoTimestamps;
+					StreamData["droppedVideoPackets"] = (int64_t)Diag.DroppedVideoPackets;
+					StreamData["missingVideoDtsPackets"] = (int64_t)Diag.MissingVideoDtsPackets;
+					StreamData["corruptVideoPackets"] = (int64_t)Diag.CorruptVideoPackets;
 
 					if( Diag.TotalSegments > 0 )
 					{
@@ -234,6 +240,12 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 						S["accDur"] = Seg.AccumulatedDuration;
 						S["driftMs"] = Seg.DriftMs;
 						S["timestampNormalized"] = Seg.TimestampNormalizationActive;
+						S["acceptedVideoPackets"] = (int64_t)Seg.AcceptedVideoPackets;
+						S["acceptedVideoKeyframes"] = (int64_t)Seg.AcceptedVideoKeyframes;
+						S["repairedVideoTimestamps"] = (int64_t)Seg.RepairedVideoTimestamps;
+						S["droppedVideoPackets"] = (int64_t)Seg.DroppedVideoPackets;
+						S["missingVideoDtsPackets"] = (int64_t)Seg.MissingVideoDtsPackets;
+						S["corruptVideoPackets"] = (int64_t)Seg.CorruptVideoPackets;
 						Segments.push_back( std::move( S ) );
 					}
 					StreamData["recentSegments"] = std::move( Segments );

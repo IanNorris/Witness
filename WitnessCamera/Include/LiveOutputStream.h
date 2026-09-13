@@ -213,6 +213,7 @@ private:
 	bool _CurrentPartialIsIndependent;
 	bool _CurrentPartialHasPacket;
 	bool _CurrentPartialKeyframeSeekSafe;
+	bool _SegmentTimestampNormalizationActive;
 	size_t _PartialBufferOffset;
 
 	bool _DiscontinuityPending; // set on reconnect, consumed by next segment
@@ -236,6 +237,12 @@ public:
 		double AccumulatedDuration; // sum of declared packet durations
 		double DriftMs;             // (accumulated - source DTS) * 1000
 		bool TimestampNormalizationActive;
+		uint64_t AcceptedVideoPackets;
+		uint64_t AcceptedVideoKeyframes;
+		uint64_t RepairedVideoTimestamps;
+		uint64_t DroppedVideoPackets;
+		uint64_t MissingVideoDtsPackets;
+		uint64_t CorruptVideoPackets;
 	};
 
 	struct StreamingDiagnostics
@@ -249,6 +256,12 @@ public:
 		int BacklogSize = 0;
 		int InitGeneration = 0;
 		bool TimestampNormalizationActive = false;
+		uint64_t AcceptedVideoPackets = 0;
+		uint64_t AcceptedVideoKeyframes = 0;
+		uint64_t RepairedVideoTimestamps = 0;
+		uint64_t DroppedVideoPackets = 0;
+		uint64_t MissingVideoDtsPackets = 0;
+		uint64_t CorruptVideoPackets = 0;
 		std::vector<SegmentDiagEntry> RecentSegments; // last 30
 	};
 
@@ -264,6 +277,18 @@ private:
 	double _DiagTotalDtsDuration = 0.0;
 	double _DiagTotalAccumulatedDuration = 0.0;
 	double _DiagMaxDriftMs = 0.0;
+	uint64_t _DiagAcceptedVideoPackets = 0;
+	uint64_t _DiagAcceptedVideoKeyframes = 0;
+	uint64_t _DiagRepairedVideoTimestamps = 0;
+	uint64_t _DiagDroppedVideoPackets = 0;
+	uint64_t _DiagMissingVideoDtsPackets = 0;
+	uint64_t _DiagCorruptVideoPackets = 0;
+	uint64_t _SegmentAcceptedVideoPackets = 0;
+	uint64_t _SegmentAcceptedVideoKeyframes = 0;
+	uint64_t _SegmentRepairedVideoTimestamps = 0;
+	uint64_t _SegmentDroppedVideoPackets = 0;
+	uint64_t _SegmentMissingVideoDtsPackets = 0;
+	uint64_t _SegmentCorruptVideoPackets = 0;
 };
 
 }}
