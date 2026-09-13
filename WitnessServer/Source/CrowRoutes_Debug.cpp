@@ -268,7 +268,7 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 			auto Diag = Snapshot.LiveStream->GetStreamingDiagnostics();
 
 					crow::json::wvalue StreamData;
-					StreamData["diagnosticsSchemaVersion"] = 2;
+					StreamData["diagnosticsSchemaVersion"] = 3;
 					StreamData["packetTraceCapacity"] = 1024;
 					StreamData["totalSegments"] = Diag.TotalSegments;
 					StreamData["reconnectCount"] = Diag.ReconnectCount;
@@ -293,6 +293,29 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 						(int64_t)Diag.TimestampCorrectionSaturatedPackets;
 					StreamData["videoCodec"] = Diag.VideoCodec;
 					StreamData["audioCodec"] = Diag.AudioCodec;
+					StreamData["inputFormat"] = Diag.InputFormat;
+					crow::json::wvalue VideoFormat;
+					VideoFormat["profile"] = Diag.VideoProfile;
+					VideoFormat["level"] = Diag.VideoLevel;
+					VideoFormat["width"] = Diag.VideoWidth;
+					VideoFormat["height"] = Diag.VideoHeight;
+					VideoFormat["timeBaseNum"] = Diag.VideoTimeBaseNum;
+					VideoFormat["timeBaseDen"] = Diag.VideoTimeBaseDen;
+					VideoFormat["extradataBytes"] = Diag.VideoExtradataBytes;
+					VideoFormat["extradataHash"] = std::format("{:016x}", Diag.VideoExtradataHash);
+					StreamData["videoFormat"] = std::move( VideoFormat );
+					if( !Diag.AudioCodec.empty() )
+					{
+						crow::json::wvalue AudioFormat;
+						AudioFormat["profile"] = Diag.AudioProfile;
+						AudioFormat["sampleRate"] = Diag.AudioSampleRate;
+						AudioFormat["channels"] = Diag.AudioChannels;
+						AudioFormat["timeBaseNum"] = Diag.AudioTimeBaseNum;
+						AudioFormat["timeBaseDen"] = Diag.AudioTimeBaseDen;
+						AudioFormat["extradataBytes"] = Diag.AudioExtradataBytes;
+						AudioFormat["extradataHash"] = std::format("{:016x}", Diag.AudioExtradataHash);
+						StreamData["audioFormat"] = std::move( AudioFormat );
+					}
 
 					if( Diag.TotalSegments > 0 )
 					{
@@ -325,6 +348,51 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 
 					std::vector<crow::json::wvalue> Packets;
 					Packets.reserve( Diag.RecentPackets.size() );
+					auto PrefixHex = []( const uint8_t* Bytes, int Length )
+					{
+						static constexpr char Hex[] = "0123456789abcdef";
+						std::string Value;
+						Value.resize( Length * 2 );
+						for( int Index = 0; Index < Length; ++Index )
+						{
+							Value[Index * 2] = Hex[Bytes[Index] >> 4];
+							Value[Index * 2 + 1] = Hex[Bytes[Index] & 0x0f];
+						}
+						return Value;
+					};
+					auto CodecUnitName = [&Diag]( int Type ) -> const char*
+					{
+						if( Diag.VideoCodec == "h264" )
+						{
+							switch( Type )
+							{
+							case 1: return "nonIdrSlice";
+							case 5: return "idrSlice";
+							case 6: return "sei";
+							case 7: return "sps";
+							case 8: return "pps";
+							case 9: return "aud";
+							default: return Type >= 1 && Type <= 5 ? "vcl" : "other";
+							}
+						}
+						if( Diag.VideoCodec == "hevc" )
+						{
+							switch( Type )
+							{
+							case 19: return "idrWithRadl";
+							case 20: return "idrNoLeadingPictures";
+							case 21: return "cra";
+							case 32: return "vps";
+							case 33: return "sps";
+							case 34: return "pps";
+							case 35: return "aud";
+							case 39: return "prefixSei";
+							case 40: return "suffixSei";
+							default: return Type >= 0 && Type <= 31 ? "vcl" : "other";
+							}
+						}
+						return "unknown";
+					};
 					for( const auto& Packet : Diag.RecentPackets )
 					{
 						crow::json::wvalue P;
@@ -338,6 +406,18 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 						P["size"] = Packet.Size;
 						P["flags"] = Packet.Flags;
 						P["payloadHash"] = std::format("{:016x}", Packet.PayloadHash);
+						P["payloadPrefix"] = PrefixHex( Packet.PayloadPrefix, Packet.PayloadPrefixLength );
+						const char* Packetization = "opaque";
+						if( Packet.Packetization == 1 ) Packetization = "annexB";
+						else if( Packet.Packetization == 2 ) Packetization = "lengthPrefixed";
+						else if( Packet.Packetization == 3 ) Packetization = "adts";
+						P["packetization"] = Packetization;
+						P["codecUnitCount"] = Packet.CodecUnitCount;
+						if( Packet.PrimaryCodecUnitType >= 0 )
+						{
+							P["primaryCodecUnitType"] = Packet.PrimaryCodecUnitType;
+							P["primaryCodecUnitName"] = CodecUnitName( Packet.PrimaryCodecUnitType );
+						}
 						P["keyframe"] = Packet.Keyframe;
 						P["corrupt"] = Packet.Corrupt;
 						P["dtsSynthesized"] = Packet.DtsSynthesized;

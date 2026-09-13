@@ -285,6 +285,11 @@ public:
 		bool HasOutputPts = false;
 		uint64_t PayloadHash = 0;
 		int64_t ArrivalMs = 0;
+		int Packetization = 0; // 0=opaque, 1=Annex B, 2=length-prefixed, 3=ADTS
+		int CodecUnitCount = 0;
+		int PrimaryCodecUnitType = -1;
+		uint8_t PayloadPrefix[16] = {};
+		int PayloadPrefixLength = 0;
 		std::string Disposition;
 	};
 
@@ -311,6 +316,22 @@ public:
 		uint64_t TimestampCorrectionSaturatedPackets = 0;
 		std::string VideoCodec;
 		std::string AudioCodec;
+		std::string InputFormat;
+		int VideoProfile = 0;
+		int VideoLevel = 0;
+		int VideoWidth = 0;
+		int VideoHeight = 0;
+		int VideoTimeBaseNum = 0;
+		int VideoTimeBaseDen = 0;
+		int VideoExtradataBytes = 0;
+		uint64_t VideoExtradataHash = 0;
+		int AudioProfile = 0;
+		int AudioSampleRate = 0;
+		int AudioChannels = 0;
+		int AudioTimeBaseNum = 0;
+		int AudioTimeBaseDen = 0;
+		int AudioExtradataBytes = 0;
+		uint64_t AudioExtradataHash = 0;
 		std::vector<SegmentDiagEntry> RecentSegments; // last 30
 		std::vector<PacketDiagEntry> RecentPackets; // last 1024 audio/video access units
 	};
@@ -349,6 +370,22 @@ private:
 	uint64_t _SegmentPacketPayloadHash = 14695981039346656037ULL;
 	std::string _DiagVideoCodec;
 	std::string _DiagAudioCodec;
+	std::string _DiagInputFormat;
+	int _DiagVideoProfile = 0;
+	int _DiagVideoLevel = 0;
+	int _DiagVideoWidth = 0;
+	int _DiagVideoHeight = 0;
+	int _DiagVideoTimeBaseNum = 0;
+	int _DiagVideoTimeBaseDen = 0;
+	int _DiagVideoExtradataBytes = 0;
+	uint64_t _DiagVideoExtradataHash = 0;
+	int _DiagAudioProfile = 0;
+	int _DiagAudioSampleRate = 0;
+	int _DiagAudioChannels = 0;
+	int _DiagAudioTimeBaseNum = 0;
+	int _DiagAudioTimeBaseDen = 0;
+	int _DiagAudioExtradataBytes = 0;
+	uint64_t _DiagAudioExtradataHash = 0;
 	static const int PACKET_DIAG_RING_SIZE = 1024;
 	PacketDiagEntry _PacketDiagRing[PACKET_DIAG_RING_SIZE] = {};
 	int _PacketDiagRingPos = 0;

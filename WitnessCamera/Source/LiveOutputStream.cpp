@@ -39,6 +39,101 @@ static uint32_t HashBytes32(const uint8_t* Data, size_t Size)
 	return Hash;
 }
 
+namespace
+{
+struct PacketStructure
+{
+	int Packetization = 0;
+	int UnitCount = 0;
+	int PrimaryUnitType = -1;
+};
+
+int CodecUnitType(AVCodecID Codec, uint8_t Header)
+{
+	if (Codec == AV_CODEC_ID_H264)
+		return Header & 0x1f;
+	if (Codec == AV_CODEC_ID_HEVC)
+		return (Header >> 1) & 0x3f;
+	return -1;
+}
+
+bool IsVideoCodingLayerUnit(AVCodecID Codec, int UnitType)
+{
+	return (Codec == AV_CODEC_ID_H264 && UnitType >= 1 && UnitType <= 5) ||
+		(Codec == AV_CODEC_ID_HEVC && UnitType >= 0 && UnitType <= 31);
+}
+
+void RecordCodecUnit(PacketStructure& Result, AVCodecID Codec, uint8_t Header)
+{
+	const int UnitType = CodecUnitType(Codec, Header);
+	if (Result.UnitCount == 0)
+		Result.PrimaryUnitType = UnitType;
+	else if (!IsVideoCodingLayerUnit(Codec, Result.PrimaryUnitType) &&
+		IsVideoCodingLayerUnit(Codec, UnitType))
+		Result.PrimaryUnitType = UnitType;
+	++Result.UnitCount;
+}
+
+PacketStructure AnalysePacketStructure(AVCodecID Codec, const uint8_t* Data, size_t Size)
+{
+	PacketStructure Result;
+	if (!Data || Size == 0)
+		return Result;
+
+	if (Codec == AV_CODEC_ID_AAC)
+	{
+		if (Size >= 2 && Data[0] == 0xff && (Data[1] & 0xf6) == 0xf0)
+			Result.Packetization = 3;
+		return Result;
+	}
+	if (Codec != AV_CODEC_ID_H264 && Codec != AV_CODEC_ID_HEVC)
+		return Result;
+
+	// RTP depacketizers normally produce Annex B access units. Record every
+	// start code so parameter-set/IDR composition can be compared across faults.
+	for (size_t Index = 0; Index + 3 < Size; )
+	{
+		size_t HeaderIndex = Size;
+		if (Data[Index] == 0 && Data[Index + 1] == 0 && Data[Index + 2] == 1)
+			HeaderIndex = Index + 3;
+		else if (Index + 4 < Size && Data[Index] == 0 && Data[Index + 1] == 0 &&
+			Data[Index + 2] == 0 && Data[Index + 3] == 1)
+			HeaderIndex = Index + 4;
+		if (HeaderIndex < Size)
+		{
+			Result.Packetization = 1;
+			RecordCodecUnit(Result, Codec, Data[HeaderIndex]);
+			Index = HeaderIndex + 1;
+		}
+		else
+			++Index;
+	}
+	if (Result.UnitCount > 0)
+		return Result;
+
+	// MP4-style sources may expose four-byte length-prefixed NAL units.
+	PacketStructure LengthPrefixed;
+	size_t Offset = 0;
+	while (Offset + 4 <= Size)
+	{
+		const uint32_t UnitSize = (uint32_t(Data[Offset]) << 24) |
+			(uint32_t(Data[Offset + 1]) << 16) |
+			(uint32_t(Data[Offset + 2]) << 8) | uint32_t(Data[Offset + 3]);
+		Offset += 4;
+		if (UnitSize == 0 || UnitSize > Size - Offset)
+			return Result;
+		RecordCodecUnit(LengthPrefixed, Codec, Data[Offset]);
+		Offset += UnitSize;
+	}
+	if (Offset == Size && LengthPrefixed.UnitCount > 0)
+	{
+		LengthPrefixed.Packetization = 2;
+		return LengthPrefixed;
+	}
+	return Result;
+}
+}
+
 LiveOutputStream::LiveOutputStream(const std::string& LiveCachePath, InputStream* InputStream, int KeyframesPerSegment)
 	: Stream()
 	, _LiveCachePath( LiveCachePath )
@@ -324,10 +419,30 @@ CameraStreamError LiveOutputStream::InitFormatContext()
 
 	// Detect B-frame usage for conditional PTS=DTS handling
 	_HasBFrames = InID.CodecContext->has_b_frames > 0;
+	AVStream* VideoInStream = InID.FormatContext->streams[InID.ChosenStreamIndex];
+	AVCodecParameters* VideoParams = VideoInStream->codecpar;
 	{
 		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
 		_DiagVideoCodec = avcodec_get_name(InID.CodecContext->codec_id);
 		_DiagAudioCodec.clear();
+		_DiagInputFormat = InID.FormatContext->iformat && InID.FormatContext->iformat->name ?
+			InID.FormatContext->iformat->name : "";
+		_DiagVideoProfile = VideoParams->profile;
+		_DiagVideoLevel = VideoParams->level;
+		_DiagVideoWidth = VideoParams->width;
+		_DiagVideoHeight = VideoParams->height;
+		_DiagVideoTimeBaseNum = VideoInStream->time_base.num;
+		_DiagVideoTimeBaseDen = VideoInStream->time_base.den;
+		_DiagVideoExtradataBytes = VideoParams->extradata_size;
+		_DiagVideoExtradataHash = VideoParams->extradata && VideoParams->extradata_size > 0 ?
+			HashBytes(VideoParams->extradata, VideoParams->extradata_size) : 0;
+		_DiagAudioProfile = 0;
+		_DiagAudioSampleRate = 0;
+		_DiagAudioChannels = 0;
+		_DiagAudioTimeBaseNum = 0;
+		_DiagAudioTimeBaseDen = 0;
+		_DiagAudioExtradataBytes = 0;
+		_DiagAudioExtradataHash = 0;
 	}
 	LOG_INFO("[HLS] Camera stream %s B-frames (has_b_frames=%d)",
 		_HasBFrames ? "has" : "does not have", InID.CodecContext->has_b_frames);
@@ -359,6 +474,16 @@ CameraStreamError LiveOutputStream::InitFormatContext()
 		{
 			const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
 			_DiagAudioCodec = avcodec_get_name(AudioInStream->codecpar->codec_id);
+			_DiagAudioProfile = AudioInStream->codecpar->profile;
+			_DiagAudioSampleRate = AudioInStream->codecpar->sample_rate;
+			_DiagAudioChannels = AudioInStream->codecpar->ch_layout.nb_channels;
+			_DiagAudioTimeBaseNum = AudioInStream->time_base.num;
+			_DiagAudioTimeBaseDen = AudioInStream->time_base.den;
+			_DiagAudioExtradataBytes = AudioInStream->codecpar->extradata_size;
+			_DiagAudioExtradataHash = AudioInStream->codecpar->extradata &&
+				AudioInStream->codecpar->extradata_size > 0 ?
+				HashBytes(AudioInStream->codecpar->extradata,
+					AudioInStream->codecpar->extradata_size) : 0;
 		}
 		LOG_INFO("[HLS] AAC audio passthrough enabled");
 	}
@@ -396,6 +521,10 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 		av_rescale_q(Packet->duration, InputTimebase, AV_TIME_BASE_Q) : 0;
 	const uint64_t PayloadHash = Packet->data && Packet->size > 0 ?
 		HashBytes(Packet->data, (size_t)Packet->size) : Fnv1aOffsetBasis;
+	const AVCodecID PacketCodec = _InputStream->GetData().FormatContext->
+		streams[Packet->stream_index]->codecpar->codec_id;
+	const PacketStructure Structure = AnalysePacketStructure(
+		PacketCodec, Packet->data, Packet->size > 0 ? (size_t)Packet->size : 0);
 	const int64_t ArrivalMs = std::chrono::duration_cast<std::chrono::milliseconds>(
 		std::chrono::steady_clock::now() - _PacketDiagEpoch).count();
 	const uint64_t PacketSequence = ++_PacketDiagSequence;
@@ -440,6 +569,13 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 		}
 		Entry.PayloadHash = PayloadHash;
 		Entry.ArrivalMs = ArrivalMs;
+		Entry.Packetization = Structure.Packetization;
+		Entry.CodecUnitCount = Structure.UnitCount;
+		Entry.PrimaryCodecUnitType = Structure.PrimaryUnitType;
+		Entry.PayloadPrefixLength = (std::min)(
+			(std::max)(Packet->size, 0), (int)sizeof(Entry.PayloadPrefix));
+		if (Packet->data && Entry.PayloadPrefixLength > 0)
+			memcpy(Entry.PayloadPrefix, Packet->data, Entry.PayloadPrefixLength);
 		Entry.Disposition = Disposition;
 		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
 		_PacketDiagRing[_PacketDiagRingPos % PACKET_DIAG_RING_SIZE] = std::move(Entry);
@@ -1182,6 +1318,22 @@ LiveOutputStream::StreamingDiagnostics LiveOutputStream::GetStreamingDiagnostics
 	Diag.TimestampCorrectionSaturatedPackets = _DiagTimestampCorrectionSaturatedPackets;
 	Diag.VideoCodec = _DiagVideoCodec;
 	Diag.AudioCodec = _DiagAudioCodec;
+	Diag.InputFormat = _DiagInputFormat;
+	Diag.VideoProfile = _DiagVideoProfile;
+	Diag.VideoLevel = _DiagVideoLevel;
+	Diag.VideoWidth = _DiagVideoWidth;
+	Diag.VideoHeight = _DiagVideoHeight;
+	Diag.VideoTimeBaseNum = _DiagVideoTimeBaseNum;
+	Diag.VideoTimeBaseDen = _DiagVideoTimeBaseDen;
+	Diag.VideoExtradataBytes = _DiagVideoExtradataBytes;
+	Diag.VideoExtradataHash = _DiagVideoExtradataHash;
+	Diag.AudioProfile = _DiagAudioProfile;
+	Diag.AudioSampleRate = _DiagAudioSampleRate;
+	Diag.AudioChannels = _DiagAudioChannels;
+	Diag.AudioTimeBaseNum = _DiagAudioTimeBaseNum;
+	Diag.AudioTimeBaseDen = _DiagAudioTimeBaseDen;
+	Diag.AudioExtradataBytes = _DiagAudioExtradataBytes;
+	Diag.AudioExtradataHash = _DiagAudioExtradataHash;
 	Diag.BacklogSize = (int)_StreamBacklog->size();
 
 	// Copy recent segment entries from ring buffer
