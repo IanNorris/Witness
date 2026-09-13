@@ -323,6 +323,8 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 	Timer->Start( WorkerBase::Priority::Normal );
 
 	const int DaysToDelete = 10;
+	std::function<void()> ClipCleanupCallback;
+	std::function<void()> StorageCleanupCallback;
 
 	// Clip cleanup -- disabled by default until verified safe
 	std::string clipCleanupEnabled;
@@ -338,10 +340,10 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 		}
 
 		LOG_INFO( "Clip cleanup enabled: deleting clips older than %d days.", retentionDays );
-		DeleteOldClips( *Context, retentionDays );
-		Timer->AddTimer( [this, retentionDays](){
+		ClipCleanupCallback = [this, retentionDays](){
 			DeleteOldClips( *Context, retentionDays );
-		}, 5 * 60 );
+		};
+		LOG_INFO( "Clip cleanup will start in the background after camera startup." );
 	}
 	else
 	{
@@ -366,16 +368,8 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 			if( parsed > 0 ) quotaBytes = static_cast<int64_t>(parsed) * 1024LL * 1024 * 1024;
 		}
 
-		// Startup: crash recovery + file size backfill
-		CleanupOrphanedContinuousSegments( *Context );
-		BackfillContinuousSegmentFileSizes( *Context );
-
 		LOG_INFO( "Continuous recording cleanup: retention %d days, quota %s.",
 			contRetentionDays, quotaBytes > 0 ? (quotaStr + " GB").c_str() : "unlimited" );
-
-		DeleteOldContinuousSegments( *Context, contRetentionDays );
-		if( quotaBytes > 0 ) EnforceQuotaContinuousSegments( *Context, quotaBytes );
-		CheckDiskSpaceSafety( *Context );
 
 		// Detection data retention (separate from continuous recording)
 		std::string detRetentionStr;
@@ -386,19 +380,40 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 			if( parsed > 0 ) detRetentionDays = parsed;
 		}
 		LOG_INFO( "Detection data cleanup: retention %d days.", detRetentionDays );
-		CleanupOldDetectionFrames( *Context, detRetentionDays );
 
-		// Reclaim disk space after startup cleanup
-		LOG_INFO( "Running VACUUM to reclaim disk space..." );
-		sqlite3_exec( Context->Database->GetDatabase(), "VACUUM;", nullptr, nullptr, nullptr );
-		LOG_INFO( "VACUUM complete." );
+		StorageCleanupCallback = [this, contRetentionDays, quotaBytes, detRetentionDays, FirstRun = true]() mutable {
+			if( FirstRun )
+			{
+				LOG_INFO( "Background startup maintenance started." );
+				CleanupOrphanedContinuousSegments( *Context );
+				BackfillContinuousSegmentFileSizes( *Context );
+			}
 
-		Timer->AddTimer( [this, contRetentionDays, quotaBytes, detRetentionDays](){
 			DeleteOldContinuousSegments( *Context, contRetentionDays );
 			if( quotaBytes > 0 ) EnforceQuotaContinuousSegments( *Context, quotaBytes );
 			CheckDiskSpaceSafety( *Context );
 			CleanupOldDetectionFrames( *Context, detRetentionDays );
-		}, 5 * 60 );
+
+			if( FirstRun )
+			{
+				LOG_INFO( "Running background VACUUM to reclaim disk space..." );
+				char* ErrorMessage = nullptr;
+				const int VacuumResult = sqlite3_exec(
+					Context->Database->GetDatabase(), "VACUUM;", nullptr, nullptr, &ErrorMessage );
+				if( VacuumResult == SQLITE_OK )
+				{
+					LOG_INFO( "Background startup maintenance complete." );
+				}
+				else
+				{
+					LOG_WARNING( "Background VACUUM failed: %s",
+						ErrorMessage ? ErrorMessage : sqlite3_errstr( VacuumResult ) );
+				}
+				if( ErrorMessage ) sqlite3_free( ErrorMessage );
+				FirstRun = false;
+			}
+		};
+		LOG_INFO( "Storage and detection cleanup will start in the background after camera startup." );
 	}
 
 	// Build hash broadcast -- re-read hash file every 30s, broadcast on change
@@ -426,6 +441,13 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 	LOG_INFO( "Starting camera workers..." );
 
 	StartCameraWorkers();
+
+	// Potentially lengthy maintenance begins only after the web server is
+	// accepting requests and every enabled camera worker has been launched.
+	if( ClipCleanupCallback )
+		Timer->AddTimer( std::move( ClipCleanupCallback ), 5 * 60 );
+	if( StorageCleanupCallback )
+		Timer->AddTimer( std::move( StorageCleanupCallback ), 5 * 60 );
 
 	// Start clip reprocessor if detection is enabled
 	if( Video.DetectionEnabled )
