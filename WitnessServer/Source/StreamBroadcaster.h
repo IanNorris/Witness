@@ -77,7 +77,13 @@ public:
 
 	bool HasViewers( int cameraId ) const
 	{
-		std::lock_guard<std::mutex> lock( m_Mutex );
+		// A slow WebSocket send may keep m_Mutex held until the network stack
+		// accepts it. Camera ingest must never wait behind that send: returning
+		// true merely queues a message which the broadcaster can discard later
+		// if the camera no longer has viewers.
+		std::unique_lock<std::mutex> lock( m_Mutex, std::try_to_lock );
+		if( !lock.owns_lock() )
+			return true;
 		auto it = m_Subscriptions.find( cameraId );
 		return it != m_Subscriptions.end() && !it->second.empty();
 	}

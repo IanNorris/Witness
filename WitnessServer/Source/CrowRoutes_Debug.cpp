@@ -186,25 +186,49 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 		return;
 	}
 
-	std::vector<crow::json::wvalue> CameraArray;
+	struct CameraDiagnosticSnapshot
+	{
+		int Id = 0;
+		std::string Name;
+		std::string Status;
+		bool LowLatencyHLS = false;
+		std::shared_ptr<Witness::Camera::LiveOutputStream> LiveStream;
+	};
 
+	// Camera workers need the global context for status updates and lifecycle
+	// events. Only copy stable handles while holding it: constructing the packet
+	// trace JSON can take seconds for a busy multi-camera server.
+	std::vector<CameraDiagnosticSnapshot> CameraSnapshots;
 	{
 		std::shared_lock<std::shared_mutex> lock( m_GlobalContext->Mutex );
 		for( auto& [id, state] : m_GlobalContext->GetCameraMap() )
 		{
-			crow::json::wvalue CamData;
-			CamData["id"] = id;
-			CamData["name"] = state.Name;
-			CamData["status"] = state.Status;
-
+			CameraDiagnosticSnapshot Snapshot;
+			Snapshot.Id = id;
+			Snapshot.Name = state.Name;
+			Snapshot.Status = state.Status;
 			if( state.Worker )
 			{
-				CamData["lowLatencyHLS"] = state.Worker->GetCameraSettings().LowLatencyHLS;
+				Snapshot.LowLatencyHLS = state.Worker->GetCameraSettings().LowLatencyHLS != 0;
+				Snapshot.LiveStream = state.Worker->GetLiveStream();
+			}
+			CameraSnapshots.push_back( std::move( Snapshot ) );
+		}
+	}
 
-				auto& LiveStream = state.Worker->GetLiveStream();
-				if( LiveStream )
-				{
-					auto Diag = LiveStream->GetStreamingDiagnostics();
+	std::vector<crow::json::wvalue> CameraArray;
+	CameraArray.reserve( CameraSnapshots.size() );
+	for( auto& Snapshot : CameraSnapshots )
+	{
+		crow::json::wvalue CamData;
+		CamData["id"] = Snapshot.Id;
+		CamData["name"] = Snapshot.Name;
+		CamData["status"] = Snapshot.Status;
+		CamData["lowLatencyHLS"] = Snapshot.LowLatencyHLS;
+
+		if( Snapshot.LiveStream )
+		{
+			auto Diag = Snapshot.LiveStream->GetStreamingDiagnostics();
 
 					crow::json::wvalue StreamData;
 					StreamData["diagnosticsSchemaVersion"] = 2;
@@ -295,12 +319,10 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 					}
 					StreamData["recentPackets"] = std::move( Packets );
 
-					CamData["streaming"] = std::move( StreamData );
-				}
-			}
-
-			CameraArray.push_back( std::move( CamData ) );
+			CamData["streaming"] = std::move( StreamData );
 		}
+
+		CameraArray.push_back( std::move( CamData ) );
 	}
 
 	crow::json::wvalue Data;
