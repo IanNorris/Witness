@@ -5,11 +5,13 @@ import CameraGrid from '../components/camera/CameraGrid.vue'
 import ActivityStrip from '../components/clips/ActivityStrip.vue'
 import ClipPlayer from '../components/clips/ClipPlayer.vue'
 import { useCameraStore } from '../stores/cameras'
+import { useClipStore } from '../stores/clips'
 import { useSettingsStore } from '../stores/settings'
 import { useGroupStore } from '../stores/groups'
 import type { Clip } from '../types/clip'
 
 const cameraStore = useCameraStore()
+const clipStore = useClipStore()
 const settings = useSettingsStore()
 const groupStore = useGroupStore()
 
@@ -30,6 +32,13 @@ function selectGroup(id: number | null) {
 const groupCameraIds = computed(() => {
   if (selectedGroupId.value === null) return null
   return new Set(groupStore.camerasInGroup(selectedGroupId.value).map(c => c.id))
+})
+
+const hasDashboardActivity = computed(() => {
+  const included = (cameraId: number) =>
+    !groupCameraIds.value || groupCameraIds.value.has(cameraId)
+  return cameraStore.cameras.some(c => c.isRecording && included(c.id)) ||
+    clipStore.recentClips.some(c => c.duration >= 2 && included(c.camera))
 })
 
 onMounted(async () => {
@@ -101,10 +110,14 @@ onMounted(async () => {
       </div>
     </template>
 
-    <CameraGrid :group-camera-ids="groupCameraIds" />
+    <CameraGrid
+      :group-camera-ids="groupCameraIds"
+      :fullscreen-bottom-inset="settings.fullscreenMode && hasDashboardActivity ? 108 : 0"
+    />
 
     <ActivityStrip
       class="dashboard-activity-strip"
+      :class="{ 'dashboard-activity-strip-fullscreen': settings.fullscreenMode }"
       :camera-ids="groupCameraIds"
       @play="playingClip = $event"
     />
@@ -117,5 +130,18 @@ onMounted(async () => {
 .dashboard-activity-strip {
   margin-top: 1rem;
   margin-bottom: 0;
+}
+
+.dashboard-activity-strip-fullscreen {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 108px;
+  z-index: 1001;
+  margin: 0;
+  border-radius: 0;
+  border-width: 1px 0 0;
+  background: rgba(15, 15, 20, 0.97);
 }
 </style>

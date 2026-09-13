@@ -7,6 +7,7 @@ import CameraCard from './CameraCard.vue'
 
 const props = defineProps<{
   groupCameraIds?: Set<number> | null
+  fullscreenBottomInset?: number
 }>()
 
 const cameraStore = useCameraStore()
@@ -27,6 +28,7 @@ const gridStyle = computed(() => {
     return {
       '--fs-cols': fullscreenCols.value,
       '--fs-rows': fullscreenRows.value,
+      '--fs-bottom-inset': `${props.fullscreenBottomInset ?? 0}px`,
     }
   }
   const minWidth = Math.max(200, (settings.cameraPreviewScale / 100) * 600)

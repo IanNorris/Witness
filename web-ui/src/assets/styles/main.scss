@@ -169,7 +169,7 @@ html, body, #app {
 
   &.fullscreen {
     position: fixed;
-    inset: 0;
+    inset: 0 0 var(--fs-bottom-inset, 0px) 0;
     z-index: 1000;
     background: black;
     padding: 0;
@@ -181,7 +181,7 @@ html, body, #app {
 
     > .camera-card-fullscreen {
       width: calc(100% / var(--fs-cols) - 2px);
-      height: calc(100vh / var(--fs-rows) - 2px);
+      height: calc((100vh - var(--fs-bottom-inset, 0px)) / var(--fs-rows) - 2px);
     }
   }
 }
