@@ -223,6 +223,11 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 					StreamData["droppedVideoPackets"] = (int64_t)Diag.DroppedVideoPackets;
 					StreamData["missingVideoDtsPackets"] = (int64_t)Diag.MissingVideoDtsPackets;
 					StreamData["corruptVideoPackets"] = (int64_t)Diag.CorruptVideoPackets;
+					StreamData["videoPhaseErrorMs"] = Diag.VideoPhaseErrorMs;
+					StreamData["videoCorrectionMs"] = Diag.VideoCorrectionMs;
+					StreamData["audioVideoSkewMs"] = Diag.AudioVideoSkewMs;
+					StreamData["timestampCorrectionSaturatedPackets"] =
+						(int64_t)Diag.TimestampCorrectionSaturatedPackets;
 
 					if( Diag.TotalSegments > 0 )
 					{

@@ -8,6 +8,7 @@
 #include <sstream>
 #include <chrono>
 #include <cmath>
+#include <climits>
 
 namespace Witness{
 namespace Camera{
@@ -34,17 +35,23 @@ LiveOutputStream::LiveOutputStream(const std::string& LiveCachePath, InputStream
 	, _InitialTimestampUs( AV_NOPTS_VALUE )
 	, _LastInputDTS( AV_NOPTS_VALUE )
 	, _LastPacketDuration( 0 )
+	, _LastOutputPacketDuration( 0 )
 	, _LastWrittenDTS( AV_NOPTS_VALUE )
 	, _LastWrittenAudioDTS( AV_NOPTS_VALUE )
 	, _AudioInputStreamIndex( -1 )
 	, _SegmentStartDTS( 0 )
 	, _OutputSegmentStartDTS( AV_NOPTS_VALUE )
 	, _CurrentSegmentDuration( 0.0 )
+	, _CurrentSegmentNominalDuration( 0.0 )
 	, _TimestampProbeSamples( 0 )
 	, _TimestampProbeOutliers( 0 )
 	, _TimestampProbeInputTicks( 0 )
 	, _TimestampProbeDurationTicks( 0 )
 	, _SourceTimestampOffset( 0 )
+	, _TimestampCorrectionRemainder( 0 )
+	, _LastTimestampPhaseError( 0 )
+	, _LastTimestampCorrection( 0 )
+	, _LastTimestampCorrectionSaturated( false )
 	, _CurrentSegmentIndex(0)
 	, _CurrentPartialIndex(0)
 	, _PartialStartDTS(AV_NOPTS_VALUE)
@@ -155,6 +162,7 @@ void LiveOutputStream::ResetForReconnect(InputStream* NewInputStream)
 	_InitialTimestampUs = AV_NOPTS_VALUE;
 	_LastInputDTS = AV_NOPTS_VALUE;
 	_LastPacketDuration = 0;
+	_LastOutputPacketDuration = 0;
 	_LastWrittenDTS = AV_NOPTS_VALUE;
 	_LastWrittenAudioDTS = AV_NOPTS_VALUE;
 	_AudioInputStreamIndex = -1;
@@ -164,9 +172,14 @@ void LiveOutputStream::ResetForReconnect(InputStream* NewInputStream)
 	_TimestampProbeInputTicks = 0;
 	_TimestampProbeDurationTicks = 0;
 	_SourceTimestampOffset = 0;
+	_TimestampCorrectionRemainder = 0;
+	_LastTimestampPhaseError = 0;
+	_LastTimestampCorrection = 0;
+	_LastTimestampCorrectionSaturated = false;
 	_PartialBufferOffset = 0;
 	_CurrentPartialDuration = 0.0;
 	_CurrentPartialAudioDuration = 0.0;
+	_CurrentSegmentNominalDuration = 0.0;
 	_CurrentPartialIsIndependent = false;
 	_CurrentPartialHasPacket = false;
 	_CurrentPartialKeyframeSeekSafe = false;
@@ -174,6 +187,12 @@ void LiveOutputStream::ResetForReconnect(InputStream* NewInputStream)
 	{
 		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
 		_InitGeneration++;
+		_DiagVideoPhaseErrorMs = 0.0;
+		_DiagVideoCorrectionMs = 0.0;
+		_DiagLastVideoOutputUs = 0;
+		_DiagLastAudioOutputUs = 0;
+		_DiagHasVideoOutputTimestamp = false;
+		_DiagHasAudioOutputTimestamp = false;
 	}
 
 	// Notify MSE subscribers of discontinuity before new init segment arrives
@@ -409,7 +428,7 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 	}
 
 	// Clamp invalid durations before they participate in timestamp repair.
-	if (PacketCopy.duration < 0)
+	if (PacketCopy.duration < 0 || PacketCopy.duration > INT_MAX)
 		PacketCopy.duration = 0;
 
 	// Reject duplicate or out-of-order input packets unless this source has
@@ -530,7 +549,7 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 						_NormalizeNoBFrameTimestamps = false;
 						_TimestampNormalizationRejected = true;
 						_SourceTimestampOffset =
-							(_LastWrittenDTS + _LastPacketDuration) - PacketCopy.dts;
+							(_LastWrittenDTS + _LastOutputPacketDuration) - PacketCopy.dts;
 						LOG_WARNING(
 							"[HLS] Source %d stopped timestamp normalization: %.1fms drift over %.1fs (%d samples)",
 							_InputStream->GetSourceId(), DriftMs, ProbeDurationUs / 1000000.0,
@@ -582,14 +601,57 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 	// timestamp domain for one packet. Reuse the last validated duration.
 	if (IsVideo && _NormalizeNoBFrameTimestamps && PacketCopy.duration == 0 && _LastPacketDuration > 0)
 		PacketCopy.duration = _LastPacketDuration;
+	const int64_t NominalVideoDuration = IsVideo ? PacketCopy.duration : 0;
 
 	// Once the Reolink source has met the guarded jitter test, build a continuous
-	// output clock from declared durations. Otherwise preserve source deltas,
-	// applying an offset only when transitioning out of normalized mode.
+	// output clock from declared durations, then gently steer it towards the raw
+	// source clock shared with audio. A duration-only clock runs at a measurably
+	// different rate on some cameras, eventually placing AAC seconds ahead of
+	// video. The ten-second response window rejects short DTS wander while the 5%
+	// limit keeps every output interval positive and close to the nominal cadence.
+	// Otherwise preserve source deltas, applying an offset only when transitioning
+	// out of normalized mode.
 	if (IsVideo && !_HasBFrames)
 	{
-		if (_NormalizeNoBFrameTimestamps && _LastWrittenDTS != AV_NOPTS_VALUE && _LastPacketDuration > 0)
-			PacketCopy.dts = _LastWrittenDTS + _LastPacketDuration;
+		_LastTimestampPhaseError = 0;
+		_LastTimestampCorrection = 0;
+		_LastTimestampCorrectionSaturated = false;
+		if (_NormalizeNoBFrameTimestamps && _LastWrittenDTS != AV_NOPTS_VALUE &&
+			_LastPacketDuration > 0 && _LastOutputPacketDuration > 0)
+		{
+			const int64_t RawDTS = PacketCopy.dts;
+			// The previous packet advertised this duration, so using it here keeps
+			// FFmpeg's fragment boundary rewrite exactly on the same timeline.
+			const int64_t ExpectedDTS = _LastWrittenDTS + _LastOutputPacketDuration;
+			const int64_t TargetDTS = RawDTS + _SourceTimestampOffset;
+			const int64_t PhaseError = TargetDTS - ExpectedDTS;
+			const int64_t ResponseWindowTicks = av_rescale_q(
+				10 * AV_TIME_BASE, AV_TIME_BASE_Q, InputTimebase);
+			const int64_t MaxCorrection = (std::min)(
+				NominalVideoDuration / 20, (int64_t)INT_MAX - NominalVideoDuration);
+			int64_t Correction = 0;
+			if (ResponseWindowTicks > 0)
+			{
+				// Anything beyond one second of phase error is already far into the
+				// 5% clamp. Bound before multiplying to avoid signed overflow on fine
+				// timebases or corrupt source timestamps.
+				const int64_t PhaseLimit = (std::max<int64_t>)(1, ResponseWindowTicks / 10);
+				const int64_t BoundedPhaseError = (std::max)(-PhaseLimit,
+					(std::min)(PhaseError, PhaseLimit));
+				const int64_t Numerator =
+					BoundedPhaseError * NominalVideoDuration + _TimestampCorrectionRemainder;
+				Correction = Numerator / ResponseWindowTicks;
+				_TimestampCorrectionRemainder = Numerator % ResponseWindowTicks;
+			}
+			const int64_t UnclampedCorrection = Correction;
+			Correction = (std::max)(-MaxCorrection, (std::min)(Correction, MaxCorrection));
+			PacketCopy.dts = ExpectedDTS;
+			PacketCopy.duration = NominalVideoDuration + Correction;
+			_LastTimestampPhaseError = PhaseError;
+			_LastTimestampCorrection = Correction;
+			_LastTimestampCorrectionSaturated = Correction != UnclampedCorrection ||
+				PhaseError > ResponseWindowTicks / 10 || PhaseError < -ResponseWindowTicks / 10;
+		}
 		else if (_SourceTimestampOffset != 0 && PacketCopy.dts != AV_NOPTS_VALUE)
 			PacketCopy.dts += _SourceTimestampOffset;
 		PacketCopy.pts = PacketCopy.dts;
@@ -622,6 +684,14 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 				++_DiagAcceptedVideoKeyframes;
 			if (PacketCopy.flags & AV_PKT_FLAG_CORRUPT)
 				++_DiagCorruptVideoPackets;
+			_DiagVideoPhaseErrorMs = (double)_LastTimestampPhaseError *
+				InputTimebase.num * 1000.0 / InputTimebase.den;
+			_DiagVideoCorrectionMs = (double)_LastTimestampCorrection *
+				InputTimebase.num * 1000.0 / InputTimebase.den;
+			_DiagLastVideoOutputUs = av_rescale_q(PacketCopy.dts, InputTimebase, AV_TIME_BASE_Q);
+			_DiagHasVideoOutputTimestamp = true;
+			if (_LastTimestampCorrectionSaturated)
+				++_DiagTimestampCorrectionSaturatedPackets;
 		}
 		++_SegmentAcceptedVideoPackets;
 		if (IsVideoKeyframe)
@@ -634,12 +704,17 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 		}
 		if (_NormalizeNoBFrameTimestamps)
 			_SegmentTimestampNormalizationActive = true;
+		if (NominalVideoDuration > 0)
+			_LastPacketDuration = NominalVideoDuration;
 		if (PacketCopy.duration > 0)
-			_LastPacketDuration = PacketCopy.duration;
+			_LastOutputPacketDuration = PacketCopy.duration;
 	}
 	else
 	{
 		_LastWrittenAudioDTS = PacketCopy.dts;
+		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
+		_DiagLastAudioOutputUs = av_rescale_q(PacketCopy.dts, InputTimebase, AV_TIME_BASE_Q);
+		_DiagHasAudioOutputTimestamp = true;
 	}
 
 	if (IsVideo && _OutputSegmentStartDTS == AV_NOPTS_VALUE)
@@ -649,7 +724,10 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 	{
 		AVRational TimeBase = _FormatContext->streams[0]->time_base;
 		double PacketDurationSec = (double)(PacketCopy.duration * TimeBase.num) / TimeBase.den;
+		double NominalPacketDurationSec =
+			(double)(NominalVideoDuration * TimeBase.num) / TimeBase.den;
 		_CurrentSegmentDuration += PacketDurationSec;
+		_CurrentSegmentNominalDuration += NominalPacketDurationSec;
 		_CurrentPartialDuration += PacketDurationSec;
 
 		// With multiplexed audio, SourceBuffer range boundaries are not guaranteed
@@ -815,6 +893,7 @@ CameraStreamError LiveOutputStream::StartNewSegment(const AVPacket* Packet)
 	_SegmentStartDTS = Packet->dts;
 	_OutputSegmentStartDTS = AV_NOPTS_VALUE;
 	_CurrentSegmentDuration = 0.0;
+	_CurrentSegmentNominalDuration = 0.0;
 	_CurrentPartialIndex = 0;
 	_CurrentPartialDuration = 0.0;
 	_CurrentPartialAudioDuration = 0.0;
@@ -872,23 +951,23 @@ void LiveOutputStream::FinishCurrentSegment(int64_t NextKeyframeDTS)
 	AVRational TimeBase = _FormatContext->streams[0]->time_base;
 	double DtsDuration = (double)(NextKeyframeDTS - _SegmentStartDTS) * TimeBase.num / TimeBase.den;
 	double OutputDuration = _CurrentSegmentDuration;
-	if (_OutputSegmentStartDTS != AV_NOPTS_VALUE && _LastWrittenDTS != AV_NOPTS_VALUE && _LastPacketDuration > 0)
+	if (_OutputSegmentStartDTS != AV_NOPTS_VALUE && _LastWrittenDTS != AV_NOPTS_VALUE && _LastOutputPacketDuration > 0)
 	{
-		OutputDuration = (double)(_LastWrittenDTS + _LastPacketDuration - _OutputSegmentStartDTS) *
+		OutputDuration = (double)(_LastWrittenDTS + _LastOutputPacketDuration - _OutputSegmentStartDTS) *
 			TimeBase.num / TimeBase.den;
 	}
 
 	// Sanity: if DTS duration is clearly wrong, fall back to accumulated
 	if (DtsDuration <= 0.0 || DtsDuration > 30.0)
-		DtsDuration = _CurrentSegmentDuration;
+		DtsDuration = _CurrentSegmentNominalDuration;
 
 	// Record diagnostics
-	double DriftMs = (_CurrentSegmentDuration - DtsDuration) * 1000.0;
+	double DriftMs = (_CurrentSegmentNominalDuration - DtsDuration) * 1000.0;
 	SegmentDiagEntry Entry;
 	Entry.SegmentIndex = _CurrentSegmentIndex;
 	Entry.DtsDuration = DtsDuration;
 	Entry.OutputDuration = OutputDuration;
-	Entry.AccumulatedDuration = _CurrentSegmentDuration;
+	Entry.AccumulatedDuration = _CurrentSegmentNominalDuration;
 	Entry.DriftMs = DriftMs;
 	Entry.TimestampNormalizationActive = _SegmentTimestampNormalizationActive;
 	Entry.AcceptedVideoPackets = _SegmentAcceptedVideoPackets;
@@ -904,7 +983,7 @@ void LiveOutputStream::FinishCurrentSegment(int64_t NextKeyframeDTS)
 		if (_DiagRingCount < DIAG_RING_SIZE) _DiagRingCount++;
 		_DiagTotalSegments++;
 		_DiagTotalDtsDuration += DtsDuration;
-		_DiagTotalAccumulatedDuration += _CurrentSegmentDuration;
+		_DiagTotalAccumulatedDuration += _CurrentSegmentNominalDuration;
 		if (std::abs(DriftMs) > std::abs(_DiagMaxDriftMs))
 			_DiagMaxDriftMs = DriftMs;
 
@@ -956,6 +1035,11 @@ LiveOutputStream::StreamingDiagnostics LiveOutputStream::GetStreamingDiagnostics
 	Diag.DroppedVideoPackets = _DiagDroppedVideoPackets;
 	Diag.MissingVideoDtsPackets = _DiagMissingVideoDtsPackets;
 	Diag.CorruptVideoPackets = _DiagCorruptVideoPackets;
+	Diag.VideoPhaseErrorMs = _DiagVideoPhaseErrorMs;
+	Diag.VideoCorrectionMs = _DiagVideoCorrectionMs;
+	if (_DiagHasAudioOutputTimestamp && _DiagHasVideoOutputTimestamp)
+		Diag.AudioVideoSkewMs = (_DiagLastAudioOutputUs - _DiagLastVideoOutputUs) / 1000.0;
+	Diag.TimestampCorrectionSaturatedPackets = _DiagTimestampCorrectionSaturatedPackets;
 	Diag.BacklogSize = (int)_StreamBacklog->size();
 
 	// Copy recent segment entries from ring buffer

@@ -191,17 +191,23 @@ private:
 	int64_t _InitialTimestampUs;
 	int64_t _LastInputDTS;
 	int64_t _LastPacketDuration;
+	int64_t _LastOutputPacketDuration;
 	int64_t _LastWrittenDTS;
 	int64_t _LastWrittenAudioDTS;
 	int _AudioInputStreamIndex;
 	int64_t _SegmentStartDTS;
 	int64_t _OutputSegmentStartDTS;
 	double _CurrentSegmentDuration;
+	double _CurrentSegmentNominalDuration;
 	int _TimestampProbeSamples;
 	int _TimestampProbeOutliers;
 	int64_t _TimestampProbeInputTicks;
 	int64_t _TimestampProbeDurationTicks;
 	int64_t _SourceTimestampOffset;
+	int64_t _TimestampCorrectionRemainder;
+	int64_t _LastTimestampPhaseError;
+	int64_t _LastTimestampCorrection;
+	bool _LastTimestampCorrectionSaturated;
 
 	int _CurrentSegmentIndex;
 
@@ -262,6 +268,10 @@ public:
 		uint64_t DroppedVideoPackets = 0;
 		uint64_t MissingVideoDtsPackets = 0;
 		uint64_t CorruptVideoPackets = 0;
+		double VideoPhaseErrorMs = 0.0;
+		double VideoCorrectionMs = 0.0;
+		double AudioVideoSkewMs = 0.0;
+		uint64_t TimestampCorrectionSaturatedPackets = 0;
 		std::vector<SegmentDiagEntry> RecentSegments; // last 30
 	};
 
@@ -283,6 +293,13 @@ private:
 	uint64_t _DiagDroppedVideoPackets = 0;
 	uint64_t _DiagMissingVideoDtsPackets = 0;
 	uint64_t _DiagCorruptVideoPackets = 0;
+	double _DiagVideoPhaseErrorMs = 0.0;
+	double _DiagVideoCorrectionMs = 0.0;
+	int64_t _DiagLastVideoOutputUs = 0;
+	int64_t _DiagLastAudioOutputUs = 0;
+	bool _DiagHasVideoOutputTimestamp = false;
+	bool _DiagHasAudioOutputTimestamp = false;
+	uint64_t _DiagTimestampCorrectionSaturatedPackets = 0;
 	uint64_t _SegmentAcceptedVideoPackets = 0;
 	uint64_t _SegmentAcceptedVideoKeyframes = 0;
 	uint64_t _SegmentRepairedVideoTimestamps = 0;
