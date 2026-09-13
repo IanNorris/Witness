@@ -1,13 +1,21 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useCameraStore } from '../../stores/cameras'
 import { useSettingsStore } from '../../stores/settings'
 import CameraCard from './CameraCard.vue'
+import type { DashboardTileLayout } from '../../types/dashboardLayout'
 
 const props = defineProps<{
   groupCameraIds?: Set<number> | null
-  fullscreenBottomInset?: number
+  fullscreenInsets?: { top: number; right: number; bottom: number; left: number }
+  fullscreenLayout?: DashboardTileLayout[]
+  editingLayout?: boolean
+}>()
+
+const emit = defineEmits<{
+  updateFullscreenLayout: [tiles: DashboardTileLayout[]]
+  cancelLayout: []
 }>()
 
 const cameraStore = useCameraStore()
@@ -15,20 +23,17 @@ const settings = useSettingsStore()
 const router = useRouter()
 
 const filteredCameras = computed(() => {
-  if (!props.groupCameraIds || props.groupCameraIds.size === 0) return cameraStore.cameras
+  if (!props.groupCameraIds) return cameraStore.cameras
   return cameraStore.cameras.filter(c => props.groupCameraIds!.has(c.id))
 })
 
-const fullscreenCols = computed(() => Math.ceil(Math.sqrt(filteredCameras.value.length)))
-const fullscreenRows = computed(() => Math.ceil(filteredCameras.value.length / fullscreenCols.value))
-
 const gridStyle = computed(() => {
   if (settings.fullscreenMode) {
-    // Use flexbox for fullscreen so last row centers naturally
     return {
-      '--fs-cols': fullscreenCols.value,
-      '--fs-rows': fullscreenRows.value,
-      '--fs-bottom-inset': `${props.fullscreenBottomInset ?? 0}px`,
+      '--fs-top-inset': `${props.fullscreenInsets?.top ?? 0}px`,
+      '--fs-right-inset': `${props.fullscreenInsets?.right ?? 0}px`,
+      '--fs-bottom-inset': `${props.fullscreenInsets?.bottom ?? 0}px`,
+      '--fs-left-inset': `${props.fullscreenInsets?.left ?? 0}px`,
     }
   }
   const minWidth = Math.max(200, (settings.cameraPreviewScale / 100) * 600)
@@ -36,6 +41,76 @@ const gridStyle = computed(() => {
     gridTemplateColumns: `repeat(auto-fill, minmax(${minWidth}px, 1fr))`,
   }
 })
+
+const gridRef = ref<HTMLElement | null>(null)
+const activeCameraId = ref<number | null>(null)
+const invalidPlacement = ref(false)
+let pointerAction: 'move' | 'resize' | null = null
+let pointerStartX = 0
+let pointerStartY = 0
+let originalTile: DashboardTileLayout | null = null
+let originalTiles: DashboardTileLayout[] = []
+
+function tileFor(cameraId: number) {
+  return props.fullscreenLayout?.find(tile => tile.cameraId === cameraId)
+}
+
+function tileStyle(cameraId: number) {
+  if (!settings.fullscreenMode) return undefined
+  const tile = tileFor(cameraId)
+  if (!tile) return undefined
+  return {
+    gridColumn: `${tile.x + 1} / span ${tile.width}`,
+    gridRow: `${tile.y + 1} / span ${tile.height}`,
+  }
+}
+
+function overlaps(candidate: DashboardTileLayout, other: DashboardTileLayout) {
+  return candidate.x < other.x + other.width && candidate.x + candidate.width > other.x &&
+    candidate.y < other.y + other.height && candidate.y + candidate.height > other.y
+}
+
+function startPointer(event: PointerEvent, cameraId: number, action: 'move' | 'resize') {
+  if (!props.editingLayout || !gridRef.value) return
+  const tile = tileFor(cameraId)
+  if (!tile) return
+  event.preventDefault()
+  event.stopPropagation()
+  activeCameraId.value = cameraId
+  pointerAction = action
+  pointerStartX = event.clientX
+  pointerStartY = event.clientY
+  originalTile = { ...tile }
+  originalTiles = (props.fullscreenLayout ?? []).map(item => ({ ...item }))
+  window.addEventListener('pointermove', onPointerMove)
+  window.addEventListener('pointerup', finishPointer, { once: true })
+}
+
+function onPointerMove(event: PointerEvent) {
+  if (!gridRef.value || !originalTile || !pointerAction) return
+  const bounds = gridRef.value.getBoundingClientRect()
+  const dx = Math.round((event.clientX - pointerStartX) / (bounds.width / 12))
+  const dy = Math.round((event.clientY - pointerStartY) / (bounds.height / 12))
+  const next = { ...originalTile }
+  if (pointerAction === 'move') {
+    next.x = Math.max(0, Math.min(12 - next.width, originalTile.x + dx))
+    next.y = Math.max(0, Math.min(12 - next.height, originalTile.y + dy))
+  } else {
+    next.width = Math.max(1, Math.min(12 - next.x, originalTile.width + dx))
+    next.height = Math.max(1, Math.min(12 - next.y, originalTile.height + dy))
+  }
+  invalidPlacement.value = originalTiles.some(tile => tile.cameraId !== next.cameraId && overlaps(next, tile))
+  emit('updateFullscreenLayout', originalTiles.map(tile => tile.cameraId === next.cameraId ? next : tile))
+}
+
+function finishPointer() {
+  window.removeEventListener('pointermove', onPointerMove)
+  if (invalidPlacement.value) emit('updateFullscreenLayout', originalTiles)
+  activeCameraId.value = null
+  invalidPlacement.value = false
+  pointerAction = null
+  originalTile = null
+}
 
 function openStream(cameraId: number) {
   router.push(`/stream/${cameraId}`)
@@ -47,12 +122,16 @@ function openClips(cameraId: number) {
 
 function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape' && settings.fullscreenMode) {
-    settings.toggleFullscreen()
+    if (props.editingLayout) emit('cancelLayout')
+    else settings.toggleFullscreen()
   }
 }
 
 onMounted(() => window.addEventListener('keydown', onKeydown))
-onUnmounted(() => window.removeEventListener('keydown', onKeydown))
+onUnmounted(() => {
+  window.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('pointermove', onPointerMove)
+})
 </script>
 
 <template>
@@ -68,8 +147,9 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
 
   <div
     v-else
+    ref="gridRef"
     class="camera-grid"
-    :class="{ fullscreen: settings.fullscreenMode }"
+    :class="{ fullscreen: settings.fullscreenMode, 'layout-editing': editingLayout }"
     :style="gridStyle"
   >
     <!-- Fullscreen exit button -->
@@ -85,12 +165,30 @@ onUnmounted(() => window.removeEventListener('keydown', onKeydown))
       </svg>
     </button>
 
-    <CameraCard
+    <div
       v-for="camera in filteredCameras"
       :key="camera.id"
-      :camera="camera"
-      @open-stream="openStream"
-      @open-clips="openClips"
-    />
+      class="camera-grid-item"
+      :class="{ active: activeCameraId === camera.id, invalid: activeCameraId === camera.id && invalidPlacement }"
+      :style="tileStyle(camera.id)"
+    >
+      <CameraCard
+        :camera="camera"
+        @open-stream="openStream"
+        @open-clips="openClips"
+      />
+      <div
+        v-if="settings.fullscreenMode && editingLayout"
+        class="layout-move-shield"
+        title="Drag to move"
+        @pointerdown="startPointer($event, camera.id, 'move')"
+      />
+      <button
+        v-if="settings.fullscreenMode && editingLayout"
+        class="layout-resize-handle"
+        title="Drag to resize"
+        @pointerdown="startPointer($event, camera.id, 'resize')"
+      >↘</button>
+    </div>
   </div>
 </template>

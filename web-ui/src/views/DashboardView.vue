@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, computed } from 'vue'
+import { onMounted, ref, computed, watch } from 'vue'
 import AppLayout from '../components/layout/AppLayout.vue'
 import CameraGrid from '../components/camera/CameraGrid.vue'
 import ActivityStrip from '../components/clips/ActivityStrip.vue'
@@ -9,6 +9,13 @@ import { useClipStore } from '../stores/clips'
 import { useSettingsStore } from '../stores/settings'
 import { useGroupStore } from '../stores/groups'
 import type { Clip } from '../types/clip'
+import {
+  createDefaultDashboardLayout,
+  normaliseDashboardLayout,
+  type ActivityDock,
+  type DashboardLayout,
+  type DashboardTileLayout,
+} from '../types/dashboardLayout'
 
 const cameraStore = useCameraStore()
 const clipStore = useClipStore()
@@ -21,6 +28,69 @@ const savedGroup = localStorage.getItem(DASHBOARD_GROUP_KEY)
 const selectedGroupId = ref<number | null>(savedGroup !== null ? Number(savedGroup) : null)
 const showRecentActivity = ref(localStorage.getItem(DASHBOARD_ACTIVITY_KEY) !== '0')
 const playingClip = ref<Clip | null>(null)
+const editingLayout = ref(false)
+const dashboardLayout = ref<DashboardLayout>(createDefaultDashboardLayout([]))
+let layoutBeforeEditing: DashboardLayout | null = null
+
+const layoutStorageKey = computed(() =>
+  `witness-dashboard-layout-v1-${selectedGroupId.value === null ? 'all' : selectedGroupId.value}`,
+)
+
+const currentCameraIds = computed(() => {
+  if (selectedGroupId.value === null) return cameraStore.cameras.map(camera => camera.id)
+  return groupStore.camerasInGroup(selectedGroupId.value).map(camera => camera.id)
+})
+
+function cloneLayout(layout: DashboardLayout): DashboardLayout {
+  return JSON.parse(JSON.stringify(layout)) as DashboardLayout
+}
+
+function loadLayout() {
+  let saved: Partial<DashboardLayout> | null = null
+  try {
+    const value = localStorage.getItem(layoutStorageKey.value)
+    saved = value ? JSON.parse(value) : null
+  } catch {
+    saved = null
+  }
+  dashboardLayout.value = normaliseDashboardLayout(saved, currentCameraIds.value)
+}
+
+function beginLayoutEdit() {
+  layoutBeforeEditing = cloneLayout(dashboardLayout.value)
+  editingLayout.value = true
+}
+
+function saveLayout() {
+  localStorage.setItem(layoutStorageKey.value, JSON.stringify(dashboardLayout.value))
+  layoutBeforeEditing = null
+  editingLayout.value = false
+}
+
+function cancelLayoutEdit() {
+  if (layoutBeforeEditing) dashboardLayout.value = layoutBeforeEditing
+  layoutBeforeEditing = null
+  editingLayout.value = false
+}
+
+function resetLayout() {
+  dashboardLayout.value = createDefaultDashboardLayout(currentCameraIds.value)
+}
+
+function updateFullscreenLayout(tiles: DashboardTileLayout[]) {
+  dashboardLayout.value = { ...dashboardLayout.value, tiles }
+}
+
+function setActivityDock(dock: ActivityDock) {
+  dashboardLayout.value = { ...dashboardLayout.value, activityDock: dock }
+}
+
+function changeActivitySize(delta: number) {
+  dashboardLayout.value = {
+    ...dashboardLayout.value,
+    activitySize: Math.max(72, Math.min(320, dashboardLayout.value.activitySize + delta)),
+  }
+}
 
 function toggleRecentActivity() {
   showRecentActivity.value = !showRecentActivity.value
@@ -47,6 +117,36 @@ const hasDashboardActivity = computed(() => {
   return cameraStore.cameras.some(c => c.isRecording && included(c.id)) ||
     clipStore.recentClips.some(c => c.duration >= 2 && included(c.camera))
 })
+
+const reserveActivitySpace = computed(() =>
+  settings.fullscreenMode && showRecentActivity.value && (hasDashboardActivity.value || editingLayout.value),
+)
+
+const fullscreenInsets = computed(() => {
+  const insets = { top: 0, right: 0, bottom: 0, left: 0 }
+  if (reserveActivitySpace.value) insets[dashboardLayout.value.activityDock] = dashboardLayout.value.activitySize
+  return insets
+})
+
+const fullscreenActivityStyle = computed(() => {
+  const size = `${dashboardLayout.value.activitySize}px`
+  switch (dashboardLayout.value.activityDock) {
+    case 'top': return { top: '0', left: '0', right: '0', height: size }
+    case 'right': return { top: '0', right: '0', bottom: '0', width: size }
+    case 'left': return { top: '0', left: '0', bottom: '0', width: size }
+    default: return { left: '0', right: '0', bottom: '0', height: size }
+  }
+})
+
+const activityOrientation = computed(() =>
+  dashboardLayout.value.activityDock === 'left' || dashboardLayout.value.activityDock === 'right'
+    ? 'vertical' as const
+    : 'horizontal' as const,
+)
+
+watch([selectedGroupId, () => currentCameraIds.value.join(',')], () => {
+  if (!editingLayout.value) loadLayout()
+}, { immediate: true })
 
 onMounted(async () => {
   await cameraStore.fetchCameras()
@@ -125,14 +225,21 @@ onMounted(async () => {
 
     <CameraGrid
       :group-camera-ids="groupCameraIds"
-      :fullscreen-bottom-inset="settings.fullscreenMode && showRecentActivity && hasDashboardActivity ? 108 : 0"
+      :fullscreen-insets="fullscreenInsets"
+      :fullscreen-layout="dashboardLayout.tiles"
+      :editing-layout="editingLayout"
+      @update-fullscreen-layout="updateFullscreenLayout"
+      @cancel-layout="cancelLayoutEdit"
     />
 
     <ActivityStrip
       v-if="showRecentActivity"
       class="dashboard-activity-strip"
       :class="{ 'dashboard-activity-strip-fullscreen': settings.fullscreenMode }"
+      :style="settings.fullscreenMode ? fullscreenActivityStyle : undefined"
       :camera-ids="groupCameraIds"
+      :orientation="settings.fullscreenMode ? activityOrientation : 'horizontal'"
+      :force-visible="settings.fullscreenMode && editingLayout"
       @play="playingClip = $event"
     />
 
@@ -143,6 +250,29 @@ onMounted(async () => {
       @click="toggleRecentActivity"
       :title="showRecentActivity ? 'Hide recent activity' : 'Show recent activity'"
     >Activity</button>
+
+    <button
+      v-if="settings.fullscreenMode && !editingLayout"
+      class="fullscreen-layout-toggle"
+      @click="beginLayoutEdit"
+      title="Edit this group's fullscreen layout"
+    >Layout</button>
+
+    <div v-if="settings.fullscreenMode && editingLayout" class="layout-editor-toolbar">
+      <span class="layout-editor-label">Activity</span>
+      <button
+        v-for="dock in (['top', 'right', 'bottom', 'left'] as ActivityDock[])"
+        :key="dock"
+        :class="{ active: dashboardLayout.activityDock === dock }"
+        @click="setActivityDock(dock)"
+      >{{ dock }}</button>
+      <button title="Make activity panel smaller" @click="changeActivitySize(-16)">−</button>
+      <button title="Make activity panel larger" @click="changeActivitySize(16)">+</button>
+      <span class="layout-editor-separator" />
+      <button @click="resetLayout">Reset</button>
+      <button @click="cancelLayoutEdit">Cancel</button>
+      <button class="primary" @click="saveLayout">Save</button>
+    </div>
 
     <ClipPlayer v-if="playingClip" :clip="playingClip" @close="playingClip = null" />
   </AppLayout>
@@ -156,10 +286,6 @@ onMounted(async () => {
 
 .dashboard-activity-strip-fullscreen {
   position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 108px;
   z-index: 1001;
   margin: 0;
   border-radius: 0;
@@ -180,6 +306,50 @@ onMounted(async () => {
   font-size: 0.75rem;
   cursor: pointer;
 }
+
+.fullscreen-layout-toggle {
+  position: fixed;
+  top: 10px;
+  right: 125px;
+  z-index: 1002;
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 0.375rem;
+  background: rgba(0, 0, 0, 0.6);
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.75rem;
+}
+
+.layout-editor-toolbar {
+  position: fixed;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 1004;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 0.5rem;
+  background: rgba(12, 12, 16, 0.94);
+  color: #fff;
+  font-size: 0.72rem;
+}
+
+.layout-editor-toolbar button {
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 0.3rem;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.8);
+  padding: 3px 7px;
+}
+
+.layout-editor-toolbar button:hover,
+.layout-editor-toolbar button.active { background: rgba(13, 110, 253, 0.65); color: #fff; }
+.layout-editor-toolbar button.primary { background: #0d6efd; color: #fff; }
+.layout-editor-label { margin: 0 2px; color: rgba(255, 255, 255, 0.65); }
+.layout-editor-separator { width: 1px; height: 18px; margin: 0 3px; background: rgba(255, 255, 255, 0.25); }
 
 .fullscreen-activity-toggle:hover,
 .fullscreen-activity-toggle.active {

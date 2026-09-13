@@ -16,6 +16,8 @@ const emit = defineEmits<{
 
 const props = defineProps<{
   cameraIds?: Set<number> | null
+  orientation?: 'horizontal' | 'vertical'
+  forceVisible?: boolean
 }>()
 
 const clipStore = useClipStore()
@@ -106,7 +108,11 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div v-if="ongoingCameras.length > 0 || sortedClips.length > 0" class="activity-strip">
+  <div
+    v-if="forceVisible || ongoingCameras.length > 0 || sortedClips.length > 0"
+    class="activity-strip"
+    :class="{ vertical: orientation === 'vertical' }"
+  >
     <div class="strip-header">
       <span class="strip-title">Recent Activity</span>
       <span class="strip-count text-muted-custom">{{ matchingClipCount }} unreviewed</span>
@@ -123,6 +129,9 @@ onUnmounted(() => {
           <span class="strip-cam-name">{{ cam.name }}</span>
           <span class="strip-live-badge">● LIVE</span>
         </div>
+      </div>
+      <div v-if="forceVisible && ongoingCameras.length === 0 && sortedClips.length === 0" class="strip-empty">
+        Activity will appear here
       </div>
 
       <!-- Recent clips ordered by time -->
@@ -261,5 +270,31 @@ onUnmounted(() => {
   font-size: 0.6rem;
   padding: 0 3px;
   border-radius: 2px;
+}
+.activity-strip.vertical {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  border-radius: 0;
+}
+.activity-strip.vertical .strip-header {
+  flex-wrap: wrap;
+}
+.activity-strip.vertical .strip-items {
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+  align-items: stretch;
+}
+.activity-strip.vertical .strip-thumb {
+  width: 100%;
+}
+.strip-empty {
+  color: var(--bs-secondary-color, #888);
+  font-size: 0.75rem;
+  padding: 0.5rem;
 }
 </style>
