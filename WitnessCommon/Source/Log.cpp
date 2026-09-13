@@ -7,6 +7,10 @@
 #include <filesystem>
 #include <algorithm>
 
+#ifdef _WIN32
+#include <share.h>
+#endif
+
 namespace Witness
 {
 
@@ -74,7 +78,10 @@ static void RotateLogFile( const char* currentDate )
 		std::filesystem::create_directories( s_LogDirectory );
 		std::string path = s_LogDirectory + "/witness-" + dateStr + ".log";
 #ifdef _WIN32
-		fopen_s( &s_LogFile, path.c_str(), "a" );
+		// Permit diagnostics and support tools to read the active log. fopen_s
+		// uses deny-read sharing on Windows, which made live debug bundles omit
+		// the server log without reporting an error.
+		s_LogFile = _fsopen( path.c_str(), "a", _SH_DENYNO );
 #else
 		s_LogFile = fopen( path.c_str(), "a" );
 #endif
