@@ -16,9 +16,16 @@ const settings = useSettingsStore()
 const groupStore = useGroupStore()
 
 const DASHBOARD_GROUP_KEY = 'witness-dashboard-group'
+const DASHBOARD_ACTIVITY_KEY = 'witness-dashboard-activity-visible'
 const savedGroup = localStorage.getItem(DASHBOARD_GROUP_KEY)
 const selectedGroupId = ref<number | null>(savedGroup !== null ? Number(savedGroup) : null)
+const showRecentActivity = ref(localStorage.getItem(DASHBOARD_ACTIVITY_KEY) !== '0')
 const playingClip = ref<Clip | null>(null)
+
+function toggleRecentActivity() {
+  showRecentActivity.value = !showRecentActivity.value
+  localStorage.setItem(DASHBOARD_ACTIVITY_KEY, showRecentActivity.value ? '1' : '0')
+}
 
 function selectGroup(id: number | null) {
   selectedGroupId.value = id
@@ -107,20 +114,35 @@ onMounted(async () => {
         >
           {{ settings.streamingMode.toUpperCase() }}
         </button>
+        <button
+          class="btn btn-sm"
+          :class="showRecentActivity ? 'btn-outline-primary' : 'btn-outline-secondary'"
+          @click="toggleRecentActivity"
+          :title="showRecentActivity ? 'Hide recent activity' : 'Show recent activity'"
+        >Activity</button>
       </div>
     </template>
 
     <CameraGrid
       :group-camera-ids="groupCameraIds"
-      :fullscreen-bottom-inset="settings.fullscreenMode && hasDashboardActivity ? 108 : 0"
+      :fullscreen-bottom-inset="settings.fullscreenMode && showRecentActivity && hasDashboardActivity ? 108 : 0"
     />
 
     <ActivityStrip
+      v-if="showRecentActivity"
       class="dashboard-activity-strip"
       :class="{ 'dashboard-activity-strip-fullscreen': settings.fullscreenMode }"
       :camera-ids="groupCameraIds"
       @play="playingClip = $event"
     />
+
+    <button
+      v-if="settings.fullscreenMode"
+      class="fullscreen-activity-toggle"
+      :class="showRecentActivity ? 'active' : ''"
+      @click="toggleRecentActivity"
+      :title="showRecentActivity ? 'Hide recent activity' : 'Show recent activity'"
+    >Activity</button>
 
     <ClipPlayer v-if="playingClip" :clip="playingClip" @close="playingClip = null" />
   </AppLayout>
@@ -143,5 +165,25 @@ onMounted(async () => {
   border-radius: 0;
   border-width: 1px 0 0;
   background: rgba(15, 15, 20, 0.97);
+}
+
+.fullscreen-activity-toggle {
+  position: fixed;
+  top: 10px;
+  right: 56px;
+  z-index: 1002;
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 0.375rem;
+  background: rgba(0, 0, 0, 0.6);
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.fullscreen-activity-toggle:hover,
+.fullscreen-activity-toggle.active {
+  background: rgba(13, 110, 253, 0.8);
+  color: #fff;
 }
 </style>
