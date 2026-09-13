@@ -30,6 +30,7 @@ ContinuousOutputStream::ContinuousOutputStream(const std::string& basePath, int 
 	, m_FirstDTS(AV_NOPTS_VALUE)
 	, m_FirstTimestampUs(AV_NOPTS_VALUE)
 	, m_LastWrittenDTS(AV_NOPTS_VALUE)
+	, m_LastWrittenAudioDTS(AV_NOPTS_VALUE)
 	, m_SegmentDuration(0.0)
 	, m_TargetSegmentDuration(300) // 5 minutes
 	, m_WaitingForKeyframe(false)
@@ -162,6 +163,7 @@ CameraStreamError ContinuousOutputStream::StartNewSegment()
 	m_FirstDTS = AV_NOPTS_VALUE;
 	m_FirstTimestampUs = AV_NOPTS_VALUE;
 	m_LastWrittenDTS = AV_NOPTS_VALUE;
+	m_LastWrittenAudioDTS = AV_NOPTS_VALUE;
 	m_SegmentDuration = 0.0;
 	m_WaitingForKeyframe = false;
 
@@ -227,6 +229,10 @@ CameraStreamError ContinuousOutputStream::WritePacket(const AVPacket* packet)
 	const bool isAudio = inData.HasAudio && packet->stream_index == inData.ChosenAudioStreamIndex;
 	if (!isVideo && !isAudio)
 		return CameraStreamError::Success;
+	// Do not open or split a segment on an untimed video keyframe. Following
+	// inter-frames are not independently decodable without that RAP.
+	if (isVideo && packet->dts == AV_NOPTS_VALUE)
+		return CameraStreamError::Success;
 
 	// Get the stream timebase from the input format context (NOT inData.Timebase which is unset on InputStream)
 	AVRational inputTimebase = inData.FormatContext->streams[packet->stream_index]->time_base;
@@ -261,8 +267,14 @@ CameraStreamError ContinuousOutputStream::WritePacket(const AVPacket* packet)
 		return CameraStreamError::RefError;
 	if (pktCopy.dts == AV_NOPTS_VALUE)
 	{
-		av_packet_unref(&pktCopy);
-		return CameraStreamError::InvalidPacket;
+		// AAC is not reordered and some RTSP sources provide only PTS. Never use
+		// presentation order as decode order for video; skip an untimed video packet.
+		if (!isAudio || pktCopy.pts == AV_NOPTS_VALUE)
+		{
+			av_packet_unref(&pktCopy);
+			return CameraStreamError::Success;
+		}
+		pktCopy.dts = pktCopy.pts;
 	}
 	if (pktCopy.pts == AV_NOPTS_VALUE)
 		pktCopy.pts = pktCopy.dts;
@@ -282,13 +294,16 @@ CameraStreamError ContinuousOutputStream::WritePacket(const AVPacket* packet)
 	pktCopy.stream_index = isAudio ? m_AudioOutStream->index : m_OutStream->index;
 
 	// Drop non-monotonic DTS
-	if (isVideo && m_LastWrittenDTS != AV_NOPTS_VALUE && pktCopy.dts <= m_LastWrittenDTS)
+	const int64_t lastStreamDTS = isAudio ? m_LastWrittenAudioDTS : m_LastWrittenDTS;
+	if (lastStreamDTS != AV_NOPTS_VALUE && pktCopy.dts <= lastStreamDTS)
 	{
 		av_packet_unref(&pktCopy);
 		return CameraStreamError::Success;
 	}
 	if (isVideo)
 		m_LastWrittenDTS = pktCopy.dts;
+	else
+		m_LastWrittenAudioDTS = pktCopy.dts;
 
 	// Clamp negative durations
 	if (pktCopy.duration < 0)

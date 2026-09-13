@@ -192,6 +192,7 @@ private:
 	int64_t _LastInputDTS;
 	int64_t _LastPacketDuration;
 	int64_t _LastWrittenDTS;
+	int64_t _LastWrittenAudioDTS;
 	int _AudioInputStreamIndex;
 	int64_t _SegmentStartDTS;
 	int64_t _OutputSegmentStartDTS;

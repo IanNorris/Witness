@@ -25,6 +25,7 @@ OutputStream::OutputStream( const std::string& Path, InputStream * InputStream, 
 , m_SegmentIndex(-1)
 , m_PartIndex(-1)
 , m_LastWrittenDTS( AV_NOPTS_VALUE )
+, m_LastWrittenAudioDTS( AV_NOPTS_VALUE )
 , m_HasAudioStream( false )
 , m_AudioInputStreamIndex( -1 )
 , m_InitialTimestampUs( AV_NOPTS_VALUE )
@@ -78,6 +79,7 @@ OutputStream::OutputStream( const std::string& Path, unsigned int Width, unsigne
 , m_ClipLength( 0.0 )
 , m_SegmentIndex(-1)
 , m_LastWrittenDTS( AV_NOPTS_VALUE )
+, m_LastWrittenAudioDTS( AV_NOPTS_VALUE )
 , m_HasAudioStream( false )
 , m_AudioInputStreamIndex( -1 )
 , m_InitialTimestampUs( AV_NOPTS_VALUE )
@@ -445,8 +447,14 @@ CameraStreamError OutputStream::WriteInterleavedPacket( const AVPacket* Packet )
 	}
 	if( PacketCopy.dts == AV_NOPTS_VALUE )
 	{
-		av_packet_unref( &PacketCopy );
-		return CameraStreamError::InvalidPacket;
+		// AAC from some RTSP cameras carries only PTS. Preserve it when possible;
+		// otherwise discard this packet without forcing the camera to reconnect.
+		if( !IsAudio || PacketCopy.pts == AV_NOPTS_VALUE )
+		{
+			av_packet_unref( &PacketCopy );
+			return CameraStreamError::Success;
+		}
+		PacketCopy.dts = PacketCopy.pts;
 	}
 	if( PacketCopy.pts == AV_NOPTS_VALUE )
 		PacketCopy.pts = PacketCopy.dts;
@@ -486,13 +494,16 @@ CameraStreamError OutputStream::WriteInterleavedPacket( const AVPacket* Packet )
 
 	// Drop packets with non-monotonic DTS — B-frame streams (e.g. Tapo)
 	// can deliver packets that cause av_interleaved_write_frame to fail.
-	if (!IsAudio && m_LastWrittenDTS != AV_NOPTS_VALUE && PacketCopy.dts <= m_LastWrittenDTS)
+	const int64_t LastStreamDTS = IsAudio ? m_LastWrittenAudioDTS : m_LastWrittenDTS;
+	if (LastStreamDTS != AV_NOPTS_VALUE && PacketCopy.dts <= LastStreamDTS)
 	{
 		av_packet_unref(&PacketCopy);
 		return CameraStreamError::Success;
 	}
 	if (!IsAudio)
 		m_LastWrittenDTS = PacketCopy.dts;
+	else
+		m_LastWrittenAudioDTS = PacketCopy.dts;
 
 	// Clamp negative durations from B-frame reordering
 	if (PacketCopy.duration < 0)

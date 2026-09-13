@@ -35,6 +35,7 @@ LiveOutputStream::LiveOutputStream(const std::string& LiveCachePath, InputStream
 	, _LastInputDTS( AV_NOPTS_VALUE )
 	, _LastPacketDuration( 0 )
 	, _LastWrittenDTS( AV_NOPTS_VALUE )
+	, _LastWrittenAudioDTS( AV_NOPTS_VALUE )
 	, _AudioInputStreamIndex( -1 )
 	, _SegmentStartDTS( 0 )
 	, _OutputSegmentStartDTS( AV_NOPTS_VALUE )
@@ -154,6 +155,7 @@ void LiveOutputStream::ResetForReconnect(InputStream* NewInputStream)
 	_LastInputDTS = AV_NOPTS_VALUE;
 	_LastPacketDuration = 0;
 	_LastWrittenDTS = AV_NOPTS_VALUE;
+	_LastWrittenAudioDTS = AV_NOPTS_VALUE;
 	_AudioInputStreamIndex = -1;
 	_OutputSegmentStartDTS = AV_NOPTS_VALUE;
 	_TimestampProbeSamples = 0;
@@ -328,6 +330,10 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 	const bool IsVideo = Packet->stream_index == _InputStream->GetData().ChosenStreamIndex;
 	if (!IsAudio && !IsVideo)
 		return CameraStreamError::Success;
+	// Never mutate segment state around a keyframe that cannot be placed on the
+	// decode timeline. Continue waiting for the next usable random-access point.
+	if (IsVideo && Packet->dts == AV_NOPTS_VALUE)
+		return CameraStreamError::Success;
 
 	if (IsVideo && (Packet->flags & AV_PKT_FLAG_KEY))
 	{
@@ -367,8 +373,14 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 
 	if (PacketCopy.dts == AV_NOPTS_VALUE)
 	{
-		av_packet_unref(&PacketCopy);
-		return CameraStreamError::InvalidPacket;
+		// AAC from some RTSP cameras carries only PTS. A missing timestamp on
+		// one optional audio packet must not tear down the whole camera session.
+		if (!IsAudio || PacketCopy.pts == AV_NOPTS_VALUE)
+		{
+			av_packet_unref(&PacketCopy);
+			return CameraStreamError::Success;
+		}
+		PacketCopy.dts = PacketCopy.pts;
 	}
 	if (PacketCopy.pts == AV_NOPTS_VALUE)
 		PacketCopy.pts = PacketCopy.dts;
@@ -515,7 +527,8 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 
 	// B-frame streams retain their source timing, so keep an output-side
 	// monotonicity check as a final muxer safety net.
-	if (IsVideo && _LastWrittenDTS != AV_NOPTS_VALUE && PacketCopy.dts <= _LastWrittenDTS)
+	const int64_t LastStreamDTS = IsAudio ? _LastWrittenAudioDTS : _LastWrittenDTS;
+	if (LastStreamDTS != AV_NOPTS_VALUE && PacketCopy.dts <= LastStreamDTS)
 	{
 		av_packet_unref(&PacketCopy);
 		return CameraStreamError::Success;
@@ -525,6 +538,10 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 		_LastWrittenDTS = PacketCopy.dts;
 		if (PacketCopy.duration > 0)
 			_LastPacketDuration = PacketCopy.duration;
+	}
+	else
+	{
+		_LastWrittenAudioDTS = PacketCopy.dts;
 	}
 
 	if (IsVideo && _OutputSegmentStartDTS == AV_NOPTS_VALUE)
@@ -537,7 +554,10 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 		_CurrentSegmentDuration += PacketDurationSec;
 		_CurrentPartialDuration += PacketDurationSec;
 
-		const bool PacketKeyframeSeekSafe = !_HasBFrames && _NormalizeNoBFrameTimestamps;
+		// With multiplexed audio, SourceBuffer range boundaries are not guaranteed
+		// to identify the exact video RAP timestamp.
+		const bool PacketKeyframeSeekSafe =
+			!_HasAudioStream && !_HasBFrames && _NormalizeNoBFrameTimestamps;
 		if (!_CurrentPartialHasPacket)
 		{
 			_CurrentPartialHasPacket = true;

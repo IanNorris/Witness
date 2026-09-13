@@ -434,7 +434,10 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 		{
 			CameraStreamError WriteError = TargetStream->WriteInterleavedPacket( &ID.Packet );
 			if( WriteError != CameraStreamError::Success )
+			{
+				av_packet_unref( &ID.Packet );
 				return WriteError;
+			}
 		}
 
 		if( LiveStream )
@@ -443,6 +446,7 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 			if( WriteError != CameraStreamError::Success )
 			{
 				memcpy( m_ErrorMessage, LiveStream->GetFFMPEGErrorMessage(), 256 );
+				av_packet_unref( &ID.Packet );
 				return WriteError;
 			}
 		}
@@ -464,7 +468,10 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 			memset( &NewPacket, 0, sizeof(NewPacket) );
 			Result = av_packet_ref( &NewPacket, &ID.Packet );
 			if( Result < 0 )
+			{
+				av_packet_unref( &ID.Packet );
 				STREAM_ERROR( RefError, Result );
+			}
 		}
 	}
 

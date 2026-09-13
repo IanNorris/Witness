@@ -11,17 +11,19 @@ void FFMPEGErrorToString(int ErrorCode, char* Buffer, size_t BufferSize);
 
 #if defined _WIN32
 #include <windows.h>
-#define STREAM_ERROR( X, Result )\
+#define STREAM_ERROR( X, Result ) do {\
 	FFMPEGErrorToString(Result, m_ErrorMessage, sizeof(m_ErrorMessage)/sizeof(m_ErrorMessage[0]));\
 	m_LineNumber = __LINE__;\
 	m_InternalData->HasInitialized = false;\
 	/*if( IsDebuggerPresent() ) __debugbreak();*/\
-	return CameraStreamError::X;
+	return CameraStreamError::X;\
+} while (0)
 #else
-#define STREAM_ERROR( X, Result )\
+#define STREAM_ERROR( X, Result ) do {\
 	FFMPEGErrorToString(Result, m_ErrorMessage, sizeof(m_ErrorMessage)/sizeof(m_ErrorMessage[0]));\
 	m_LineNumber = __LINE__;\
-	return CameraStreamError::X;
+	return CameraStreamError::X;\
+} while (0)
 #endif
 
 namespace Witness{

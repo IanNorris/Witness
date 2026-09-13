@@ -60,6 +60,7 @@ private:
 	int64_t m_FirstDTS;				// First DTS of current segment (for normalization)
 	int64_t m_FirstTimestampUs;		// Common video/audio timeline origin
 	int64_t m_LastWrittenDTS;
+	int64_t m_LastWrittenAudioDTS;
 	double m_SegmentDuration;			// Accumulated duration in seconds
 
 	int m_TargetSegmentDuration;		// Target duration before looking for next keyframe

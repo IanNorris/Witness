@@ -23,7 +23,10 @@ PIMPL_CONSTRUCT(StreamData)
 
 Stream::Stream()
 : Pimpl()
-{}
+{
+	m_ErrorMessage[0] = '\0';
+	m_LineNumber = 0;
+}
 
 Stream::~Stream()
 {
