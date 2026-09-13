@@ -14,6 +14,7 @@ export const useCameraStore = defineStore('cameras', () => {
       name: c.name,
       status: c.status ?? 'Unknown',
       isRecording: c.recording ?? false,
+      motionActive: c.motionActive ?? false,
       groups: Array.isArray(c.groups) ? c.groups : [],
       previewUrl: `/camera/preview/${c.id}`,
       streamUrl: `/stream/${c.id}/playlist`,

@@ -112,13 +112,14 @@ function installCameraHandler() {
 
     if (evt.event === 'init' && evt.data.cameras) {
       const cams = evt.data.cameras as Array<{
-        cameraID: number; name: string; status: string; recording: boolean
+        cameraID: number; name: string; status: string; recording: boolean; motionActive?: boolean
       }>
       for (const c of cams) {
         const cam = cameraStore.getCameraById(c.cameraID)
         if (cam) {
           cam.status = c.status
           cam.isRecording = c.recording
+          cam.motionActive = c.motionActive ?? false
         }
       }
       // Trigger array reactivity
@@ -135,11 +136,21 @@ function installCameraHandler() {
     }
 
     if (evt.event === 'camera:state') {
-      const d = evt.data as { cameraID: number; status?: string; recording?: boolean }
+      const d = evt.data as { cameraID: number; status?: string; recording?: boolean; motionActive?: boolean }
       const cam = cameraStore.getCameraById(d.cameraID)
       if (cam) {
         if (d.status !== undefined) cam.status = d.status
         if (d.recording !== undefined) cam.isRecording = d.recording
+        if (d.motionActive !== undefined) cam.motionActive = d.motionActive
+        cameraStore.cameras = [...cameraStore.cameras]
+      }
+    }
+
+    if (evt.event === 'camera:motion') {
+      const d = evt.data as { cameraID: number; active: boolean }
+      const cam = cameraStore.getCameraById(d.cameraID)
+      if (cam) {
+        cam.motionActive = d.active
         cameraStore.cameras = [...cameraStore.cameras]
       }
     }

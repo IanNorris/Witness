@@ -10,6 +10,7 @@ struct CameraState
 	, LastSmallPreviewTimestamp(0)
 	, IsRecording(false)
 	, IsManualRecording(false)
+	, IsMotionActive(false)
 	{
 
 	}
@@ -29,5 +30,6 @@ struct CameraState
 
 	bool IsRecording;
 	bool IsManualRecording;
+	bool IsMotionActive;
 	bool WantLargePreview;
 };

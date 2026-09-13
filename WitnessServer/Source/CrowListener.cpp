@@ -911,6 +911,7 @@ void CrowListener::RegisterRoutes()
 					cam["name"] = state.Name;
 					cam["status"] = state.Status;
 					cam["recording"] = state.IsRecording;
+					cam["motionActive"] = state.IsMotionActive;
 					cams.push_back( std::move( cam ) );
 				}
 			}

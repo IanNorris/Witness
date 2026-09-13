@@ -3,6 +3,7 @@ export interface Camera {
   name: string
   status: string
   isRecording: boolean
+  motionActive: boolean
   groups: number[]
   previewUrl: string
   streamUrl: string
@@ -30,6 +31,7 @@ export interface CameraData {
   name: string
   status: string
   recording: boolean
+  motionActive?: boolean
   groups: number[]
   description: string
   enabled: number

@@ -6,6 +6,7 @@ import HlsPlayer from '../components/camera/HlsPlayer.vue'
 import MsePlayer from '../components/camera/MsePlayer.vue'
 import { useCameraStore } from '../stores/cameras'
 import { useSettingsStore } from '../stores/settings'
+import { useLiveAudio } from '../composables/useLiveAudio'
 
 const route = useRoute()
 const router = useRouter()
@@ -36,11 +37,12 @@ const effectiveMode = computed(() => {
 
 const hlsPlayerRef = ref<InstanceType<typeof HlsPlayer> | InstanceType<typeof MsePlayer> | null>(null)
 const detectionOverlayActive = ref(false)
-const audioActive = ref(false)
-
-function loadAudioPreference() {
-  audioActive.value = localStorage.getItem(`witness-live-audio-${cameraId.value}`) === '1'
-}
+const {
+  mode: audioMode,
+  enabled: audioActive,
+  toggleAudio,
+  toggleMotionAudio,
+} = useLiveAudio(() => cameraId.value, () => camera.value?.motionActive ?? false)
 
 const latencyLabel = computed(() => {
   const ms = hlsPlayerRef.value?.latencyMs ?? 0
@@ -58,14 +60,6 @@ function toggleDetectionOverlay() {
   }
 }
 
-function toggleAudio() {
-  audioActive.value = !audioActive.value
-  localStorage.setItem(
-    `witness-live-audio-${cameraId.value}`,
-    audioActive.value ? '1' : '0',
-  )
-}
-
 onMounted(async () => {
   if (cameraStore.cameras.length === 0) {
     await cameraStore.fetchCameras()
@@ -74,10 +68,7 @@ onMounted(async () => {
   if (saved === null || saved === '1') {
     detectionOverlayActive.value = true
   }
-  loadAudioPreference()
 })
-
-watch(cameraId, loadAudioPreference)
 
 // Auto-enable overlay when HlsPlayer becomes available
 watch(hlsPlayerRef, (player) => {
@@ -103,6 +94,12 @@ watch(hlsPlayerRef, (player) => {
         @click="toggleAudio"
         :title="audioActive ? 'Mute live audio' : 'Play live audio'"
       >{{ audioActive ? '🔊' : '🔇' }}</button>
+      <button
+        class="btn btn-sm"
+        :class="audioMode === 'motion' ? (audioActive ? 'btn-success' : 'btn-info') : 'btn-outline-secondary'"
+        @click="toggleMotionAudio"
+        :title="audioMode === 'motion' ? 'Disable audio on motion' : 'Enable audio while motion is active'"
+      >Motion audio</button>
       <button class="btn btn-sm btn-outline-secondary" @click="router.push('/')">
         ← Back
       </button>

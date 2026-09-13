@@ -367,7 +367,7 @@ html, body, #app {
   .ptz-toggle {
     position: absolute;
     bottom: 8px;
-    left: 72px;
+    left: 104px;
     z-index: 10;
     opacity: 0;
     transition: opacity 0.2s;
@@ -385,7 +385,23 @@ html, body, #app {
     opacity: 0.8;
   }
 
+  .motion-audio-toggle {
+    position: absolute;
+    bottom: 8px;
+    left: 72px;
+    z-index: 10;
+    opacity: 0;
+    transition: opacity 0.2s;
+    padding: 2px 6px;
+    font-size: 0.65rem;
+    font-weight: 700;
+  }
+
   &:hover .audio-toggle {
+    opacity: 0.8;
+  }
+
+  &:hover .motion-audio-toggle {
     opacity: 0.8;
   }
 

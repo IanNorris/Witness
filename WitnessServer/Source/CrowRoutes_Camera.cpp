@@ -170,6 +170,7 @@ void CrowListener::HandleCameraEnum( const crow::request& req, crow::response& r
 
 								Camera["status"] = CameraState->Status;
 								Camera["recording"] = CameraState->IsRecording;
+								Camera["motionActive"] = CameraState->IsMotionActive;
 
 								// Report video codec so client can detect H.265 proactively
 								std::string codecName = CameraState->Worker->GetVideoCodecName();
