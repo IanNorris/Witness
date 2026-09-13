@@ -43,6 +43,7 @@ struct ImageProcessingJobQueueData
 	std::vector<SharedClassificationTask>				AIContinuationQueue;
 	std::vector<int>									ActiveSources;
 	std::vector<int>									ActiveAISources;
+	std::unordered_map<int, int64_t>					ActiveJobStartedNS;
 	size_t										MaximumConcurrentAIJobs = 1;
 	size_t										ActiveBackgroundAIJobs = 0;
 	std::unordered_map<int, uint64_t>					SourceGenerations;

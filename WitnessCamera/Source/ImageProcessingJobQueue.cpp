@@ -174,6 +174,7 @@ bool TakeRunnableEssentialJob(ImageProcessingJobQueueData& Data, SharedClassific
 		}
 
 		Data.ActiveSources.push_back(SourceID);
+		Data.ActiveJobStartedNS[SourceID] = QueueClockNowNS();
 		Data.NextEssentialSource = (SourceIndex + 1) % SourceCount;
 		return true;
 	}
@@ -213,6 +214,7 @@ bool TakeRunnableAIJob(ImageProcessingJobQueueData& Data, std::vector<SharedClas
 		}
 
 		Data.ActiveSources.push_back(SourceID);
+		Data.ActiveJobStartedNS[SourceID] = QueueClockNowNS();
 		Job = *Iter;
 		Queue.erase(Iter);
 		RecordQueueDispatch(Data, Job, QueueMetricKind::AI);
@@ -426,7 +428,36 @@ void ImageProcessingJobQueue::CompletedBackgroundAIJob()
 
 SourceStats ImageProcessingJobQueue::GetStats(int SourceID)
 {
-	return m_InternalData->GetStatsForSource(SourceID);
+	auto& ID = *m_InternalData;
+	std::lock_guard<std::mutex> QueueLock(ID.QueueMutex);
+	SourceStats Result = ID.GetStatsForSource(SourceID);
+	const int64_t NowNS = QueueClockNowNS();
+
+	auto RecordOldestAge = [SourceID, NowNS](const std::vector<SharedClassificationTask>& Queue)
+	{
+		int64_t OldestAgeNS = 0;
+		for (const auto& Job : Queue)
+		{
+			if (Job && Job->Frame.SourceID == SourceID && Job->QueueEnteredTimestampNS > 0)
+				OldestAgeNS = (std::max)(OldestAgeNS, NowNS - Job->QueueEnteredTimestampNS);
+		}
+		return OldestAgeNS;
+	};
+
+	Result.OldestPendingEssentialAgeNS = (std::max)(
+		RecordOldestAge(ID.Queue), RecordOldestAge(ID.HighPriorityAsyncQueue));
+	Result.OldestPendingAIAgeNS = (std::max)(
+		RecordOldestAge(ID.AIQueue), RecordOldestAge(ID.AIContinuationQueue));
+	Result.ProcessingJobActive = IsSourceActive(ID.ActiveSources, SourceID);
+	Result.AIReservationActive = IsSourceActive(ID.ActiveAISources, SourceID);
+	auto ActiveStarted = ID.ActiveJobStartedNS.find(SourceID);
+	if (ActiveStarted != ID.ActiveJobStartedNS.end())
+		Result.ActiveJobAgeNS = (std::max)(int64_t{0}, NowNS - ActiveStarted->second);
+	Result.ActiveProcessingSources = ID.ActiveSources.size();
+	Result.ActiveAISources = ID.ActiveAISources.size();
+	Result.ActiveBackgroundAIJobs = ID.ActiveBackgroundAIJobs;
+	Result.MaximumConcurrentAIJobs = ID.MaximumConcurrentAIJobs;
+	return Result;
 }
 
 void ImageProcessingJobQueue::ResetStats(int SourceID)
@@ -442,6 +473,7 @@ void ImageProcessingJobQueue::CompletedJob(int SourceID, uint64_t Generation, bo
 	auto ActiveJob = std::find(ID.ActiveSources.begin(), ID.ActiveSources.end(), SourceID);
 	if (ActiveJob != ID.ActiveSources.end())
 		ID.ActiveSources.erase(ActiveJob);
+	ID.ActiveJobStartedNS.erase(SourceID);
 
 	if (ReleaseAISlot || Generation != CurrentGeneration(ID, SourceID))
 	{

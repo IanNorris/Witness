@@ -210,6 +210,15 @@ void CrowListener::HandleCameraEnum( const crow::request& req, crow::response& r
 									Camera["queueContinuationWaitMaxMS"] = (double)ImgStats.ContinuationQueueWaitMaxNS / (1000.0 * 1000.0);
 									Camera["queueAIWaitMeanMS"] = MeanQueueMS( ImgStats.AIQueueWaitTotalNS, ImgStats.AIQueueWaitSamples );
 									Camera["queueAIWaitMaxMS"] = (double)ImgStats.AIQueueWaitMaxNS / (1000.0 * 1000.0);
+									Camera["queueOldestPendingEssentialMS"] = (double)ImgStats.OldestPendingEssentialAgeNS / (1000.0 * 1000.0);
+									Camera["queueOldestPendingAIMS"] = (double)ImgStats.OldestPendingAIAgeNS / (1000.0 * 1000.0);
+									Camera["queueActiveJobMS"] = (double)ImgStats.ActiveJobAgeNS / (1000.0 * 1000.0);
+									Camera["queueProcessingJobActive"] = ImgStats.ProcessingJobActive;
+									Camera["queueAIReservationActive"] = ImgStats.AIReservationActive;
+									Camera["queueActiveProcessingSources"] = ImgStats.ActiveProcessingSources;
+									Camera["queueActiveAISources"] = ImgStats.ActiveAISources;
+									Camera["queueActiveBackgroundAIJobs"] = ImgStats.ActiveBackgroundAIJobs;
+									Camera["queueMaximumConcurrentAIJobs"] = ImgStats.MaximumConcurrentAIJobs;
 								}
 
 								if( asAdmin && ImgStats.FrameCount > 0 )

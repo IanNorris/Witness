@@ -226,6 +226,43 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 		CamData["status"] = Snapshot.Status;
 		CamData["lowLatencyHLS"] = Snapshot.LowLatencyHLS;
 
+		if( m_GlobalContext->CommonImageProcessingJobQueue )
+		{
+			auto QueueStats = m_GlobalContext->CommonImageProcessingJobQueue->GetStats( Snapshot.Id );
+			auto MeanQueueMS = []( int64_t TotalNS, uint64_t Samples )
+			{
+				return Samples ? (double)TotalNS / ((double)Samples * 1000.0 * 1000.0) : 0.0;
+			};
+			crow::json::wvalue QueueData;
+			QueueData["ingressFrames"] = QueueStats.IngressFrames;
+			QueueData["startedFrames"] = QueueStats.StartedFrames;
+			QueueData["coalescedFrames"] = QueueStats.CoalescedFrames;
+			QueueData["coalescedAIFrames"] = QueueStats.CoalescedAIFrames;
+			QueueData["pendingEssential"] = QueueStats.PendingEssentialJobs;
+			QueueData["pendingAI"] = QueueStats.PendingAIJobs;
+			QueueData["peakPendingEssential"] = QueueStats.PeakPendingEssentialJobs;
+			QueueData["peakPendingAI"] = QueueStats.PeakPendingAIJobs;
+			QueueData["ingressWaitMeanMs"] = MeanQueueMS(
+				QueueStats.IngressQueueWaitTotalNS, QueueStats.IngressQueueWaitSamples );
+			QueueData["ingressWaitMaxMs"] = (double)QueueStats.IngressQueueWaitMaxNS / 1000000.0;
+			QueueData["continuationWaitMeanMs"] = MeanQueueMS(
+				QueueStats.ContinuationQueueWaitTotalNS, QueueStats.ContinuationQueueWaitSamples );
+			QueueData["continuationWaitMaxMs"] = (double)QueueStats.ContinuationQueueWaitMaxNS / 1000000.0;
+			QueueData["aiWaitMeanMs"] = MeanQueueMS(
+				QueueStats.AIQueueWaitTotalNS, QueueStats.AIQueueWaitSamples );
+			QueueData["aiWaitMaxMs"] = (double)QueueStats.AIQueueWaitMaxNS / 1000000.0;
+			QueueData["oldestPendingEssentialMs"] = (double)QueueStats.OldestPendingEssentialAgeNS / 1000000.0;
+			QueueData["oldestPendingAIMs"] = (double)QueueStats.OldestPendingAIAgeNS / 1000000.0;
+			QueueData["activeJobMs"] = (double)QueueStats.ActiveJobAgeNS / 1000000.0;
+			QueueData["processingJobActive"] = QueueStats.ProcessingJobActive;
+			QueueData["aiReservationActive"] = QueueStats.AIReservationActive;
+			QueueData["activeProcessingSources"] = QueueStats.ActiveProcessingSources;
+			QueueData["activeAISources"] = QueueStats.ActiveAISources;
+			QueueData["activeBackgroundAIJobs"] = QueueStats.ActiveBackgroundAIJobs;
+			QueueData["maximumConcurrentAIJobs"] = QueueStats.MaximumConcurrentAIJobs;
+			CamData["processingQueue"] = std::move( QueueData );
+		}
+
 		if( Snapshot.LiveStream )
 		{
 			auto Diag = Snapshot.LiveStream->GetStreamingDiagnostics();

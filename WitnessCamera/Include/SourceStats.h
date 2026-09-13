@@ -163,6 +163,17 @@ struct SourceStats
 	int64_t ContinuationQueueWaitMaxNS;
 	int64_t AIQueueWaitTotalNS;
 	int64_t AIQueueWaitMaxNS;
+
+	// Live queue gauges, populated when GetStats() takes its snapshot.
+	int64_t OldestPendingEssentialAgeNS;
+	int64_t OldestPendingAIAgeNS;
+	int64_t ActiveJobAgeNS;
+	bool ProcessingJobActive;
+	bool AIReservationActive;
+	uint64_t ActiveProcessingSources;
+	uint64_t ActiveAISources;
+	uint64_t ActiveBackgroundAIJobs;
+	uint64_t MaximumConcurrentAIJobs;
 	
 	void Reset()
 	{
@@ -190,5 +201,14 @@ struct SourceStats
 		ContinuationQueueWaitMaxNS = 0;
 		AIQueueWaitTotalNS = 0;
 		AIQueueWaitMaxNS = 0;
+		OldestPendingEssentialAgeNS = 0;
+		OldestPendingAIAgeNS = 0;
+		ActiveJobAgeNS = 0;
+		ProcessingJobActive = false;
+		AIReservationActive = false;
+		ActiveProcessingSources = 0;
+		ActiveAISources = 0;
+		ActiveBackgroundAIJobs = 0;
+		MaximumConcurrentAIJobs = 0;
 	}
 };
