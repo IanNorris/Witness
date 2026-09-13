@@ -38,6 +38,7 @@ const isConnected = ref(false)
 const imgRef = ref<HTMLImageElement | null>(null)
 const hlsPlayerRef = ref<InstanceType<typeof HlsPlayer> | InstanceType<typeof MsePlayer> | null>(null)
 const detectionOverlayActive = ref(false)
+const audioActive = ref(localStorage.getItem(`witness-live-audio-${props.camera.id}`) === '1')
 const showPtzControls = ref(false)
 const detectionStorageKey = `witness-detection-overlay-${props.camera.id}`
 let refreshTimer: ReturnType<typeof setInterval> | null = null
@@ -113,6 +114,14 @@ function toggleDetectionOverlay() {
     detectionOverlayActive.value = player.overlayEnabled ?? false
     localStorage.setItem(detectionStorageKey, detectionOverlayActive.value ? '1' : '0')
   }
+}
+
+function toggleAudio() {
+  audioActive.value = !audioActive.value
+  localStorage.setItem(
+    `witness-live-audio-${props.camera.id}`,
+    audioActive.value ? '1' : '0',
+  )
 }
 
 onMounted(() => {
@@ -198,6 +207,7 @@ onUnmounted(() => {
           ref="hlsPlayerRef"
           :camera-id="camera.id"
           :low-latency="camera.lowLatencyHLS"
+          :audio-enabled="audioActive"
         />
 
         <!-- MSE preview mode -->
@@ -207,6 +217,7 @@ onUnmounted(() => {
           :camera-id="camera.id"
           :use-sub-stream="useSubStream"
           :codec-hint="mseCodecHint"
+          :audio-enabled="audioActive"
         />
 
         <!-- JPEG preview mode -->
@@ -251,6 +262,15 @@ onUnmounted(() => {
         <div v-if="latencyLabel && effectiveMode !== 'jpeg'" class="latency-overlay">
           {{ latencyLabel }}
         </div>
+
+        <!-- Live audio toggle -->
+        <button
+          v-if="effectiveMode !== 'jpeg' && isConnected"
+          class="btn btn-sm audio-toggle"
+          :class="audioActive ? 'btn-success' : 'btn-outline-secondary'"
+          @click.stop="toggleAudio"
+          :title="audioActive ? 'Mute live audio' : 'Play live audio'"
+        >{{ audioActive ? '🔊' : '🔇' }}</button>
 
         <!-- Detection overlay toggle -->
         <button

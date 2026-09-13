@@ -354,10 +354,20 @@ html, body, #app {
     padding: 2px 5px;
   }
 
-  .ptz-toggle {
+  .audio-toggle {
     position: absolute;
     bottom: 8px;
     left: 40px;
+    z-index: 10;
+    opacity: 0;
+    transition: opacity 0.2s;
+    padding: 2px 5px;
+  }
+
+  .ptz-toggle {
+    position: absolute;
+    bottom: 8px;
+    left: 72px;
     z-index: 10;
     opacity: 0;
     transition: opacity 0.2s;
@@ -372,6 +382,10 @@ html, body, #app {
   }
 
   &:hover .detection-toggle {
+    opacity: 0.8;
+  }
+
+  &:hover .audio-toggle {
     opacity: 0.8;
   }
 

@@ -235,6 +235,7 @@ export function useMseStream(
   suffix: string = '',
   useSubStream: boolean = false,
   codecHint?: string,
+  audioEnabled: () => boolean = () => false,
 ): MseStreamState {
   const showSpinner = ref(false)
   const connectionLost = ref(false)
@@ -1078,7 +1079,7 @@ export function useMseStream(
       lowReadyStateMs: lowReadyStateSince ? Date.now() - lowReadyStateSince : 0,
       initGeneration,
     }))
-    element.muted = true
+    element.muted = !audioEnabled()
     // Playback begins explicitly once the initial reserve has accumulated.
     element.autoplay = false
     element.playbackRate = 1.0

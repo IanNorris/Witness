@@ -184,6 +184,7 @@ export function useHls(
   suffix: string = '',
   debug: boolean = false,
   lowLatency: boolean = false,
+  audioEnabled: () => boolean = () => false,
 ): HlsStreamState {
   const showSpinner = ref(false)
   const connectionLost = ref(false)
@@ -262,7 +263,7 @@ export function useHls(
     })
 
     h.on(Hls.Events.MEDIA_ATTACHED, () => {
-      element.muted = true
+      element.muted = !audioEnabled()
       // Use catch to suppress AbortError when document is hidden/minimized.
       // Autoplay with muted is allowed by browsers without user gesture.
       element.play().catch(() => {})

@@ -38,6 +38,10 @@ const hlsPlayerRef = ref<InstanceType<typeof HlsPlayer> | InstanceType<typeof Ms
 const detectionOverlayActive = ref(false)
 const audioActive = ref(false)
 
+function loadAudioPreference() {
+  audioActive.value = localStorage.getItem(`witness-live-audio-${cameraId.value}`) === '1'
+}
+
 const latencyLabel = computed(() => {
   const ms = hlsPlayerRef.value?.latencyMs ?? 0
   if (ms === 0) return ''
@@ -55,10 +59,11 @@ function toggleDetectionOverlay() {
 }
 
 function toggleAudio() {
-  const player = hlsPlayerRef.value
-  if (player?.toggleAudio) {
-    audioActive.value = player.toggleAudio()
-  }
+  audioActive.value = !audioActive.value
+  localStorage.setItem(
+    `witness-live-audio-${cameraId.value}`,
+    audioActive.value ? '1' : '0',
+  )
 }
 
 onMounted(async () => {
@@ -69,7 +74,10 @@ onMounted(async () => {
   if (saved === null || saved === '1') {
     detectionOverlayActive.value = true
   }
+  loadAudioPreference()
 })
+
+watch(cameraId, loadAudioPreference)
 
 // Auto-enable overlay when HlsPlayer becomes available
 watch(hlsPlayerRef, (player) => {
@@ -108,8 +116,9 @@ watch(hlsPlayerRef, (player) => {
         :camera-id="cameraId"
         suffix="_stream"
         :codec-hint="mseCodecHint"
+        :audio-enabled="audioActive"
       />
-      <HlsPlayer v-else ref="hlsPlayerRef" :camera-id="cameraId" suffix="_stream" :debug="true" :low-latency="camera.lowLatencyHLS" />
+      <HlsPlayer v-else ref="hlsPlayerRef" :camera-id="cameraId" suffix="_stream" :debug="true" :low-latency="camera.lowLatencyHLS" :audio-enabled="audioActive" />
       <div v-if="camera.isRecording" class="rec-overlay">
         <span class="rec-dot" /> REC
       </div>

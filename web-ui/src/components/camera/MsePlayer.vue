@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, watch } from 'vue'
 import { useMseStream } from '../../composables/useMseStream'
 import { useDetectionOverlay } from '../../composables/useDetectionOverlay'
 
@@ -8,6 +8,7 @@ const props = defineProps<{
   suffix?: string
   useSubStream?: boolean
   codecHint?: string
+  audioEnabled?: boolean
 }>()
 
 const videoRef = ref<HTMLVideoElement | null>(null)
@@ -18,6 +19,7 @@ const { showSpinner, connectionLost, latencyMs, codecUnsupported } = useMseStrea
   props.suffix ?? '',
   props.useSubStream ?? false,
   props.codecHint,
+  () => props.audioEnabled ?? false,
 )
 
 const { enabled: overlayEnabled, toggle: toggleOverlay } = useDetectionOverlay(
@@ -26,20 +28,26 @@ const { enabled: overlayEnabled, toggle: toggleOverlay } = useDetectionOverlay(
   videoRef,
 )
 
-function toggleAudio() {
+function setAudioEnabled(enabled: boolean) {
   const video = videoRef.value
   if (!video) return false
-  video.muted = !video.muted
-  if (!video.muted) video.play().catch(() => {})
+  video.muted = !enabled
+  if (enabled) video.play().catch(() => {})
   return !video.muted
 }
 
-defineExpose({ latencyMs, overlayEnabled, toggleOverlay, codecUnsupported, toggleAudio })
+function toggleAudio() {
+  return setAudioEnabled(videoRef.value?.muted ?? true)
+}
+
+watch(() => props.audioEnabled, enabled => setAudioEnabled(enabled ?? false))
+
+defineExpose({ latencyMs, overlayEnabled, toggleOverlay, codecUnsupported, toggleAudio, setAudioEnabled })
 </script>
 
 <template>
   <div class="mse-container">
-    <video ref="videoRef" playsinline muted />
+    <video ref="videoRef" playsinline :muted="!(audioEnabled ?? false)" />
     <canvas ref="canvasRef" class="detection-overlay" v-show="overlayEnabled" />
 
     <!-- Spinner: connecting / buffering -->
