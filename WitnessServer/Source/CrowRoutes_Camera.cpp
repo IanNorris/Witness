@@ -190,6 +190,28 @@ void CrowListener::HandleCameraEnum( const crow::request& req, crow::response& r
 								auto ImgStats = m_GlobalContext->CommonImageProcessingJobQueue->GetStats( ID );
 								Camera["lastTimestamp"] = ImgStats.LastTimestamp;
 
+								if( asAdmin )
+								{
+									auto MeanQueueMS = []( int64_t TotalNS, uint64_t Samples )
+									{
+										return Samples ? (double)TotalNS / ((double)Samples * 1000.0 * 1000.0) : 0.0;
+									};
+									Camera["queueIngressFrames"] = ImgStats.IngressFrames;
+									Camera["queueStartedFrames"] = ImgStats.StartedFrames;
+									Camera["queueCoalescedFrames"] = ImgStats.CoalescedFrames;
+									Camera["queueCoalescedAIFrames"] = ImgStats.CoalescedAIFrames;
+									Camera["queuePendingEssential"] = ImgStats.PendingEssentialJobs;
+									Camera["queuePendingAI"] = ImgStats.PendingAIJobs;
+									Camera["queuePeakPendingEssential"] = ImgStats.PeakPendingEssentialJobs;
+									Camera["queuePeakPendingAI"] = ImgStats.PeakPendingAIJobs;
+									Camera["queueIngressWaitMeanMS"] = MeanQueueMS( ImgStats.IngressQueueWaitTotalNS, ImgStats.IngressQueueWaitSamples );
+									Camera["queueIngressWaitMaxMS"] = (double)ImgStats.IngressQueueWaitMaxNS / (1000.0 * 1000.0);
+									Camera["queueContinuationWaitMeanMS"] = MeanQueueMS( ImgStats.ContinuationQueueWaitTotalNS, ImgStats.ContinuationQueueWaitSamples );
+									Camera["queueContinuationWaitMaxMS"] = (double)ImgStats.ContinuationQueueWaitMaxNS / (1000.0 * 1000.0);
+									Camera["queueAIWaitMeanMS"] = MeanQueueMS( ImgStats.AIQueueWaitTotalNS, ImgStats.AIQueueWaitSamples );
+									Camera["queueAIWaitMaxMS"] = (double)ImgStats.AIQueueWaitMaxNS / (1000.0 * 1000.0);
+								}
+
 								if( asAdmin && ImgStats.FrameCount > 0 )
 								{
 									Camera["frameCount"] = ImgStats.FrameCount;

@@ -17,11 +17,16 @@ struct CAMERA_API ImageProcessingJobQueue : public Pimpl<ImageProcessingJobQueue
 	bool TryPop(SharedClassificationTask& Job);
 	void Pop(SharedClassificationTask& Job);
 	void RemoveAllForSource( int SourceID );
+	void SetMaximumConcurrentAIJobs( size_t MaximumJobs );
+	bool HasLiveAIWork();
+	bool IsCurrentJob( const SharedClassificationTask& Job );
+	bool TryAcquireBackgroundAIJob();
+	void CompletedBackgroundAIJob();
 
 	SourceStats GetStats( int SourceID );
 	void ResetStats(int Source);
 
-	void CompletedJob( int SourceID );
+	void CompletedJob( int SourceID, uint64_t Generation, bool ReleaseAISlot );
 
 	void WorkerThreadMain();
 

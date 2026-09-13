@@ -195,6 +195,10 @@ public:
 	: FrameOwner( FrameOwnerIn )
 	, Frame( FrameOwnerIn->GetFilterFrame() )
 	, Result()
+	, QueueGeneration( 0 )
+	, QueueEnteredTimestampNS( 0 )
+	, HoldsAIReservation( false )
+	, EssentialObservationComplete( false )
 	{}
 	
 	std::shared_ptr<FilterFrameOwner> FrameOwner;
@@ -206,12 +210,28 @@ public:
 
 	FilterFrame Frame;
 	ClassificationResult Result;
+
+	// Assigned when the decoded frame first enters the queue. Reconnects
+	// advance the source generation so old continuations cannot re-enter it.
+	uint64_t QueueGeneration;
+	int64_t QueueEnteredTimestampNS;
+	bool HoldsAIReservation;
+	bool EssentialObservationComplete;
+	std::function<bool( const SharedClassificationTask& )> IsCurrentGeneration;
 };
 
 enum class ETaskType
 {
 	AutoContinuation,
 	ManualContinuation,
+};
+
+// Optional AI work may be dropped under load without delaying the camera
+// ingest, motion, and observer path.
+enum class EFilterWorkClass
+{
+	Essential,
+	OptionalAI,
 };
 
 struct MotionChainNode;
@@ -251,9 +271,17 @@ public:
 	}
 
 	virtual ETaskType GetTaskType() { return ETaskType::AutoContinuation; }
+	virtual EFilterWorkClass GetWorkClass() const { return EFilterWorkClass::Essential; }
 
 	void Continue( SharedClassificationTask TaskData, bool Success )
 	{
+		if( TaskData->IsCurrentGeneration && !TaskData->IsCurrentGeneration( TaskData ) )
+		{
+			TaskData->Next = nullptr;
+			TaskData->InsertToQueue( TaskData, true );
+			return;
+		}
+
 		bool MotionSuccess = (TaskData->Result.ClassificationSuperset & Chain->InclusiveFilter) != 0
 					&&	(TaskData->Result.ClassificationSuperset & Chain->ExclusiveFilter) == 0
 					&&	TaskData->Result.MotionAmount >= Chain->MinimumThreshold;
@@ -265,7 +293,7 @@ public:
 			TaskData->Origin->UpdateROITree( TaskData );
 		}
 
-		TaskData->InsertToQueue( TaskData, true );
+		TaskData->InsertToQueue( TaskData, TaskData->Next == nullptr || TaskData->Next->GetWorkClass() == EFilterWorkClass::Essential );
 	}
 
 	void DoWork( SharedClassificationTask TaskData )

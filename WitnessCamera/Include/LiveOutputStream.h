@@ -44,6 +44,7 @@ struct CAMERA_API LiveStreamEvent
 	SegmentBuffer Data;       // Binary fMP4 data (init, partial, or full segment)
 	double Duration = 0.0;
 	bool Independent = false; // True if partial starts with keyframe
+	bool KeyframeSeekSafe = false; // Sequence boundary is an exact no-B-frame RAP timestamp
 	int Generation = 0;       // Init segment generation counter
 	std::string AudioCodec;    // MSE codec string when the init has an audio track
 };
@@ -130,6 +131,13 @@ public:
 		_PartialTargetDuration = Duration;
 	}
 
+	// Timestamp repair is deliberately opt-in for camera profiles known to
+	// emit jittery RTSP clocks; generic and genuine VFR streams are untouched.
+	void SetTimestampNormalizationAllowed(bool Allowed)
+	{
+		_AllowTimestampNormalization = Allowed;
+	}
+
 	void ResetForReconnect(InputStream* NewInputStream);
 
 	// Observer for MSE WebSocket streaming — called on camera worker thread
@@ -175,13 +183,25 @@ private:
 	bool _HasInitialDTS;
 	bool _HasBFrames;
 	bool _HasAudioStream;
+	bool _AllowTimestampNormalization;
+	bool _NormalizeNoBFrameTimestamps;
+	bool _TimestampNormalizationRejected;
 
 	int64_t _InitialDTS;
 	int64_t _InitialTimestampUs;
+	int64_t _LastInputDTS;
+	int64_t _LastPacketDuration;
 	int64_t _LastWrittenDTS;
 	int _AudioInputStreamIndex;
 	int64_t _SegmentStartDTS;
+	int64_t _OutputSegmentStartDTS;
 	double _CurrentSegmentDuration;
+	int _TimestampProbeSamples;
+	int _TimestampProbeOutliers;
+	int64_t _TimestampProbeInputTicks;
+	int64_t _TimestampProbeDurationTicks;
+	int64_t _TimestampCumulativeDriftTicks;
+	int64_t _SourceTimestampOffset;
 
 	int _CurrentSegmentIndex;
 
@@ -191,6 +211,8 @@ private:
 	double _CurrentPartialAudioDuration;
 	double _PartialTargetDuration;
 	bool _CurrentPartialIsIndependent;
+	bool _CurrentPartialHasPacket;
+	bool _CurrentPartialKeyframeSeekSafe;
 	size_t _PartialBufferOffset;
 
 	bool _DiscontinuityPending; // set on reconnect, consumed by next segment
@@ -209,9 +231,11 @@ public:
 	struct SegmentDiagEntry
 	{
 		int SegmentIndex;
-		double DtsDuration;        // computed from DTS span (what goes into EXTINF)
-		double AccumulatedDuration; // sum of packet durations (old method)
-		double DriftMs;            // (accumulated - dts) * 1000
+		double DtsDuration;         // raw source DTS span
+		double OutputDuration;      // normalized DTS span written to the muxer
+		double AccumulatedDuration; // sum of declared packet durations
+		double DriftMs;             // (accumulated - source DTS) * 1000
+		bool TimestampNormalizationActive;
 	};
 
 	struct StreamingDiagnostics
@@ -224,6 +248,7 @@ public:
 		int CurrentSegmentIndex = 0;
 		int BacklogSize = 0;
 		int InitGeneration = 0;
+		bool TimestampNormalizationActive = false;
 		std::vector<SegmentDiagEntry> RecentSegments; // last 30
 	};
 

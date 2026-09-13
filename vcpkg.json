@@ -11,7 +11,6 @@
     "opencv4",
     "libsodium",
     "lz4",
-    "onnxruntime-gpu",
     {
       "name": "openssl",
       "features": ["tools"]

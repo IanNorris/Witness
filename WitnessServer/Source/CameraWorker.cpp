@@ -96,6 +96,7 @@ void CameraWorker::CreateInputStream()
 				ctrl["partIndex"] = ev.PartIndex;
 				ctrl["duration"] = ev.Duration;
 				ctrl["independent"] = ev.Independent;
+				ctrl["keyframeSeekSafe"] = ev.KeyframeSeekSafe;
 				streams->SendControl(cameraId, ctrl.dump());
 				streams->SendBinary(cameraId, ev.Data);
 				break;
@@ -115,6 +116,7 @@ void CameraWorker::CreateInputStream()
 			}
 		});
 	}
+	LiveStream->SetTimestampNormalizationAllowed( DetectCameraProfile( CamPath ) == CameraProfile::Reolink );
 
 	// Continuous recording
 	if (Camera.ContinuousRecording)
@@ -307,6 +309,8 @@ void CameraWorker::WorkerInit()
 					query->Bind( "@IsBaseline", 0 );
 					if( !cropPath.empty() )
 						query->Bind( "@CropPath", cropPath.c_str() );
+					else
+						query->BindNull( "@CropPath" );
 					query->Execute( nullptr );
 				}
 
@@ -625,26 +629,22 @@ void CameraWorker::WorkerInit()
 		});
 	}
 
-	MotionChainNode Observing;
-	Observing.OnSuccess = Observer;
-	Observing.OnFailure = Observer;
-
-	// If ONNX detection is enabled, insert it between motion detection and observer.
-	// ONNX receives ALL frames: motion frames for detection, non-motion frames for baseline capture.
-	std::shared_ptr<IRecordFilter> PostMotionTarget = Observer;
-	std::shared_ptr<IRecordFilter> NoMotionTarget = Observer;
+	// Motion observation runs before optional AI admission. ONNX still receives
+	// both motion and non-motion frames after the essential observer phase.
 
 	if( Video.DetectionEnabled && !Video.DetectionModelPath.empty() )
 	{
+		auto AIResultObserver = std::make_shared<AIResultObserverFilter>( Observer );
+
 		// Determine the final target after detection (face detection if enabled, otherwise observer)
-		std::shared_ptr<IRecordFilter> DetectionTarget = Observer;
+		std::shared_ptr<IRecordFilter> DetectionTarget = AIResultObserver;
 
 		// Insert face detection filter between ONNX detection and observer
 		if( Video.FaceDetectionEnabled && !Video.FaceDetectionModelPath.empty() )
 		{
 			MotionChainNode FaceChain;
-			FaceChain.OnSuccess = Observer;
-			FaceChain.OnFailure = Observer;
+			FaceChain.OnSuccess = AIResultObserver;
+			FaceChain.OnFailure = AIResultObserver;
 
 			auto FaceFilter = std::make_shared<FaceDetectionFilter>(
 				FaceChain,
@@ -679,8 +679,7 @@ void CameraWorker::WorkerInit()
 
 		if( DetectionFilter->IsModelLoaded() )
 		{
-			PostMotionTarget = DetectionFilter;
-			NoMotionTarget = DetectionFilter;  // Also receives non-motion frames for baseline
+			Observer->SetAITarget( DetectionFilter );
 			LOG_INFO( "Camera %d: ONNX detection enabled (model: %s, confidence: %.2f, max %.1f fps)",
 				Camera.ID, Video.DetectionModelPath.c_str(), Video.DetectionConfidence, Video.DetectionMaxFPS );
 		}
@@ -691,8 +690,8 @@ void CameraWorker::WorkerInit()
 	}
 
 	MotionChainNode MVF;
-	MVF.OnSuccess = PostMotionTarget;
-	MVF.OnFailure = NoMotionTarget;
+	MVF.OnSuccess = Observer;
+	MVF.OnFailure = Observer;
 	MVF.MinimumThreshold = (float)Camera.MDThreshold;
 	MVF.InclusiveFilter = ClassificationResult::Motion_Motion;
 	MVF.ExclusiveFilter = 0;

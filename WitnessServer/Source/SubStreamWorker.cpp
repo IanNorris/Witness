@@ -1,6 +1,7 @@
 #include "SubStreamWorker.h"
 #include "GlobalContext.h"
 #include "Common.h"
+#include "UrlHelpers.h"
 #include <Log.h>
 #include <chrono>
 
@@ -64,6 +65,8 @@ void SubStreamWorker::ThreadFunc()
 		if (!m_LiveStream)
 		{
 			m_LiveStream = std::make_shared<LiveOutputStream>(m_CachePath, m_InputStream.get(), 1);
+			m_LiveStream->SetTimestampNormalizationAllowed(
+				DetectCameraProfile(m_SubStreamUrl) == CameraProfile::Reolink);
 
 			// Wire up MSE WebSocket notifications for sub-stream channel
 			int cameraId = m_CameraId;
@@ -93,6 +96,7 @@ void SubStreamWorker::ThreadFunc()
 					ctrl["partIndex"] = ev.PartIndex;
 					ctrl["duration"] = ev.Duration;
 					ctrl["independent"] = ev.Independent;
+					ctrl["keyframeSeekSafe"] = ev.KeyframeSeekSafe;
 					streams->SendControl(subChannelId, ctrl.dump());
 					streams->SendBinary(subChannelId, ev.Data);
 					break;

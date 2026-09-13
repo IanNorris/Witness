@@ -12,17 +12,28 @@ const router = useRouter()
 const cameraStore = useCameraStore()
 const settings = useSettingsStore()
 
+const cameraId = computed(() => Number(route.params.cameraId))
+const camera = computed(() => cameraStore.getCameraById(cameraId.value))
+
+function isHevcCodec(codec?: string): boolean {
+  const normalized = codec?.toLowerCase()
+  return normalized === 'hevc' || normalized === 'h265' || normalized === 'hev1'
+}
+
+const mseCodecHint = computed(() =>
+  isHevcCodec(camera.value?.codec) ? 'hev1.1.6.L93.B0' : 'avc1.42001e',
+)
+
 const effectiveMode = computed(() => {
   if (settings.streamingMode === 'mse') {
-    if (typeof MediaSource === 'undefined' || !MediaSource.isTypeSupported('video/mp4; codecs="avc1.42001e"')) {
+    const mimeType = `video/mp4; codecs="${mseCodecHint.value}"`
+    if (typeof MediaSource === 'undefined' || !MediaSource.isTypeSupported(mimeType)) {
       return 'hls'
     }
   }
   return settings.streamingMode
 })
 
-const cameraId = computed(() => Number(route.params.cameraId))
-const camera = computed(() => cameraStore.getCameraById(cameraId.value))
 const hlsPlayerRef = ref<InstanceType<typeof HlsPlayer> | InstanceType<typeof MsePlayer> | null>(null)
 const detectionOverlayActive = ref(false)
 const audioActive = ref(false)
@@ -90,7 +101,14 @@ watch(hlsPlayerRef, (player) => {
     </template>
 
     <div v-if="camera" class="stream-container" @click="cameraStore.toggleRecording(cameraId)">
-      <MsePlayer v-if="effectiveMode === 'mse'" ref="hlsPlayerRef" :camera-id="cameraId" suffix="_stream" />
+      <MsePlayer
+        v-if="effectiveMode === 'mse'"
+        :key="`${cameraId}:${mseCodecHint}`"
+        ref="hlsPlayerRef"
+        :camera-id="cameraId"
+        suffix="_stream"
+        :codec-hint="mseCodecHint"
+      />
       <HlsPlayer v-else ref="hlsPlayerRef" :camera-id="cameraId" suffix="_stream" :debug="true" :low-latency="camera.lowLatencyHLS" />
       <div v-if="camera.isRecording" class="rec-overlay">
         <span class="rec-dot" /> REC

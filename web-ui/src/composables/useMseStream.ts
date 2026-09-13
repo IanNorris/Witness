@@ -27,6 +27,7 @@ class MseDiagnostics {
   cameraID: string
   startTime: number
   events: DiagEvent[] = []
+  importantEvents: DiagEvent[] = []
   stats: MseDiagStats = {
     restartCount: 0,
     stallCount: 0,
@@ -59,6 +60,12 @@ class MseDiagnostics {
       ...extra,
     }
     this.events.push(event)
+    // Routine fragment traffic quickly fills the rolling diagnostic window.
+    // Retain lifecycle, error, and recovery events separately so a later dump
+    // still contains the cause of an earlier stall or restart.
+    if (type !== 'partial' && type !== 'segmentComplete') {
+      this.importantEvents.push(event)
+    }
     this.pruneOldEvents()
   }
 
@@ -72,6 +79,12 @@ class MseDiagnostics {
     const cutoff = Date.now() - DIAG_MAX_AGE_MS
     while (this.events.length > 0 && new Date(this.events[0]!.t).getTime() < cutoff) {
       this.events.shift()
+    }
+    while (
+      this.importantEvents.length > 0 &&
+      new Date(this.importantEvents[0]!.t).getTime() < cutoff
+    ) {
+      this.importantEvents.shift()
     }
   }
 
@@ -98,6 +111,7 @@ class MseDiagnostics {
                 : [],
           }
         : null,
+      importantEvents: this.importantEvents.slice(-100),
       events: this.events.slice(-100),
     }
   }
@@ -140,6 +154,36 @@ export interface MseStreamState {
   codecUnsupported: Ref<boolean>
 }
 
+interface PartialAppendMetadata {
+  duration: number
+  independent: boolean
+  keyframeSeekSafe: boolean
+  segmentIndex: number
+  partIndex: number
+}
+
+interface AppendQueueItem {
+  data: ArrayBuffer
+  partial?: PartialAppendMetadata
+}
+
+type SourceBufferOperation =
+  | {
+      kind: 'append'
+      item: AppendQueueItem
+      startTime: number | null
+      buffer: SourceBuffer
+      generation: number
+      failed: boolean
+    }
+  | {
+      kind: 'remove'
+      removeTo: number
+      buffer: SourceBuffer
+      generation: number
+      failed: boolean
+    }
+
 export function useMseStream(
   cameraId: number,
   videoRef: Ref<HTMLVideoElement | null>,
@@ -160,7 +204,10 @@ export function useMseStream(
   let ws: WebSocket | null = null
   let mediaSource: MediaSource | null = null
   let sourceBuffer: SourceBuffer | null = null
-  let appendQueue: ArrayBuffer[] = []
+  let appendQueue: AppendQueueItem[] = []
+  let sourceBufferOperation: SourceBufferOperation | null = null
+  let sourceBufferGeneration = 0
+  let lastTrimmedTo = 0
   let lastFragTime = 0
   let streamStartTime = Date.now()
   let watchdog: ReturnType<typeof setInterval> | null = null
@@ -169,15 +216,20 @@ export function useMseStream(
   let lowReadyStateSince = 0
   let lastCurrentTime = -1
   let currentTimeStalledSince = 0
+  let highLatencySince = 0
+  let catchUpActive = false
   let destroyed = false
   let intentionalClose = false
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let initGeneration = -1
   let expectingBinary: 'init' | 'partial' | null = null
+  let pendingPartialMetadata: PartialAppendMetadata | null = null
   let waitingForKeyframe = true  // Skip partials until first independent (keyframe)
   let hasInitialBuffer = false   // Seek to buffered range after first append
   let pendingInitData: ArrayBuffer | null = null  // Buffered init segment when MediaSource isn't open yet
   let consecutiveAppendErrors = 0  // Track consecutive appendBuffer failures for restart
+  let keyframeTimes: number[] = []
+  let lastKeyframeSeekTarget = -1
 
   function getWsUrl(): string {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -186,16 +238,36 @@ export function useMseStream(
   }
 
   function processAppendQueue() {
-    if (!sourceBuffer || sourceBuffer.updating || appendQueue.length === 0) return
-    const data = appendQueue.shift()!
+    if (
+      !sourceBuffer ||
+      sourceBuffer.updating ||
+      sourceBufferOperation ||
+      appendQueue.length === 0
+    ) return
+    const buffer = sourceBuffer
+    const generation = sourceBufferGeneration
+    const item = appendQueue.shift()!
+    let startTime: number | null = null
+    if (item.partial && buffer.buffered.length > 0) {
+      startTime = buffer.buffered.end(buffer.buffered.length - 1)
+    }
+    sourceBufferOperation = {
+      kind: 'append',
+      item,
+      startTime,
+      buffer,
+      generation,
+      failed: false,
+    }
     try {
-      sourceBuffer.appendBuffer(data)
+      buffer.appendBuffer(item.data)
     } catch (e: any) {
+      sourceBufferOperation = null
       if (e.name === 'QuotaExceededError') {
         diag.log('quotaExceeded')
         trimBuffer(true)
         // Re-queue and retry
-        appendQueue.unshift(data)
+        appendQueue.unshift(item)
         setTimeout(() => processAppendQueue(), 100)
       } else {
         diag.stats.errorCount++
@@ -210,24 +282,36 @@ export function useMseStream(
     }
   }
 
-  function appendData(data: ArrayBuffer) {
-    appendQueue.push(data)
+  function appendData(data: ArrayBuffer, partial?: PartialAppendMetadata) {
+    appendQueue.push({ data, partial })
     processAppendQueue()
   }
 
   function trimBuffer(aggressive = false) {
-    if (!sourceBuffer || sourceBuffer.updating) return
+    if (!sourceBuffer || sourceBuffer.updating || sourceBufferOperation) return false
     const video = videoRef.value
-    if (!video) return
+    if (!video) return false
 
     const trimTo = video.currentTime - (aggressive ? 1 : MSE_BACK_BUFFER_SECONDS)
     if (trimTo > 0 && sourceBuffer.buffered.length > 0) {
+      const bufferedStart = sourceBuffer.buffered.start(0)
+      if (trimTo <= bufferedStart + 0.05 || trimTo <= lastTrimmedTo + 0.05) return false
+      const buffer = sourceBuffer
+      sourceBufferOperation = {
+        kind: 'remove',
+        removeTo: trimTo,
+        buffer,
+        generation: sourceBufferGeneration,
+        failed: false,
+      }
       try {
-        sourceBuffer.remove(0, trimTo)
+        buffer.remove(0, trimTo)
+        return true
       } catch {
-        // May throw if already updating
+        sourceBufferOperation = null
       }
     }
+    return false
   }
 
   function setupMediaSource(element: HTMLVideoElement) {
@@ -277,9 +361,50 @@ export function useMseStream(
     try {
       sourceBuffer = mediaSource.addSourceBuffer(mimeType)
       sourceBuffer.mode = 'sequence'
-      sourceBuffer.addEventListener('updateend', () => {
-        consecutiveAppendErrors = 0  // Reset on successful append
-        processAppendQueue()
+      const buffer = sourceBuffer
+      const generation = ++sourceBufferGeneration
+      buffer.addEventListener('updateend', () => {
+        // Events from a removed SourceBuffer may arrive after a replacement
+        // pipeline has started. They must never consume its operation record.
+        if (sourceBuffer !== buffer || sourceBufferGeneration !== generation) return
+        const operation = sourceBufferOperation
+        if (!operation || operation.buffer !== buffer || operation.generation !== generation) return
+        sourceBufferOperation = null
+
+        if (operation.kind === 'remove') {
+          if (!operation.failed) lastTrimmedTo = Math.max(lastTrimmedTo, operation.removeTo)
+          processAppendQueue()
+          return
+        }
+
+        if (operation.failed) {
+          processAppendQueue()
+          return
+        }
+
+        consecutiveAppendErrors = 0  // Reset only after a successful append
+
+        // `independent` is carried alongside the binary partial through the
+        // append queue. Record its actual position in the sequence timeline
+        // only once the browser confirms that append has completed.
+        const partial = operation.item.partial
+        if (partial?.independent && partial.keyframeSeekSafe && partial.partIndex === 0) {
+          const buffered = buffer.buffered
+          if (buffered.length > 0) {
+            const end = buffered.end(buffered.length - 1)
+            const start = operation.startTime ?? buffered.start(buffered.length - 1)
+            const bufferedGrew = end > start + 0.001
+            if (bufferedGrew && !keyframeTimes.some((time) => Math.abs(time - start) < 0.01)) {
+              keyframeTimes.push(start)
+              diag.log('keyframeBuffered', {
+                time: start,
+                segmentIndex: partial.segmentIndex,
+                partIndex: partial.partIndex,
+              })
+            }
+            if (keyframeTimes.length > 20) keyframeTimes.splice(0, keyframeTimes.length - 20)
+          }
+        }
 
         // After first data is buffered, start playback from keyframe at buffer start
         // The watchdog's seekToLive will catch up to live edge within 250ms
@@ -298,14 +423,22 @@ export function useMseStream(
         if (video && video.currentTime > MSE_BACK_BUFFER_SECONDS + 2) {
           trimBuffer()
         }
+
+        processAppendQueue()
       })
-      sourceBuffer.addEventListener('error', () => {
+      buffer.addEventListener('error', () => {
+        if (sourceBuffer !== buffer || sourceBufferGeneration !== generation) return
+        if (sourceBufferOperation?.buffer === buffer) sourceBufferOperation.failed = true
         diag.stats.errorCount++
         consecutiveAppendErrors++
         diag.log('sourceBufferError', { consecutive: consecutiveAppendErrors })
         if (consecutiveAppendErrors >= 5) {
           restartStream('sourceBufferErrors')
         }
+      })
+      buffer.addEventListener('abort', () => {
+        if (sourceBuffer !== buffer || sourceBufferGeneration !== generation) return
+        if (sourceBufferOperation?.buffer === buffer) sourceBufferOperation.failed = true
       })
       diag.log('sourceBufferCreated', { mimeType })
       return true
@@ -331,6 +464,7 @@ export function useMseStream(
           // Skip non-independent partials until first keyframe
           if (waitingForKeyframe && !msg.independent) {
             expectingBinary = null // Will discard the binary frame
+            pendingPartialMetadata = null
             diag.log('skippedPartial', {
               segmentIndex: msg.segmentIndex,
               partIndex: msg.partIndex,
@@ -346,6 +480,13 @@ export function useMseStream(
             })
           }
           expectingBinary = 'partial'
+          pendingPartialMetadata = {
+            duration: Number(msg.duration) || 0,
+            independent: Boolean(msg.independent),
+            keyframeSeekSafe: Boolean(msg.keyframeSeekSafe),
+            segmentIndex: Number(msg.segmentIndex),
+            partIndex: Number(msg.partIndex),
+          }
           diag.log('partial', {
             segmentIndex: msg.segmentIndex,
             partIndex: msg.partIndex,
@@ -388,12 +529,13 @@ export function useMseStream(
       expectingBinary = null
     } else if (expectingBinary === 'partial') {
       if (sourceBuffer) {
-        appendData(data)
+        appendData(data, pendingPartialMetadata ?? undefined)
         lastFragTime = Date.now()
         diag.stats.totalFragments++
         isActive.value = true
       }
       expectingBinary = null
+      pendingPartialMetadata = null
     } else {
       // Binary frame for a skipped partial (no keyframe yet) — discard silently
     }
@@ -409,8 +551,11 @@ export function useMseStream(
         // May fail if already closed
       }
     }
+    sourceBufferGeneration++
     sourceBuffer = null
     appendQueue = []
+    sourceBufferOperation = null
+    lastTrimmedTo = 0
 
     const element = videoRef.value
     if (element && mediaSource) {
@@ -425,11 +570,16 @@ export function useMseStream(
     waitingForKeyframe = true
     hasInitialBuffer = false
     pendingInitData = null
+    pendingPartialMetadata = null
     consecutiveAppendErrors = 0
     lastFragTime = 0  // Reset so watchdog correctly detects stale connections
     streamStartTime = Date.now()
     lastCurrentTime = -1
     currentTimeStalledSince = 0
+    highLatencySince = 0
+    catchUpActive = false
+    keyframeTimes = []
+    lastKeyframeSeekTarget = -1
   }
 
   function connectWebSocket() {
@@ -485,8 +635,11 @@ export function useMseStream(
             mediaSource.removeSourceBuffer(sourceBuffer)
           } catch {}
         }
+        sourceBufferGeneration++
         sourceBuffer = null
         appendQueue = []
+        sourceBufferOperation = null
+        lastTrimmedTo = 0
 
         const el = videoRef.value
         if (el) {
@@ -502,9 +655,14 @@ export function useMseStream(
         waitingForKeyframe = true
         hasInitialBuffer = false
         pendingInitData = null
+        pendingPartialMetadata = null
         consecutiveAppendErrors = 0
         lastCurrentTime = -1
         currentTimeStalledSince = 0
+        highLatencySince = 0
+        catchUpActive = false
+        keyframeTimes = []
+        lastKeyframeSeekTarget = -1
 
         diag.stats.restartCount++
         diag.log('reconnect', { backoffMs: restartBackoffMs })
@@ -539,8 +697,11 @@ export function useMseStream(
         mediaSource.removeSourceBuffer(sourceBuffer)
       } catch {}
     }
+    sourceBufferGeneration++
     sourceBuffer = null
     appendQueue = []
+    sourceBufferOperation = null
+    lastTrimmedTo = 0
 
     const element = videoRef.value
     if (element) {
@@ -556,9 +717,14 @@ export function useMseStream(
     waitingForKeyframe = true
     hasInitialBuffer = false
     pendingInitData = null
+    pendingPartialMetadata = null
     consecutiveAppendErrors = 0
     lastCurrentTime = -1
     currentTimeStalledSince = 0
+    highLatencySince = 0
+    catchUpActive = false
+    keyframeTimes = []
+    lastKeyframeSeekTarget = -1
 
     // Reconnect
     reconnectTimer = setTimeout(() => {
@@ -636,30 +802,86 @@ export function useMseStream(
         }
       }
 
-      // Live edge tracking — gentle playback rate adjustment to minimize latency
+      // Live edge tracking. Use one-way catch-up with broad hysteresis: the old
+      // 50-100ms band was narrower than one partial and switched between 0.9x
+      // and 1.1x too frequently. Never slow below the source rate.
       if (video.readyState >= 3 && !video.paused && sourceBuffer) {
         const buf = video.buffered
         if (buf.length > 0) {
+          const rangeStart = buf.start(buf.length - 1)
           const end = buf.end(buf.length - 1)
-          const lag = end - video.currentTime
+          keyframeTimes = keyframeTimes.filter((time) => time >= rangeStart - 0.01 && time < end)
+
+          let lag = end - video.currentTime
+          const futureKeyframes = keyframeTimes.filter(
+            (time) =>
+              time > video.currentTime + 0.05 &&
+              time >= rangeStart &&
+              time < end - 0.01,
+          )
+          if (!video.seeking && futureKeyframes.length >= 2) {
+            const target = futureKeyframes[futureKeyframes.length - 1]!
+            if (target > lastKeyframeSeekTarget + 0.01) {
+              const from = video.currentTime
+              video.currentTime = target
+              lastCurrentTime = target
+              currentTimeStalledSince = 0
+              highLatencySince = 0
+              catchUpActive = true
+              lastKeyframeSeekTarget = target
+              lag = Math.max(0, end - target)
+              diag.log('keyframeCatchUpSeek', {
+                from,
+                to: target,
+                skippedKeyframes: futureKeyframes.length - 1,
+                remainingLagMs: Math.round(lag * 1000),
+              })
+            }
+          }
+
           latencyMs.value = Math.round(lag * 1000)
           diag.recordLatency(latencyMs.value)
 
-          // Adjust playback rate to stay near live edge
-          const targetRate = lag > 0.1 ? 1.1 : lag < 0.05 ? 0.9 : 1.0
+          if (!catchUpActive && lag > 0.75) {
+            catchUpActive = true
+            diag.log('catchUpStart', { lag, lagMs: latencyMs.value })
+          } else if (catchUpActive && lag < 0.35) {
+            catchUpActive = false
+            diag.log('catchUpEnd', { lag, lagMs: latencyMs.value })
+          }
+
+          const targetRate = catchUpActive ? (lag > 0.75 ? 1.08 : 1.03) : 1.0
           if (video.playbackRate !== targetRate) {
             video.playbackRate = targetRate
           }
 
           // Drift recovery: if latency exceeds 5s for 3+ seconds, full restart
           if (lag > 5) {
-            if (currentTimeStalledSince === 0) currentTimeStalledSince = now
-            if (now - currentTimeStalledSince > 3000) {
+            if (highLatencySince === 0) highLatencySince = now
+            if (now - highLatencySince > 3000) {
               diag.log('driftRestart', { lag, lagMs: latencyMs.value })
               restartStream('drift')
               return
             }
+          } else {
+            highLatencySince = 0
           }
+        } else {
+          highLatencySince = 0
+          if (catchUpActive || video.playbackRate !== 1.0) {
+            catchUpActive = false
+            video.playbackRate = 1.0
+            diag.log('catchUpCancelled', { readyState: video.readyState, reason: 'noBuffer' })
+          }
+        }
+      } else {
+        // Do not carry an accelerated rate or a partial drift timer through an
+        // under-buffered interval; both would turn ordinary jitter into a stall.
+        highLatencySince = 0
+        if (catchUpActive || video.playbackRate !== 1.0) {
+          catchUpActive = false
+          video.playbackRate = 1.0
+          diag.log('catchUpCancelled', { readyState: video.readyState })
         }
       }
     }, MSE_WATCHDOG_INTERVAL_MS)
@@ -684,6 +906,7 @@ export function useMseStream(
     }))
     element.muted = true
     element.autoplay = true
+    element.playbackRate = 1.0
 
     connectWebSocket()
     startWatchdog()
@@ -692,6 +915,8 @@ export function useMseStream(
 
   function stop() {
     destroyed = true
+    catchUpActive = false
+    highLatencySince = 0
 
     if (reconnectTimer) {
       clearTimeout(reconnectTimer)
@@ -711,7 +936,10 @@ export function useMseStream(
         mediaSource.removeSourceBuffer(sourceBuffer)
       } catch {}
     }
+    sourceBufferGeneration++
     sourceBuffer = null
+    sourceBufferOperation = null
+    lastTrimmedTo = 0
 
     const element = videoRef.value
     if (element) {
@@ -722,7 +950,11 @@ export function useMseStream(
 
     mediaSource = null
     appendQueue = []
-    delete diagMap[diagId]
+    pendingPartialMetadata = null
+    keyframeTimes = []
+    // A codec change remounts the player under the same diagnostic ID. Vue may
+    // stop the old instance after the replacement has registered itself.
+    if (diagMap[diagId] === diag) delete diagMap[diagId]
   }
 
   // Auto-start when video element is available

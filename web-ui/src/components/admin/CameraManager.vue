@@ -51,6 +51,20 @@ interface AdminCamera {
   streamReadTimeMS?: number
   streamDecodeTimeMS?: number
   streamOutputTimeMS?: number
+  queueIngressFrames?: number
+  queueStartedFrames?: number
+  queueCoalescedFrames?: number
+  queueCoalescedAIFrames?: number
+  queuePendingEssential?: number
+  queuePendingAI?: number
+  queuePeakPendingEssential?: number
+  queuePeakPendingAI?: number
+  queueIngressWaitMeanMS?: number
+  queueIngressWaitMaxMS?: number
+  queueContinuationWaitMeanMS?: number
+  queueContinuationWaitMaxMS?: number
+  queueAIWaitMeanMS?: number
+  queueAIWaitMaxMS?: number
 }
 
 interface Group {
@@ -224,10 +238,10 @@ onMounted(() => {
                 :class="cam.status === 'Connected' ? 'bg-success' : 'bg-danger'"
                 style="cursor: pointer"
                 @click="toggleDiag(cam.id)"
-                :title="cam.frameCount ? `${cam.frameCount} frames — click for details` : 'Click for details'"
+                :title="`${cam.frameCount ?? 0} completed / ${cam.queueIngressFrames ?? 0} queued frames — click for details`"
               >
                 {{ cam.status }}
-                <span v-if="cam.frameCount" class="ms-1 opacity-75">⚙</span>
+                <span v-if="cam.frameCount || cam.queueIngressFrames" class="ms-1 opacity-75">⚙</span>
               </span>
             </td>
             <td class="text-truncate small font-monospace" style="max-width: 250px;">{{ maskPassword(cam.connectionString) }}</td>
@@ -237,7 +251,7 @@ onMounted(() => {
             </td>
           </tr>
           <!-- Expanded diagnostics row -->
-          <tr v-if="expandedDiag === cam.id && cam.frameCount" class="diag-row">
+          <tr v-if="expandedDiag === cam.id" class="diag-row">
             <td colspan="6" class="px-3 py-2">
               <div class="row g-3 small">
                 <div class="col-md-4">
@@ -264,6 +278,18 @@ onMounted(() => {
                     <tr><td class="text-muted">Read</td><td>{{ fmtMs(cam.streamReadTimeMS) }}</td></tr>
                     <tr><td class="text-muted">Decode</td><td>{{ fmtMs(cam.streamDecodeTimeMS) }}</td></tr>
                     <tr><td class="text-muted">Output</td><td>{{ fmtMs(cam.streamOutputTimeMS) }}</td></tr>
+                  </table>
+                </div>
+                <div class="col-md-4">
+                  <div class="fw-bold mb-1">Processing Queue</div>
+                  <table class="table table-dark table-sm table-borderless mb-0 diag-table">
+                    <tr><td class="text-muted">Ingress / started</td><td>{{ (cam.queueIngressFrames ?? 0).toLocaleString() }} / {{ (cam.queueStartedFrames ?? 0).toLocaleString() }}</td></tr>
+                    <tr><td class="text-muted">Coalesced / AI</td><td>{{ (cam.queueCoalescedFrames ?? 0).toLocaleString() }} / {{ (cam.queueCoalescedAIFrames ?? 0).toLocaleString() }}</td></tr>
+                    <tr><td class="text-muted">Pending essential / AI</td><td>{{ cam.queuePendingEssential ?? 0 }} / {{ cam.queuePendingAI ?? 0 }}</td></tr>
+                    <tr><td class="text-muted">Peak essential / AI</td><td>{{ cam.queuePeakPendingEssential ?? 0 }} / {{ cam.queuePeakPendingAI ?? 0 }}</td></tr>
+                    <tr><td class="text-muted">Ingress wait mean / max</td><td>{{ fmtMs(cam.queueIngressWaitMeanMS) }} / {{ fmtMs(cam.queueIngressWaitMaxMS) }}</td></tr>
+                    <tr><td class="text-muted">Continuation mean / max</td><td>{{ fmtMs(cam.queueContinuationWaitMeanMS) }} / {{ fmtMs(cam.queueContinuationWaitMaxMS) }}</td></tr>
+                    <tr><td class="text-muted">AI wait mean / max</td><td>{{ fmtMs(cam.queueAIWaitMeanMS) }} / {{ fmtMs(cam.queueAIWaitMaxMS) }}</td></tr>
                   </table>
                 </div>
               </div>

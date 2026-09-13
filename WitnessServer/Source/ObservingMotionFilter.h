@@ -61,6 +61,9 @@ public:
 	virtual ~ObservingMotionFilter();
 	
 	virtual bool ProcessFrame( SharedClassificationTask TaskData ) override;
+	virtual ETaskType GetTaskType() override { return ETaskType::ManualContinuation; }
+
+	void SetAITarget( const std::shared_ptr<IRecordFilter>& Target ) { AITarget = Target; }
 
 	bool FlagToSaveNextFrame() { SaveNextFrame = true; }
 	bool HasViewer() { return SaveNextFrame; }
@@ -81,7 +84,12 @@ public:
 	}
 	void SetManualClipEnd( uint64_t ClipEnd ) { ClipStats.TimestampClipEnded = std::max( ClipEnd, ClipStats.TimestampClipEnded ); }
 
-	virtual void ClearStateThis() override { ClipStats.Clear(); }
+	virtual void ClearStateThis() override
+	{
+		ClipStats.Clear();
+		if( AITarget )
+			AITarget->ClearState();
+	}
 
 	void SetPreviewTimestamps( uint64_t Large, uint64_t Small )
 	{
@@ -122,4 +130,19 @@ private:
 	DebugBind<int> DB_DrawObjectLabels;
 
 	DetectionFrameCallback	DetectionCallback;
+	std::shared_ptr<IRecordFilter> AITarget;
+};
+
+// Terminates the optional AI chain by returning the enriched task to the
+// camera's observer without creating a strong reference cycle.
+class AIResultObserverFilter : public IRecordFilter
+{
+public:
+	AIResultObserverFilter( const std::shared_ptr<ObservingMotionFilter>& ObserverIn );
+	virtual ETaskType GetTaskType() override { return ETaskType::ManualContinuation; }
+	virtual EFilterWorkClass GetWorkClass() const override { return EFilterWorkClass::OptionalAI; }
+	virtual bool ProcessFrame( SharedClassificationTask TaskData ) override;
+
+private:
+	std::weak_ptr<ObservingMotionFilter> Observer;
 };

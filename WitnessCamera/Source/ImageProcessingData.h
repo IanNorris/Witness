@@ -33,7 +33,19 @@ struct ImageProcessingJobQueueData
 	std::condition_variable								Condition;
 	std::vector<SharedClassificationTask>				Queue;
 	std::vector<SharedClassificationTask>				HighPriorityAsyncQueue;
+	// Stable source order provides fair round-robin dispatch. Each source has
+	// at most one replaceable ingress frame in Queue; continuations are retained.
+	std::vector<int>									EssentialSourceOrder;
+	size_t										NextEssentialSource = 0;
+	// Candidate frames are replaceable. Once inference has started, its
+	// continuations go here and are never replaced by a newer candidate.
+	std::vector<SharedClassificationTask>				AIQueue;
+	std::vector<SharedClassificationTask>				AIContinuationQueue;
 	std::vector<int>									ActiveSources;
+	std::vector<int>									ActiveAISources;
+	size_t										MaximumConcurrentAIJobs = 1;
+	size_t										ActiveBackgroundAIJobs = 0;
+	std::unordered_map<int, uint64_t>					SourceGenerations;
 
 	std::mutex											StateMutex;
 	std::unordered_map<int,std::shared_ptr<SourceState>> States;
@@ -61,7 +73,7 @@ struct ImageProcessingJobQueueData
 
 	SourceStats GetStatsForSource(int Source)
 	{
-		std::lock_guard<std::mutex> Lock(StateMutex);
+		std::lock_guard<std::mutex> Lock(StatsMutex);
 
 		return Stats[Source];
 	}

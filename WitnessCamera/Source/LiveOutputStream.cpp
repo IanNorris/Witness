@@ -27,12 +27,24 @@ LiveOutputStream::LiveOutputStream(const std::string& LiveCachePath, InputStream
 	, _HasInitialDTS( false )
 	, _HasBFrames( false )
 	, _HasAudioStream( false )
+	, _AllowTimestampNormalization( false )
+	, _NormalizeNoBFrameTimestamps( false )
+	, _TimestampNormalizationRejected( false )
 	, _InitialDTS( 0 )
 	, _InitialTimestampUs( AV_NOPTS_VALUE )
+	, _LastInputDTS( AV_NOPTS_VALUE )
+	, _LastPacketDuration( 0 )
 	, _LastWrittenDTS( AV_NOPTS_VALUE )
 	, _AudioInputStreamIndex( -1 )
 	, _SegmentStartDTS( 0 )
+	, _OutputSegmentStartDTS( AV_NOPTS_VALUE )
 	, _CurrentSegmentDuration( 0.0 )
+	, _TimestampProbeSamples( 0 )
+	, _TimestampProbeOutliers( 0 )
+	, _TimestampProbeInputTicks( 0 )
+	, _TimestampProbeDurationTicks( 0 )
+	, _TimestampCumulativeDriftTicks( 0 )
+	, _SourceTimestampOffset( 0 )
 	, _CurrentSegmentIndex(0)
 	, _CurrentPartialIndex(0)
 	, _PartialStartDTS(AV_NOPTS_VALUE)
@@ -40,6 +52,8 @@ LiveOutputStream::LiveOutputStream(const std::string& LiveCachePath, InputStream
 	, _CurrentPartialAudioDuration(0.0)
 	, _PartialTargetDuration(0.15)
 	, _CurrentPartialIsIndependent(false)
+	, _CurrentPartialHasPacket(false)
+	, _CurrentPartialKeyframeSeekSafe(false)
 	, _PartialBufferOffset(0)
 	, _DiscontinuityPending(false)
 	, _InitGeneration(0)
@@ -134,14 +148,27 @@ void LiveOutputStream::ResetForReconnect(InputStream* NewInputStream)
 	_HasInitialDTS = false;
 	_HasBFrames = false;
 	_HasAudioStream = false;
+	_NormalizeNoBFrameTimestamps = false;
+	_TimestampNormalizationRejected = false;
 	_InitialDTS = 0;
 	_InitialTimestampUs = AV_NOPTS_VALUE;
+	_LastInputDTS = AV_NOPTS_VALUE;
+	_LastPacketDuration = 0;
 	_LastWrittenDTS = AV_NOPTS_VALUE;
 	_AudioInputStreamIndex = -1;
+	_OutputSegmentStartDTS = AV_NOPTS_VALUE;
+	_TimestampProbeSamples = 0;
+	_TimestampProbeOutliers = 0;
+	_TimestampProbeInputTicks = 0;
+	_TimestampProbeDurationTicks = 0;
+	_TimestampCumulativeDriftTicks = 0;
+	_SourceTimestampOffset = 0;
 	_PartialBufferOffset = 0;
 	_CurrentPartialDuration = 0.0;
 	_CurrentPartialAudioDuration = 0.0;
 	_CurrentPartialIsIndependent = false;
+	_CurrentPartialHasPacket = false;
+	_CurrentPartialKeyframeSeekSafe = false;
 	_DiscontinuityPending = true;
 	{
 		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
@@ -369,30 +396,153 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 		return CameraStreamError::Success;
 	}
 
-	// For streams without B-frames, PTS naturally equals DTS — force it to
-	// be safe. For B-frame streams, preserve PTS so the browser can
-	// reorder frames correctly (MSE handles this natively).
+	// Clamp invalid durations before they participate in timestamp repair.
+	if (PacketCopy.duration < 0)
+		PacketCopy.duration = 0;
+
+	// Reject duplicate or out-of-order input packets before repairing their
+	// output timestamp. Also sample the relationship between source DTS deltas
+	// and declared frame durations. We only replace the source clock when it is
+	// demonstrably jittery but agrees with the durations over the whole window;
+	// genuine variable-frame-rate streams therefore retain their source timing.
+	if (IsVideo && PacketCopy.dts != AV_NOPTS_VALUE)
+	{
+		if (_LastInputDTS != AV_NOPTS_VALUE && PacketCopy.dts <= _LastInputDTS)
+		{
+			av_packet_unref(&PacketCopy);
+			return CameraStreamError::Success;
+		}
+
+		if (!_HasBFrames && _AllowTimestampNormalization && !_TimestampNormalizationRejected &&
+			_LastInputDTS != AV_NOPTS_VALUE && _LastPacketDuration > 0)
+		{
+			const bool WasNormalizing = _NormalizeNoBFrameTimestamps;
+			const int64_t InputDelta = PacketCopy.dts - _LastInputDTS;
+			int64_t DeltaError = InputDelta - _LastPacketDuration;
+			if (DeltaError < 0)
+				DeltaError = -DeltaError;
+
+			++_TimestampProbeSamples;
+			_TimestampProbeInputTicks += InputDelta;
+			_TimestampProbeDurationTicks += _LastPacketDuration;
+			if (DeltaError * 2 > _LastPacketDuration)
+				++_TimestampProbeOutliers;
+			if (WasNormalizing)
+				_TimestampCumulativeDriftTicks += InputDelta - _LastPacketDuration;
+
+			if (!_NormalizeNoBFrameTimestamps && _TimestampProbeSamples >= 20)
+			{
+				int64_t TotalError = _TimestampProbeInputTicks - _TimestampProbeDurationTicks;
+				if (TotalError < 0)
+					TotalError = -TotalError;
+
+				const bool AverageCadenceMatches =
+					TotalError * 100 <= _TimestampProbeDurationTicks * 15;
+				const bool SourceClockIsJittery =
+					_TimestampProbeOutliers * 5 >= _TimestampProbeSamples;
+				if (AverageCadenceMatches && SourceClockIsJittery)
+				{
+					_NormalizeNoBFrameTimestamps = true;
+					_TimestampCumulativeDriftTicks = 0;
+					_SourceTimestampOffset = 0;
+					LOG_INFO("[HLS] Normalizing jittery no-B-frame timestamps (%d/%d outliers)",
+						_TimestampProbeOutliers, _TimestampProbeSamples);
+					_TimestampProbeSamples = 0;
+					_TimestampProbeOutliers = 0;
+					_TimestampProbeInputTicks = 0;
+					_TimestampProbeDurationTicks = 0;
+				}
+				else if (_TimestampProbeSamples >= 120)
+				{
+					_TimestampProbeSamples = 0;
+					_TimestampProbeOutliers = 0;
+					_TimestampProbeInputTicks = 0;
+					_TimestampProbeDurationTicks = 0;
+				}
+			}
+			else if (_NormalizeNoBFrameTimestamps)
+			{
+				int64_t CumulativeDrift = _TimestampCumulativeDriftTicks;
+				if (CumulativeDrift < 0)
+					CumulativeDrift = -CumulativeDrift;
+
+				const bool CumulativeCadenceDrifted =
+					CumulativeDrift > _LastPacketDuration * 40;
+				bool WindowCadenceDrifted = false;
+				if (_TimestampProbeSamples >= 120)
+				{
+					int64_t TotalError = _TimestampProbeInputTicks - _TimestampProbeDurationTicks;
+					if (TotalError < 0)
+						TotalError = -TotalError;
+					WindowCadenceDrifted =
+						TotalError * 100 > _TimestampProbeDurationTicks * 15;
+				}
+
+				// The percentage window catches abrupt cadence changes. Check the
+				// fixed cumulative budget on every packet so a smaller persistent
+				// mismatch cannot overshoot it by another full probe window.
+				if (CumulativeCadenceDrifted || WindowCadenceDrifted)
+				{
+					// The declared durations no longer track the source cadence. Return
+					// to source deltas with an offset that keeps the mux timeline continuous,
+					// and do not requalify until reconnect (which would reset the budget).
+					_NormalizeNoBFrameTimestamps = false;
+					_TimestampNormalizationRejected = true;
+					_SourceTimestampOffset =
+						(_LastWrittenDTS + _LastPacketDuration) - PacketCopy.dts;
+					_TimestampCumulativeDriftTicks = 0;
+					LOG_WARNING("[HLS] Stopped timestamp normalization after sustained cadence drift");
+				}
+
+				if (!_NormalizeNoBFrameTimestamps || _TimestampProbeSamples >= 120)
+				{
+					_TimestampProbeSamples = 0;
+					_TimestampProbeOutliers = 0;
+					_TimestampProbeInputTicks = 0;
+					_TimestampProbeDurationTicks = 0;
+				}
+			}
+		}
+
+		_LastInputDTS = PacketCopy.dts;
+	}
+
+	// A missing duration must not switch a normalized stream back to its raw
+	// timestamp domain for one packet. Reuse the last validated duration.
+	if (IsVideo && _NormalizeNoBFrameTimestamps && PacketCopy.duration == 0 && _LastPacketDuration > 0)
+		PacketCopy.duration = _LastPacketDuration;
+
+	// Once the Reolink source has met the guarded jitter test, build a continuous
+	// output clock from declared durations. Otherwise preserve source deltas,
+	// applying an offset only when transitioning out of normalized mode.
 	if (IsVideo && !_HasBFrames)
 	{
+		if (_NormalizeNoBFrameTimestamps && _LastWrittenDTS != AV_NOPTS_VALUE && _LastPacketDuration > 0)
+			PacketCopy.dts = _LastWrittenDTS + _LastPacketDuration;
+		else if (_SourceTimestampOffset != 0 && PacketCopy.dts != AV_NOPTS_VALUE)
+			PacketCopy.dts += _SourceTimestampOffset;
 		PacketCopy.pts = PacketCopy.dts;
 	}
 
 	PacketCopy.stream_index = IsAudio ? 1 : 0;
 	PacketCopy.pos = -1;
 
-	// Drop packets with non-monotonic DTS — a safety net in case the
-	// demuxer delivers out-of-order or duplicate packets.
+	// B-frame streams retain their source timing, so keep an output-side
+	// monotonicity check as a final muxer safety net.
 	if (IsVideo && _LastWrittenDTS != AV_NOPTS_VALUE && PacketCopy.dts <= _LastWrittenDTS)
 	{
 		av_packet_unref(&PacketCopy);
 		return CameraStreamError::Success;
 	}
 	if (IsVideo)
+	{
 		_LastWrittenDTS = PacketCopy.dts;
+		if (PacketCopy.duration > 0)
+			_LastPacketDuration = PacketCopy.duration;
+	}
 
-	// Clamp negative durations (B-frame reordering artifacts)
-	if (PacketCopy.duration < 0)
-		PacketCopy.duration = 0;
+	if (IsVideo && _OutputSegmentStartDTS == AV_NOPTS_VALUE)
+		_OutputSegmentStartDTS = PacketCopy.dts;
 
 	if (IsVideo)
 	{
@@ -400,6 +550,18 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 		double PacketDurationSec = (double)(PacketCopy.duration * TimeBase.num) / TimeBase.den;
 		_CurrentSegmentDuration += PacketDurationSec;
 		_CurrentPartialDuration += PacketDurationSec;
+
+		const bool PacketKeyframeSeekSafe = !_HasBFrames && _NormalizeNoBFrameTimestamps;
+		if (!_CurrentPartialHasPacket)
+		{
+			_CurrentPartialHasPacket = true;
+			_CurrentPartialKeyframeSeekSafe = PacketKeyframeSeekSafe;
+		}
+		else
+		{
+			_CurrentPartialKeyframeSeekSafe =
+				_CurrentPartialKeyframeSeekSafe && PacketKeyframeSeekSafe;
+		}
 	}
 	else if (IsAudio)
 	{
@@ -465,6 +627,7 @@ void LiveOutputStream::FlushPartialSegment(bool IsIndependent)
 	Partial.Duration = PartialDuration;
 	Partial.PartIndex = _CurrentPartialIndex;
 	Partial.Independent = IsIndependent;
+	const bool KeyframeSeekSafe = _CurrentPartialKeyframeSeekSafe;
 
 	{
 		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
@@ -479,6 +642,8 @@ void LiveOutputStream::FlushPartialSegment(bool IsIndependent)
 	_CurrentPartialDuration = 0.0;
 	_CurrentPartialAudioDuration = 0.0;
 	_CurrentPartialIsIndependent = false;
+	_CurrentPartialHasPacket = false;
+	_CurrentPartialKeyframeSeekSafe = false;
 
 	// Notify MSE subscribers of new partial
 	if (_EventCallback)
@@ -490,6 +655,7 @@ void LiveOutputStream::FlushPartialSegment(bool IsIndependent)
 		Event.Data = Partial.Data;
 		Event.Duration = Partial.Duration;
 		Event.Independent = Partial.Independent;
+		Event.KeyframeSeekSafe = KeyframeSeekSafe;
 		Event.Generation = _InitGeneration;
 		_EventCallback(Event);
 	}
@@ -543,11 +709,14 @@ CameraStreamError LiveOutputStream::StartNewSegment(const AVPacket* Packet)
 	_CurrentBuffer = std::make_shared<std::vector<uint8_t>>();
 
 	_SegmentStartDTS = Packet->dts;
+	_OutputSegmentStartDTS = AV_NOPTS_VALUE;
 	_CurrentSegmentDuration = 0.0;
 	_CurrentPartialIndex = 0;
 	_CurrentPartialDuration = 0.0;
 	_CurrentPartialAudioDuration = 0.0;
 	_CurrentPartialIsIndependent = true; // first partial starts with keyframe
+	_CurrentPartialHasPacket = false;
+	_CurrentPartialKeyframeSeekSafe = false;
 	_PartialBufferOffset = 0;
 	_CurrentSegmentWallTime = std::chrono::system_clock::now();
 
@@ -591,6 +760,12 @@ void LiveOutputStream::FinishCurrentSegment(int64_t NextKeyframeDTS)
 	// exactly match the DTS delta between keyframes.
 	AVRational TimeBase = _FormatContext->streams[0]->time_base;
 	double DtsDuration = (double)(NextKeyframeDTS - _SegmentStartDTS) * TimeBase.num / TimeBase.den;
+	double OutputDuration = _CurrentSegmentDuration;
+	if (_OutputSegmentStartDTS != AV_NOPTS_VALUE && _LastWrittenDTS != AV_NOPTS_VALUE && _LastPacketDuration > 0)
+	{
+		OutputDuration = (double)(_LastWrittenDTS + _LastPacketDuration - _OutputSegmentStartDTS) *
+			TimeBase.num / TimeBase.den;
+	}
 
 	// Sanity: if DTS duration is clearly wrong, fall back to accumulated
 	if (DtsDuration <= 0.0 || DtsDuration > 30.0)
@@ -601,8 +776,10 @@ void LiveOutputStream::FinishCurrentSegment(int64_t NextKeyframeDTS)
 	SegmentDiagEntry Entry;
 	Entry.SegmentIndex = _CurrentSegmentIndex;
 	Entry.DtsDuration = DtsDuration;
+	Entry.OutputDuration = OutputDuration;
 	Entry.AccumulatedDuration = _CurrentSegmentDuration;
 	Entry.DriftMs = DriftMs;
+	Entry.TimestampNormalizationActive = _NormalizeNoBFrameTimestamps;
 	_DiagRing[_DiagRingPos % DIAG_RING_SIZE] = Entry;
 	_DiagRingPos++;
 	if (_DiagRingCount < DIAG_RING_SIZE) _DiagRingCount++;
@@ -656,6 +833,7 @@ LiveOutputStream::StreamingDiagnostics LiveOutputStream::GetStreamingDiagnostics
 	Diag.MaxDriftMs = _DiagMaxDriftMs;
 	Diag.CurrentSegmentIndex = _CurrentSegmentIndex;
 	Diag.InitGeneration = _InitGeneration;
+	Diag.TimestampNormalizationActive = _NormalizeNoBFrameTimestamps;
 
 	{
 		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
