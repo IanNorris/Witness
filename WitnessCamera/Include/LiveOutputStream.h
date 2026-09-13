@@ -200,7 +200,6 @@ private:
 	int _TimestampProbeOutliers;
 	int64_t _TimestampProbeInputTicks;
 	int64_t _TimestampProbeDurationTicks;
-	int64_t _TimestampCumulativeDriftTicks;
 	int64_t _SourceTimestampOffset;
 
 	int _CurrentSegmentIndex;

@@ -43,7 +43,6 @@ LiveOutputStream::LiveOutputStream(const std::string& LiveCachePath, InputStream
 	, _TimestampProbeOutliers( 0 )
 	, _TimestampProbeInputTicks( 0 )
 	, _TimestampProbeDurationTicks( 0 )
-	, _TimestampCumulativeDriftTicks( 0 )
 	, _SourceTimestampOffset( 0 )
 	, _CurrentSegmentIndex(0)
 	, _CurrentPartialIndex(0)
@@ -161,7 +160,6 @@ void LiveOutputStream::ResetForReconnect(InputStream* NewInputStream)
 	_TimestampProbeOutliers = 0;
 	_TimestampProbeInputTicks = 0;
 	_TimestampProbeDurationTicks = 0;
-	_TimestampCumulativeDriftTicks = 0;
 	_SourceTimestampOffset = 0;
 	_PartialBufferOffset = 0;
 	_CurrentPartialDuration = 0.0;
@@ -416,7 +414,6 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 		if (!_HasBFrames && _AllowTimestampNormalization && !_TimestampNormalizationRejected &&
 			_LastInputDTS != AV_NOPTS_VALUE && _LastPacketDuration > 0)
 		{
-			const bool WasNormalizing = _NormalizeNoBFrameTimestamps;
 			const int64_t InputDelta = PacketCopy.dts - _LastInputDTS;
 			int64_t DeltaError = InputDelta - _LastPacketDuration;
 			if (DeltaError < 0)
@@ -427,9 +424,6 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 			_TimestampProbeDurationTicks += _LastPacketDuration;
 			if (DeltaError * 2 > _LastPacketDuration)
 				++_TimestampProbeOutliers;
-			if (WasNormalizing)
-				_TimestampCumulativeDriftTicks += InputDelta - _LastPacketDuration;
-
 			if (!_NormalizeNoBFrameTimestamps && _TimestampProbeSamples >= 20)
 			{
 				int64_t TotalError = _TimestampProbeInputTicks - _TimestampProbeDurationTicks;
@@ -443,7 +437,6 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 				if (AverageCadenceMatches && SourceClockIsJittery)
 				{
 					_NormalizeNoBFrameTimestamps = true;
-					_TimestampCumulativeDriftTicks = 0;
 					_SourceTimestampOffset = 0;
 					LOG_INFO("[HLS] Normalizing jittery no-B-frame timestamps (%d/%d outliers)",
 						_TimestampProbeOutliers, _TimestampProbeSamples);
@@ -462,40 +455,33 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 			}
 			else if (_NormalizeNoBFrameTimestamps)
 			{
-				int64_t CumulativeDrift = _TimestampCumulativeDriftTicks;
-				if (CumulativeDrift < 0)
-					CumulativeDrift = -CumulativeDrift;
-
-				const bool CumulativeCadenceDrifted =
-					CumulativeDrift > _LastPacketDuration * 40;
-				bool WindowCadenceDrifted = false;
-				if (_TimestampProbeSamples >= 120)
+				// Reolink DTS can wander by several seconds and then converge again.
+				// Judge cadence over a long interval rather than using a fixed
+				// phase-error budget, which incorrectly rejected camera 11.
+				const int64_t ProbeDurationUs = av_rescale_q(
+					_TimestampProbeDurationTicks, InputTimebase, AV_TIME_BASE_Q);
+				if (ProbeDurationUs >= 120 * AV_TIME_BASE)
 				{
-					int64_t TotalError = _TimestampProbeInputTicks - _TimestampProbeDurationTicks;
-					if (TotalError < 0)
-						TotalError = -TotalError;
-					WindowCadenceDrifted =
-						TotalError * 100 > _TimestampProbeDurationTicks * 15;
-				}
+					const int64_t SignedError =
+						_TimestampProbeInputTicks - _TimestampProbeDurationTicks;
+					const int64_t AbsoluteError = SignedError < 0 ? -SignedError : SignedError;
+					const bool WindowCadenceDrifted =
+						AbsoluteError * 100 > _TimestampProbeDurationTicks * 5;
+					const double DriftMs =
+						(double)SignedError * InputTimebase.num * 1000.0 / InputTimebase.den;
 
-				// The percentage window catches abrupt cadence changes. Check the
-				// fixed cumulative budget on every packet so a smaller persistent
-				// mismatch cannot overshoot it by another full probe window.
-				if (CumulativeCadenceDrifted || WindowCadenceDrifted)
-				{
-					// The declared durations no longer track the source cadence. Return
-					// to source deltas with an offset that keeps the mux timeline continuous,
-					// and do not requalify until reconnect (which would reset the budget).
-					_NormalizeNoBFrameTimestamps = false;
-					_TimestampNormalizationRejected = true;
-					_SourceTimestampOffset =
-						(_LastWrittenDTS + _LastPacketDuration) - PacketCopy.dts;
-					_TimestampCumulativeDriftTicks = 0;
-					LOG_WARNING("[HLS] Stopped timestamp normalization after sustained cadence drift");
-				}
+					if (WindowCadenceDrifted)
+					{
+						_NormalizeNoBFrameTimestamps = false;
+						_TimestampNormalizationRejected = true;
+						_SourceTimestampOffset =
+							(_LastWrittenDTS + _LastPacketDuration) - PacketCopy.dts;
+						LOG_WARNING(
+							"[HLS] Source %d stopped timestamp normalization: %.1fms drift over %.1fs (%d samples)",
+							_InputStream->GetSourceId(), DriftMs, ProbeDurationUs / 1000000.0,
+							_TimestampProbeSamples);
+					}
 
-				if (!_NormalizeNoBFrameTimestamps || _TimestampProbeSamples >= 120)
-				{
 					_TimestampProbeSamples = 0;
 					_TimestampProbeOutliers = 0;
 					_TimestampProbeInputTicks = 0;
