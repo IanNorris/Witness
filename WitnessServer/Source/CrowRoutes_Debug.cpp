@@ -216,6 +216,7 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 					StreamData["currentSegmentIndex"] = Diag.CurrentSegmentIndex;
 					StreamData["backlogSize"] = Diag.BacklogSize;
 					StreamData["initGeneration"] = Diag.InitGeneration;
+					StreamData["timestampNormalizationActive"] = Diag.TimestampNormalizationActive;
 
 					if( Diag.TotalSegments > 0 )
 					{
@@ -229,8 +230,10 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 						crow::json::wvalue S;
 						S["idx"] = Seg.SegmentIndex;
 						S["dtsDur"] = Seg.DtsDuration;
+						S["outputDur"] = Seg.OutputDuration;
 						S["accDur"] = Seg.AccumulatedDuration;
 						S["driftMs"] = Seg.DriftMs;
+						S["timestampNormalized"] = Seg.TimestampNormalizationActive;
 						Segments.push_back( std::move( S ) );
 					}
 					StreamData["recentSegments"] = std::move( Segments );

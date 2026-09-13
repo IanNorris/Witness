@@ -16,6 +16,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <algorithm>
 #ifdef _WIN32
 #include <windows.h>
 #endif
@@ -468,6 +469,7 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 				Video.FaceRecognitionConfidence,
 				Video.DetectionMaxFPS,
 				CachePath,
+				&CommonImageProcessingJobQueue,
 				[ctx]() -> bool
 				{
 					std::shared_lock<std::shared_mutex> lock( ctx->Mutex );
@@ -559,6 +561,18 @@ bool WitnessServer::CreateProcessors( const std::unordered_map< std::string, std
 	{
 		ThreadCount = 2;
 	}
+	else if (ThreadCount == 1)
+	{
+		// One worker cannot protect essential work from a non-preemptible
+		// inference call. Start a second worker so the reservation is real.
+		LOG_WARNING( "thread_count=1 cannot reserve capacity for camera processing; using 2 workers" );
+		ThreadCount = 2;
+	}
+
+	// Serialize optional inference globally. Each camera owns a model session,
+	// so allowing camera count to determine concurrency can overwhelm both CPU
+	// and GPU resources even when an image worker remains technically free.
+	CommonImageProcessingJobQueue.SetMaximumConcurrentAIJobs( 1 );
 	
 	while(ThreadCount--)
 	{

@@ -3,9 +3,42 @@ find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs videoio objdetect
 find_package(lz4 CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
 
-# ONNX Runtime (onnxruntime-gpu vcpkg port installs raw headers/libs, no CMake config)
-find_path(ONNXRUNTIME_INCLUDE_DIR onnxruntime_cxx_api.h)
-find_library(ONNXRUNTIME_LIB onnxruntime)
+# The vcpkg 1.23.2 build registers ONNX schemas twice at runtime because its
+# ONNX dependency is not built with ONNX_DISABLE_STATIC_REGISTRATION. Use the
+# official Microsoft CPU binary instead. A local extraction can be supplied for
+# offline builds with -DWITNESS_ONNXRUNTIME_ROOT=<path>.
+set(WITNESS_ONNXRUNTIME_VERSION "1.23.2" CACHE STRING "ONNX Runtime version")
+set(WITNESS_ONNXRUNTIME_ROOT "" CACHE PATH "Path to an extracted official ONNX Runtime package")
+
+if(NOT WITNESS_ONNXRUNTIME_ROOT)
+    include(FetchContent)
+    FetchContent_Declare(onnxruntime_prebuilt
+        URL "https://github.com/microsoft/onnxruntime/releases/download/v${WITNESS_ONNXRUNTIME_VERSION}/onnxruntime-win-x64-${WITNESS_ONNXRUNTIME_VERSION}.zip"
+        URL_HASH "SHA256=0b38df9af21834e41e73d602d90db5cb06dbd1ca618948b8f1d66d607ac9f3cd"
+        DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    )
+    FetchContent_MakeAvailable(onnxruntime_prebuilt)
+    set(WITNESS_ONNXRUNTIME_ROOT "${onnxruntime_prebuilt_SOURCE_DIR}")
+endif()
+
+set(WITNESS_ONNXRUNTIME_LIBRARY "${WITNESS_ONNXRUNTIME_ROOT}/lib/onnxruntime.lib")
+set(WITNESS_ONNXRUNTIME_DLL "${WITNESS_ONNXRUNTIME_ROOT}/lib/onnxruntime.dll")
+set(WITNESS_ONNXRUNTIME_INCLUDE_DIR "${WITNESS_ONNXRUNTIME_ROOT}/include")
+
+if(NOT EXISTS "${WITNESS_ONNXRUNTIME_LIBRARY}" OR
+   NOT EXISTS "${WITNESS_ONNXRUNTIME_DLL}" OR
+   NOT EXISTS "${WITNESS_ONNXRUNTIME_INCLUDE_DIR}/onnxruntime_cxx_api.h")
+    message(FATAL_ERROR "Invalid official ONNX Runtime package at ${WITNESS_ONNXRUNTIME_ROOT}")
+endif()
+
+add_library(onnxruntime::onnxruntime SHARED IMPORTED GLOBAL)
+set_target_properties(onnxruntime::onnxruntime PROPERTIES
+    IMPORTED_IMPLIB "${WITNESS_ONNXRUNTIME_LIBRARY}"
+    IMPORTED_LOCATION "${WITNESS_ONNXRUNTIME_DLL}"
+    INTERFACE_INCLUDE_DIRECTORIES "${WITNESS_ONNXRUNTIME_INCLUDE_DIR}"
+)
+
+set(WITNESS_ONNX_CUDA_AVAILABLE 0)
 
 set(CAMERA_SOURCES
     Source/ContinuousOutputStream.cpp
@@ -64,10 +97,12 @@ target_include_directories(WitnessCamera
     PUBLIC  Include
     PRIVATE Source
             ${FFMPEG_INCLUDE_DIRS}
-            ${ONNXRUNTIME_INCLUDE_DIR}
 )
 
-target_compile_definitions(WitnessCamera PRIVATE WITNESSCAMERA_EXPORTS)
+target_compile_definitions(WitnessCamera PRIVATE
+    WITNESSCAMERA_EXPORTS
+    WITNESS_ONNX_CUDA_AVAILABLE=${WITNESS_ONNX_CUDA_AVAILABLE}
+)
 
 if(MSVC)
     target_compile_options(WitnessCamera PRIVATE /utf-8 /W3)
@@ -80,10 +115,17 @@ target_link_libraries(WitnessCamera
     PRIVATE
         ${FFMPEG_LIBRARIES}
         ${OpenCV_LIBS}
-        ${ONNXRUNTIME_LIB}
+        onnxruntime::onnxruntime
         lz4::lz4
         OpenSSL::Crypto
         OpenSSL::SSL
     PUBLIC
         WitnessCommon
+)
+
+add_custom_command(TARGET WitnessCamera POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${WITNESS_ONNXRUNTIME_DLL}"
+        "$<TARGET_FILE_DIR:WitnessCamera>/"
+    COMMENT "Copying official CPU-only ONNX Runtime"
 )

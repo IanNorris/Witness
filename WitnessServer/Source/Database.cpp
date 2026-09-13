@@ -898,12 +898,142 @@ namespace Database
 		ORDER BY f.Timestamp ASC, b.BoxUID ASC;
 	)RAW";
 
+	// Expired detection data is only collectible once no retained clip or DVR
+	// segment covers its timestamp. Verified face crops are training data, so
+	// detach them from an expiring frame instead of deleting them.
 	std::string DeleteDetectionFramesBefore = R"RAW(
+		UPDATE FaceCrop SET FrameUID = NULL
+		WHERE CameraID = @CameraID AND Timestamp < @Timestamp
+			AND EXISTS (SELECT 1 FROM FaceEmbedding fe WHERE fe.FaceCropUID = FaceCrop.CropUID AND fe.Verified = 1)
+			AND NOT EXISTS (
+				SELECT 1 FROM Clip c WHERE c.Camera = @CameraID
+					AND FaceCrop.Timestamp >= c.Timestamp
+					AND FaceCrop.Timestamp <= c.Timestamp + CASE WHEN COALESCE(c.Duration, 0) > 0 THEN c.Duration ELSE 1 END
+			)
+			AND NOT EXISTS (
+				SELECT 1 FROM ContinuousSegment s WHERE s.CameraUID = @CameraID
+					AND FaceCrop.Timestamp >= s.StartTimestamp AND FaceCrop.Timestamp <= s.EndTimestamp
+			);
+		DELETE FROM FaceEmbedding WHERE FaceCropUID IN (
+			SELECT fc.CropUID FROM FaceCrop fc
+			WHERE fc.CameraID = @CameraID AND fc.Timestamp < @Timestamp
+				AND NOT EXISTS (SELECT 1 FROM FaceEmbedding verified WHERE verified.FaceCropUID = fc.CropUID AND verified.Verified = 1)
+				AND NOT EXISTS (
+					SELECT 1 FROM Clip c WHERE c.Camera = @CameraID
+						AND fc.Timestamp >= c.Timestamp
+						AND fc.Timestamp <= c.Timestamp + CASE WHEN COALESCE(c.Duration, 0) > 0 THEN c.Duration ELSE 1 END
+				)
+				AND NOT EXISTS (
+					SELECT 1 FROM ContinuousSegment s WHERE s.CameraUID = @CameraID
+						AND fc.Timestamp >= s.StartTimestamp AND fc.Timestamp <= s.EndTimestamp
+				)
+		);
+		DELETE FROM FaceCrop
+		WHERE CameraID = @CameraID AND Timestamp < @Timestamp
+			AND NOT EXISTS (SELECT 1 FROM FaceEmbedding fe WHERE fe.FaceCropUID = FaceCrop.CropUID AND fe.Verified = 1)
+			AND NOT EXISTS (
+				SELECT 1 FROM Clip c WHERE c.Camera = @CameraID
+					AND FaceCrop.Timestamp >= c.Timestamp
+					AND FaceCrop.Timestamp <= c.Timestamp + CASE WHEN COALESCE(c.Duration, 0) > 0 THEN c.Duration ELSE 1 END
+			)
+			AND NOT EXISTS (
+				SELECT 1 FROM ContinuousSegment s WHERE s.CameraUID = @CameraID
+					AND FaceCrop.Timestamp >= s.StartTimestamp AND FaceCrop.Timestamp <= s.EndTimestamp
+			);
 		DELETE FROM DetectionBox WHERE FrameUID IN (
-			SELECT FrameUID FROM DetectionFrame WHERE CameraID = @CameraID AND Timestamp < @Timestamp
+			SELECT f.FrameUID FROM DetectionFrame f
+			WHERE f.CameraID = @CameraID AND f.Timestamp < @Timestamp
+				AND NOT EXISTS (
+					SELECT 1 FROM Clip c WHERE c.Camera = @CameraID
+						AND f.Timestamp >= c.Timestamp
+						AND f.Timestamp <= c.Timestamp + CASE WHEN COALESCE(c.Duration, 0) > 0 THEN c.Duration ELSE 1 END
+				)
+				AND NOT EXISTS (
+					SELECT 1 FROM ContinuousSegment s WHERE s.CameraUID = @CameraID
+						AND f.Timestamp >= s.StartTimestamp AND f.Timestamp <= s.EndTimestamp
+				)
 		);
 		DELETE FROM DetectionFrame
-		WHERE CameraID = @CameraID AND Timestamp < @Timestamp;
+		WHERE CameraID = @CameraID AND Timestamp < @Timestamp
+			AND NOT EXISTS (
+				SELECT 1 FROM Clip c WHERE c.Camera = @CameraID
+					AND DetectionFrame.Timestamp >= c.Timestamp
+					AND DetectionFrame.Timestamp <= c.Timestamp + CASE WHEN COALESCE(c.Duration, 0) > 0 THEN c.Duration ELSE 1 END
+			)
+			AND NOT EXISTS (
+				SELECT 1 FROM ContinuousSegment s WHERE s.CameraUID = @CameraID
+					AND DetectionFrame.Timestamp >= s.StartTimestamp AND DetectionFrame.Timestamp <= s.EndTimestamp
+			);
+	)RAW";
+
+	std::string SelectDetectionAssetCameraIDsBefore = R"RAW(
+		SELECT DISTINCT CameraID FROM DetectionFrame WHERE Timestamp < @Timestamp
+		UNION
+		SELECT DISTINCT CameraID FROM FaceCrop WHERE Timestamp < @Timestamp;
+	)RAW";
+
+	std::string SelectDetectionAssetPathsBefore = R"RAW(
+		SELECT f.FramePath FROM DetectionFrame f
+		WHERE f.CameraID = @CameraID AND f.Timestamp < @Timestamp AND f.FramePath IS NOT NULL
+			AND NOT EXISTS (
+				SELECT 1 FROM Clip c WHERE c.Camera = @CameraID
+					AND f.Timestamp >= c.Timestamp
+					AND f.Timestamp <= c.Timestamp + CASE WHEN COALESCE(c.Duration, 0) > 0 THEN c.Duration ELSE 1 END
+			)
+			AND NOT EXISTS (
+				SELECT 1 FROM ContinuousSegment s WHERE s.CameraUID = @CameraID
+					AND f.Timestamp >= s.StartTimestamp AND f.Timestamp <= s.EndTimestamp
+			)
+		UNION ALL
+		SELECT b.CropPath FROM DetectionBox b
+		JOIN DetectionFrame f ON f.FrameUID = b.FrameUID
+		WHERE f.CameraID = @CameraID AND f.Timestamp < @Timestamp AND b.CropPath IS NOT NULL
+			AND NOT EXISTS (
+				SELECT 1 FROM Clip c WHERE c.Camera = @CameraID
+					AND f.Timestamp >= c.Timestamp
+					AND f.Timestamp <= c.Timestamp + CASE WHEN COALESCE(c.Duration, 0) > 0 THEN c.Duration ELSE 1 END
+			)
+			AND NOT EXISTS (
+				SELECT 1 FROM ContinuousSegment s WHERE s.CameraUID = @CameraID
+					AND f.Timestamp >= s.StartTimestamp AND f.Timestamp <= s.EndTimestamp
+			)
+		UNION ALL
+		SELECT fc.FilePath FROM FaceCrop fc
+		WHERE fc.CameraID = @CameraID AND fc.Timestamp < @Timestamp AND fc.FilePath IS NOT NULL
+			AND NOT EXISTS (
+				SELECT 1 FROM FaceCrop protected
+				JOIN FaceEmbedding fe ON fe.FaceCropUID = protected.CropUID
+				WHERE protected.FilePath = fc.FilePath AND fe.Verified = 1
+			)
+			AND NOT EXISTS (
+				SELECT 1 FROM Clip c WHERE c.Camera = @CameraID
+					AND fc.Timestamp >= c.Timestamp
+					AND fc.Timestamp <= c.Timestamp + CASE WHEN COALESCE(c.Duration, 0) > 0 THEN c.Duration ELSE 1 END
+			)
+			AND NOT EXISTS (
+				SELECT 1 FROM ContinuousSegment s WHERE s.CameraUID = @CameraID
+					AND fc.Timestamp >= s.StartTimestamp AND fc.Timestamp <= s.EndTimestamp
+			);
+	)RAW";
+
+	std::string SelectDetectionAssetPathsInRange = R"RAW(
+		SELECT f.FramePath FROM DetectionFrame f
+		WHERE f.CameraID = @CameraID AND f.Timestamp >= @TimestampFrom AND f.Timestamp <= @TimestampTo
+			AND f.FramePath IS NOT NULL
+		UNION ALL
+		SELECT b.CropPath FROM DetectionBox b
+		JOIN DetectionFrame f ON f.FrameUID = b.FrameUID
+		WHERE f.CameraID = @CameraID AND f.Timestamp >= @TimestampFrom AND f.Timestamp <= @TimestampTo
+			AND b.CropPath IS NOT NULL
+		UNION ALL
+		SELECT fc.FilePath FROM FaceCrop fc
+		WHERE fc.CameraID = @CameraID AND fc.Timestamp >= @TimestampFrom AND fc.Timestamp <= @TimestampTo
+			AND fc.FilePath IS NOT NULL
+			AND NOT EXISTS (
+				SELECT 1 FROM FaceCrop protected
+				JOIN FaceEmbedding fe ON fe.FaceCropUID = protected.CropUID
+				WHERE protected.FilePath = fc.FilePath AND fe.Verified = 1
+			);
 	)RAW";
 
 	std::string DeleteAllDetectionFrames = R"RAW(
@@ -914,6 +1044,17 @@ namespace Database
 	)RAW";
 
 	std::string DeleteDetectionFramesInRange = R"RAW(
+		UPDATE FaceCrop SET FrameUID = NULL
+		WHERE CameraID = @CameraID AND Timestamp >= @TimestampFrom AND Timestamp <= @TimestampTo
+			AND EXISTS (SELECT 1 FROM FaceEmbedding fe WHERE fe.FaceCropUID = FaceCrop.CropUID AND fe.Verified = 1);
+		DELETE FROM FaceEmbedding WHERE FaceCropUID IN (
+			SELECT fc.CropUID FROM FaceCrop fc
+			WHERE fc.CameraID = @CameraID AND fc.Timestamp >= @TimestampFrom AND fc.Timestamp <= @TimestampTo
+				AND NOT EXISTS (SELECT 1 FROM FaceEmbedding verified WHERE verified.FaceCropUID = fc.CropUID AND verified.Verified = 1)
+		);
+		DELETE FROM FaceCrop
+		WHERE CameraID = @CameraID AND Timestamp >= @TimestampFrom AND Timestamp <= @TimestampTo
+			AND NOT EXISTS (SELECT 1 FROM FaceEmbedding fe WHERE fe.FaceCropUID = FaceCrop.CropUID AND fe.Verified = 1);
 		DELETE FROM DetectionBox WHERE FrameUID IN (
 			SELECT FrameUID FROM DetectionFrame WHERE CameraID = @CameraID AND Timestamp >= @TimestampFrom AND Timestamp <= @TimestampTo
 		);
@@ -1331,6 +1472,9 @@ namespace Database
 		CREATE_QUERY( InsertDetectionBox );
 		CREATE_QUERY( SelectDetectionFramesWithBoxes );
 		CREATE_QUERY( DeleteDetectionFramesBefore );
+		CREATE_QUERY( SelectDetectionAssetCameraIDsBefore );
+		CREATE_QUERY( SelectDetectionAssetPathsBefore );
+		CREATE_QUERY( SelectDetectionAssetPathsInRange );
 		CREATE_QUERY( DeleteAllDetectionFrames );
 		CREATE_QUERY( DeleteDetectionFramesInRange );
 

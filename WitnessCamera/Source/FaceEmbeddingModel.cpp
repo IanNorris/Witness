@@ -73,6 +73,7 @@ bool FaceEmbeddingModel::LoadModel( const char* ModelPath, bool UseGPU, const ch
 
 		if( UseGPU )
 		{
+#if WITNESS_ONNX_CUDA_AVAILABLE
 			try
 			{
 				OrtCUDAProviderOptions cudaOptions{};
@@ -86,6 +87,9 @@ bool FaceEmbeddingModel::LoadModel( const char* ModelPath, bool UseGPU, const ch
 			{
 				LOG_WARNING( "FaceEmbedding: CUDA init failed, falling back to CPU: %s", e.what() );
 			}
+#else
+			LOG_WARNING( "FaceEmbedding: CUDA support is not included in this build; using CPU." );
+#endif
 		}
 
 		// Create session

@@ -2,6 +2,7 @@
 #include "TagHelpers.h"
 #include "ObjectTracker.h"
 #include "FaceRecognitionCache.h"
+#include "ClipHelpers.h"
 
 #include <Log.h>
 #include <FaceEmbeddingModel.h>
@@ -39,6 +40,7 @@ ClipReprocessWorker::ClipReprocessWorker(
 	double FaceRecThreshold,
 	double DetectionMaxFPS,
 	std::string CachePath,
+	Witness::Camera::ImageProcessingJobQueue* LiveJobQueue,
 	std::function<bool()> IsIdle
 )
 : WorkerBase( MessageBus )
@@ -51,6 +53,7 @@ ClipReprocessWorker::ClipReprocessWorker(
 , FaceRecThreshold( FaceRecThreshold )
 , DetectionMaxFPS( DetectionMaxFPS )
 , CachePath( std::move( CachePath ) )
+, LiveJobQueue( LiveJobQueue )
 , IsIdle( std::move( IsIdle ) )
 {
 }
@@ -63,6 +66,23 @@ struct ClipToReprocess
 	int RecordMode;
 	std::string ExistingTags;
 };
+
+namespace
+{
+class BackgroundAIJobScope
+{
+public:
+	BackgroundAIJobScope( Witness::Camera::ImageProcessingJobQueue* QueueIn ) : Queue( QueueIn ) {}
+	~BackgroundAIJobScope()
+	{
+		if( Queue )
+			Queue->CompletedBackgroundAIJob();
+	}
+
+private:
+	Witness::Camera::ImageProcessingJobQueue* Queue;
+};
+}
 
 void ClipReprocessWorker::WorkerMain()
 {
@@ -256,11 +276,17 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 	{
 		double fromTs = static_cast<double>( timestamp );
 		double toTs = static_cast<double>( timestamp ) + durationSec + 1.0;
-		SQLiteDatabaseQueryInstance delDet( Database, "DeleteDetectionFramesInRange" );
-		delDet->Bind( "@CameraID", camera );
-		delDet->Bind( "@TimestampFrom", fromTs );
-		delDet->Bind( "@TimestampTo", toTs );
-		delDet->Execute( nullptr );
+		if( !DeleteDetectionAssetsInRange( Database, CachePath, camera, fromTs, toTs ) )
+		{
+			LOG_ERROR( "ClipReprocess: Could not remove old detection assets for clip %lld; retrying later", (long long)clipUID );
+			av_packet_free( &pkt );
+			av_frame_free( &frame );
+			av_frame_free( &bgrFrame );
+			if( swsCtx ) sws_freeContext( swsCtx );
+			avcodec_free_context( &codecCtx );
+			avformat_close_input( &fmtCtx );
+			return;
+		}
 	}
 
 	// BGR frame buffer — may be deferred if dimensions unknown until first decode (HEVC)
@@ -327,6 +353,25 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 				continue;
 			}
 			nextSampleTime = frameTime + sampleInterval;
+
+			// Reprocessing is strictly background work. Yield before conversion or
+			// inference whenever live cameras have pending or active AI work.
+			bool HasAIReservation = false;
+			while( !IsShutdownRequested() )
+			{
+				if( IsIdle() && (!LiveJobQueue || LiveJobQueue->TryAcquireBackgroundAIJob()) )
+				{
+					HasAIReservation = true;
+					break;
+				}
+				std::this_thread::sleep_for( std::chrono::milliseconds( 50 ) );
+			}
+			if( IsShutdownRequested() )
+			{
+				av_frame_unref( frame );
+				break;
+			}
+			BackgroundAIJobScope AIReservation( HasAIReservation ? LiveJobQueue : nullptr );
 
 			// Lazy-init SwsContext and BGR buffer on first decoded frame.
 			// HEVC decoders often don't set pix_fmt/width/height until decode.
@@ -558,6 +603,8 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 							q->Bind( "@IsBaseline", isBase ? 1 : 0 );
 							if( !cropPath.empty() )
 								q->Bind( "@CropPath", cropPath.c_str() );
+							else
+								q->BindNull( "@CropPath" );
 							q->Execute( nullptr );
 
 							// Save 112x112 face crop + landmarks
@@ -762,6 +809,11 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 	sws_freeContext( swsCtx );
 	avcodec_free_context( &codecCtx );
 	avformat_close_input( &fmtCtx );
+
+	// Leave the detection version untouched so an interrupted clip is selected
+	// again after restart.
+	if( IsShutdownRequested() )
+		return;
 
 	// Build combined tag string (merge with existing tags)
 	std::set<std::string> allTags;

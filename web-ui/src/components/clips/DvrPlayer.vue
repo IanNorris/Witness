@@ -39,6 +39,9 @@ const playbackRate = ref(1)
 const error = ref<string | null>(null)
 const loading = ref(true)
 let swapPending = false
+// Every asynchronous media load captures this value. A newer seek invalidates
+// older canplay/timeout callbacks so they cannot swap a stale segment onscreen.
+let loadGeneration = 0
 
 const rates = [1, 2, 4, 8]
 
@@ -308,6 +311,7 @@ function preloadNext(idx: number) {
   const nextIdx = idx + 1
   const back = getBack()
   if (nextIdx >= segments.value.length || !back) return
+  back.pause()
   back.src = `/dvr/segment/${segments.value[nextIdx]!.id}`
   back.playbackRate = playbackRate.value
   back.load()
@@ -316,6 +320,7 @@ function preloadNext(idx: number) {
 function swapToNext() {
   if (swapPending) return
   swapPending = true
+  const generation = ++loadGeneration
   const nextIdx = currentSegIdx.value + 1
   if (nextIdx >= segments.value.length) {
     playing.value = false
@@ -328,6 +333,7 @@ function swapToNext() {
   const expectedSrc = `/dvr/segment/${segments.value[nextIdx]!.id}`
 
   const doSwap = () => {
+    if (generation !== loadGeneration) return
     currentSegIdx.value = nextIdx
     back.playbackRate = playbackRate.value
     back.play().catch(() => {})
@@ -356,7 +362,7 @@ function swapToNext() {
     // Safety: force swap after 2s if canplay never fires
     setTimeout(() => {
       back.removeEventListener('canplay', handler)
-      if (swapPending) doSwap()
+      if (swapPending && generation === loadGeneration) doSwap()
     }, 2000)
   }
 }
@@ -391,7 +397,6 @@ async function fetchSegments() {
       }
     }
 
-    currentSegIdx.value = startIdx
     loadSegment(startIdx, seekOffset)
   } catch {
     error.value = 'Failed to load DVR segments'
@@ -403,45 +408,121 @@ async function fetchSegments() {
 function loadSegment(idx: number, seekTo = 0) {
   if (idx < 0 || idx >= segments.value.length) return
   const seg = segments.value[idx]!
-  currentSegIdx.value = idx
-  swapPending = false
+  const generation = ++loadGeneration
+  error.value = null
 
   const active = getActive()
   const isInitialLoad = !active || !active.src || active.readyState === 0
 
   if (isInitialLoad) {
+    swapPending = false
     if (!active) return
+    currentSegIdx.value = idx
     active.src = `/dvr/segment/${seg.id}`
     active.playbackRate = playbackRate.value
     if (seekTo > 0) {
       const onLoaded = () => {
-        active.currentTime = seekTo
         active.removeEventListener('loadeddata', onLoaded)
+        if (generation !== loadGeneration) return
+        active.currentTime = seekTo
       }
       active.addEventListener('loadeddata', onLoaded)
     }
     active.load()
     active.play().catch(() => {})
+    preloadNext(idx)
   } else {
     // Load into back video, swap when ready to avoid flash
     const back = getBack()
     if (!back) return
+    const shouldPlay = !active.paused
+    swapPending = true
+    back.pause()
     back.src = `/dvr/segment/${seg.id}`
     back.playbackRate = playbackRate.value
-    const onReady = () => {
+    let completed = false
+    let seekFallback: ReturnType<typeof setTimeout> | null = null
+    let loadTimeout: ReturnType<typeof setTimeout> | null = null
+
+    const cleanup = () => {
       back.removeEventListener('canplay', onReady)
-      if (seekTo > 0) back.currentTime = seekTo
-      back.play().catch(() => {})
+      back.removeEventListener('error', onError)
+      back.removeEventListener('seeked', doSwap)
+      if (seekFallback) clearTimeout(seekFallback)
+      if (loadTimeout) clearTimeout(loadTimeout)
+    }
+
+    const doSwap = () => {
+      if (completed) return
+      if (generation !== loadGeneration) {
+        completed = true
+        cleanup()
+        return
+      }
+      completed = true
+      cleanup()
+      currentSegIdx.value = idx
+      if (shouldPlay) back.play().catch(() => {})
       activeSlot.value = activeSlot.value === 'a' ? 'b' : 'a'
-      // Pause old active (now back)
+      // Pause old active (now back), then use that free slot for prefetch.
       const oldActive = getBack()
       if (oldActive) oldActive.pause()
+      swapPending = false
+      preloadNext(idx)
     }
+
+    const onReady = () => {
+      back.removeEventListener('canplay', onReady)
+      if (generation !== loadGeneration) {
+        cleanup()
+        return
+      }
+      if (seekTo > 0) {
+        back.addEventListener('seeked', doSwap, { once: true })
+        back.currentTime = seekTo
+        // Some browsers omit seeked on short or keyframe-aligned seeks.
+        seekFallback = setTimeout(doSwap, 2000)
+      } else {
+        doSwap()
+      }
+    }
+
+    const onError = () => {
+      if (generation !== loadGeneration) {
+        cleanup()
+        return
+      }
+      completed = true
+      cleanup()
+      swapPending = false
+      error.value = 'Failed to load DVR segment'
+    }
+
     back.addEventListener('canplay', onReady)
+    back.addEventListener('error', onError)
+    loadTimeout = setTimeout(() => {
+      if (generation !== loadGeneration || completed) {
+        cleanup()
+        return
+      }
+      completed = true
+      cleanup()
+      swapPending = false
+      error.value = 'DVR segment load timed out'
+      back.removeAttribute('src')
+      back.load()
+    }, 10000)
     back.load()
   }
+}
 
-  preloadNext(idx)
+function seekActive(offset: number) {
+  ++loadGeneration
+  swapPending = false
+  const active = getActive()
+  if (!active) return
+  active.currentTime = offset
+  preloadNext(currentSegIdx.value)
 }
 
 function togglePlay() {
@@ -458,6 +539,8 @@ function setRate(rate: number) {
   playbackRate.value = rate
   const active = getActive()
   if (active) active.playbackRate = rate
+  const back = getBack()
+  if (back) back.playbackRate = rate
 }
 
 function seekToTimestamp(ts: number) {
@@ -468,8 +551,7 @@ function seekToTimestamp(ts: number) {
       if (i !== currentSegIdx.value) {
         loadSegment(i, offset)
       } else {
-        const vid = getActive()
-        if (vid) vid.currentTime = offset
+        seekActive(offset)
       }
       return
     }
@@ -492,8 +574,7 @@ function seek(event: MouseEvent) {
       if (i !== currentSegIdx.value) {
         loadSegment(i, offset)
       } else {
-        const vid = getActive()
-        if (vid) vid.currentTime = offset
+        seekActive(offset)
       }
       break
     }
@@ -639,7 +720,7 @@ function seekRelative(delta: number) {
     const overflow = newTime - (currentSeg.value?.duration ?? 0)
     loadSegment(currentSegIdx.value + 1, overflow)
   } else {
-    vid.currentTime = Math.max(0, newTime)
+    seekActive(Math.max(0, newTime))
   }
 }
 
@@ -648,6 +729,8 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  ++loadGeneration
+  swapPending = false
   window.removeEventListener('keydown', onKeyDown)
 })
 
