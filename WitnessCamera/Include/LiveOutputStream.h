@@ -364,9 +364,21 @@ public:
 		std::vector<SegmentDiagEntry> RecentSegments; // last 30
 		std::vector<FragmentDiagEntry> RecentFragments; // last 180 MSE partials
 		std::vector<PacketDiagEntry> RecentPackets; // last 1024 audio/video access units
+		struct AnomalyCapture
+		{
+			uint64_t Sequence = 0;
+			int64_t CapturedAtMs = 0;
+			int Generation = 0;
+			int SegmentIndex = 0;
+			std::string Reason;
+			std::vector<FragmentDiagEntry> Fragments;
+			std::vector<PacketDiagEntry> Packets;
+		};
+		std::vector<AnomalyCapture> Anomalies; // last 3 client-reported failures
 	};
 
 	StreamingDiagnostics GetStreamingDiagnostics() const;
+	void CaptureDiagnosticAnomaly(const std::string& Reason);
 
 private:
 	// Ring buffer of recent segment diagnostics
@@ -432,6 +444,8 @@ private:
 	int _PacketDiagRingCount = 0;
 	uint64_t _PacketDiagSequence = 0;
 	std::chrono::steady_clock::time_point _PacketDiagEpoch = std::chrono::steady_clock::now();
+	std::vector<StreamingDiagnostics::AnomalyCapture> _DiagAnomalies;
+	uint64_t _DiagAnomalySequence = 0;
 };
 
 }}

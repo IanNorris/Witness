@@ -277,6 +277,8 @@ export function useMseStream(
   let consecutiveAppendErrors = 0  // Track consecutive appendBuffer failures for restart
   let keyframeTimes: number[] = []
   let lastKeyframeSeekTarget = -1
+  let lastAnomalyReportTime = 0
+  let lastAnomalyReason = ''
 
   function getWsUrl(): string {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -607,6 +609,7 @@ export function useMseStream(
       return
     }
     diag.stats.integrityMismatchCount++
+    reportDiagnosticAnomaly(`${kind}IntegrityMismatch`)
     diag.log('fragmentIntegrityMismatch', {
       kind,
       segmentIndex: metadata.segmentIndex,
@@ -616,6 +619,31 @@ export function useMseStream(
       expectedHash: metadata.expectedHash,
       actualHash,
     })
+  }
+
+  function reportDiagnosticAnomaly(reason: string) {
+    const now = Date.now()
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
+    if (reason === lastAnomalyReason && now - lastAnomalyReportTime < 5000) return
+
+    lastAnomalyReason = reason
+    lastAnomalyReportTime = now
+    try {
+      ws.send(JSON.stringify({
+        type: 'diagnosticAnomaly',
+        reason,
+        generation: initGeneration,
+        expectedBinary: expectingBinary,
+        segment: pendingPartialMetadata?.segmentIndex ?? null,
+        part: pendingPartialMetadata?.partIndex ?? null,
+        readyState: videoRef.value?.readyState ?? null,
+        currentTime: videoRef.value?.currentTime ?? null,
+        appendQueueLength: appendQueue.length,
+      }))
+      diag.log('diagnosticAnomalyReported', { reason })
+    } catch {
+      // The stream is already failing; diagnostics must never impede recovery.
+    }
   }
 
   function handleBinaryData(data: ArrayBuffer) {
@@ -795,6 +823,7 @@ export function useMseStream(
     if (destroyed) return
     diag.stats.restartCount++
     diag.log('restart', { reason, generation: initGeneration })
+    reportDiagnosticAnomaly(reason)
 
     // Cancel any pending reconnect timer to prevent duplicate WebSocket creation
     if (reconnectTimer) {

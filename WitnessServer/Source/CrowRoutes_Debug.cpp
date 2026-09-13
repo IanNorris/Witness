@@ -281,7 +281,7 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 						default: return "unknown";
 						}
 					};
-					StreamData["diagnosticsSchemaVersion"] = 4;
+					StreamData["diagnosticsSchemaVersion"] = 5;
 					StreamData["packetTraceCapacity"] = 1024;
 					StreamData["totalSegments"] = Diag.TotalSegments;
 					StreamData["reconnectCount"] = Diag.ReconnectCount;
@@ -445,7 +445,7 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 						}
 						return "unknown";
 					};
-					for( const auto& Packet : Diag.RecentPackets )
+					auto SerializePacket = [&PrefixHex, &CodecUnitName]( const auto& Packet )
 					{
 						crow::json::wvalue P;
 						P["seq"] = (int64_t)Packet.Sequence;
@@ -484,9 +484,54 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 						if( Packet.HasOutputDts ) P["outputDtsUs"] = Packet.OutputDtsUs;
 						if( Packet.HasOutputPts ) P["outputPtsUs"] = Packet.OutputPtsUs;
 						P["outputDurationUs"] = Packet.OutputDurationUs;
-						Packets.push_back( std::move( P ) );
+						return P;
+					};
+					for( const auto& Packet : Diag.RecentPackets )
+					{
+						Packets.push_back( SerializePacket( Packet ) );
 					}
 					StreamData["recentPackets"] = std::move( Packets );
+
+					std::vector<crow::json::wvalue> Anomalies;
+					Anomalies.reserve( Diag.Anomalies.size() );
+					for( const auto& Anomaly : Diag.Anomalies )
+					{
+						crow::json::wvalue A;
+						A["sequence"] = Anomaly.Sequence;
+						A["capturedAtMs"] = Anomaly.CapturedAtMs;
+						A["generation"] = Anomaly.Generation;
+						A["segment"] = Anomaly.SegmentIndex;
+						A["reason"] = Anomaly.Reason;
+						std::vector<crow::json::wvalue> AnomalyFragments;
+						AnomalyFragments.reserve( Anomaly.Fragments.size() );
+						for( const auto& Fragment : Anomaly.Fragments )
+						{
+							crow::json::wvalue F;
+							F["generation"] = Fragment.Generation;
+							F["segment"] = Fragment.SegmentIndex;
+							F["part"] = Fragment.PartIndex;
+							F["independent"] = Fragment.Independent;
+							F["keyframeSeekSafe"] = Fragment.KeyframeSeekSafe;
+							F["bytes"] = Fragment.Bytes;
+							F["hash"] = std::format("{:016x}", Fragment.Hash);
+							F["structureValid"] = Fragment.StructureValid;
+							F["boxCount"] = Fragment.BoxCount;
+							F["moofCount"] = Fragment.MoofCount;
+							F["mdatCount"] = Fragment.MdatCount;
+							F["structureError"] = Fragment.StructureError;
+							F["structureErrorName"] = StructureErrorName( Fragment.StructureError );
+							F["errorOffset"] = Fragment.ErrorOffset;
+							AnomalyFragments.push_back( std::move( F ) );
+						}
+						A["fragments"] = std::move( AnomalyFragments );
+						std::vector<crow::json::wvalue> AnomalyPackets;
+						AnomalyPackets.reserve( Anomaly.Packets.size() );
+						for( const auto& Packet : Anomaly.Packets )
+							AnomalyPackets.push_back( SerializePacket( Packet ) );
+						A["packets"] = std::move( AnomalyPackets );
+						Anomalies.push_back( std::move( A ) );
+					}
+					StreamData["anomalies"] = std::move( Anomalies );
 
 			CamData["streaming"] = std::move( StreamData );
 		}

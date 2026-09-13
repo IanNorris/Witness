@@ -10,6 +10,7 @@
 #include <iostream>
 #include <format>
 #include <cmath>
+#include <cctype>
 
 #ifdef _WIN32
 #include <windows.h>
@@ -45,6 +46,52 @@ public:
 };
 
 static WitnessCrowLogHandler s_CrowLogHandler;
+
+static void CaptureStreamDiagnosticAnomaly(
+	GlobalContext& Context, crow::websocket::connection& Conn,
+	const std::string& Data, bool IsBinary, bool SubStream)
+{
+	if (IsBinary || Data.size() > 512)
+		return;
+	auto Body = crow::json::load(Data);
+	if (!Body || !Body.has("type") || !Body.has("reason"))
+		return;
+
+	std::string Reason;
+	try
+	{
+		if (std::string(Body["type"].s()) != "diagnosticAnomaly")
+			return;
+		Reason = std::string(Body["reason"].s());
+	}
+	catch (...)
+	{
+		return;
+	}
+
+	if (Reason.empty())
+		return;
+	Reason.resize((std::min)(Reason.size(), size_t{64}));
+	for (char& Character : Reason)
+	{
+		const unsigned char Value = static_cast<unsigned char>(Character);
+		if (!std::isalnum(Value) && Character != '-' && Character != '_')
+			Character = '_';
+	}
+
+	const int CameraId = static_cast<int>(reinterpret_cast<intptr_t>(Conn.userdata()));
+	std::shared_ptr<Witness::Camera::LiveOutputStream> LiveStream;
+	{
+		std::shared_lock<std::shared_mutex> Lock(Context.Mutex);
+		auto Camera = Context.GetCameraMap().find(CameraId);
+		if (Camera == Context.GetCameraMap().end() || !Camera->second.Worker)
+			return;
+		LiveStream = SubStream ? Camera->second.Worker->GetSubStreamLive() :
+			Camera->second.Worker->GetLiveStream();
+	}
+	if (LiveStream)
+		LiveStream->CaptureDiagnosticAnomaly(Reason);
+}
 
 CrowListener::CrowListener( const std::string& Hostname, int Port, bool Secure,
                             const std::string& CertPath, const std::string& KeyPath,
@@ -777,9 +824,9 @@ void CrowListener::RegisterRoutes()
 		{
 			m_GlobalContext->Streams->Unsubscribe( &conn );
 		})
-		.onmessage([this]( crow::websocket::connection& /*conn*/, const std::string& /*data*/, bool /*is_binary*/ )
+		.onmessage([this]( crow::websocket::connection& conn, const std::string& data, bool is_binary )
 		{
-			// Client->server messages not used for MSE streaming
+			CaptureStreamDiagnosticAnomaly(*m_GlobalContext, conn, data, is_binary, false);
 		});
 
 	// WebSocket sub-stream (H.264 fallback for clients that can't decode the main stream)
@@ -834,8 +881,9 @@ void CrowListener::RegisterRoutes()
 		{
 			m_GlobalContext->Streams->Unsubscribe( &conn );
 		})
-		.onmessage([this]( crow::websocket::connection& /*conn*/, const std::string& /*data*/, bool /*is_binary*/ )
+		.onmessage([this]( crow::websocket::connection& conn, const std::string& data, bool is_binary )
 		{
+			CaptureStreamDiagnosticAnomaly(*m_GlobalContext, conn, data, is_binary, true);
 		});
 
 	// WebSocket event stream

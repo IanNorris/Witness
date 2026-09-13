@@ -1198,6 +1198,8 @@ void LiveOutputStream::FlushPartialSegment(bool IsIndependent)
 		if (_FragmentDiagRingCount < FRAGMENT_DIAG_RING_SIZE)
 			++_FragmentDiagRingCount;
 	}
+	if (!PartialStructure.Valid)
+		CaptureDiagnosticAnomaly("invalidFragmentStructure");
 
 	_CurrentPartialIndex++;
 	_CurrentPartialDuration = 0.0;
@@ -1272,6 +1274,8 @@ CameraStreamError LiveOutputStream::StartNewSegment(const AVPacket* Packet)
 		}
 
 		_InitSegmentCaptured = true;
+		if (!InitStructure.Valid)
+			CaptureDiagnosticAnomaly("invalidInitStructure");
 
 		// Notify MSE subscribers of init segment
 		if (_EventCallback)
@@ -1496,8 +1500,50 @@ LiveOutputStream::StreamingDiagnostics LiveOutputStream::GetStreamingDiagnostics
 		Diag.RecentPackets.push_back(
 			_PacketDiagRing[(PacketStart + Index) % PACKET_DIAG_RING_SIZE]);
 	}
+	Diag.Anomalies = _DiagAnomalies;
 
 	return Diag;
+}
+
+void LiveOutputStream::CaptureDiagnosticAnomaly(const std::string& Reason)
+{
+	const int64_t CapturedAtMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+		std::chrono::steady_clock::now() - _PacketDiagEpoch).count();
+	const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
+	if (!_DiagAnomalies.empty() && _DiagAnomalies.back().Reason == Reason &&
+		CapturedAtMs - _DiagAnomalies.back().CapturedAtMs < 5000)
+	{
+		return;
+	}
+
+	StreamingDiagnostics::AnomalyCapture Capture;
+	Capture.Sequence = ++_DiagAnomalySequence;
+	Capture.CapturedAtMs = CapturedAtMs;
+	Capture.Generation = _InitGeneration;
+	Capture.SegmentIndex = _CurrentSegmentIndex;
+	Capture.Reason = Reason.substr(0, 64);
+
+	const int FragmentCount = (std::min)(_FragmentDiagRingCount, 60);
+	const int FragmentStart = _FragmentDiagRingPos - FragmentCount;
+	Capture.Fragments.reserve(FragmentCount);
+	for (int Index = 0; Index < FragmentCount; ++Index)
+	{
+		Capture.Fragments.push_back(
+			_FragmentDiagRing[(FragmentStart + Index) % FRAGMENT_DIAG_RING_SIZE]);
+	}
+
+	const int PacketCount = (std::min)(_PacketDiagRingCount, 256);
+	const int PacketStart = _PacketDiagRingPos - PacketCount;
+	Capture.Packets.reserve(PacketCount);
+	for (int Index = 0; Index < PacketCount; ++Index)
+	{
+		Capture.Packets.push_back(
+			_PacketDiagRing[(PacketStart + Index) % PACKET_DIAG_RING_SIZE]);
+	}
+
+	if (_DiagAnomalies.size() >= 3)
+		_DiagAnomalies.erase(_DiagAnomalies.begin());
+	_DiagAnomalies.push_back(std::move(Capture));
 }
 
 }}
