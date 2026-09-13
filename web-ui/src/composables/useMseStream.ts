@@ -2,6 +2,7 @@ import { ref, onUnmounted, type Ref } from 'vue'
 
 // ── Constants ─────────────────────────────────────────────────────────
 const MSE_WATCHDOG_INTERVAL_MS = 250
+const MSE_WATCHDOG_SCHEDULING_GRACE_MS = 1000
 const MSE_INITIAL_TIMEOUT_MS = 5000
 const MSE_BACK_BUFFER_SECONDS = 5
 const MSE_TARGET_HEADROOM_SECONDS = 1.25
@@ -152,7 +153,7 @@ if (typeof window !== 'undefined') {
   ;(window as any)._witnessMseDiag = diagMap
   const existingDumpAll = (window as any)._witnessDumpAll
   ;(window as any)._witnessDumpAll = async function () {
-    const result: any = existingDumpAll ? await existingDumpAll() : { client: { timestamp: new Date().toISOString(), cameras: {} }, server: null }
+    const result: any = existingDumpAll ? await existingDumpAll() : { client: { timestamp: new Date().toISOString(), cameras: {} }, serverJson: null }
     // Add MSE diagnostics to client cameras
     if (!result.client) result.client = { cameras: {} }
     if (!result.client.cameras) result.client.cameras = {}
@@ -160,7 +161,15 @@ if (typeof window !== 'undefined') {
       result.client.cameras[id] = d.snapshot()
     }
     // Download the combined dump
-    const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' })
+    const serverJson = typeof result.serverJson === 'string'
+      ? result.serverJson
+      : JSON.stringify(result.server ?? null)
+    // Blob accepts multiple string parts, so the large server snapshot never
+    // needs to be parsed into a JS object or copied into a pretty-printed string.
+    const blob = new Blob(
+      ['{"client":', JSON.stringify(result.client), ',"server":', serverJson, '}'],
+      { type: 'application/json' },
+    )
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -246,6 +255,7 @@ export function useMseStream(
   let lastTrimmedTo = 0
   let lastFragTime = 0
   let streamStartTime = Date.now()
+  let lastWatchdogTick = Date.now()
   let watchdog: ReturnType<typeof setInterval> | null = null
   let restartBackoffMs = 3000
   let stuckBackoffMs = 3000
@@ -848,6 +858,24 @@ export function useMseStream(
       if (!video || destroyed) return
 
       const now = Date.now()
+      const previousWatchdogTick = lastWatchdogTick
+      const schedulingDelay = now - previousWatchdogTick
+      lastWatchdogTick = now
+      if (schedulingDelay > MSE_WATCHDOG_SCHEDULING_GRACE_MS) {
+        // Browser suspension and long maintenance tasks are not evidence that
+        // the media pipeline stalled. Preserve elapsed runnable time for all
+        // watchdog deadlines, and retain the scheduling gap for diagnosis.
+        const suspendedMs = schedulingDelay - MSE_WATCHDOG_INTERVAL_MS
+        if (lastFragTime > 0 && lastFragTime <= previousWatchdogTick) lastFragTime += suspendedMs
+        if (streamStartTime <= previousWatchdogTick) streamStartTime += suspendedMs
+        if (lowReadyStateSince > 0 && lowReadyStateSince <= previousWatchdogTick)
+          lowReadyStateSince += suspendedMs
+        if (currentTimeStalledSince > 0 && currentTimeStalledSince <= previousWatchdogTick)
+          currentTimeStalledSince += suspendedMs
+        if (highLatencySince > 0 && highLatencySince <= previousWatchdogTick)
+          highLatencySince += suspendedMs
+        diag.log('watchdogSchedulingDelay', { schedulingDelayMs: schedulingDelay, suspendedMs })
+      }
       const hasFrags = lastFragTime > 0
       const fragAge = hasFrags ? now - lastFragTime : now - streamStartTime
 

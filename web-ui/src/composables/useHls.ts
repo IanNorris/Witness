@@ -8,6 +8,7 @@ import Hls from 'hls.js'
 const HLS_SPINNER_TIMEOUT_MS = 3000
 const HLS_INITIAL_TIMEOUT_MS = 5000
 const HLS_WATCHDOG_INTERVAL_MS = 250
+const HLS_WATCHDOG_SCHEDULING_GRACE_MS = 1000
 
 // ── Diagnostics ───────────────────────────────────────────────────────
 const DIAG_MAX_AGE_MS = 24 * 60 * 60 * 1000
@@ -123,12 +124,14 @@ const diagMap = ((window as unknown as Record<string, unknown>)._witnessDiag ??=
   for (const id in diagMap) {
     clientDump.cameras[id] = diagMap[id]!.snapshot()
   }
-  let serverDump = null
+  let serverJson: string | null = null
   try {
     const resp = await fetch('/debug/streaming')
-    if (resp.ok) serverDump = await resp.json()
+    // Keep the large server payload as serialized JSON. Parsing it here and
+    // serializing it again for download can block playback for several seconds.
+    if (resp.ok) serverJson = await resp.text()
   } catch { /* ignore */ }
-  return { client: clientDump, server: serverDump }
+  return { client: clientDump, serverJson }
 }
 
 // ── HLS Config ────────────────────────────────────────────────────────
@@ -196,6 +199,7 @@ export function useHls(
   let hls: Hls | null = null
   let lastFragTime = 0
   let streamStartTime = Date.now()
+  let lastWatchdogTick = Date.now()
   let restartInProgress = false
   let watchdog: ReturnType<typeof setInterval> | null = null
   let lowReadyStateSince = 0
@@ -301,6 +305,23 @@ export function useHls(
     // Poll-based watchdog: drives spinner, connection-lost, and restart.
     watchdog = setInterval(() => {
       if (!element) return
+
+      const now = Date.now()
+      const previousWatchdogTick = lastWatchdogTick
+      const schedulingDelay = now - previousWatchdogTick
+      lastWatchdogTick = now
+      if (schedulingDelay > HLS_WATCHDOG_SCHEDULING_GRACE_MS) {
+        const suspendedMs = schedulingDelay - HLS_WATCHDOG_INTERVAL_MS
+        if (lastFragTime > 0 && lastFragTime <= previousWatchdogTick) lastFragTime += suspendedMs
+        if (streamStartTime <= previousWatchdogTick) streamStartTime += suspendedMs
+        if (lowReadyStateSince > 0 && lowReadyStateSince <= previousWatchdogTick)
+          lowReadyStateSince += suspendedMs
+        if (gapStuckSince > 0 && gapStuckSince <= previousWatchdogTick)
+          gapStuckSince += suspendedMs
+        if (currentTimeStuckSince > 0 && currentTimeStuckSince <= previousWatchdogTick)
+          currentTimeStuckSince += suspendedMs
+        diag.log('watchdogSchedulingDelay', { schedulingDelayMs: schedulingDelay, suspendedMs })
+      }
 
       // Auto-resume videos paused by the browser (e.g. background tab suspension)
       if (element.paused && lastFragTime > 0 && !destroyed) {
