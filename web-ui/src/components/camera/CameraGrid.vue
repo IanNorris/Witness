@@ -11,11 +11,15 @@ const props = defineProps<{
   fullscreenInsets?: { top: number; right: number; bottom: number; left: number }
   fullscreenLayout?: DashboardTileLayout[]
   editingLayout?: boolean
+  focusedCameraId?: number | null
+  focusEligibleCameraIds?: number[]
 }>()
 
 const emit = defineEmits<{
   updateFullscreenLayout: [tiles: DashboardTileLayout[]]
   cancelLayout: []
+  focusCamera: [cameraId: number]
+  toggleFocusEligibility: [cameraId: number]
 }>()
 
 const cameraStore = useCameraStore()
@@ -57,6 +61,23 @@ function tileFor(cameraId: number) {
 
 function tileStyle(cameraId: number) {
   if (!settings.fullscreenMode) return undefined
+  if (props.focusedCameraId !== null && props.focusedCameraId !== undefined) {
+    if (cameraId === props.focusedCameraId) {
+      return { gridColumn: '1 / span 8', gridRow: '1 / span 12' }
+    }
+    const others = filteredCameras.value.filter(camera => camera.id !== props.focusedCameraId)
+    const index = others.findIndex(camera => camera.id === cameraId)
+    const railColumns = others.length > 6 ? 2 : 1
+    const railRows = Math.max(1, Math.ceil(others.length / railColumns))
+    const cellWidth = Math.floor(4 / railColumns)
+    const cellHeight = Math.floor(12 / railRows)
+    const column = index % railColumns
+    const row = Math.floor(index / railColumns)
+    return {
+      gridColumn: `${9 + column * cellWidth} / span ${column === railColumns - 1 ? 4 - column * cellWidth : cellWidth}`,
+      gridRow: `${1 + row * cellHeight} / span ${row === railRows - 1 ? 12 - row * cellHeight : cellHeight}`,
+    }
+  }
   const tile = tileFor(cameraId)
   if (!tile) return undefined
   return {
@@ -169,7 +190,11 @@ onUnmounted(() => {
       v-for="camera in filteredCameras"
       :key="camera.id"
       class="camera-grid-item"
-      :class="{ active: activeCameraId === camera.id, invalid: activeCameraId === camera.id && invalidPlacement }"
+      :class="{
+        active: activeCameraId === camera.id,
+        invalid: activeCameraId === camera.id && invalidPlacement,
+        focused: focusedCameraId === camera.id,
+      }"
       :style="tileStyle(camera.id)"
     >
       <CameraCard
@@ -189,6 +214,21 @@ onUnmounted(() => {
         title="Drag to resize"
         @pointerdown="startPointer($event, camera.id, 'resize')"
       >↘</button>
+      <button
+        v-if="settings.fullscreenMode && editingLayout"
+        class="layout-focus-eligibility"
+        :class="{ enabled: focusEligibleCameraIds?.includes(camera.id) }"
+        @pointerdown.stop
+        @click.stop="emit('toggleFocusEligibility', camera.id)"
+        :title="focusEligibleCameraIds?.includes(camera.id) ? 'Exclude from automatic focus' : 'Allow automatic focus'"
+      >Focus {{ focusEligibleCameraIds?.includes(camera.id) ? 'on' : 'off' }}</button>
+      <button
+        v-if="settings.fullscreenMode && !editingLayout"
+        class="camera-focus-button"
+        :class="{ active: focusedCameraId === camera.id }"
+        @click.stop="emit('focusCamera', camera.id)"
+        :title="focusedCameraId === camera.id ? 'Return to regular layout' : `Focus ${camera.name}`"
+      >{{ focusedCameraId === camera.id ? '×' : '⌗' }}</button>
     </div>
   </div>
 </template>

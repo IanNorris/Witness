@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, computed, watch } from 'vue'
+import { onMounted, onUnmounted, ref, computed, watch } from 'vue'
 import AppLayout from '../components/layout/AppLayout.vue'
 import CameraGrid from '../components/camera/CameraGrid.vue'
 import ActivityStrip from '../components/clips/ActivityStrip.vue'
@@ -31,6 +31,9 @@ const playingClip = ref<Clip | null>(null)
 const editingLayout = ref(false)
 const dashboardLayout = ref<DashboardLayout>(createDefaultDashboardLayout([]))
 let layoutBeforeEditing: DashboardLayout | null = null
+const focusedCameraId = ref<number | null>(null)
+const manuallyFocused = ref(false)
+let focusReleaseTimer: ReturnType<typeof setTimeout> | null = null
 
 const layoutStorageKey = computed(() =>
   `witness-dashboard-layout-v1-${selectedGroupId.value === null ? 'all' : selectedGroupId.value}`,
@@ -54,6 +57,12 @@ function loadLayout() {
     saved = null
   }
   dashboardLayout.value = normaliseDashboardLayout(saved, currentCameraIds.value)
+  focusedCameraId.value = null
+  manuallyFocused.value = false
+}
+
+function persistLayout() {
+  localStorage.setItem(layoutStorageKey.value, JSON.stringify(dashboardLayout.value))
 }
 
 function beginLayoutEdit() {
@@ -62,7 +71,7 @@ function beginLayoutEdit() {
 }
 
 function saveLayout() {
-  localStorage.setItem(layoutStorageKey.value, JSON.stringify(dashboardLayout.value))
+  persistLayout()
   layoutBeforeEditing = null
   editingLayout.value = false
 }
@@ -90,6 +99,73 @@ function changeActivitySize(delta: number) {
     ...dashboardLayout.value,
     activitySize: Math.max(72, Math.min(320, dashboardLayout.value.activitySize + delta)),
   }
+}
+
+function toggleAutoFocus() {
+  dashboardLayout.value = {
+    ...dashboardLayout.value,
+    autoFocusEnabled: !dashboardLayout.value.autoFocusEnabled,
+  }
+  if (!dashboardLayout.value.autoFocusEnabled && !manuallyFocused.value) focusedCameraId.value = null
+  persistLayout()
+}
+
+function toggleFocusEligibility(cameraId: number) {
+  const eligible = new Set(dashboardLayout.value.focusEligibleCameraIds)
+  if (eligible.has(cameraId)) eligible.delete(cameraId)
+  else eligible.add(cameraId)
+  dashboardLayout.value = { ...dashboardLayout.value, focusEligibleCameraIds: [...eligible] }
+}
+
+function focusCamera(cameraId: number) {
+  if (focusedCameraId.value === cameraId && manuallyFocused.value) {
+    focusedCameraId.value = null
+    manuallyFocused.value = false
+    updateAutomaticFocus()
+    return
+  }
+  if (focusReleaseTimer) clearTimeout(focusReleaseTimer)
+  focusedCameraId.value = cameraId
+  manuallyFocused.value = true
+}
+
+function cameraFocusPriority(cameraId: number) {
+  const tile = dashboardLayout.value.tiles.find(item => item.cameraId === cameraId)
+  return tile ? tile.width * tile.height : 0
+}
+
+function updateAutomaticFocus() {
+  if (manuallyFocused.value) return
+  if (focusReleaseTimer) {
+    clearTimeout(focusReleaseTimer)
+    focusReleaseTimer = null
+  }
+  if (!dashboardLayout.value.autoFocusEnabled) {
+    focusedCameraId.value = null
+    return
+  }
+
+  const eligible = new Set(dashboardLayout.value.focusEligibleCameraIds)
+  const active = cameraStore.cameras
+    .filter(camera => currentCameraIds.value.includes(camera.id) && eligible.has(camera.id) && camera.motionActive)
+    .sort((a, b) => cameraFocusPriority(b.id) - cameraFocusPriority(a.id))
+  const best = active[0]?.id ?? null
+  const current = focusedCameraId.value
+
+  if (current === null) {
+    focusedCameraId.value = best
+    return
+  }
+  if (active.some(camera => camera.id === current)) {
+    if (best !== null && cameraFocusPriority(best) > cameraFocusPriority(current)) focusedCameraId.value = best
+    return
+  }
+
+  focusReleaseTimer = setTimeout(() => {
+    focusReleaseTimer = null
+    focusedCameraId.value = null
+    updateAutomaticFocus()
+  }, dashboardLayout.value.focusHoldSeconds * 1000)
 }
 
 function toggleRecentActivity() {
@@ -147,6 +223,17 @@ const activityOrientation = computed(() =>
 watch([selectedGroupId, () => currentCameraIds.value.join(',')], () => {
   if (!editingLayout.value) loadLayout()
 }, { immediate: true })
+
+watch(
+  [() => cameraStore.cameras.map(camera => `${camera.id}:${camera.motionActive ? 1 : 0}`).join(','),
+    () => dashboardLayout.value.autoFocusEnabled,
+    () => dashboardLayout.value.focusEligibleCameraIds.join(',')],
+  updateAutomaticFocus,
+)
+
+onUnmounted(() => {
+  if (focusReleaseTimer) clearTimeout(focusReleaseTimer)
+})
 
 onMounted(async () => {
   await cameraStore.fetchCameras()
@@ -228,8 +315,12 @@ onMounted(async () => {
       :fullscreen-insets="fullscreenInsets"
       :fullscreen-layout="dashboardLayout.tiles"
       :editing-layout="editingLayout"
+      :focused-camera-id="settings.fullscreenMode && !editingLayout ? focusedCameraId : null"
+      :focus-eligible-camera-ids="dashboardLayout.focusEligibleCameraIds"
       @update-fullscreen-layout="updateFullscreenLayout"
       @cancel-layout="cancelLayoutEdit"
+      @focus-camera="focusCamera"
+      @toggle-focus-eligibility="toggleFocusEligibility"
     />
 
     <ActivityStrip
@@ -258,6 +349,14 @@ onMounted(async () => {
       title="Edit this group's fullscreen layout"
     >Layout</button>
 
+    <button
+      v-if="settings.fullscreenMode && !editingLayout"
+      class="fullscreen-focus-toggle"
+      :class="{ active: dashboardLayout.autoFocusEnabled }"
+      @click="toggleAutoFocus"
+      :title="dashboardLayout.autoFocusEnabled ? 'Disable focus on motion' : 'Focus eligible cameras on motion'"
+    >Auto focus</button>
+
     <div v-if="settings.fullscreenMode && editingLayout" class="layout-editor-toolbar">
       <span class="layout-editor-label">Activity</span>
       <button
@@ -268,6 +367,11 @@ onMounted(async () => {
       >{{ dock }}</button>
       <button title="Make activity panel smaller" @click="changeActivitySize(-16)">−</button>
       <button title="Make activity panel larger" @click="changeActivitySize(16)">+</button>
+      <span class="layout-editor-separator" />
+      <button
+        :class="{ active: dashboardLayout.autoFocusEnabled }"
+        @click="dashboardLayout.autoFocusEnabled = !dashboardLayout.autoFocusEnabled"
+      >Auto focus</button>
       <span class="layout-editor-separator" />
       <button @click="resetLayout">Reset</button>
       <button @click="cancelLayoutEdit">Cancel</button>
@@ -319,6 +423,21 @@ onMounted(async () => {
   color: rgba(255, 255, 255, 0.75);
   font-size: 0.75rem;
 }
+
+.fullscreen-focus-toggle {
+  position: fixed;
+  top: 10px;
+  right: 184px;
+  z-index: 1002;
+  padding: 6px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 0.375rem;
+  background: rgba(0, 0, 0, 0.6);
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.75rem;
+}
+
+.fullscreen-focus-toggle.active { background: rgba(13, 110, 253, 0.8); color: #fff; }
 
 .layout-editor-toolbar {
   position: fixed;

@@ -238,6 +238,42 @@ html, body, #app {
   touch-action: none;
 }
 
+.layout-focus-eligibility {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  z-index: 22;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 4px;
+  padding: 3px 7px;
+  background: rgba(20, 20, 24, 0.9);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.68rem;
+}
+
+.layout-focus-eligibility.enabled { background: rgba(13, 110, 253, 0.9); color: #fff; }
+
+.camera-focus-button {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  z-index: 12;
+  width: 27px;
+  height: 27px;
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.65);
+  color: #fff;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.camera-grid-item:hover .camera-focus-button,
+.camera-focus-button.active { opacity: 0.85; }
+.camera-focus-button:hover,
+.camera-focus-button.active { background: rgba(13, 110, 253, 0.9); opacity: 1; }
+.camera-grid-item.focused { outline: 2px solid rgba(13, 110, 253, 0.85); outline-offset: -2px; }
+
 .fullscreen-exit-btn {
   position: fixed;
   top: 10px;
