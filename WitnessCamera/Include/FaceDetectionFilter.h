@@ -32,6 +32,7 @@ public:
 	virtual ~FaceDetectionFilter();
 
 	virtual bool ProcessFrame( SharedClassificationTask TaskData );
+	virtual EFilterWorkClass GetWorkClass() const override { return EFilterWorkClass::OptionalAI; }
 
 	bool IsModelLoaded() const;
 

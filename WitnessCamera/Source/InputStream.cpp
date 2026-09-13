@@ -379,6 +379,10 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 
 					Job->Origin = Filter;
 					Job->Next = Filter;
+					Job->IsCurrentGeneration = [Queue]( const SharedClassificationTask& JobIn )
+					{
+						return Queue->IsCurrentJob( JobIn );
+					};
 					
 					
 					Job->InsertToQueue = [Queue](SharedClassificationTask JobIn, bool HighPriority)
@@ -387,7 +391,7 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 						{
 							auto Stats = Queue->GetData().GetStatsForSource(JobIn->Frame.SourceID);		
 
-							LOG_WARNING("Backlog full for source %d", JobIn->Frame.SourceID);
+							LOG_WARNING("Essential processing backlog full for source %d", JobIn->Frame.SourceID);
 
 							Queue->RemoveAllForSource(JobIn->Frame.SourceID);
 						}
@@ -397,7 +401,7 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 					{
 						auto Stats = CommonJobQueue->GetData().GetStatsForSource(UniqueSourceID);		
 
-						LOG_WARNING("Backlog full for source %d", UniqueSourceID);
+						LOG_WARNING("Essential processing backlog full for source %d", UniqueSourceID);
 
 						CommonJobQueue->RemoveAllForSource(UniqueSourceID);
 					}

@@ -39,17 +39,49 @@ ObservingMotionFilter::ObservingMotionFilter( const MotionChainNode& Chain, cons
 ObservingMotionFilter::~ObservingMotionFilter()
 {}
 
+AIResultObserverFilter::AIResultObserverFilter( const std::shared_ptr<ObservingMotionFilter>& ObserverIn )
+: IRecordFilter( MotionChainNode{} )
+, Observer( ObserverIn )
+{
+}
+
+bool AIResultObserverFilter::ProcessFrame( SharedClassificationTask TaskData )
+{
+	if( auto Target = Observer.lock() )
+		return Target->ProcessFrame( TaskData );
+
+	TaskData->Next = nullptr;
+	TaskData->InsertToQueue( TaskData, true );
+	return false;
+}
+
 bool ObservingMotionFilter::ProcessFrame( SharedClassificationTask TaskData )
 {
-	if( TaskData->Frame.Timestamp < LastPresentedTimestamp )
+	auto IsCurrentTask = [&]()
 	{
-		TaskData->FrameOwner->InputFrame->Unref();
-		return TaskData->Result.ClassificationSuperset != 0;
+		return !TaskData->IsCurrentGeneration || TaskData->IsCurrentGeneration( TaskData );
+	};
+
+	if( !IsCurrentTask() )
+	{
+		TaskData->Next = nullptr;
+		TaskData->InsertToQueue( TaskData, true );
+		return false;
 	}
 
-	LastPresentedTimestamp = TaskData->Frame.Timestamp;
+	const bool PublishingAIResults = TaskData->EssentialObservationComplete;
+	if( !PublishingAIResults )
+	{
+		if( TaskData->Frame.Timestamp < LastPresentedTimestamp )
+		{
+			TaskData->Next = nullptr;
+			TaskData->InsertToQueue( TaskData, true );
+			return TaskData->Result.ClassificationSuperset != 0;
+		}
 
-	FrameIndex++;
+		LastPresentedTimestamp = TaskData->Frame.Timestamp;
+		FrameIndex++;
+	}
 
 	int FilterIndex = 0;
 
@@ -57,13 +89,19 @@ bool ObservingMotionFilter::ProcessFrame( SharedClassificationTask TaskData )
 	const double NanoSecondsToSeconds = 1000.0 * 1000.0 * 1000.0;
 
 	uint64_t Now = std::chrono::high_resolution_clock::now().time_since_epoch().count();
-	bool SaveLarge = ((double)(Now - LastLargePreviewTimestamp) / NanoSecondsToSeconds) < PreviewTimeout;
-	bool SaveSmall = ((double)(Now - LastSmallPreviewTimestamp) / NanoSecondsToSeconds) < PreviewTimeout;
+	bool SaveLarge = !PublishingAIResults && ((double)(Now - LastLargePreviewTimestamp) / NanoSecondsToSeconds) < PreviewTimeout;
+	bool SaveSmall = !PublishingAIResults && ((double)(Now - LastSmallPreviewTimestamp) / NanoSecondsToSeconds) < PreviewTimeout;
 
 	SaveNextFrame = SaveLarge | SaveSmall;
 
-	TaskData->Frame.WantFullSizeOutput |= SaveLarge;
-	TaskData->Frame.WantSmallOutput |= SaveSmall;
+	if( !PublishingAIResults )
+	{
+		// These are current demand signals, not sticky capabilities. Assignment
+		// lets the next essential frame stop doing expensive conversion after a
+		// viewer disconnects or the preview request expires.
+		TaskData->Frame.WantFullSizeOutput = SaveLarge;
+		TaskData->Frame.WantSmallOutput = SaveSmall;
+	}
 
 	FilterFrameStatScope Scope( TaskData->Frame.Stats, FilterStat_ObserverFilter );
 	
@@ -71,7 +109,7 @@ bool ObservingMotionFilter::ProcessFrame( SharedClassificationTask TaskData )
 
 	if (TaskData->Result.ClassificationSuperset )
 	{
-		if( SaveNextFrame && DrawObjectLabels )
+		if( PublishingAIResults && SaveNextFrame && DrawObjectLabels )
 		{
 			for( auto& ROI : TaskData->Result.ROI )
 			{
@@ -159,16 +197,19 @@ bool ObservingMotionFilter::ProcessFrame( SharedClassificationTask TaskData )
 		}
 
 		// Fire detection callback with normalized coordinates for overlay storage/broadcast
-		if( DetectionCallback && !TaskData->Result.ROI.empty() )
+		// With AI enabled, publish once after its enriched result returns. Without
+		// AI, preserve detections produced by upstream MV/Reolink filters.
+		if( (PublishingAIResults || !AITarget) && DetectionCallback && !TaskData->Result.ROI.empty() )
 		{
 			DetectionFrameData frameData;
 			frameData.CameraID = CameraID;
-			frameData.Timestamp = static_cast<double>( TimestampNow );
+			// Preserve capture time when queued inference completes later.
+			frameData.Timestamp = static_cast<double>( TaskData->Frame.Timestamp );
 			auto& decodedFrame = TaskData->Frame.GetOrDecodeFrame();
 			frameData.FrameWidth = decodedFrame.cols;
 			frameData.FrameHeight = decodedFrame.rows;
 			frameData.DecodedFrame = decodedFrame.clone();
-			frameData.IsMotion = ( State != MotionState::None );
+			frameData.IsMotion = ( TaskData->Result.ClassificationSuperset & ClassificationResult::Motion_Motion ) != 0;
 
 			for( auto& ROI : TaskData->Result.ROI )
 			{
@@ -204,13 +245,13 @@ bool ObservingMotionFilter::ProcessFrame( SharedClassificationTask TaskData )
 				frameData.Boxes.push_back( std::move( box ) );
 			}
 
-			if( !frameData.Boxes.empty() )
+			if( !frameData.Boxes.empty() && IsCurrentTask() )
 			{
 				DetectionCallback( frameData );
 			}
 		}
 
-		if( State == MotionState::None )
+		if( !PublishingAIResults && IsCurrentTask() && State == MotionState::None )
 		{
 			State = MotionState::Current;
 
@@ -232,9 +273,10 @@ bool ObservingMotionFilter::ProcessFrame( SharedClassificationTask TaskData )
 
 			CreateJpegPreview( TaskData->Frame, MotionMessage->Jpeg, TargetThumbnailSize, DefaultQuality, nullptr );
 
-			MessageBusPtr->SendToClient( nullptr, MotionMessage );
+			if( IsCurrentTask() )
+				MessageBusPtr->SendToClient( nullptr, MotionMessage );
 		}
-		else
+		else if( !PublishingAIResults && IsCurrentTask() )
 		{
 			if( State == MotionState::GracePeriod )
 			{
@@ -254,11 +296,12 @@ bool ObservingMotionFilter::ProcessFrame( SharedClassificationTask TaskData )
 
 				CreateJpegPreview( TaskData->Frame, MotionMessage->Jpeg, TargetThumbnailSize, DefaultQuality, nullptr );
 				
-				MessageBusPtr->SendToClient( nullptr, MotionMessage );
+				if( IsCurrentTask() )
+					MessageBusPtr->SendToClient( nullptr, MotionMessage );
 			}
 		}
 	}
-	else
+	else if( !PublishingAIResults && IsCurrentTask() )
 	{
 		if( State == MotionState::Current )
 		{
@@ -277,13 +320,22 @@ bool ObservingMotionFilter::ProcessFrame( SharedClassificationTask TaskData )
 				MotionMessage->ClipStats = ClipStats;
 				MotionMessage->Result = TaskData->Result;
 				
-				MessageBusPtr->SendToClient( nullptr, MotionMessage );
+				if( IsCurrentTask() )
+					MessageBusPtr->SendToClient( nullptr, MotionMessage );
 			}
 		}
 	}
 
+	if( IsCurrentTask() )
 	{
 		std::lock_guard<std::mutex> Lock(Mutex);
+
+		if( PublishingAIResults )
+		{
+			Result.ClassificationSuperset |= TaskData->Result.ClassificationSuperset;
+			Result.MotionAmount = std::max( Result.MotionAmount, TaskData->Result.MotionAmount );
+			Result.ROI = TaskData->Result.ROI;
+		}
 
 		for( auto& Tag : TaskData->Result.Tags )
 		{
@@ -304,7 +356,7 @@ bool ObservingMotionFilter::ProcessFrame( SharedClassificationTask TaskData )
 		}
 	}
 
-	if( SaveNextFrame )
+	if( !PublishingAIResults && SaveNextFrame && IsCurrentTask() )
 	{
 		SaveNextFrame = false;
 
@@ -321,19 +373,23 @@ bool ObservingMotionFilter::ProcessFrame( SharedClassificationTask TaskData )
 			cv::line( OutputFrame, cv::Point(15 + X,15 + Y), cv::Point(15 - X, 15 - Y), TaskData->Result.ClassificationSuperset == 0 ? cv::Scalar(0,255,0) : cv::Scalar(0,0,255), 2 );
 		} );
 
-		MessageBusPtr->SendToClient( nullptr, SaveFrameMessage );
+		if( IsCurrentTask() )
+			MessageBusPtr->SendToClient( nullptr, SaveFrameMessage );
 	}
 
-	if ( WantManualThumbnail )
+	if ( !PublishingAIResults && WantManualThumbnail && IsCurrentTask() )
 	{
 		WantManualThumbnail = false;
 
 		auto SnapshotMessage = std::make_shared<CameraSnapshotMessage>( CameraID );
 		CreateJpegPreview( TaskData->Frame, SnapshotMessage->Jpeg, TargetThumbnailSize, DefaultQuality, nullptr );
-		MessageBusPtr->SendToClient( nullptr, SnapshotMessage );
+		if( IsCurrentTask() )
+			MessageBusPtr->SendToClient( nullptr, SnapshotMessage );
 	}
 
-	TaskData->FrameOwner->InputFrame->Unref();
+	TaskData->EssentialObservationComplete = true;
+	TaskData->Next = PublishingAIResults ? nullptr : AITarget;
+	TaskData->InsertToQueue( TaskData, TaskData->Next == nullptr );
 
 	return TaskData->Result.ClassificationSuperset != 0;
 }

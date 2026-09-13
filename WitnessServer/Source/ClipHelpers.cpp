@@ -442,8 +442,9 @@ static bool DeleteManagedDetectionAssets( const std::string& CachePath, int Came
 		const fs::path relative = absolutePath.lexically_relative( cachePath );
 		if( absoluteError || relative.empty() )
 		{
-			LOG_WARNING( "Refusing to remove unresolved detection asset path %s", assetPath.c_str() );
-			filesDeleted = false;
+			// The database reference is safe to discard even when the file path is
+			// malformed. Never let corrupt metadata create a permanent retry loop.
+			LOG_WARNING( "Skipping removal of unresolved detection asset path %s", assetPath.c_str() );
 			continue;
 		}
 
@@ -451,15 +452,13 @@ static bool DeleteManagedDetectionAssets( const std::string& CachePath, int Came
 		if( component == relative.end() || *component == ".." ||
 			(*component != "frames" && *component != "crops" && *component != "faces") )
 		{
-			LOG_WARNING( "Refusing to remove unmanaged detection asset path %s", assetPath.c_str() );
-			filesDeleted = false;
+			LOG_WARNING( "Skipping removal of unmanaged detection asset path %s", assetPath.c_str() );
 			continue;
 		}
 		++component;
 		if( component == relative.end() || *component != std::to_string( CameraID ) )
 		{
-			LOG_WARNING( "Refusing to remove detection asset outside camera %d: %s", CameraID, assetPath.c_str() );
-			filesDeleted = false;
+			LOG_WARNING( "Skipping removal of detection asset outside camera %d: %s", CameraID, assetPath.c_str() );
 			continue;
 		}
 

@@ -1,5 +1,22 @@
 cmake_minimum_required(VERSION 3.20)
 
+# vcpkg does not yet auto-discover VS 2026 Insiders on this machine. Pin both
+# the project and dependency builds to it unless the caller explicitly selects
+# another installation with VCPKG_VISUAL_STUDIO_PATH.
+if(CMAKE_HOST_WIN32)
+    if(NOT DEFINED ENV{VCPKG_VISUAL_STUDIO_PATH} OR "$ENV{VCPKG_VISUAL_STUDIO_PATH}" STREQUAL "")
+        set(ENV{VCPKG_VISUAL_STUDIO_PATH} "$ENV{ProgramFiles}/Microsoft Visual Studio/18/Insiders")
+    endif()
+
+    if(NOT EXISTS "$ENV{VCPKG_VISUAL_STUDIO_PATH}")
+        message(FATAL_ERROR
+            "The selected Visual Studio installation was not found at "
+            "$ENV{VCPKG_VISUAL_STUDIO_PATH}. "
+            "Install it or explicitly set VCPKG_VISUAL_STUDIO_PATH to the Visual Studio "
+            "installation that should build both Witness and its vcpkg dependencies.")
+    endif()
+endif()
+
 # Auto-detect vcpkg and set up the toolchain before project()
 if(DEFINED CMAKE_TOOLCHAIN_FILE AND NOT CMAKE_TOOLCHAIN_FILE STREQUAL "" AND EXISTS "${CMAKE_TOOLCHAIN_FILE}")
     # Already set and valid — use it
@@ -39,6 +56,24 @@ else()
 endif()
 
 project(Witness LANGUAGES CXX C)
+
+# A Visual Studio or Ninja environment can still select a different cl.exe from
+# the one vcpkg was pinned to. Reject that combination before it can invalidate
+# or produce ABI-incompatible dependencies.
+if(MSVC AND DEFINED ENV{VCPKG_VISUAL_STUDIO_PATH})
+    file(TO_CMAKE_PATH "$ENV{VCPKG_VISUAL_STUDIO_PATH}" _WITNESS_VS_PATH)
+    file(TO_CMAKE_PATH "${CMAKE_CXX_COMPILER}" _WITNESS_CXX_COMPILER)
+    string(REGEX REPLACE "/+$" "" _WITNESS_VS_PATH "${_WITNESS_VS_PATH}")
+    string(TOLOWER "${_WITNESS_VS_PATH}" _WITNESS_VS_PATH_LOWER)
+    string(TOLOWER "${_WITNESS_CXX_COMPILER}" _WITNESS_CXX_COMPILER_LOWER)
+    string(FIND "${_WITNESS_CXX_COMPILER_LOWER}" "${_WITNESS_VS_PATH_LOWER}/" _WITNESS_VS_PATH_POS)
+    if(NOT _WITNESS_VS_PATH_POS EQUAL 0)
+        message(FATAL_ERROR
+            "CMake selected ${CMAKE_CXX_COMPILER}, but vcpkg is pinned to "
+            "$ENV{VCPKG_VISUAL_STUDIO_PATH}. Start CMake from that Visual Studio "
+            "environment, or explicitly override VCPKG_VISUAL_STUDIO_PATH.")
+    endif()
+endif()
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

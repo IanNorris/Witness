@@ -8,6 +8,7 @@
 #include <ONNXDetectionFilter.h>
 #include <FaceDetectionFilter.h>
 #include <FaceEmbeddingModel.h>
+#include <ImageProcessingJob.h>
 
 #include <functional>
 #include <string>
@@ -30,6 +31,7 @@ public:
 		double FaceRecThreshold,
 		double DetectionMaxFPS,
 		std::string CachePath,
+		Witness::Camera::ImageProcessingJobQueue* LiveJobQueue,
 		std::function<bool()> IsIdle
 	);
 
@@ -53,6 +55,7 @@ private:
 	double FaceRecThreshold;
 	double DetectionMaxFPS;
 	std::string CachePath;
+	Witness::Camera::ImageProcessingJobQueue* LiveJobQueue;
 	std::function<bool()> IsIdle;
 	bool LightingBackfillComplete = false;
 };

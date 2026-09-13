@@ -132,6 +132,8 @@ struct FilterFrameStatExcludeScope
 struct SourceStats
 {
 	SourceStats()
+	: PendingEssentialJobs( 0 )
+	, PendingAIJobs( 0 )
 	{
 		Reset();
 	}
@@ -141,12 +143,52 @@ struct SourceStats
 	int64_t							FrameCount;
 
 	FilterFrameStats				Stats;
+
+	// Queue profiling is kept separate from filter timings. Ingress latency is
+	// measured from accepting a decoded frame until its first processing stage.
+	uint64_t IngressFrames;
+	uint64_t StartedFrames;
+	uint64_t CoalescedFrames;
+	uint64_t CoalescedAIFrames;
+	uint64_t PendingEssentialJobs;
+	uint64_t PendingAIJobs;
+	uint64_t PeakPendingEssentialJobs;
+	uint64_t PeakPendingAIJobs;
+	uint64_t IngressQueueWaitSamples;
+	uint64_t ContinuationQueueWaitSamples;
+	uint64_t AIQueueWaitSamples;
+	int64_t IngressQueueWaitTotalNS;
+	int64_t IngressQueueWaitMaxNS;
+	int64_t ContinuationQueueWaitTotalNS;
+	int64_t ContinuationQueueWaitMaxNS;
+	int64_t AIQueueWaitTotalNS;
+	int64_t AIQueueWaitMaxNS;
 	
 	void Reset()
 	{
+		// Pending depths are live gauges and must survive a profiling reset.
+		const uint64_t CurrentEssentialJobs = PendingEssentialJobs;
+		const uint64_t CurrentAIJobs = PendingAIJobs;
 		LastTimestamp = 0;
 		LastFrameIndex = -1;
 		FrameCount = 0;
 		Stats.Reset();
+		IngressFrames = 0;
+		StartedFrames = 0;
+		CoalescedFrames = 0;
+		CoalescedAIFrames = 0;
+		PendingEssentialJobs = CurrentEssentialJobs;
+		PendingAIJobs = CurrentAIJobs;
+		PeakPendingEssentialJobs = CurrentEssentialJobs;
+		PeakPendingAIJobs = CurrentAIJobs;
+		IngressQueueWaitSamples = 0;
+		ContinuationQueueWaitSamples = 0;
+		AIQueueWaitSamples = 0;
+		IngressQueueWaitTotalNS = 0;
+		IngressQueueWaitMaxNS = 0;
+		ContinuationQueueWaitTotalNS = 0;
+		ContinuationQueueWaitMaxNS = 0;
+		AIQueueWaitTotalNS = 0;
+		AIQueueWaitMaxNS = 0;
 	}
 };

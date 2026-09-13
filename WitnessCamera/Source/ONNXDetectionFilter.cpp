@@ -207,7 +207,7 @@ static void AddCudnnSearchPaths( const char* CudnnPath )
 // Called in the probe child process. Will crash (via __fastfail) if cuDNN is broken.
 bool TestCudaAvailability( const char* ModelPath, const char* CudnnPath )
 {
-#ifdef _WIN32
+#if defined(_WIN32) && WITNESS_ONNX_CUDA_AVAILABLE
 	AddCudnnSearchPaths( CudnnPath );
 
 	try
@@ -334,6 +334,7 @@ ONNXDetectionFilter::ONNXDetectionFilter( const MotionChainNode& Chain, const ch
 
 		if( UseGPU )
 		{
+#if WITNESS_ONNX_CUDA_AVAILABLE
 			if( s_CudaStatus == Untested )
 			{
 				AddCudnnSearchPaths( CudnnPath );
@@ -376,6 +377,13 @@ ONNXDetectionFilter::ONNXDetectionFilter( const MotionChainNode& Chain, const ch
 				cudaOptions.arena_extend_strategy = 1;
 				ID.SessionOptions.AppendExecutionProvider_CUDA( cudaOptions );
 			}
+#else
+			if( s_CudaStatus == Untested )
+			{
+				LOG_WARNING( "ONNX Detection: CUDA support is not included in this build; using CPU." );
+				s_CudaStatus = Unavailable;
+			}
+#endif
 		}
 
 		// Convert to wide string on Windows for ONNX Runtime
