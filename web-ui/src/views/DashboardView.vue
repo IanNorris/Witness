@@ -70,6 +70,11 @@ function beginLayoutEdit() {
   editingLayout.value = true
 }
 
+function openLayoutEditor() {
+  if (!settings.fullscreenMode) settings.toggleFullscreen()
+  beginLayoutEdit()
+}
+
 function saveLayout() {
   persistLayout()
   layoutBeforeEditing = null
@@ -282,15 +287,22 @@ onMounted(async () => {
           title="Zoom in"
         >+</button>
         <button
+          class="btn btn-sm btn-outline-secondary"
+          @click="openLayoutEditor"
+          title="Arrange this group's fullscreen dashboard"
+        >Layout</button>
+        <button
           class="btn btn-sm"
           :class="settings.fullscreenMode ? 'btn-primary' : 'btn-outline-secondary'"
           @click="settings.toggleFullscreen"
           title="Fullscreen"
+          style="display: inline-flex; align-items: center; gap: 0.35rem;"
         >
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/>
             <line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/>
           </svg>
+          <span class="mobile-hide">Fullscreen</span>
         </button>
         <div class="vr mx-1" style="border-color: var(--bs-border-color);"></div>
         <button
