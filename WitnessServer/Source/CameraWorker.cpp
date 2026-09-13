@@ -18,6 +18,7 @@
 
 #include <Log.h>
 #include <chrono>
+#include <format>
 #include <thread>
 #include <filesystem>
 #include <sstream>
@@ -86,6 +87,8 @@ void CameraWorker::CreateInputStream()
 				ctrl["generation"] = ev.Generation;
 				if (!ev.AudioCodec.empty())
 					ctrl["audioCodec"] = ev.AudioCodec;
+				ctrl["bytes"] = (int64_t)ev.ByteSize;
+				ctrl["hash"] = std::format("{:08x}", ev.TransportHash);
 				streams->SendControl(cameraId, ctrl.dump());
 				streams->SendBinary(cameraId, ev.Data);
 				break;
@@ -97,6 +100,8 @@ void CameraWorker::CreateInputStream()
 				ctrl["duration"] = ev.Duration;
 				ctrl["independent"] = ev.Independent;
 				ctrl["keyframeSeekSafe"] = ev.KeyframeSeekSafe;
+				ctrl["bytes"] = (int64_t)ev.ByteSize;
+				ctrl["hash"] = std::format("{:08x}", ev.TransportHash);
 				streams->SendControl(cameraId, ctrl.dump());
 				streams->SendBinary(cameraId, ev.Data);
 				break;

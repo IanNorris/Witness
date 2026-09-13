@@ -207,6 +207,8 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 					auto Diag = LiveStream->GetStreamingDiagnostics();
 
 					crow::json::wvalue StreamData;
+					StreamData["diagnosticsSchemaVersion"] = 2;
+					StreamData["packetTraceCapacity"] = 1024;
 					StreamData["totalSegments"] = Diag.TotalSegments;
 					StreamData["reconnectCount"] = Diag.ReconnectCount;
 					StreamData["totalDtsDuration"] = Diag.TotalDtsDuration;
@@ -228,6 +230,8 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 					StreamData["audioVideoSkewMs"] = Diag.AudioVideoSkewMs;
 					StreamData["timestampCorrectionSaturatedPackets"] =
 						(int64_t)Diag.TimestampCorrectionSaturatedPackets;
+					StreamData["videoCodec"] = Diag.VideoCodec;
+					StreamData["audioCodec"] = Diag.AudioCodec;
 
 					if( Diag.TotalSegments > 0 )
 					{
@@ -251,9 +255,45 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 						S["droppedVideoPackets"] = (int64_t)Seg.DroppedVideoPackets;
 						S["missingVideoDtsPackets"] = (int64_t)Seg.MissingVideoDtsPackets;
 						S["corruptVideoPackets"] = (int64_t)Seg.CorruptVideoPackets;
+						S["packetPayloadHash"] = std::format("{:016x}", Seg.PacketPayloadHash);
+						S["fragmentHash"] = std::format("{:016x}", Seg.FragmentHash);
+						S["fragmentBytes"] = (int64_t)Seg.FragmentBytes;
 						Segments.push_back( std::move( S ) );
 					}
 					StreamData["recentSegments"] = std::move( Segments );
+
+					std::vector<crow::json::wvalue> Packets;
+					Packets.reserve( Diag.RecentPackets.size() );
+					for( const auto& Packet : Diag.RecentPackets )
+					{
+						crow::json::wvalue P;
+						P["seq"] = (int64_t)Packet.Sequence;
+						P["generation"] = Packet.Generation;
+						P["segment"] = Packet.SegmentIndex;
+						P["part"] = Packet.PartialIndex;
+						P["track"] = Packet.Audio ? "audio" : "video";
+						P["disposition"] = Packet.Disposition;
+						P["arrivalMs"] = Packet.ArrivalMs;
+						P["size"] = Packet.Size;
+						P["flags"] = Packet.Flags;
+						P["payloadHash"] = std::format("{:016x}", Packet.PayloadHash);
+						P["keyframe"] = Packet.Keyframe;
+						P["corrupt"] = Packet.Corrupt;
+						P["dtsSynthesized"] = Packet.DtsSynthesized;
+						P["ptsSynthesized"] = Packet.PtsSynthesized;
+						P["durationSynthesized"] = Packet.DurationSynthesized;
+						P["timestampNormalized"] = Packet.TimestampNormalized;
+						P["timestampRepaired"] = Packet.TimestampRepaired;
+						P["correctionSaturated"] = Packet.CorrectionSaturated;
+						if( Packet.HasSourceDts ) P["sourceDtsUs"] = Packet.SourceDtsUs;
+						if( Packet.HasSourcePts ) P["sourcePtsUs"] = Packet.SourcePtsUs;
+						P["sourceDurationUs"] = Packet.SourceDurationUs;
+						if( Packet.HasOutputDts ) P["outputDtsUs"] = Packet.OutputDtsUs;
+						if( Packet.HasOutputPts ) P["outputPtsUs"] = Packet.OutputPtsUs;
+						P["outputDurationUs"] = Packet.OutputDurationUs;
+						Packets.push_back( std::move( P ) );
+					}
+					StreamData["recentPackets"] = std::move( Packets );
 
 					CamData["streaming"] = std::move( StreamData );
 				}

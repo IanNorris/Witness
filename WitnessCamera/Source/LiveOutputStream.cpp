@@ -14,6 +14,30 @@ namespace Witness{
 namespace Camera{
 
 static const int AVIOBufferSize = 64 * 1024;
+static const uint64_t Fnv1aOffsetBasis = 14695981039346656037ULL;
+static const uint64_t Fnv1aPrime = 1099511628211ULL;
+
+static uint64_t HashBytes(const uint8_t* Data, size_t Size, uint64_t Seed = Fnv1aOffsetBasis)
+{
+	uint64_t Hash = Seed;
+	for (size_t Index = 0; Index < Size; ++Index)
+	{
+		Hash ^= Data[Index];
+		Hash *= Fnv1aPrime;
+	}
+	return Hash;
+}
+
+static uint32_t HashBytes32(const uint8_t* Data, size_t Size)
+{
+	uint32_t Hash = 2166136261U;
+	for (size_t Index = 0; Index < Size; ++Index)
+	{
+		Hash ^= Data[Index];
+		Hash *= 16777619U;
+	}
+	return Hash;
+}
 
 LiveOutputStream::LiveOutputStream(const std::string& LiveCachePath, InputStream* InputStream, int KeyframesPerSegment)
 	: Stream()
@@ -300,6 +324,11 @@ CameraStreamError LiveOutputStream::InitFormatContext()
 
 	// Detect B-frame usage for conditional PTS=DTS handling
 	_HasBFrames = InID.CodecContext->has_b_frames > 0;
+	{
+		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
+		_DiagVideoCodec = avcodec_get_name(InID.CodecContext->codec_id);
+		_DiagAudioCodec.clear();
+	}
 	LOG_INFO("[HLS] Camera stream %s B-frames (has_b_frames=%d)",
 		_HasBFrames ? "has" : "does not have", InID.CodecContext->has_b_frames);
 
@@ -327,6 +356,10 @@ CameraStreamError LiveOutputStream::InitFormatContext()
 		AudioOutStream->time_base = AudioInStream->time_base;
 		_HasAudioStream = true;
 		_AudioInputStreamIndex = InID.ChosenAudioStreamIndex;
+		{
+			const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
+			_DiagAudioCodec = avcodec_get_name(AudioInStream->codecpar->codec_id);
+		}
 		LOG_INFO("[HLS] AAC audio passthrough enabled");
 	}
 
@@ -350,7 +383,70 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 	const bool IsVideo = Packet->stream_index == _InputStream->GetData().ChosenStreamIndex;
 	if (!IsAudio && !IsVideo)
 		return CameraStreamError::Success;
+	AVRational InputTimebase =
+		_InputStream->GetData().FormatContext->streams[Packet->stream_index]->time_base;
 	const bool IsVideoKeyframe = IsVideo && (Packet->flags & AV_PKT_FLAG_KEY);
+	const bool SourceHasDts = Packet->dts != AV_NOPTS_VALUE;
+	const bool SourceHasPts = Packet->pts != AV_NOPTS_VALUE;
+	const int64_t SourceDtsUs = SourceHasDts ?
+		av_rescale_q(Packet->dts, InputTimebase, AV_TIME_BASE_Q) : 0;
+	const int64_t SourcePtsUs = SourceHasPts ?
+		av_rescale_q(Packet->pts, InputTimebase, AV_TIME_BASE_Q) : 0;
+	const int64_t SourceDurationUs = Packet->duration > 0 ?
+		av_rescale_q(Packet->duration, InputTimebase, AV_TIME_BASE_Q) : 0;
+	const uint64_t PayloadHash = Packet->data && Packet->size > 0 ?
+		HashBytes(Packet->data, (size_t)Packet->size) : Fnv1aOffsetBasis;
+	const int64_t ArrivalMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+		std::chrono::steady_clock::now() - _PacketDiagEpoch).count();
+	const uint64_t PacketSequence = ++_PacketDiagSequence;
+	bool DtsSynthesized = false;
+	bool PtsSynthesized = false;
+	bool DurationSynthesized = false;
+	bool TimestampNormalized = false;
+	bool TimestampRepaired = false;
+	bool CorrectionSaturated = false;
+	auto RecordPacket = [&](const char* Disposition, bool HasOutput = false,
+		int64_t OutputDts = 0, int64_t OutputPts = 0, int64_t OutputDuration = 0,
+		int SegmentIndex = -1, int PartialIndex = -1)
+	{
+		PacketDiagEntry Entry;
+		Entry.Sequence = PacketSequence;
+		Entry.Generation = _InitGeneration;
+		Entry.SegmentIndex = SegmentIndex >= 0 ? SegmentIndex : _CurrentSegmentIndex;
+		Entry.PartialIndex = PartialIndex >= 0 ? PartialIndex : _CurrentPartialIndex;
+		Entry.Audio = IsAudio;
+		Entry.Keyframe = IsVideoKeyframe;
+		Entry.Corrupt = (Packet->flags & AV_PKT_FLAG_CORRUPT) != 0;
+		Entry.DtsSynthesized = DtsSynthesized;
+		Entry.PtsSynthesized = PtsSynthesized;
+		Entry.DurationSynthesized = DurationSynthesized;
+		Entry.TimestampNormalized = TimestampNormalized;
+		Entry.TimestampRepaired = TimestampRepaired;
+		Entry.CorrectionSaturated = CorrectionSaturated;
+		Entry.Size = Packet->size;
+		Entry.Flags = Packet->flags;
+		Entry.SourceDtsUs = SourceDtsUs;
+		Entry.SourcePtsUs = SourcePtsUs;
+		Entry.SourceDurationUs = SourceDurationUs;
+		Entry.HasSourceDts = SourceHasDts;
+		Entry.HasSourcePts = SourceHasPts;
+		Entry.HasOutputDts = HasOutput;
+		Entry.HasOutputPts = HasOutput;
+		if (HasOutput)
+		{
+			Entry.OutputDtsUs = av_rescale_q(OutputDts, InputTimebase, AV_TIME_BASE_Q);
+			Entry.OutputPtsUs = av_rescale_q(OutputPts, InputTimebase, AV_TIME_BASE_Q);
+			Entry.OutputDurationUs = av_rescale_q(OutputDuration, InputTimebase, AV_TIME_BASE_Q);
+		}
+		Entry.PayloadHash = PayloadHash;
+		Entry.ArrivalMs = ArrivalMs;
+		Entry.Disposition = Disposition;
+		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
+		_PacketDiagRing[_PacketDiagRingPos % PACKET_DIAG_RING_SIZE] = std::move(Entry);
+		++_PacketDiagRingPos;
+		if (_PacketDiagRingCount < PACKET_DIAG_RING_SIZE)
+			++_PacketDiagRingCount;
+	};
 	// Never mutate segment state around a keyframe that cannot be placed on the
 	// decode timeline. Continue waiting for the next usable random-access point.
 	if (IsVideo && Packet->dts == AV_NOPTS_VALUE)
@@ -362,6 +458,7 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 		}
 		++_SegmentMissingVideoDtsPackets;
 		++_SegmentDroppedVideoPackets;
+		RecordPacket("missingVideoDts");
 		return CameraStreamError::Success;
 	}
 
@@ -369,6 +466,7 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 	// the initial timestamp anchored to video and preserves the old join behavior.
 	if (!_HeaderWritten && !IsVideoKeyframe)
 	{
+		RecordPacket("waitingForKeyframe");
 		return CameraStreamError::Success;
 	}
 
@@ -386,15 +484,19 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 		// one optional audio packet must not tear down the whole camera session.
 		if (!IsAudio || PacketCopy.pts == AV_NOPTS_VALUE)
 		{
+			RecordPacket("missingTimestamp");
 			av_packet_unref(&PacketCopy);
 			return CameraStreamError::Success;
 		}
 		PacketCopy.dts = PacketCopy.pts;
+		DtsSynthesized = true;
 	}
 	if (PacketCopy.pts == AV_NOPTS_VALUE)
+	{
 		PacketCopy.pts = PacketCopy.dts;
+		PtsSynthesized = true;
+	}
 
-	AVRational InputTimebase = _InputStream->GetData().FormatContext->streams[Packet->stream_index]->time_base;
 	int64_t PacketTimestampUs = av_rescale_q(PacketCopy.dts, InputTimebase, AV_TIME_BASE_Q);
 	if (_InitialTimestampUs == AV_NOPTS_VALUE && IsVideo)
 		_InitialTimestampUs = PacketTimestampUs;
@@ -406,6 +508,7 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 			++_DiagDroppedVideoPackets;
 			++_SegmentDroppedVideoPackets;
 		}
+		RecordPacket("beforeVideoEpoch");
 		av_packet_unref(&PacketCopy);
 		return CameraStreamError::Success;
 	}
@@ -423,13 +526,17 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 			++_DiagDroppedVideoPackets;
 			++_SegmentDroppedVideoPackets;
 		}
+		RecordPacket("negativeTimestamp");
 		av_packet_unref(&PacketCopy);
 		return CameraStreamError::Success;
 	}
 
 	// Clamp invalid durations before they participate in timestamp repair.
 	if (PacketCopy.duration < 0 || PacketCopy.duration > INT_MAX)
+	{
 		PacketCopy.duration = 0;
+		DurationSynthesized = true;
+	}
 
 	// Reject duplicate or out-of-order input packets unless this source has
 	// already qualified for duration-derived timestamp repair. In that case the
@@ -465,11 +572,13 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 						(long long)PacketCopy.duration, PacketCopy.flags, PacketCopy.size,
 						_NormalizeNoBFrameTimestamps ? 1 : 0);
 				}
+				RecordPacket("nonMonotonicInput");
 				av_packet_unref(&PacketCopy);
 				return CameraStreamError::Success;
 			}
 
 			RepairedRegressingVideoTimestamp = true;
+			TimestampRepaired = true;
 			uint64_t RepairedVideoTimestamps;
 			{
 				const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
@@ -591,6 +700,7 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 
 	if (!_HeaderWritten || !_CurrentBuffer)
 	{
+		RecordPacket("noMuxBuffer");
 		av_packet_unref(&PacketCopy);
 		return CameraStreamError::Success;
 	}
@@ -600,7 +710,10 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 	// A missing duration must not switch a normalized stream back to its raw
 	// timestamp domain for one packet. Reuse the last validated duration.
 	if (IsVideo && _NormalizeNoBFrameTimestamps && PacketCopy.duration == 0 && _LastPacketDuration > 0)
+	{
 		PacketCopy.duration = _LastPacketDuration;
+		DurationSynthesized = true;
+	}
 	const int64_t NominalVideoDuration = IsVideo ? PacketCopy.duration : 0;
 
 	// Once the Reolink source has met the guarded jitter test, build a continuous
@@ -651,6 +764,8 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 			_LastTimestampCorrection = Correction;
 			_LastTimestampCorrectionSaturated = Correction != UnclampedCorrection ||
 				PhaseError > ResponseWindowTicks / 10 || PhaseError < -ResponseWindowTicks / 10;
+			TimestampNormalized = true;
+			CorrectionSaturated = _LastTimestampCorrectionSaturated;
 		}
 		else if (_SourceTimestampOffset != 0 && PacketCopy.dts != AV_NOPTS_VALUE)
 			PacketCopy.dts += _SourceTimestampOffset;
@@ -671,6 +786,8 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 			++_DiagDroppedVideoPackets;
 			++_SegmentDroppedVideoPackets;
 		}
+		RecordPacket("nonMonotonicOutput", true,
+			PacketCopy.dts, PacketCopy.pts, PacketCopy.duration);
 		av_packet_unref(&PacketCopy);
 		return CameraStreamError::Success;
 	}
@@ -755,6 +872,11 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 	if (IsVideo && (PacketCopy.flags & AV_PKT_FLAG_KEY))
 		_CurrentPartialIsIndependent = true;
 
+	const int TraceSegmentIndex = _CurrentSegmentIndex;
+	const int TracePartialIndex = _CurrentPartialIndex;
+	const int64_t TraceOutputDts = PacketCopy.dts;
+	const int64_t TraceOutputPts = PacketCopy.pts;
+	const int64_t TraceOutputDuration = PacketCopy.duration;
 	av_packet_rescale_ts(&PacketCopy, InputTimebase,
 		_FormatContext->streams[PacketCopy.stream_index]->time_base);
 	// Multi-track fMP4 needs FFmpeg's interleaver to emit a valid fragment.
@@ -762,8 +884,15 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 	av_packet_unref(&PacketCopy);
 	if (Result < 0)
 	{
+		RecordPacket("muxError", true, TraceOutputDts, TraceOutputPts,
+			TraceOutputDuration, TraceSegmentIndex, TracePartialIndex);
 		STREAM_ERROR(WriteFailed, Result);
 	}
+	RecordPacket("written", true, TraceOutputDts, TraceOutputPts,
+		TraceOutputDuration, TraceSegmentIndex, TracePartialIndex);
+	_SegmentPacketPayloadHash = HashBytes(
+		reinterpret_cast<const uint8_t*>(&PayloadHash), sizeof(PayloadHash),
+		_SegmentPacketPayloadHash);
 
 	// Flush a partial segment when we've accumulated enough duration
 	if (IsVideo && _CurrentPartialDuration >= _PartialTargetDuration)
@@ -839,6 +968,9 @@ void LiveOutputStream::FlushPartialSegment(bool IsIndependent)
 		Event.Independent = Partial.Independent;
 		Event.KeyframeSeekSafe = KeyframeSeekSafe;
 		Event.Generation = _InitGeneration;
+		Event.ByteSize = Event.Data ? Event.Data->size() : 0;
+		Event.TransportHash = Event.ByteSize > 0 ?
+			HashBytes32(Event.Data->data(), Event.Data->size()) : 0;
 		_EventCallback(Event);
 	}
 }
@@ -876,6 +1008,9 @@ CameraStreamError LiveOutputStream::StartNewSegment(const AVPacket* Packet)
 			InitEvent.Data = _InitSegmentData;
 			InitEvent.Generation = _InitGeneration;
 			InitEvent.AudioCodec = _InitAudioCodec;
+			InitEvent.ByteSize = _InitSegmentData ? _InitSegmentData->size() : 0;
+			InitEvent.TransportHash = InitEvent.ByteSize > 0 ?
+				HashBytes32(_InitSegmentData->data(), _InitSegmentData->size()) : 0;
 		}
 
 		_InitSegmentCaptured = true;
@@ -908,6 +1043,7 @@ CameraStreamError LiveOutputStream::StartNewSegment(const AVPacket* Packet)
 	_SegmentDroppedVideoPackets = 0;
 	_SegmentMissingVideoDtsPackets = 0;
 	_SegmentCorruptVideoPackets = 0;
+	_SegmentPacketPayloadHash = Fnv1aOffsetBasis;
 	_CurrentSegmentWallTime = std::chrono::system_clock::now();
 
 	{
@@ -976,6 +1112,10 @@ void LiveOutputStream::FinishCurrentSegment(int64_t NextKeyframeDTS)
 	Entry.DroppedVideoPackets = _SegmentDroppedVideoPackets;
 	Entry.MissingVideoDtsPackets = _SegmentMissingVideoDtsPackets;
 	Entry.CorruptVideoPackets = _SegmentCorruptVideoPackets;
+	Entry.PacketPayloadHash = _SegmentPacketPayloadHash;
+	Entry.FragmentBytes = _CurrentBuffer ? (uint64_t)_CurrentBuffer->size() : 0;
+	Entry.FragmentHash = Entry.FragmentBytes > 0 ?
+		HashBytes(_CurrentBuffer->data(), _CurrentBuffer->size()) : Fnv1aOffsetBasis;
 	{
 		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
 		_DiagRing[_DiagRingPos % DIAG_RING_SIZE] = Entry;
@@ -1040,6 +1180,8 @@ LiveOutputStream::StreamingDiagnostics LiveOutputStream::GetStreamingDiagnostics
 	if (_DiagHasAudioOutputTimestamp && _DiagHasVideoOutputTimestamp)
 		Diag.AudioVideoSkewMs = (_DiagLastAudioOutputUs - _DiagLastVideoOutputUs) / 1000.0;
 	Diag.TimestampCorrectionSaturatedPackets = _DiagTimestampCorrectionSaturatedPackets;
+	Diag.VideoCodec = _DiagVideoCodec;
+	Diag.AudioCodec = _DiagAudioCodec;
 	Diag.BacklogSize = (int)_StreamBacklog->size();
 
 	// Copy recent segment entries from ring buffer
@@ -1051,6 +1193,13 @@ LiveOutputStream::StreamingDiagnostics LiveOutputStream::GetStreamingDiagnostics
 	for (int i = 0; i < count; i++)
 	{
 		Diag.RecentSegments.push_back(_DiagRing[(start + i) % DIAG_RING_SIZE]);
+	}
+	const int PacketStart = _PacketDiagRingPos - _PacketDiagRingCount;
+	Diag.RecentPackets.reserve(_PacketDiagRingCount);
+	for (int Index = 0; Index < _PacketDiagRingCount; ++Index)
+	{
+		Diag.RecentPackets.push_back(
+			_PacketDiagRing[(PacketStart + Index) % PACKET_DIAG_RING_SIZE]);
 	}
 
 	return Diag;

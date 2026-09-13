@@ -4,6 +4,7 @@
 #include "UrlHelpers.h"
 #include <Log.h>
 #include <chrono>
+#include <format>
 
 using namespace Witness::Camera;
 
@@ -86,6 +87,8 @@ void SubStreamWorker::ThreadFunc()
 					ctrl["generation"] = ev.Generation;
 					if (!ev.AudioCodec.empty())
 						ctrl["audioCodec"] = ev.AudioCodec;
+					ctrl["bytes"] = (int64_t)ev.ByteSize;
+					ctrl["hash"] = std::format("{:08x}", ev.TransportHash);
 					streams->SendControl(subChannelId, ctrl.dump());
 					streams->SendBinary(subChannelId, ev.Data);
 					break;
@@ -97,6 +100,8 @@ void SubStreamWorker::ThreadFunc()
 					ctrl["duration"] = ev.Duration;
 					ctrl["independent"] = ev.Independent;
 					ctrl["keyframeSeekSafe"] = ev.KeyframeSeekSafe;
+					ctrl["bytes"] = (int64_t)ev.ByteSize;
+					ctrl["hash"] = std::format("{:08x}", ev.TransportHash);
 					streams->SendControl(subChannelId, ctrl.dump());
 					streams->SendBinary(subChannelId, ev.Data);
 					break;

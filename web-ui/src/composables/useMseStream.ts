@@ -23,6 +23,17 @@ interface MseDiagStats {
   totalFragments: number
   maxLatencyMs: number
   minLatencyMs: number | null
+  verifiedBinaryMessages: number
+  integrityMismatchCount: number
+}
+
+function fnv1a32(data: ArrayBuffer): string {
+  const bytes = new Uint8Array(data)
+  let hash = 0x811c9dc5
+  for (let i = 0; i < bytes.length; i++) {
+    hash = Math.imul((hash ^ bytes[i]!) >>> 0, 0x01000193) >>> 0
+  }
+  return hash.toString(16).padStart(8, '0')
 }
 
 class MseDiagnostics {
@@ -37,6 +48,8 @@ class MseDiagnostics {
     totalFragments: 0,
     maxLatencyMs: 0,
     minLatencyMs: null,
+    verifiedBinaryMessages: 0,
+    integrityMismatchCount: 0,
   }
   _element: HTMLVideoElement | null = null
 
@@ -92,6 +105,9 @@ class MseDiagnostics {
 
   snapshot() {
     const el = this._element
+    const playbackQuality = el && typeof el.getVideoPlaybackQuality === 'function'
+      ? el.getVideoPlaybackQuality()
+      : null
     return {
       cameraID: this.cameraID,
       startTime: new Date(this.startTime).toISOString(),
@@ -105,6 +121,14 @@ class MseDiagnostics {
             ended: el.ended,
             playbackRate: el.playbackRate,
             error: el.error ? { code: el.error.code, message: el.error.message } : null,
+            playbackQuality: playbackQuality
+              ? {
+                  creationTime: playbackQuality.creationTime,
+                  totalVideoFrames: playbackQuality.totalVideoFrames,
+                  droppedVideoFrames: playbackQuality.droppedVideoFrames,
+                  corruptedVideoFrames: playbackQuality.corruptedVideoFrames,
+                }
+              : null,
             buffered:
               el.buffered.length > 0
                 ? Array.from({ length: el.buffered.length }, (_, i) => [
@@ -163,6 +187,15 @@ interface PartialAppendMetadata {
   keyframeSeekSafe: boolean
   segmentIndex: number
   partIndex: number
+  expectedBytes: number | null
+  expectedHash?: string
+}
+
+interface BinaryIntegrityMetadata {
+  expectedBytes: number | null
+  expectedHash?: string
+  segmentIndex?: number
+  partIndex?: number
 }
 
 interface AppendQueueItem {
@@ -226,6 +259,7 @@ export function useMseStream(
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let initGeneration = -1
   let expectingBinary: 'init' | 'partial' | null = null
+  let pendingBinaryIntegrity: BinaryIntegrityMetadata | null = null
   let pendingPartialMetadata: PartialAppendMetadata | null = null
   let waitingForKeyframe = true  // Skip partials until first independent (keyframe)
   let hasInitialBuffer = false   // Seek to buffered range after first append
@@ -480,7 +514,16 @@ export function useMseStream(
           initGeneration = msg.generation
           audioCodec = typeof msg.audioCodec === 'string' ? msg.audioCodec : undefined
           expectingBinary = 'init'
-          diag.log('initSegment', { generation: msg.generation, audioCodec })
+          pendingBinaryIntegrity = {
+            expectedBytes: Number.isFinite(Number(msg.bytes)) ? Number(msg.bytes) : null,
+            expectedHash: typeof msg.hash === 'string' ? msg.hash : undefined,
+          }
+          diag.log('initSegment', {
+            generation: msg.generation,
+            audioCodec,
+            expectedBytes: pendingBinaryIntegrity.expectedBytes,
+            expectedHash: pendingBinaryIntegrity.expectedHash,
+          })
           break
 
         case 'partial':
@@ -509,12 +552,16 @@ export function useMseStream(
             keyframeSeekSafe: Boolean(msg.keyframeSeekSafe),
             segmentIndex: Number(msg.segmentIndex),
             partIndex: Number(msg.partIndex),
+            expectedBytes: Number.isFinite(Number(msg.bytes)) ? Number(msg.bytes) : null,
+            expectedHash: typeof msg.hash === 'string' ? msg.hash : undefined,
           }
           diag.log('partial', {
             segmentIndex: msg.segmentIndex,
             partIndex: msg.partIndex,
             duration: msg.duration,
             independent: msg.independent,
+            expectedBytes: pendingPartialMetadata.expectedBytes,
+            expectedHash: pendingPartialMetadata.expectedHash,
           })
           break
 
@@ -536,8 +583,34 @@ export function useMseStream(
     }
   }
 
+  function verifyBinaryIntegrity(
+    data: ArrayBuffer,
+    kind: 'init' | 'partial',
+    metadata: BinaryIntegrityMetadata | null,
+  ) {
+    if (!metadata || (metadata.expectedBytes === null && !metadata.expectedHash)) return
+    const actualHash = metadata.expectedHash ? fnv1a32(data) : undefined
+    const sizeMatches = metadata.expectedBytes === null || metadata.expectedBytes === data.byteLength
+    const hashMatches = !metadata.expectedHash || metadata.expectedHash === actualHash
+    if (sizeMatches && hashMatches) {
+      diag.stats.verifiedBinaryMessages++
+      return
+    }
+    diag.stats.integrityMismatchCount++
+    diag.log('fragmentIntegrityMismatch', {
+      kind,
+      segmentIndex: metadata.segmentIndex,
+      partIndex: metadata.partIndex,
+      expectedBytes: metadata.expectedBytes,
+      actualBytes: data.byteLength,
+      expectedHash: metadata.expectedHash,
+      actualHash,
+    })
+  }
+
   function handleBinaryData(data: ArrayBuffer) {
     if (expectingBinary === 'init') {
+      verifyBinaryIntegrity(data, 'init', pendingBinaryIntegrity)
       // Init segment — create or reset source buffer and append
       if (!sourceBuffer) {
         createSourceBuffer()
@@ -550,7 +623,9 @@ export function useMseStream(
         diag.log('initBuffered', { reason: 'mediaSourceNotOpen' })
       }
       expectingBinary = null
+      pendingBinaryIntegrity = null
     } else if (expectingBinary === 'partial') {
+      verifyBinaryIntegrity(data, 'partial', pendingPartialMetadata)
       if (sourceBuffer) {
         // appendBuffer can fail synchronously and restart the pipeline. Do not
         // write fresh state into a generation that appendData just tore down.
@@ -597,6 +672,7 @@ export function useMseStream(
     hasInitialBuffer = false
     pendingInitData = null
     pendingPartialMetadata = null
+    pendingBinaryIntegrity = null
     consecutiveAppendErrors = 0
     lastFragTime = 0  // Reset so watchdog correctly detects stale connections
     streamStartTime = Date.now()
@@ -683,6 +759,7 @@ export function useMseStream(
         hasInitialBuffer = false
         pendingInitData = null
         pendingPartialMetadata = null
+        pendingBinaryIntegrity = null
         consecutiveAppendErrors = 0
         lastCurrentTime = -1
         currentTimeStalledSince = 0
@@ -746,6 +823,7 @@ export function useMseStream(
     hasInitialBuffer = false
     pendingInitData = null
     pendingPartialMetadata = null
+    pendingBinaryIntegrity = null
     consecutiveAppendErrors = 0
     lastCurrentTime = -1
     currentTimeStalledSince = 0
@@ -991,6 +1069,7 @@ export function useMseStream(
     mediaSource = null
     appendQueue = []
     pendingPartialMetadata = null
+    pendingBinaryIntegrity = null
     keyframeTimes = []
     // A codec change remounts the player under the same diagnostic ID. Vue may
     // stop the old instance after the replacement has registered itself.

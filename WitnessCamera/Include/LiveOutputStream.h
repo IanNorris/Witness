@@ -47,6 +47,8 @@ struct CAMERA_API LiveStreamEvent
 	bool KeyframeSeekSafe = false; // Sequence boundary is an exact no-B-frame RAP timestamp
 	int Generation = 0;       // Init segment generation counter
 	std::string AudioCodec;    // MSE codec string when the init has an audio track
+	uint64_t ByteSize = 0;     // expected binary WebSocket message size
+	uint32_t TransportHash = 0; // FNV-1a hash verified by the browser
 };
 
 using LiveStreamEventCallback = std::function<void(const LiveStreamEvent&)>;
@@ -249,6 +251,41 @@ public:
 		uint64_t DroppedVideoPackets;
 		uint64_t MissingVideoDtsPackets;
 		uint64_t CorruptVideoPackets;
+		uint64_t PacketPayloadHash;
+		uint64_t FragmentHash;
+		uint64_t FragmentBytes;
+	};
+
+	struct PacketDiagEntry
+	{
+		uint64_t Sequence = 0;
+		int Generation = 0;
+		int SegmentIndex = 0;
+		int PartialIndex = 0;
+		bool Audio = false;
+		bool Keyframe = false;
+		bool Corrupt = false;
+		bool DtsSynthesized = false;
+		bool PtsSynthesized = false;
+		bool DurationSynthesized = false;
+		bool TimestampNormalized = false;
+		bool TimestampRepaired = false;
+		bool CorrectionSaturated = false;
+		int Size = 0;
+		int Flags = 0;
+		int64_t SourceDtsUs = 0;
+		int64_t SourcePtsUs = 0;
+		int64_t SourceDurationUs = 0;
+		int64_t OutputDtsUs = 0;
+		int64_t OutputPtsUs = 0;
+		int64_t OutputDurationUs = 0;
+		bool HasSourceDts = false;
+		bool HasSourcePts = false;
+		bool HasOutputDts = false;
+		bool HasOutputPts = false;
+		uint64_t PayloadHash = 0;
+		int64_t ArrivalMs = 0;
+		std::string Disposition;
 	};
 
 	struct StreamingDiagnostics
@@ -272,7 +309,10 @@ public:
 		double VideoCorrectionMs = 0.0;
 		double AudioVideoSkewMs = 0.0;
 		uint64_t TimestampCorrectionSaturatedPackets = 0;
+		std::string VideoCodec;
+		std::string AudioCodec;
 		std::vector<SegmentDiagEntry> RecentSegments; // last 30
+		std::vector<PacketDiagEntry> RecentPackets; // last 1024 audio/video access units
 	};
 
 	StreamingDiagnostics GetStreamingDiagnostics() const;
@@ -306,6 +346,15 @@ private:
 	uint64_t _SegmentDroppedVideoPackets = 0;
 	uint64_t _SegmentMissingVideoDtsPackets = 0;
 	uint64_t _SegmentCorruptVideoPackets = 0;
+	uint64_t _SegmentPacketPayloadHash = 14695981039346656037ULL;
+	std::string _DiagVideoCodec;
+	std::string _DiagAudioCodec;
+	static const int PACKET_DIAG_RING_SIZE = 1024;
+	PacketDiagEntry _PacketDiagRing[PACKET_DIAG_RING_SIZE] = {};
+	int _PacketDiagRingPos = 0;
+	int _PacketDiagRingCount = 0;
+	uint64_t _PacketDiagSequence = 0;
+	std::chrono::steady_clock::time_point _PacketDiagEpoch = std::chrono::steady_clock::now();
 };
 
 }}
