@@ -265,10 +265,23 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 
 		if( Snapshot.LiveStream )
 		{
-			auto Diag = Snapshot.LiveStream->GetStreamingDiagnostics();
+				auto Diag = Snapshot.LiveStream->GetStreamingDiagnostics();
 
 					crow::json::wvalue StreamData;
-					StreamData["diagnosticsSchemaVersion"] = 3;
+					auto StructureErrorName = []( int Error )
+					{
+						switch( Error )
+						{
+						case 0: return "none";
+						case 1: return "truncatedHeader";
+						case 2: return "invalidBoxSize";
+						case 3: return "boxBeyondFragment";
+						case 4: return "missingInitBoxes";
+						case 5: return "incompleteMediaPair";
+						default: return "unknown";
+						}
+					};
+					StreamData["diagnosticsSchemaVersion"] = 4;
 					StreamData["packetTraceCapacity"] = 1024;
 					StreamData["totalSegments"] = Diag.TotalSegments;
 					StreamData["reconnectCount"] = Diag.ReconnectCount;
@@ -316,6 +329,15 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 						AudioFormat["extradataHash"] = std::format("{:016x}", Diag.AudioExtradataHash);
 						StreamData["audioFormat"] = std::move( AudioFormat );
 					}
+					crow::json::wvalue InitStructure;
+					InitStructure["valid"] = Diag.InitStructureValid;
+					InitStructure["boxCount"] = Diag.InitBoxCount;
+					InitStructure["ftypCount"] = Diag.InitFtypCount;
+					InitStructure["moovCount"] = Diag.InitMoovCount;
+					InitStructure["error"] = Diag.InitStructureError;
+					InitStructure["errorName"] = StructureErrorName( Diag.InitStructureError );
+					InitStructure["errorOffset"] = Diag.InitErrorOffset;
+					StreamData["initStructure"] = std::move( InitStructure );
 
 					if( Diag.TotalSegments > 0 )
 					{
@@ -342,9 +364,39 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 						S["packetPayloadHash"] = std::format("{:016x}", Seg.PacketPayloadHash);
 						S["fragmentHash"] = std::format("{:016x}", Seg.FragmentHash);
 						S["fragmentBytes"] = (int64_t)Seg.FragmentBytes;
+						S["fragmentStructureValid"] = Seg.FragmentStructureValid;
+						S["fragmentBoxCount"] = Seg.FragmentBoxCount;
+						S["fragmentMoofCount"] = Seg.FragmentMoofCount;
+						S["fragmentMdatCount"] = Seg.FragmentMdatCount;
+						S["fragmentStructureError"] = Seg.FragmentStructureError;
+						S["fragmentStructureErrorName"] = StructureErrorName( Seg.FragmentStructureError );
+						S["fragmentErrorOffset"] = Seg.FragmentErrorOffset;
 						Segments.push_back( std::move( S ) );
 					}
 					StreamData["recentSegments"] = std::move( Segments );
+
+					std::vector<crow::json::wvalue> Fragments;
+					Fragments.reserve( Diag.RecentFragments.size() );
+					for( const auto& Fragment : Diag.RecentFragments )
+					{
+						crow::json::wvalue F;
+						F["generation"] = Fragment.Generation;
+						F["segment"] = Fragment.SegmentIndex;
+						F["part"] = Fragment.PartIndex;
+						F["independent"] = Fragment.Independent;
+						F["keyframeSeekSafe"] = Fragment.KeyframeSeekSafe;
+						F["bytes"] = Fragment.Bytes;
+						F["hash"] = std::format("{:016x}", Fragment.Hash);
+						F["structureValid"] = Fragment.StructureValid;
+						F["boxCount"] = Fragment.BoxCount;
+						F["moofCount"] = Fragment.MoofCount;
+						F["mdatCount"] = Fragment.MdatCount;
+						F["structureError"] = Fragment.StructureError;
+						F["structureErrorName"] = StructureErrorName( Fragment.StructureError );
+						F["errorOffset"] = Fragment.ErrorOffset;
+						Fragments.push_back( std::move( F ) );
+					}
+					StreamData["recentFragments"] = std::move( Fragments );
 
 					std::vector<crow::json::wvalue> Packets;
 					Packets.reserve( Diag.RecentPackets.size() );

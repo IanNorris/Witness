@@ -132,6 +132,100 @@ PacketStructure AnalysePacketStructure(AVCodecID Codec, const uint8_t* Data, siz
 	}
 	return Result;
 }
+
+struct IsoBmffStructure
+{
+	bool Valid = false;
+	int BoxCount = 0;
+	int FtypCount = 0;
+	int MoovCount = 0;
+	int MoofCount = 0;
+	int MdatCount = 0;
+	int Error = 0;
+	uint64_t ErrorOffset = 0;
+};
+
+uint32_t ReadBigEndian32(const uint8_t* Data)
+{
+	return (uint32_t(Data[0]) << 24) | (uint32_t(Data[1]) << 16) |
+		(uint32_t(Data[2]) << 8) | uint32_t(Data[3]);
+}
+
+uint64_t ReadBigEndian64(const uint8_t* Data)
+{
+	return (uint64_t(ReadBigEndian32(Data)) << 32) | ReadBigEndian32(Data + 4);
+}
+
+constexpr uint32_t BoxType(char A, char B, char C, char D)
+{
+	return (uint32_t(uint8_t(A)) << 24) | (uint32_t(uint8_t(B)) << 16) |
+		(uint32_t(uint8_t(C)) << 8) | uint32_t(uint8_t(D));
+}
+
+IsoBmffStructure AnalyseIsoBmff(const uint8_t* Data, size_t Size, bool InitSegment)
+{
+	IsoBmffStructure Result;
+	size_t Offset = 0;
+	while (Offset < Size)
+	{
+		if (Size - Offset < 8)
+		{
+			Result.Error = 1; // truncated box header
+			Result.ErrorOffset = Offset;
+			return Result;
+		}
+		uint64_t BoxSize = ReadBigEndian32(Data + Offset);
+		const uint32_t Type = ReadBigEndian32(Data + Offset + 4);
+		size_t HeaderSize = 8;
+		if (BoxSize == 1)
+		{
+			if (Size - Offset < 16)
+			{
+				Result.Error = 1;
+				Result.ErrorOffset = Offset;
+				return Result;
+			}
+			BoxSize = ReadBigEndian64(Data + Offset + 8);
+			HeaderSize = 16;
+		}
+		else if (BoxSize == 0)
+		{
+			BoxSize = Size - Offset;
+		}
+		if (BoxSize < HeaderSize)
+		{
+			Result.Error = 2; // invalid declared box size
+			Result.ErrorOffset = Offset;
+			return Result;
+		}
+		if (BoxSize > Size - Offset)
+		{
+			Result.Error = 3; // box extends beyond fragment
+			Result.ErrorOffset = Offset;
+			return Result;
+		}
+
+		++Result.BoxCount;
+		if (Type == BoxType('f', 't', 'y', 'p')) ++Result.FtypCount;
+		else if (Type == BoxType('m', 'o', 'o', 'v')) ++Result.MoovCount;
+		else if (Type == BoxType('m', 'o', 'o', 'f')) ++Result.MoofCount;
+		else if (Type == BoxType('m', 'd', 'a', 't')) ++Result.MdatCount;
+		Offset += (size_t)BoxSize;
+	}
+
+	if (InitSegment)
+	{
+		if (Result.FtypCount == 0 || Result.MoovCount == 0)
+			Result.Error = 4; // missing required init box
+	}
+	else if (Result.MoofCount == 0 || Result.MdatCount == 0 ||
+		Result.MoofCount != Result.MdatCount)
+	{
+		Result.Error = 5; // incomplete media fragment pair
+	}
+	Result.Valid = Result.Error == 0;
+	return Result;
+}
 }
 
 LiveOutputStream::LiveOutputStream(const std::string& LiveCachePath, InputStream* InputStream, int KeyframesPerSegment)
@@ -1075,6 +1169,22 @@ void LiveOutputStream::FlushPartialSegment(bool IsIndependent)
 	Partial.PartIndex = _CurrentPartialIndex;
 	Partial.Independent = IsIndependent;
 	const bool KeyframeSeekSafe = _CurrentPartialKeyframeSeekSafe;
+	const IsoBmffStructure PartialStructure = AnalyseIsoBmff(
+		PartialData->data(), PartialData->size(), false);
+	FragmentDiagEntry FragmentDiag;
+	FragmentDiag.Generation = _InitGeneration;
+	FragmentDiag.SegmentIndex = _CurrentSegmentIndex;
+	FragmentDiag.PartIndex = Partial.PartIndex;
+	FragmentDiag.Independent = Partial.Independent;
+	FragmentDiag.KeyframeSeekSafe = KeyframeSeekSafe;
+	FragmentDiag.Bytes = PartialData->size();
+	FragmentDiag.Hash = HashBytes(PartialData->data(), PartialData->size());
+	FragmentDiag.StructureValid = PartialStructure.Valid;
+	FragmentDiag.BoxCount = PartialStructure.BoxCount;
+	FragmentDiag.MoofCount = PartialStructure.MoofCount;
+	FragmentDiag.MdatCount = PartialStructure.MdatCount;
+	FragmentDiag.StructureError = PartialStructure.Error;
+	FragmentDiag.ErrorOffset = PartialStructure.ErrorOffset;
 
 	{
 		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
@@ -1083,6 +1193,10 @@ void LiveOutputStream::FlushPartialSegment(bool IsIndependent)
 		{
 			_StreamBacklog->back().Partials.push_back(Partial);
 		}
+		_FragmentDiagRing[_FragmentDiagRingPos % FRAGMENT_DIAG_RING_SIZE] = FragmentDiag;
+		++_FragmentDiagRingPos;
+		if (_FragmentDiagRingCount < FRAGMENT_DIAG_RING_SIZE)
+			++_FragmentDiagRingCount;
 	}
 
 	_CurrentPartialIndex++;
@@ -1132,6 +1246,8 @@ CameraStreamError LiveOutputStream::StartNewSegment(const AVPacket* Packet)
 		_HeaderWritten = true;
 
 		avio_flush(_FormatContext->pb);
+		const IsoBmffStructure InitStructure = AnalyseIsoBmff(
+			_CurrentBuffer->data(), _CurrentBuffer->size(), true);
 
 		// Store the init segment (ftyp + moov)
 		LiveStreamEvent InitEvent;
@@ -1147,6 +1263,12 @@ CameraStreamError LiveOutputStream::StartNewSegment(const AVPacket* Packet)
 			InitEvent.ByteSize = _InitSegmentData ? _InitSegmentData->size() : 0;
 			InitEvent.TransportHash = InitEvent.ByteSize > 0 ?
 				HashBytes32(_InitSegmentData->data(), _InitSegmentData->size()) : 0;
+			_DiagInitStructureValid = InitStructure.Valid;
+			_DiagInitBoxCount = InitStructure.BoxCount;
+			_DiagInitFtypCount = InitStructure.FtypCount;
+			_DiagInitMoovCount = InitStructure.MoovCount;
+			_DiagInitStructureError = InitStructure.Error;
+			_DiagInitErrorOffset = InitStructure.ErrorOffset;
 		}
 
 		_InitSegmentCaptured = true;
@@ -1252,6 +1374,14 @@ void LiveOutputStream::FinishCurrentSegment(int64_t NextKeyframeDTS)
 	Entry.FragmentBytes = _CurrentBuffer ? (uint64_t)_CurrentBuffer->size() : 0;
 	Entry.FragmentHash = Entry.FragmentBytes > 0 ?
 		HashBytes(_CurrentBuffer->data(), _CurrentBuffer->size()) : Fnv1aOffsetBasis;
+	const IsoBmffStructure FragmentStructure = AnalyseIsoBmff(
+		_CurrentBuffer->data(), _CurrentBuffer->size(), false);
+	Entry.FragmentStructureValid = FragmentStructure.Valid;
+	Entry.FragmentBoxCount = FragmentStructure.BoxCount;
+	Entry.FragmentMoofCount = FragmentStructure.MoofCount;
+	Entry.FragmentMdatCount = FragmentStructure.MdatCount;
+	Entry.FragmentStructureError = FragmentStructure.Error;
+	Entry.FragmentErrorOffset = FragmentStructure.ErrorOffset;
 	{
 		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
 		_DiagRing[_DiagRingPos % DIAG_RING_SIZE] = Entry;
@@ -1334,6 +1464,12 @@ LiveOutputStream::StreamingDiagnostics LiveOutputStream::GetStreamingDiagnostics
 	Diag.AudioTimeBaseDen = _DiagAudioTimeBaseDen;
 	Diag.AudioExtradataBytes = _DiagAudioExtradataBytes;
 	Diag.AudioExtradataHash = _DiagAudioExtradataHash;
+	Diag.InitStructureValid = _DiagInitStructureValid;
+	Diag.InitBoxCount = _DiagInitBoxCount;
+	Diag.InitFtypCount = _DiagInitFtypCount;
+	Diag.InitMoovCount = _DiagInitMoovCount;
+	Diag.InitStructureError = _DiagInitStructureError;
+	Diag.InitErrorOffset = _DiagInitErrorOffset;
 	Diag.BacklogSize = (int)_StreamBacklog->size();
 
 	// Copy recent segment entries from ring buffer
@@ -1345,6 +1481,13 @@ LiveOutputStream::StreamingDiagnostics LiveOutputStream::GetStreamingDiagnostics
 	for (int i = 0; i < count; i++)
 	{
 		Diag.RecentSegments.push_back(_DiagRing[(start + i) % DIAG_RING_SIZE]);
+	}
+	const int FragmentStart = _FragmentDiagRingPos - _FragmentDiagRingCount;
+	Diag.RecentFragments.reserve(_FragmentDiagRingCount);
+	for (int Index = 0; Index < _FragmentDiagRingCount; ++Index)
+	{
+		Diag.RecentFragments.push_back(
+			_FragmentDiagRing[(FragmentStart + Index) % FRAGMENT_DIAG_RING_SIZE]);
 	}
 	const int PacketStart = _PacketDiagRingPos - _PacketDiagRingCount;
 	Diag.RecentPackets.reserve(_PacketDiagRingCount);

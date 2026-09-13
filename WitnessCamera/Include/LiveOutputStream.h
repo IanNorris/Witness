@@ -254,6 +254,29 @@ public:
 		uint64_t PacketPayloadHash;
 		uint64_t FragmentHash;
 		uint64_t FragmentBytes;
+		bool FragmentStructureValid;
+		int FragmentBoxCount;
+		int FragmentMoofCount;
+		int FragmentMdatCount;
+		int FragmentStructureError;
+		uint64_t FragmentErrorOffset;
+	};
+
+	struct FragmentDiagEntry
+	{
+		int Generation = 0;
+		int SegmentIndex = 0;
+		int PartIndex = 0;
+		bool Independent = false;
+		bool KeyframeSeekSafe = false;
+		uint64_t Bytes = 0;
+		uint64_t Hash = 0;
+		bool StructureValid = false;
+		int BoxCount = 0;
+		int MoofCount = 0;
+		int MdatCount = 0;
+		int StructureError = 0;
+		uint64_t ErrorOffset = 0;
 	};
 
 	struct PacketDiagEntry
@@ -332,7 +355,14 @@ public:
 		int AudioTimeBaseDen = 0;
 		int AudioExtradataBytes = 0;
 		uint64_t AudioExtradataHash = 0;
+		bool InitStructureValid = false;
+		int InitBoxCount = 0;
+		int InitFtypCount = 0;
+		int InitMoovCount = 0;
+		int InitStructureError = 0;
+		uint64_t InitErrorOffset = 0;
 		std::vector<SegmentDiagEntry> RecentSegments; // last 30
+		std::vector<FragmentDiagEntry> RecentFragments; // last 180 MSE partials
 		std::vector<PacketDiagEntry> RecentPackets; // last 1024 audio/video access units
 	};
 
@@ -386,6 +416,16 @@ private:
 	int _DiagAudioTimeBaseDen = 0;
 	int _DiagAudioExtradataBytes = 0;
 	uint64_t _DiagAudioExtradataHash = 0;
+	bool _DiagInitStructureValid = false;
+	int _DiagInitBoxCount = 0;
+	int _DiagInitFtypCount = 0;
+	int _DiagInitMoovCount = 0;
+	int _DiagInitStructureError = 0;
+	uint64_t _DiagInitErrorOffset = 0;
+	static const int FRAGMENT_DIAG_RING_SIZE = 180;
+	FragmentDiagEntry _FragmentDiagRing[FRAGMENT_DIAG_RING_SIZE] = {};
+	int _FragmentDiagRingPos = 0;
+	int _FragmentDiagRingCount = 0;
 	static const int PACKET_DIAG_RING_SIZE = 1024;
 	PacketDiagEntry _PacketDiagRing[PACKET_DIAG_RING_SIZE] = {};
 	int _PacketDiagRingPos = 0;
