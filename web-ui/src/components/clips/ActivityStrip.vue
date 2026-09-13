@@ -14,6 +14,10 @@ const emit = defineEmits<{
   play: [clip: Clip]
 }>()
 
+const props = defineProps<{
+  cameraIds?: Set<number> | null
+}>()
+
 const clipStore = useClipStore()
 const cameraStore = useCameraStore()
 const tagStore = useTagStore()
@@ -25,15 +29,27 @@ const previewTick = ref(0)
 
 // Cameras currently recording (ongoing) — pinned left with live preview
 const ongoingCameras = computed(() =>
-  cameraStore.cameras.filter(c => c.isRecording)
+  cameraStore.cameras.filter(c =>
+    c.isRecording && (!props.cameraIds || props.cameraIds.has(c.id))
+  )
 )
 
 // Recent clips sorted by time, hiding trivial (<2s), capped to strip size
 const sortedClips = computed(() =>
   [...clipStore.recentClips]
-    .filter(c => c.duration >= TRIVIAL_DURATION)
+    .filter(c =>
+      c.duration >= TRIVIAL_DURATION &&
+      (!props.cameraIds || props.cameraIds.has(c.camera))
+    )
     .sort((a, b) => b.timestamp - a.timestamp)
     .slice(0, MAX_STRIP_CLIPS)
+)
+
+const matchingClipCount = computed(() =>
+  clipStore.recentClips.filter(c =>
+    c.duration >= TRIVIAL_DURATION &&
+    (!props.cameraIds || props.cameraIds.has(c.camera))
+  ).length
 )
 
 function cameraName(cameraId: number) {
@@ -93,7 +109,7 @@ onUnmounted(() => {
   <div v-if="ongoingCameras.length > 0 || sortedClips.length > 0" class="activity-strip">
     <div class="strip-header">
       <span class="strip-title">Recent Activity</span>
-      <span class="strip-count text-muted-custom">{{ clipStore.recentClips.length }} unreviewed</span>
+      <span class="strip-count text-muted-custom">{{ matchingClipCount }} unreviewed</span>
     </div>
     <div class="strip-items">
       <!-- Ongoing recordings pinned left -->
@@ -160,7 +176,9 @@ onUnmounted(() => {
 .strip-items {
   display: flex;
   gap: 0.4rem;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 0.2rem;
 }
 .strip-thumb {
   position: relative;

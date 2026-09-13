@@ -2,9 +2,12 @@
 import { onMounted, ref, computed } from 'vue'
 import AppLayout from '../components/layout/AppLayout.vue'
 import CameraGrid from '../components/camera/CameraGrid.vue'
+import ActivityStrip from '../components/clips/ActivityStrip.vue'
+import ClipPlayer from '../components/clips/ClipPlayer.vue'
 import { useCameraStore } from '../stores/cameras'
 import { useSettingsStore } from '../stores/settings'
 import { useGroupStore } from '../stores/groups'
+import type { Clip } from '../types/clip'
 
 const cameraStore = useCameraStore()
 const settings = useSettingsStore()
@@ -13,6 +16,7 @@ const groupStore = useGroupStore()
 const DASHBOARD_GROUP_KEY = 'witness-dashboard-group'
 const savedGroup = localStorage.getItem(DASHBOARD_GROUP_KEY)
 const selectedGroupId = ref<number | null>(savedGroup !== null ? Number(savedGroup) : null)
+const playingClip = ref<Clip | null>(null)
 
 function selectGroup(id: number | null) {
   selectedGroupId.value = id
@@ -98,5 +102,20 @@ onMounted(async () => {
     </template>
 
     <CameraGrid :group-camera-ids="groupCameraIds" />
+
+    <ActivityStrip
+      class="dashboard-activity-strip"
+      :camera-ids="groupCameraIds"
+      @play="playingClip = $event"
+    />
+
+    <ClipPlayer v-if="playingClip" :clip="playingClip" @close="playingClip = null" />
   </AppLayout>
 </template>
+
+<style scoped>
+.dashboard-activity-strip {
+  margin-top: 1rem;
+  margin-bottom: 0;
+}
+</style>
