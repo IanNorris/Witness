@@ -120,7 +120,10 @@ configure_file(
     COPYONLY
 )
 
-# Build Vue 3 web UI and copy to Web/witness2/
+# Build the Vue UI and always synchronize it beside the selected configuration's
+# executable. WitnessServer's POST_BUILD step does not run when the native target
+# is already up to date, whereas this custom target runs whenever WitnessServer is
+# requested.
 find_program(NPM_EXECUTABLE npm)
 if(NPM_EXECUTABLE)
     add_custom_target(WebUI
@@ -128,7 +131,19 @@ if(NPM_EXECUTABLE)
         WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}/web-ui"
         COMMENT "Building Vue 3 web UI"
     )
-    add_dependencies(WitnessServer WebUI)
+
+    # Keep this in a separate target. With Visual Studio generators npm resolves
+    # to npm.cmd, and commands following it in the same generated batch block are
+    # not reliably executed.
+    add_custom_target(SyncWebUI
+        COMMAND ${CMAKE_COMMAND} -E rm -rf "$<TARGET_FILE_DIR:WitnessServer>/Web"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_SOURCE_DIR}/WitnessServer/Web"
+            "$<TARGET_FILE_DIR:WitnessServer>/Web"
+        COMMENT "Synchronizing Vue 3 web UI beside WitnessServer"
+    )
+    add_dependencies(SyncWebUI WebUI)
+    add_dependencies(WitnessServer SyncWebUI)
 endif()
 
 # Copy ONNX models to output at build time
