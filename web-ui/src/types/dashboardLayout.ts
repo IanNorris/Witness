@@ -18,6 +18,7 @@ export interface DashboardLayout {
   autoFocusEnabled: boolean
   focusHoldSeconds: number
   focusEligibleCameraIds: number[]
+  visibleCameraIds: number[]
 }
 
 export function createDefaultDashboardLayout(cameraIds: number[]): DashboardLayout {
@@ -48,6 +49,7 @@ export function createDefaultDashboardLayout(cameraIds: number[]): DashboardLayo
     autoFocusEnabled: false,
     focusHoldSeconds: 15,
     focusEligibleCameraIds: [...cameraIds],
+    visibleCameraIds: [...cameraIds],
   }
 }
 
@@ -96,6 +98,9 @@ export function normaliseDashboardLayout(
     focusHoldSeconds: Math.max(3, Math.min(120, Number(candidate.focusHoldSeconds) || 15)),
     focusEligibleCameraIds: Array.isArray(candidate.focusEligibleCameraIds)
       ? candidate.focusEligibleCameraIds.filter(id => currentIds.has(id))
+      : [...cameraIds],
+    visibleCameraIds: Array.isArray(candidate.visibleCameraIds)
+      ? candidate.visibleCameraIds.filter(id => currentIds.has(id))
       : [...cameraIds],
   }
 }

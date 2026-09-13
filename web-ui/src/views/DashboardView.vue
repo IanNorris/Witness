@@ -122,6 +122,13 @@ function toggleFocusEligibility(cameraId: number) {
   dashboardLayout.value = { ...dashboardLayout.value, focusEligibleCameraIds: [...eligible] }
 }
 
+function toggleCameraVisibility(cameraId: number) {
+  const visible = new Set(dashboardLayout.value.visibleCameraIds)
+  if (visible.has(cameraId)) visible.delete(cameraId)
+  else visible.add(cameraId)
+  dashboardLayout.value = { ...dashboardLayout.value, visibleCameraIds: [...visible] }
+}
+
 function focusCamera(cameraId: number) {
   if (focusedCameraId.value === cameraId && manuallyFocused.value) {
     focusedCameraId.value = null
@@ -224,6 +231,11 @@ const activityOrientation = computed(() =>
     ? 'vertical' as const
     : 'horizontal' as const,
 )
+
+const fullscreenControlsStyle = computed(() => ({
+  top: `${fullscreenInsets.value.top + 10}px`,
+  right: `${fullscreenInsets.value.right + 56}px`,
+}))
 
 watch([selectedGroupId, () => currentCameraIds.value.join(',')], () => {
   if (!editingLayout.value) loadLayout()
@@ -329,10 +341,12 @@ onMounted(async () => {
       :editing-layout="editingLayout"
       :focused-camera-id="settings.fullscreenMode && !editingLayout ? focusedCameraId : null"
       :focus-eligible-camera-ids="dashboardLayout.focusEligibleCameraIds"
+      :visible-camera-ids="dashboardLayout.visibleCameraIds"
       @update-fullscreen-layout="updateFullscreenLayout"
       @cancel-layout="cancelLayoutEdit"
       @focus-camera="focusCamera"
       @toggle-focus-eligibility="toggleFocusEligibility"
+      @toggle-camera-visibility="toggleCameraVisibility"
     />
 
     <ActivityStrip
@@ -343,31 +357,31 @@ onMounted(async () => {
       :camera-ids="groupCameraIds"
       :orientation="settings.fullscreenMode ? activityOrientation : 'horizontal'"
       :force-visible="settings.fullscreenMode && editingLayout"
+      :fill="settings.fullscreenMode"
       @play="playingClip = $event"
     />
 
-    <button
-      v-if="settings.fullscreenMode"
-      class="fullscreen-activity-toggle"
-      :class="showRecentActivity ? 'active' : ''"
-      @click="toggleRecentActivity"
-      :title="showRecentActivity ? 'Hide recent activity' : 'Show recent activity'"
-    >Activity</button>
-
-    <button
-      v-if="settings.fullscreenMode && !editingLayout"
-      class="fullscreen-layout-toggle"
-      @click="beginLayoutEdit"
-      title="Edit this group's fullscreen layout"
-    >Layout</button>
-
-    <button
-      v-if="settings.fullscreenMode && !editingLayout"
-      class="fullscreen-focus-toggle"
-      :class="{ active: dashboardLayout.autoFocusEnabled }"
-      @click="toggleAutoFocus"
-      :title="dashboardLayout.autoFocusEnabled ? 'Disable focus on motion' : 'Focus eligible cameras on motion'"
-    >Auto focus</button>
+    <div v-if="settings.fullscreenMode" class="fullscreen-dashboard-controls" :style="fullscreenControlsStyle">
+      <button
+        v-if="!editingLayout"
+        class="fullscreen-focus-toggle"
+        :class="{ active: dashboardLayout.autoFocusEnabled }"
+        @click="toggleAutoFocus"
+        :title="dashboardLayout.autoFocusEnabled ? 'Disable focus on motion' : 'Focus eligible cameras on motion'"
+      >Auto focus</button>
+      <button
+        v-if="!editingLayout"
+        class="fullscreen-layout-toggle"
+        @click="beginLayoutEdit"
+        title="Edit this group's fullscreen layout"
+      >Layout</button>
+      <button
+        class="fullscreen-activity-toggle"
+        :class="showRecentActivity ? 'active' : ''"
+        @click="toggleRecentActivity"
+        :title="showRecentActivity ? 'Hide recent activity' : 'Show recent activity'"
+      >Activity</button>
+    </div>
 
     <div v-if="settings.fullscreenMode && editingLayout" class="layout-editor-toolbar">
       <span class="layout-editor-label">Activity</span>
@@ -409,11 +423,15 @@ onMounted(async () => {
   background: rgba(15, 15, 20, 0.97);
 }
 
-.fullscreen-activity-toggle {
+.fullscreen-dashboard-controls {
   position: fixed;
-  top: 10px;
-  right: 56px;
   z-index: 1002;
+  display: flex;
+  gap: 6px;
+  transition: top 0.15s, right 0.15s;
+}
+
+.fullscreen-dashboard-controls button {
   padding: 6px 10px;
   border: 1px solid rgba(255, 255, 255, 0.3);
   border-radius: 0.375rem;
@@ -421,32 +439,6 @@ onMounted(async () => {
   color: rgba(255, 255, 255, 0.75);
   font-size: 0.75rem;
   cursor: pointer;
-}
-
-.fullscreen-layout-toggle {
-  position: fixed;
-  top: 10px;
-  right: 125px;
-  z-index: 1002;
-  padding: 6px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 0.375rem;
-  background: rgba(0, 0, 0, 0.6);
-  color: rgba(255, 255, 255, 0.75);
-  font-size: 0.75rem;
-}
-
-.fullscreen-focus-toggle {
-  position: fixed;
-  top: 10px;
-  right: 184px;
-  z-index: 1002;
-  padding: 6px 10px;
-  border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 0.375rem;
-  background: rgba(0, 0, 0, 0.6);
-  color: rgba(255, 255, 255, 0.75);
-  font-size: 0.75rem;
 }
 
 .fullscreen-focus-toggle.active { background: rgba(13, 110, 253, 0.8); color: #fff; }

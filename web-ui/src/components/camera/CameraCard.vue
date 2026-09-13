@@ -10,6 +10,7 @@ import { useLiveAudio } from '../../composables/useLiveAudio'
 
 const props = defineProps<{
   camera: Camera
+  dashboardHidden?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -205,7 +206,7 @@ onUnmounted(() => {
           ref="hlsPlayerRef"
           :camera-id="camera.id"
           :low-latency="camera.lowLatencyHLS"
-          :audio-enabled="audioActive"
+          :audio-enabled="audioActive && !dashboardHidden"
         />
 
         <!-- MSE preview mode -->
@@ -215,7 +216,7 @@ onUnmounted(() => {
           :camera-id="camera.id"
           :use-sub-stream="useSubStream"
           :codec-hint="mseCodecHint"
-          :audio-enabled="audioActive"
+          :audio-enabled="audioActive && !dashboardHidden"
         />
 
         <!-- JPEG preview mode -->

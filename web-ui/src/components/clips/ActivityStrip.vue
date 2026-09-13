@@ -18,6 +18,7 @@ const props = defineProps<{
   cameraIds?: Set<number> | null
   orientation?: 'horizontal' | 'vertical'
   forceVisible?: boolean
+  fill?: boolean
 }>()
 
 const clipStore = useClipStore()
@@ -111,7 +112,7 @@ onUnmounted(() => {
   <div
     v-if="forceVisible || ongoingCameras.length > 0 || sortedClips.length > 0"
     class="activity-strip"
-    :class="{ vertical: orientation === 'vertical' }"
+    :class="{ vertical: orientation === 'vertical', fill }"
   >
     <div class="strip-header">
       <span class="strip-title">Recent Activity</span>
@@ -140,7 +141,7 @@ onUnmounted(() => {
         :key="clip.uid"
         class="strip-thumb"
         :class="{ 'strip-unreviewed': !clip.reviewed }"
-        @click="onClickClip(clip)"
+        @click.stop="onClickClip(clip)"
       >
         <img :src="thumbUrl(clip)" :alt="`Clip ${clip.uid}`" loading="lazy" />
         <div class="strip-thumb-tags">
@@ -277,6 +278,21 @@ onUnmounted(() => {
   flex-direction: column;
   margin: 0;
   border-radius: 0;
+}
+.activity-strip.fill:not(.vertical) {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  border-radius: 0;
+}
+.activity-strip.fill:not(.vertical) .strip-items {
+  flex: 1;
+  min-height: 0;
+}
+.activity-strip.fill:not(.vertical) .strip-thumb {
+  width: auto;
+  height: 100%;
 }
 .activity-strip.vertical .strip-header {
   flex-wrap: wrap;

@@ -13,6 +13,7 @@ const props = defineProps<{
   editingLayout?: boolean
   focusedCameraId?: number | null
   focusEligibleCameraIds?: number[]
+  visibleCameraIds?: number[]
 }>()
 
 const emit = defineEmits<{
@@ -20,6 +21,7 @@ const emit = defineEmits<{
   cancelLayout: []
   focusCamera: [cameraId: number]
   toggleFocusEligibility: [cameraId: number]
+  toggleCameraVisibility: [cameraId: number]
 }>()
 
 const cameraStore = useCameraStore()
@@ -59,13 +61,22 @@ function tileFor(cameraId: number) {
   return props.fullscreenLayout?.find(tile => tile.cameraId === cameraId)
 }
 
+function isCameraVisible(cameraId: number) {
+  if (!settings.fullscreenMode || props.editingLayout) return true
+  if (cameraId === props.focusedCameraId) return true
+  return props.visibleCameraIds?.includes(cameraId) ?? true
+}
+
 function tileStyle(cameraId: number) {
   if (!settings.fullscreenMode) return undefined
+  if (!isCameraVisible(cameraId)) return undefined
   if (props.focusedCameraId !== null && props.focusedCameraId !== undefined) {
+    const others = filteredCameras.value.filter(camera =>
+      camera.id !== props.focusedCameraId && isCameraVisible(camera.id),
+    )
     if (cameraId === props.focusedCameraId) {
-      return { gridColumn: '1 / span 8', gridRow: '1 / span 12' }
+      return { gridColumn: `1 / span ${others.length > 0 ? 8 : 12}`, gridRow: '1 / span 12' }
     }
-    const others = filteredCameras.value.filter(camera => camera.id !== props.focusedCameraId)
     const index = others.findIndex(camera => camera.id === cameraId)
     const railColumns = others.length > 6 ? 2 : 1
     const railRows = Math.max(1, Math.ceil(others.length / railColumns))
@@ -194,11 +205,13 @@ onUnmounted(() => {
         active: activeCameraId === camera.id,
         invalid: activeCameraId === camera.id && invalidPlacement,
         focused: focusedCameraId === camera.id,
+        'dashboard-camera-hidden': !isCameraVisible(camera.id),
       }"
       :style="tileStyle(camera.id)"
     >
       <CameraCard
         :camera="camera"
+        :dashboard-hidden="!isCameraVisible(camera.id)"
         @open-stream="openStream"
         @open-clips="openClips"
       />
@@ -214,6 +227,14 @@ onUnmounted(() => {
         title="Drag to resize"
         @pointerdown="startPointer($event, camera.id, 'resize')"
       >↘</button>
+      <button
+        v-if="settings.fullscreenMode && editingLayout"
+        class="layout-camera-visibility"
+        :class="{ enabled: visibleCameraIds?.includes(camera.id) }"
+        @pointerdown.stop
+        @click.stop="emit('toggleCameraVisibility', camera.id)"
+        :title="visibleCameraIds?.includes(camera.id) ? 'Hide from the regular fullscreen layout' : 'Show in the regular fullscreen layout'"
+      >{{ visibleCameraIds?.includes(camera.id) ? 'Shown' : 'Hidden' }}</button>
       <button
         v-if="settings.fullscreenMode && editingLayout"
         class="layout-focus-eligibility"

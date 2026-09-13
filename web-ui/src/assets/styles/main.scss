@@ -214,6 +214,17 @@ html, body, #app {
 .camera-grid.fullscreen.layout-editing .camera-grid-item.active { z-index: 3; }
 .camera-grid.fullscreen.layout-editing .camera-grid-item.invalid { outline-color: #dc3545; }
 
+.camera-grid.fullscreen .camera-grid-item.dashboard-camera-hidden {
+  position: absolute;
+  left: -10000px;
+  top: -10000px;
+  width: 2px;
+  height: 2px;
+  overflow: hidden;
+  opacity: 0.7;
+  pointer-events: none;
+}
+
 .layout-move-shield {
   position: absolute;
   inset: 0;
@@ -240,7 +251,7 @@ html, body, #app {
 
 .layout-focus-eligibility {
   position: absolute;
-  top: 5px;
+  top: 35px;
   left: 5px;
   z-index: 22;
   border: 1px solid rgba(255, 255, 255, 0.55);
@@ -252,6 +263,21 @@ html, body, #app {
 }
 
 .layout-focus-eligibility.enabled { background: rgba(13, 110, 253, 0.9); color: #fff; }
+
+.layout-camera-visibility {
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  z-index: 22;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 4px;
+  padding: 3px 7px;
+  background: rgba(20, 20, 24, 0.9);
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 0.68rem;
+}
+
+.layout-camera-visibility.enabled { background: rgba(25, 135, 84, 0.9); color: #fff; }
 
 .camera-focus-button {
   position: absolute;
@@ -276,8 +302,8 @@ html, body, #app {
 
 .fullscreen-exit-btn {
   position: fixed;
-  top: 10px;
-  right: 10px;
+  top: calc(var(--fs-top-inset, 0px) + 10px);
+  right: calc(var(--fs-right-inset, 0px) + 10px);
   z-index: 1001;
   background: rgba(0, 0, 0, 0.6);
   border: 1px solid rgba(255, 255, 255, 0.3);
