@@ -258,11 +258,28 @@ void WINAPI ServiceMain(DWORD dwArgc, PWSTR* pszArgv)
 
 int wmain( int argc, wchar_t* argv[] )
 {
-	// Initialize logging early (before any LOG_* calls)
+	// Keep the interactive console focused on actionable warnings by default;
+	// the rotating file log still retains Debug and above for diagnostics.
+	Witness::LogLevel ConsoleLogLevel = Witness::LogLevel::Warning;
+	for( int Index = 1; Index < argc; ++Index )
+	{
+		if( _wcsicmp( argv[Index], L"/verbose" ) == 0 ||
+			_wcsicmp( argv[Index], L"--verbose" ) == 0 )
+		{
+			ConsoleLogLevel = Witness::LogLevel::Info;
+		}
+		else if( _wcsicmp( argv[Index], L"/debug-console" ) == 0 ||
+			_wcsicmp( argv[Index], L"--debug-console" ) == 0 )
+		{
+			ConsoleLogLevel = Witness::LogLevel::Debug;
+		}
+	}
+
+	// Initialize logging early (before any LOG_* calls).
 	{
 		auto logDir = GetConfigFilePath( "logs" );
 		std::filesystem::create_directories( logDir );
-		Witness::LogInit( logDir.string(), Witness::LogLevel::Info );
+		Witness::LogInit( logDir.string(), ConsoleLogLevel );
 	}
 
 	if (argc >= 2)
