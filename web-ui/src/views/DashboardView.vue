@@ -11,6 +11,7 @@ import { useGroupStore } from '../stores/groups'
 import type { Clip } from '../types/clip'
 import {
   createDefaultDashboardLayout,
+  createDefaultFocusLayout,
   normaliseDashboardLayout,
   type ActivityDock,
   type DashboardLayout,
@@ -29,6 +30,8 @@ const selectedGroupId = ref<number | null>(savedGroup !== null ? Number(savedGro
 const showRecentActivity = ref(localStorage.getItem(DASHBOARD_ACTIVITY_KEY) !== '0')
 const playingClip = ref<Clip | null>(null)
 const editingLayout = ref(false)
+const editingLayoutMode = ref<'regular' | 'focus'>('regular')
+const focusPreviewCameraId = ref<number | null>(null)
 const dashboardLayout = ref<DashboardLayout>(createDefaultDashboardLayout([]))
 let layoutBeforeEditing: DashboardLayout | null = null
 const focusedCameraId = ref<number | null>(null)
@@ -42,6 +45,39 @@ const layoutStorageKey = computed(() =>
 const currentCameraIds = computed(() => {
   if (selectedGroupId.value === null) return cameraStore.cameras.map(camera => camera.id)
   return groupStore.camerasInGroup(selectedGroupId.value).map(camera => camera.id)
+})
+
+const currentCameras = computed(() =>
+  currentCameraIds.value
+    .map(id => cameraStore.getCameraById(id))
+    .filter(camera => camera !== undefined),
+)
+
+const focusEditorTiles = computed<DashboardTileLayout[]>(() => {
+  const previewId = focusPreviewCameraId.value ?? currentCameraIds.value[0]
+  if (previewId === undefined) return []
+  const others = currentCameraIds.value.filter(id => id !== previewId)
+  return [
+    { cameraId: previewId, ...dashboardLayout.value.focusRegion },
+    ...others.map((cameraId, index) => ({
+      cameraId,
+      ...(dashboardLayout.value.focusSlots[index] ?? { x: 8, y: 0, width: 4, height: 12 }),
+    })),
+  ]
+})
+
+const editorTiles = computed(() =>
+  editingLayout.value && editingLayoutMode.value === 'focus'
+    ? focusEditorTiles.value
+    : dashboardLayout.value.tiles,
+)
+
+const displayedFocusedCameraId = computed(() => {
+  if (!settings.fullscreenMode) return null
+  if (editingLayout.value) {
+    return editingLayoutMode.value === 'focus' ? focusPreviewCameraId.value : null
+  }
+  return focusedCameraId.value
 })
 
 function cloneLayout(layout: DashboardLayout): DashboardLayout {
@@ -67,6 +103,8 @@ function persistLayout() {
 
 function beginLayoutEdit() {
   layoutBeforeEditing = cloneLayout(dashboardLayout.value)
+  editingLayoutMode.value = 'regular'
+  focusPreviewCameraId.value = currentCameraIds.value[0] ?? null
   editingLayout.value = true
 }
 
@@ -85,14 +123,44 @@ function cancelLayoutEdit() {
   if (layoutBeforeEditing) dashboardLayout.value = layoutBeforeEditing
   layoutBeforeEditing = null
   editingLayout.value = false
+  editingLayoutMode.value = 'regular'
 }
 
 function resetLayout() {
-  dashboardLayout.value = createDefaultDashboardLayout(currentCameraIds.value)
+  if (editingLayoutMode.value === 'focus') {
+    dashboardLayout.value = { ...dashboardLayout.value, ...createDefaultFocusLayout(currentCameraIds.value.length) }
+  } else {
+    dashboardLayout.value = {
+      ...dashboardLayout.value,
+      tiles: createDefaultDashboardLayout(currentCameraIds.value).tiles,
+    }
+  }
 }
 
 function updateFullscreenLayout(tiles: DashboardTileLayout[]) {
-  dashboardLayout.value = { ...dashboardLayout.value, tiles }
+  if (!editingLayout.value || editingLayoutMode.value === 'regular') {
+    dashboardLayout.value = { ...dashboardLayout.value, tiles }
+    return
+  }
+
+  const previewId = focusPreviewCameraId.value
+  const focusTile = tiles.find(tile => tile.cameraId === previewId)
+  if (!focusTile) return
+  const otherIds = currentCameraIds.value.filter(id => id !== previewId)
+  const slots = otherIds.map(cameraId => tiles.find(tile => tile.cameraId === cameraId)).filter(tile => tile !== undefined)
+  if (slots.length !== otherIds.length) return
+  dashboardLayout.value = {
+    ...dashboardLayout.value,
+    focusRegion: { x: focusTile.x, y: focusTile.y, width: focusTile.width, height: focusTile.height },
+    focusSlots: slots.map(tile => ({ x: tile.x, y: tile.y, width: tile.width, height: tile.height })),
+  }
+}
+
+function setLayoutEditorMode(mode: 'regular' | 'focus') {
+  editingLayoutMode.value = mode
+  if (mode === 'focus' && focusPreviewCameraId.value === null) {
+    focusPreviewCameraId.value = currentCameraIds.value[0] ?? null
+  }
 }
 
 function setActivityDock(dock: ActivityDock) {
@@ -337,11 +405,14 @@ onMounted(async () => {
     <CameraGrid
       :group-camera-ids="groupCameraIds"
       :fullscreen-insets="fullscreenInsets"
-      :fullscreen-layout="dashboardLayout.tiles"
+      :fullscreen-layout="editorTiles"
       :editing-layout="editingLayout"
-      :focused-camera-id="settings.fullscreenMode && !editingLayout ? focusedCameraId : null"
+      :editing-layout-mode="editingLayoutMode"
+      :focused-camera-id="displayedFocusedCameraId"
       :focus-eligible-camera-ids="dashboardLayout.focusEligibleCameraIds"
       :visible-camera-ids="dashboardLayout.visibleCameraIds"
+      :focus-region="dashboardLayout.focusRegion"
+      :focus-slots="dashboardLayout.focusSlots"
       @update-fullscreen-layout="updateFullscreenLayout"
       @cancel-layout="cancelLayoutEdit"
       @focus-camera="focusCamera"
@@ -384,6 +455,16 @@ onMounted(async () => {
     </div>
 
     <div v-if="settings.fullscreenMode && editingLayout" class="layout-editor-toolbar">
+      <button :class="{ active: editingLayoutMode === 'regular' }" @click="setLayoutEditorMode('regular')">Regular</button>
+      <button :class="{ active: editingLayoutMode === 'focus' }" @click="setLayoutEditorMode('focus')">Auto-focus</button>
+      <select
+        v-if="editingLayoutMode === 'focus'"
+        v-model.number="focusPreviewCameraId"
+        title="Camera shown in the focus region while editing"
+      >
+        <option v-for="camera in currentCameras" :key="camera.id" :value="camera.id">{{ camera.name }}</option>
+      </select>
+      <span class="layout-editor-separator" />
       <span class="layout-editor-label">Activity</span>
       <button
         v-for="dock in (['top', 'right', 'bottom', 'left'] as ActivityDock[])"
@@ -466,6 +547,16 @@ onMounted(async () => {
   background: transparent;
   color: rgba(255, 255, 255, 0.8);
   padding: 3px 7px;
+}
+
+.layout-editor-toolbar select {
+  max-width: 150px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: 0.3rem;
+  background: #16161d;
+  color: #fff;
+  padding: 3px 6px;
+  font-size: 0.72rem;
 }
 
 .layout-editor-toolbar button:hover,

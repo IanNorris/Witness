@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { useCameraStore } from '../../stores/cameras'
 import { useSettingsStore } from '../../stores/settings'
 import CameraCard from './CameraCard.vue'
-import type { DashboardTileLayout } from '../../types/dashboardLayout'
+import type { DashboardGridArea, DashboardTileLayout } from '../../types/dashboardLayout'
 
 const props = defineProps<{
   groupCameraIds?: Set<number> | null
@@ -14,6 +14,9 @@ const props = defineProps<{
   focusedCameraId?: number | null
   focusEligibleCameraIds?: number[]
   visibleCameraIds?: number[]
+  focusRegion?: DashboardGridArea
+  focusSlots?: DashboardGridArea[]
+  editingLayoutMode?: 'regular' | 'focus'
 }>()
 
 const emit = defineEmits<{
@@ -75,9 +78,12 @@ function tileStyle(cameraId: number) {
       camera.id !== props.focusedCameraId && isCameraVisible(camera.id),
     )
     if (cameraId === props.focusedCameraId) {
-      return { gridColumn: `1 / span ${others.length > 0 ? 8 : 12}`, gridRow: '1 / span 12' }
+      const area = props.focusRegion ?? { x: 0, y: 0, width: others.length > 0 ? 8 : 12, height: 12 }
+      return areaStyle(area)
     }
     const index = others.findIndex(camera => camera.id === cameraId)
+    const configuredSlot = props.focusSlots?.[index]
+    if (configuredSlot) return areaStyle(configuredSlot)
     const railColumns = others.length > 6 ? 2 : 1
     const railRows = Math.max(1, Math.ceil(others.length / railColumns))
     const cellWidth = Math.floor(4 / railColumns)
@@ -94,6 +100,13 @@ function tileStyle(cameraId: number) {
   return {
     gridColumn: `${tile.x + 1} / span ${tile.width}`,
     gridRow: `${tile.y + 1} / span ${tile.height}`,
+  }
+}
+
+function areaStyle(area: DashboardGridArea) {
+  return {
+    gridColumn: `${area.x + 1} / span ${area.width}`,
+    gridRow: `${area.y + 1} / span ${area.height}`,
   }
 }
 
@@ -228,7 +241,7 @@ onUnmounted(() => {
         @pointerdown="startPointer($event, camera.id, 'resize')"
       >↘</button>
       <button
-        v-if="settings.fullscreenMode && editingLayout"
+        v-if="settings.fullscreenMode && editingLayout && editingLayoutMode !== 'focus'"
         class="layout-camera-visibility"
         :class="{ enabled: visibleCameraIds?.includes(camera.id) }"
         @pointerdown.stop
@@ -236,7 +249,7 @@ onUnmounted(() => {
         :title="visibleCameraIds?.includes(camera.id) ? 'Hide from the regular fullscreen layout' : 'Show in the regular fullscreen layout'"
       >{{ visibleCameraIds?.includes(camera.id) ? 'Shown' : 'Hidden' }}</button>
       <button
-        v-if="settings.fullscreenMode && editingLayout"
+        v-if="settings.fullscreenMode && editingLayout && editingLayoutMode !== 'focus'"
         class="layout-focus-eligibility"
         :class="{ enabled: focusEligibleCameraIds?.includes(camera.id) }"
         @pointerdown.stop

@@ -8,6 +8,8 @@ export interface DashboardTileLayout {
   height: number
 }
 
+export type DashboardGridArea = Omit<DashboardTileLayout, 'cameraId'>
+
 export interface DashboardLayout {
   version: 1
   columns: 12
@@ -19,6 +21,36 @@ export interface DashboardLayout {
   focusHoldSeconds: number
   focusEligibleCameraIds: number[]
   visibleCameraIds: number[]
+  focusRegion: DashboardGridArea
+  focusSlots: DashboardGridArea[]
+}
+
+export function createDefaultFocusLayout(cameraCount: number) {
+  const slotCount = Math.max(0, cameraCount - 1)
+  if (slotCount === 0) {
+    return {
+      focusRegion: { x: 0, y: 0, width: 12, height: 12 },
+      focusSlots: [] as DashboardGridArea[],
+    }
+  }
+
+  const railColumns = Math.min(4, Math.max(1, Math.ceil(slotCount / 12)))
+  const railRows = Math.ceil(slotCount / railColumns)
+  const cellWidth = Math.floor(4 / railColumns)
+  const cellHeight = Math.floor(12 / railRows)
+  return {
+    focusRegion: { x: 0, y: 0, width: 8, height: 12 },
+    focusSlots: Array.from({ length: slotCount }, (_, index) => {
+      const column = index % railColumns
+      const row = Math.floor(index / railColumns)
+      return {
+        x: 8 + column * cellWidth,
+        y: row * cellHeight,
+        width: column === railColumns - 1 ? 4 - column * cellWidth : cellWidth,
+        height: row === railRows - 1 ? 12 - row * cellHeight : cellHeight,
+      }
+    }),
+  }
 }
 
 export function createDefaultDashboardLayout(cameraIds: number[]): DashboardLayout {
@@ -27,6 +59,7 @@ export function createDefaultDashboardLayout(cameraIds: number[]): DashboardLayo
   const rows = Math.ceil(count / columns)
   const cellHeight = Math.floor(12 / rows)
 
+  const focusLayout = createDefaultFocusLayout(cameraIds.length)
   return {
     version: 1,
     columns: 12,
@@ -50,6 +83,7 @@ export function createDefaultDashboardLayout(cameraIds: number[]): DashboardLayo
     focusHoldSeconds: 15,
     focusEligibleCameraIds: [...cameraIds],
     visibleCameraIds: [...cameraIds],
+    ...focusLayout,
   }
 }
 
@@ -86,6 +120,31 @@ export function normaliseDashboardLayout(
   const dock = ['top', 'right', 'bottom', 'left'].includes(candidate.activityDock ?? '')
     ? candidate.activityDock as ActivityDock
     : 'bottom'
+  const defaultFocus = createDefaultFocusLayout(cameraIds.length)
+  const normaliseArea = (area: DashboardGridArea | undefined): DashboardGridArea | null => {
+    if (!area || !Number.isFinite(area.x) || !Number.isFinite(area.y) ||
+        !Number.isFinite(area.width) || !Number.isFinite(area.height)) return null
+    const result = {
+      x: Math.max(0, Math.min(11, Math.round(area.x))),
+      y: Math.max(0, Math.min(11, Math.round(area.y))),
+      width: Math.max(1, Math.min(12, Math.round(area.width))),
+      height: Math.max(1, Math.min(12, Math.round(area.height))),
+    }
+    result.width = Math.min(result.width, 12 - result.x)
+    result.height = Math.min(result.height, 12 - result.y)
+    return result
+  }
+  const candidateRegion = normaliseArea(candidate.focusRegion)
+  const candidateSlots = Array.isArray(candidate.focusSlots)
+    ? candidate.focusSlots.map(area => normaliseArea(area)).filter((area): area is DashboardGridArea => area !== null)
+    : []
+  const requiredSlots = Math.max(0, cameraIds.length - 1)
+  const focusAreas = candidateRegion ? [candidateRegion, ...candidateSlots.slice(0, requiredSlots)] : []
+  const focusHasOverlap = focusAreas.some((area, index) => focusAreas.slice(index + 1).some(other =>
+    area.x < other.x + other.width && area.x + area.width > other.x &&
+    area.y < other.y + other.height && area.y + area.height > other.y,
+  ))
+  const useCandidateFocus = candidateRegion !== null && candidateSlots.length >= requiredSlots && !focusHasOverlap
 
   return {
     version: 1,
@@ -102,5 +161,7 @@ export function normaliseDashboardLayout(
     visibleCameraIds: Array.isArray(candidate.visibleCameraIds)
       ? candidate.visibleCameraIds.filter(id => currentIds.has(id))
       : [...cameraIds],
+    focusRegion: useCandidateFocus ? candidateRegion! : defaultFocus.focusRegion,
+    focusSlots: useCandidateFocus ? candidateSlots.slice(0, requiredSlots) : defaultFocus.focusSlots,
   }
 }
