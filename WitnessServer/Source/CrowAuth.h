@@ -7,6 +7,8 @@
 
 namespace CrowAuth
 {
+	// Stream-only exception: Debug builds, direct loopback peers only.
+	bool CanAccessStream( const GlobalContext& Context, const crow::request& req, int cameraUID );
 	enum class Action { Read, ReadWrite };
 	enum class Privilege { Normal, Administrator };
 

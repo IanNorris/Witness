@@ -1,4 +1,16 @@
 #include "CrowAuth.h"
+#include "StreamAccessPolicy.h"
+
+bool CrowAuth::CanAccessStream( const GlobalContext& Context, const crow::request& req, int cameraUID )
+{
+	// Use the socket peer, never Host or forwarded client addresses. Requests
+	// carrying forwarding headers must authenticate even over loopback.
+	const bool forwarded = req.headers.count("Forwarded") ||
+		req.headers.count("X-Forwarded-For") || req.headers.count("X-Real-IP");
+	if( AllowLocalStreamDebugAccess( req.remote_ip_address, forwarded ) )
+		return true;
+	return IsCameraAuthenticated( Context, req, nullptr, Action::Read, Privilege::Normal, cameraUID ) > 0;
+}
 
 std::string CrowAuth::GetSessionToken( const crow::request& req, uint16_t port )
 {

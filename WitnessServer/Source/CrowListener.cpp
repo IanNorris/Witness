@@ -773,16 +773,12 @@ void CrowListener::RegisterRoutes()
 	CROW_WEBSOCKET_ROUTE( m_App, "/ws/stream/<int>" )
 		.onaccept([this]( const crow::request& req, void** userdata ) -> bool
 		{
-			// Authenticate
-			int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, nullptr,
-				CrowAuth::Action::Read, CrowAuth::Privilege::Normal );
-			if( UserUID < 0 ) return false;
-
 			// Extract camera ID from URL (last path segment)
 			std::string url = req.url;
 			auto lastSlash = url.rfind('/');
 			if( lastSlash == std::string::npos ) return false;
 			int cameraId = std::atoi( url.substr( lastSlash + 1 ).c_str() );
+			if( !CrowAuth::CanAccessStream( *m_GlobalContext, req, cameraId ) ) return false;
 
 			auto* state = m_GlobalContext->FindCameraById( cameraId );
 			if( !state || !state->Worker || !state->Worker->GetLiveStream() )
@@ -833,14 +829,11 @@ void CrowListener::RegisterRoutes()
 	CROW_WEBSOCKET_ROUTE( m_App, "/ws/stream/sub/<int>" )
 		.onaccept([this]( const crow::request& req, void** userdata ) -> bool
 		{
-			int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, nullptr,
-				CrowAuth::Action::Read, CrowAuth::Privilege::Normal );
-			if( UserUID < 0 ) return false;
-
 			std::string url = req.url;
 			auto lastSlash = url.rfind('/');
 			if( lastSlash == std::string::npos ) return false;
 			int cameraId = std::atoi( url.substr( lastSlash + 1 ).c_str() );
+			if( !CrowAuth::CanAccessStream( *m_GlobalContext, req, cameraId ) ) return false;
 
 			auto* state = m_GlobalContext->FindCameraById( cameraId );
 			if( !state || !state->Worker || !state->Worker->GetSubStreamWorker() )

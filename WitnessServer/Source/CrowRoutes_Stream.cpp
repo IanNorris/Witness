@@ -8,6 +8,13 @@
 
 void CrowListener::HandlePlaylist( const crow::request& req, crow::response& res, int cameraId )
 {
+	res.set_header( "Cache-Control", "private, no-store" );
+	if( !CrowAuth::CanAccessStream( *m_GlobalContext, req, cameraId ) )
+	{
+		res.code = 403;
+		res.end();
+		return;
+	}
 	auto CameraState = m_GlobalContext->FindCameraById( cameraId );
 	if( !CameraState )
 	{
@@ -139,6 +146,13 @@ void CrowListener::HandlePlaylist( const crow::request& req, crow::response& res
 
 void CrowListener::HandleSegment( const crow::request& req, crow::response& res, int cameraId, int segmentId, const std::string& partId )
 {
+	res.set_header( "Cache-Control", "private, no-store" );
+	if( !CrowAuth::CanAccessStream( *m_GlobalContext, req, cameraId ) )
+	{
+		res.code = 403;
+		res.end();
+		return;
+	}
 	auto CameraState = m_GlobalContext->FindCameraById( cameraId );
 	if( !CameraState )
 	{
