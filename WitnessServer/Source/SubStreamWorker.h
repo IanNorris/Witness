@@ -6,6 +6,7 @@
 #include <atomic>
 #include <string>
 #include <memory>
+#include <mutex>
 
 class GlobalContext;
 
@@ -22,8 +23,14 @@ public:
 	void Start();
 	void Stop();
 
-	std::shared_ptr<Witness::Camera::LiveOutputStream>& GetLiveStream() { return m_LiveStream; }
+	std::shared_ptr<Witness::Camera::LiveOutputStream> GetLiveStream() const
+	{
+		std::lock_guard<std::mutex> lock(m_StreamMetadataMutex);
+		return m_PublishedLiveStream;
+	}
 	std::string GetCodecName() const;
+	int GetVideoWidth() const;
+	int GetVideoHeight() const;
 
 	bool IsConnected() const { return m_Connected.load(); }
 
@@ -37,6 +44,11 @@ private:
 
 	std::shared_ptr<Witness::Camera::InputStream> m_InputStream;
 	std::shared_ptr<Witness::Camera::LiveOutputStream> m_LiveStream;
+	std::shared_ptr<Witness::Camera::LiveOutputStream> m_PublishedLiveStream;
+	mutable std::mutex m_StreamMetadataMutex;
+	std::string m_VideoCodecName;
+	std::atomic<int> m_VideoWidth{0};
+	std::atomic<int> m_VideoHeight{0};
 
 	std::thread m_Thread;
 	std::atomic<bool> m_Running{false};

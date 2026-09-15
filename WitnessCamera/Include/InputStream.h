@@ -84,6 +84,8 @@ public:
 
 	// Returns the codec short name (e.g. "h264", "hevc") or empty if not initialized
 	std::string GetCodecName() const;
+	int GetVideoWidth() const;
+	int GetVideoHeight() const;
 
 	int GetSourceId() const { return UniqueSourceID; }
 

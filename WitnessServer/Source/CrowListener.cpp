@@ -47,9 +47,128 @@ public:
 
 static WitnessCrowLogHandler s_CrowLogHandler;
 
+namespace
+{
+	struct MseStreamSelection
+	{
+		int CameraId = 0;
+		int ChannelId = 0;
+		bool SubStream = false;
+		int Width = 0;
+		int Height = 0;
+		std::string Codec;
+		std::shared_ptr<Witness::Camera::LiveOutputStream> LiveStream;
+	};
+
+	int BaseCameraId( int ChannelId )
+	{
+		return ChannelId >= StreamBroadcaster::SubStreamChannelOffset ?
+			ChannelId - StreamBroadcaster::SubStreamChannelOffset : ChannelId;
+	}
+
+	int ParseViewportDimension( const char* Value )
+	{
+		if( !Value ) return 0;
+		const long Parsed = std::strtol( Value, nullptr, 10 );
+		return Parsed > 0 && Parsed <= 16384 ? static_cast<int>( Parsed ) : 0;
+	}
+
+	MseStreamSelection SelectMseStream(
+		GlobalContext& Context, int CameraId, int RequestedWidth, int RequestedHeight,
+		bool ForceSubStream = false )
+	{
+		MseStreamSelection Selection;
+		Selection.CameraId = CameraId;
+		Selection.ChannelId = CameraId;
+
+		std::shared_ptr<CameraWorker> Worker;
+		{
+			std::shared_lock<std::shared_mutex> Lock( Context.Mutex );
+			auto Camera = Context.GetCameraMap().find( CameraId );
+			if( Camera == Context.GetCameraMap().end() ) return Selection;
+			Worker = Camera->second.Worker;
+		}
+		if( !Worker ) return Selection;
+
+		const auto SubWorker = Worker->GetSubStreamWorker();
+		const auto SubLive = SubWorker ? SubWorker->GetLiveStream() : nullptr;
+		const int SubWidth = SubWorker ? SubWorker->GetVideoWidth() : 0;
+		const int SubHeight = SubWorker ? SubWorker->GetVideoHeight() : 0;
+		const std::string SubCodec = SubWorker ? SubWorker->GetCodecName() : std::string{};
+		const auto SubInit = SubLive ? SubLive->GetInitSnapshot() :
+			Witness::Camera::LiveStreamInitSnapshot{};
+		const bool SubReady = SubWorker && SubWorker->IsConnected() && SubLive &&
+			SubWidth > 0 && SubHeight > 0 && !SubCodec.empty() &&
+			SubInit.Data && !SubInit.Data->empty();
+		bool UseSubStream = ForceSubStream && SubReady;
+		if( !ForceSubStream && RequestedWidth > 0 && RequestedHeight > 0 && SubReady )
+		{
+			// Allow modest upscaling so small dashboard tiles stay on the cheaper stream.
+			UseSubStream = RequestedWidth <= static_cast<int>( std::ceil( SubWidth * 1.25 ) ) &&
+				RequestedHeight <= static_cast<int>( std::ceil( SubHeight * 1.25 ) );
+		}
+
+		if( UseSubStream )
+		{
+			Selection.SubStream = true;
+			Selection.ChannelId = CameraId + StreamBroadcaster::SubStreamChannelOffset;
+			Selection.Width = SubWidth;
+			Selection.Height = SubHeight;
+			Selection.Codec = SubCodec;
+			Selection.LiveStream = SubLive;
+		}
+		else
+		{
+			Selection.Width = Worker->GetVideoWidth();
+			Selection.Height = Worker->GetVideoHeight();
+			Selection.Codec = Worker->GetVideoCodecName();
+			Selection.LiveStream = Worker->GetLiveStream();
+		}
+		return Selection;
+	}
+
+	std::string BuildMseStreamSelection(
+		const MseStreamSelection& Selection, int RequestedWidth, int RequestedHeight, bool Changed )
+	{
+		crow::json::wvalue Control;
+		Control["type"] = "streamSelection";
+		Control["stream"] = Selection.SubStream ? "sub" : "main";
+		Control["codec"] = Selection.Codec;
+		Control["width"] = Selection.Width;
+		Control["height"] = Selection.Height;
+		Control["requestedWidth"] = RequestedWidth;
+		Control["requestedHeight"] = RequestedHeight;
+		Control["changed"] = Changed;
+		return Control.dump();
+	}
+
+	void SubscribeMseStream(
+		GlobalContext& Context, crow::websocket::connection* Conn,
+		const MseStreamSelection& Selection, int RequestedWidth, int RequestedHeight, bool Changed )
+	{
+		if( !Selection.LiveStream ) return;
+		Context.Streams->SubscribeWithBootstrap(
+			Selection.ChannelId, Conn,
+			BuildMseStreamSelection( Selection, RequestedWidth, RequestedHeight, Changed ),
+			[LiveStream = Selection.LiveStream]()
+			{
+				StreamBroadcaster::BootstrapPayload Payload;
+				const auto Init = LiveStream->GetInitSnapshot();
+				if( !Init.Data || Init.Data->empty() ) return Payload;
+				crow::json::wvalue Control;
+				Control["type"] = "initSegment";
+				Control["generation"] = Init.Generation;
+				if( !Init.AudioCodec.empty() ) Control["audioCodec"] = Init.AudioCodec;
+				Payload.ControlJson = Control.dump();
+				Payload.Data = Init.Data;
+				return Payload;
+			} );
+	}
+}
+
 static void CaptureStreamDiagnosticAnomaly(
 	GlobalContext& Context, crow::websocket::connection& Conn,
-	const std::string& Data, bool IsBinary, bool SubStream)
+	const std::string& Data, bool IsBinary)
 {
 	if (IsBinary || Data.size() > 512)
 		return;
@@ -79,7 +198,10 @@ static void CaptureStreamDiagnosticAnomaly(
 			Character = '_';
 	}
 
-	const int CameraId = static_cast<int>(reinterpret_cast<intptr_t>(Conn.userdata()));
+	const int InitialChannel = static_cast<int>(reinterpret_cast<intptr_t>(Conn.userdata()));
+	const int CameraId = BaseCameraId( InitialChannel );
+	const int CurrentChannel = Context.Streams->GetSubscriptionChannel( &Conn );
+	const bool SubStream = CurrentChannel >= StreamBroadcaster::SubStreamChannelOffset;
 	std::shared_ptr<Witness::Camera::LiveOutputStream> LiveStream;
 	{
 		std::shared_lock<std::shared_mutex> Lock(Context.Mutex);
@@ -780,41 +902,28 @@ void CrowListener::RegisterRoutes()
 			int cameraId = std::atoi( url.substr( lastSlash + 1 ).c_str() );
 			if( !CrowAuth::CanAccessStream( *m_GlobalContext, req, cameraId ) ) return false;
 
-			auto* state = m_GlobalContext->FindCameraById( cameraId );
-			if( !state || !state->Worker || !state->Worker->GetLiveStream() )
+			const int requestedWidth = ParseViewportDimension( req.url_params.get( "width" ) );
+			const int requestedHeight = ParseViewportDimension( req.url_params.get( "height" ) );
+			const auto selection = SelectMseStream(
+				*m_GlobalContext, cameraId, requestedWidth, requestedHeight );
+			if( !selection.LiveStream )
 				return false;
 
-			// Pass camera ID via userdata
-			*userdata = reinterpret_cast<void*>( static_cast<intptr_t>( cameraId ) );
+			// Store the initial channel. Both channel forms can always recover the base camera ID.
+			*userdata = reinterpret_cast<void*>( static_cast<intptr_t>( selection.ChannelId ) );
 			return true;
 		})
 		.onopen([this]( crow::websocket::connection& conn )
 		{
-			int cameraId = static_cast<int>( reinterpret_cast<intptr_t>( conn.userdata() ) );
+			const int initialChannel = static_cast<int>( reinterpret_cast<intptr_t>( conn.userdata() ) );
+			const int cameraId = BaseCameraId( initialChannel );
+			const bool useSubStream = initialChannel >= StreamBroadcaster::SubStreamChannelOffset;
+			const auto selection = SelectMseStream( *m_GlobalContext, cameraId, 0, 0, useSubStream );
 
-			m_GlobalContext->Streams->Subscribe( cameraId, &conn );
+			SubscribeMseStream( *m_GlobalContext, &conn, selection, 0, 0, false );
 
-			auto* state = m_GlobalContext->FindCameraById( cameraId );
-			if( !state || !state->Worker ) return;
-
-			auto& liveStream = state->Worker->GetLiveStream();
-			if( !liveStream ) return;
-
-			auto init = liveStream->GetInitSnapshot();
-
-			// Send init segment -- client waits for next live keyframe to start
-			if( init.Data && !init.Data->empty() )
-			{
-				crow::json::wvalue ctrl;
-				ctrl["type"] = "initSegment";
-				ctrl["generation"] = init.Generation;
-				if( !init.AudioCodec.empty() )
-					ctrl["audioCodec"] = init.AudioCodec;
-				m_GlobalContext->Streams->SendControlDirect( &conn, ctrl.dump() );
-				m_GlobalContext->Streams->SendBinaryDirect( &conn, init.Data );
-			}
-
-			LOG_INFO( "[MSE] Stream client connected for camera %d", cameraId );
+			LOG_INFO( "[MSE] Stream client connected for camera %d using %s stream",
+				cameraId, selection.SubStream ? "sub" : "main" );
 		})
 		.onclose([this]( crow::websocket::connection& conn, const std::string& /*reason*/, uint16_t /*statusCode*/ )
 		{
@@ -822,7 +931,42 @@ void CrowListener::RegisterRoutes()
 		})
 		.onmessage([this]( crow::websocket::connection& conn, const std::string& data, bool is_binary )
 		{
-			CaptureStreamDiagnosticAnomaly(*m_GlobalContext, conn, data, is_binary, false);
+			if( !is_binary && data.size() <= 512 )
+			{
+				try
+				{
+					auto body = crow::json::load( data );
+					if( body && body.has( "type" ) && std::string( body["type"].s() ) == "viewport" &&
+						body.has( "width" ) && body.has( "height" ) )
+					{
+						const int64_t widthValue = body["width"].i();
+						const int64_t heightValue = body["height"].i();
+						if( widthValue <= 0 || widthValue > 16384 ||
+							heightValue <= 0 || heightValue > 16384 )
+							return;
+						const int requestedWidth = static_cast<int>( widthValue );
+						const int requestedHeight = static_cast<int>( heightValue );
+						const int initialChannel = static_cast<int>( reinterpret_cast<intptr_t>( conn.userdata() ) );
+						const int cameraId = BaseCameraId( initialChannel );
+						const auto selection = SelectMseStream(
+							*m_GlobalContext, cameraId, requestedWidth, requestedHeight );
+						const int currentChannel = m_GlobalContext->Streams->GetSubscriptionChannel( &conn );
+						if( selection.LiveStream && selection.ChannelId != currentChannel )
+						{
+							// Freeze and tear down the old decoder before any data from the new
+							// channel can arrive. New partials are ignored until its init/keyframe.
+							SubscribeMseStream( *m_GlobalContext, &conn, selection,
+								requestedWidth, requestedHeight, true );
+							LOG_INFO( "[MSE] Camera %d switched to %s stream for viewport %dx%d",
+								cameraId, selection.SubStream ? "sub" : "main",
+								requestedWidth, requestedHeight );
+						}
+						return;
+					}
+				}
+				catch( ... ) { return; }
+			}
+			CaptureStreamDiagnosticAnomaly(*m_GlobalContext, conn, data, is_binary);
 		});
 
 	// WebSocket sub-stream (H.264 fallback for clients that can't decode the main stream)
@@ -835,38 +979,26 @@ void CrowListener::RegisterRoutes()
 			int cameraId = std::atoi( url.substr( lastSlash + 1 ).c_str() );
 			if( !CrowAuth::CanAccessStream( *m_GlobalContext, req, cameraId ) ) return false;
 
-			auto* state = m_GlobalContext->FindCameraById( cameraId );
-			if( !state || !state->Worker || !state->Worker->GetSubStreamWorker() )
+			const auto selection = SelectMseStream( *m_GlobalContext, cameraId, 0, 0, true );
+			if( !selection.SubStream )
 				return false;
 
-			*userdata = reinterpret_cast<void*>( static_cast<intptr_t>( cameraId ) );
+			*userdata = reinterpret_cast<void*>( static_cast<intptr_t>(
+				cameraId + StreamBroadcaster::SubStreamChannelOffset ) );
 			return true;
 		})
 		.onopen([this]( crow::websocket::connection& conn )
 		{
-			int cameraId = static_cast<int>( reinterpret_cast<intptr_t>( conn.userdata() ) );
-			int subChannelId = cameraId + 10000;
+			int subChannelId = static_cast<int>( reinterpret_cast<intptr_t>( conn.userdata() ) );
+			int cameraId = BaseCameraId( subChannelId );
 
-			m_GlobalContext->Streams->Subscribe( subChannelId, &conn );
-
-			auto* state = m_GlobalContext->FindCameraById( cameraId );
-			if( !state || !state->Worker ) return;
-
-			auto liveStream = state->Worker->GetSubStreamLive();
-			if( !liveStream ) return;
-
-			auto init = liveStream->GetInitSnapshot();
-
-			if( init.Data && !init.Data->empty() )
+			const auto selection = SelectMseStream( *m_GlobalContext, cameraId, 0, 0, true );
+			if( !selection.SubStream )
 			{
-				crow::json::wvalue ctrl;
-				ctrl["type"] = "initSegment";
-				ctrl["generation"] = init.Generation;
-				if( !init.AudioCodec.empty() )
-					ctrl["audioCodec"] = init.AudioCodec;
-				m_GlobalContext->Streams->SendControlDirect( &conn, ctrl.dump() );
-				m_GlobalContext->Streams->SendBinaryDirect( &conn, init.Data );
+				conn.close( "sub-stream unavailable" );
+				return;
 			}
+			SubscribeMseStream( *m_GlobalContext, &conn, selection, 0, 0, false );
 
 			LOG_INFO( "[MSE] Sub-stream client connected for camera %d", cameraId );
 		})
@@ -876,7 +1008,7 @@ void CrowListener::RegisterRoutes()
 		})
 		.onmessage([this]( crow::websocket::connection& conn, const std::string& data, bool is_binary )
 		{
-			CaptureStreamDiagnosticAnomaly(*m_GlobalContext, conn, data, is_binary, true);
+			CaptureStreamDiagnosticAnomaly(*m_GlobalContext, conn, data, is_binary);
 		});
 
 	// WebSocket event stream

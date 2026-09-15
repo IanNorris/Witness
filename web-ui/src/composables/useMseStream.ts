@@ -193,6 +193,8 @@ export interface MseStreamState {
   latencyMs: Ref<number>
   codecUnsupported: Ref<boolean>
   renderSuppressed: Ref<boolean>
+	selectedStream: Ref<'main' | 'sub'>
+	updateViewport: (width: number, height: number) => void
 }
 
 interface PartialAppendMetadata {
@@ -243,6 +245,8 @@ export function useMseStream(
   useSubStream: boolean = false,
   codecHint?: string,
   audioEnabled: () => boolean = () => false,
+	adaptiveStream: boolean = false,
+	viewportSize: () => { width: number; height: number } | null = () => null,
 ): MseStreamState {
   const showSpinner = ref(false)
   const connectionLost = ref(false)
@@ -250,6 +254,7 @@ export function useMseStream(
   const latencyMs = ref(0)
   const codecUnsupported = ref(false)
   const renderSuppressed = ref(false)
+	const selectedStream = ref<'main' | 'sub'>(useSubStream ? 'sub' : 'main')
 
   const diagId = String(cameraId) + (suffix ? '_' + suffix : '_mse')
   const diag = new MseDiagnostics(diagId)
@@ -277,6 +282,7 @@ export function useMseStream(
   let intentionalClose = false
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
   let initGeneration = -1
+	let awaitingInit = true
   let expectingBinary: 'init' | 'partial' | null = null
   let pendingBinaryIntegrity: BinaryIntegrityMetadata | null = null
   let pendingPartialMetadata: PartialAppendMetadata | null = null
@@ -290,6 +296,10 @@ export function useMseStream(
   let lastAnomalyReason = ''
   let releaseRenderOnIndependent = false
   let renderSuppressionToken = 0
+	let activeCodecHint = codecHint
+	let hasReceivedStreamSelection = false
+	let lastViewportWidth = 0
+	let lastViewportHeight = 0
 
   function clearRenderSuppression() {
     renderSuppressionToken++
@@ -329,8 +339,34 @@ export function useMseStream(
   function getWsUrl(): string {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
     const path = useSubStream ? `/ws/stream/sub/${cameraId}` : `/ws/stream/${cameraId}`
-    return `${proto}//${location.host}${path}`
+		const viewport = adaptiveStream && !useSubStream ? viewportSize() : null
+		const query = viewport && viewport.width > 0 && viewport.height > 0
+			? `?width=${viewport.width}&height=${viewport.height}`
+			: ''
+		return `${proto}//${location.host}${path}${query}`
   }
+
+	function updateViewport(width: number, height: number) {
+		if (!adaptiveStream || useSubStream) return
+		const roundedWidth = Math.max(0, Math.min(16384, Math.round(width)))
+		const roundedHeight = Math.max(0, Math.min(16384, Math.round(height)))
+		if (roundedWidth <= 0 || roundedHeight <= 0 ||
+			(roundedWidth === lastViewportWidth && roundedHeight === lastViewportHeight)) return
+		if (!ws || ws.readyState !== WebSocket.OPEN) return
+		ws.send(JSON.stringify({ type: 'viewport', width: roundedWidth, height: roundedHeight }))
+		lastViewportWidth = roundedWidth
+		lastViewportHeight = roundedHeight
+		diag.log('viewportChanged', { width: roundedWidth, height: roundedHeight })
+	}
+
+	function codecHintForName(codec: unknown): string | undefined {
+		if (typeof codec !== 'string') return undefined
+		const name = codec.toLowerCase()
+		if (name === 'hevc' || name === 'h265' || name === 'hev1' || name === 'hvc1')
+			return 'hev1.1.6.L93.B0'
+		if (name === 'h264' || name === 'avc' || name === 'avc1') return 'avc1.42001e'
+		return undefined
+	}
 
   function processAppendQueue() {
     if (
@@ -367,6 +403,10 @@ export function useMseStream(
       } else {
         diag.stats.errorCount++
         consecutiveAppendErrors++
+			if (item.partial?.releaseRendering) {
+				waitingForKeyframe = true
+				appendQueue = []
+			}
         const videoError = videoRef.value?.error
         diag.log('appendError', {
           name: e?.name ?? null,
@@ -459,7 +499,7 @@ export function useMseStream(
     if (!mediaSource || mediaSource.readyState !== 'open') return false
 
     // Use explicit codec if provided, then codecHint from caller, then default H.264 baseline
-    const resolvedCodec = codec || codecHint || 'avc1.42001e'
+		const resolvedCodec = codec || activeCodecHint || 'avc1.42001e'
     const mimeType = `video/mp4; codecs="${resolvedCodec}${audioCodec ? `,${audioCodec}` : ''}"`
 
     if (!MediaSource.isTypeSupported(mimeType)) {
@@ -488,6 +528,10 @@ export function useMseStream(
         }
 
         if (operation.failed) {
+			if (operation.item.partial?.releaseRendering) {
+				waitingForKeyframe = true
+				appendQueue = []
+			}
           processAppendQueue()
           return
         }
@@ -517,6 +561,7 @@ export function useMseStream(
         }
 
         if (partial?.releaseRendering) {
+			releaseRenderOnIndependent = false
           const targetTime = operation.startTime ?? videoRef.value?.currentTime ?? 0
           releaseRenderingAfterFrame(targetTime, generation, partial.renderSuppressionToken ?? -1)
         }
@@ -573,8 +618,55 @@ export function useMseStream(
     try {
       const msg = JSON.parse(json)
       switch (msg.type) {
+		case 'streamSelection': {
+			const nextStream: 'main' | 'sub' = msg.stream === 'sub' ? 'sub' : 'main'
+			const previousStream = selectedStream.value
+			activeCodecHint = codecHintForName(msg.codec) ?? activeCodecHint
+			codecUnsupported.value = false
+			if (hasReceivedStreamSelection && previousStream !== nextStream) {
+				initGeneration = -1
+				renderSuppressionToken++
+				renderSuppressed.value = true
+				releaseRenderOnIndependent = true
+				diag.log('streamSwitch', {
+					from: previousStream,
+					to: nextStream,
+					codec: msg.codec,
+					width: msg.width,
+					height: msg.height,
+					requestedWidth: msg.requestedWidth,
+					requestedHeight: msg.requestedHeight,
+				})
+				handleDiscontinuity(true)
+			} else {
+				diag.log('streamSelected', {
+					stream: nextStream,
+					codec: msg.codec,
+					width: msg.width,
+					height: msg.height,
+				})
+			}
+			selectedStream.value = nextStream
+			hasReceivedStreamSelection = true
+			break
+		}
+
         case 'initSegment':
-          initGeneration = msg.generation
+		  {
+			const generation = Number(msg.generation)
+			if (!Number.isFinite(generation) || generation < initGeneration ||
+				(generation === initGeneration && !awaitingInit)) {
+				expectingBinary = null
+				pendingBinaryIntegrity = null
+				diag.log('staleInitDiscarded', { generation, initGeneration })
+				break
+			}
+			if (initGeneration >= 0 && generation > initGeneration && !awaitingInit) {
+				diag.log('initGenerationAdvanced', { from: initGeneration, to: generation })
+				handleDiscontinuity()
+			}
+			initGeneration = generation
+			awaitingInit = false
           audioCodec = typeof msg.audioCodec === 'string' ? msg.audioCodec : undefined
           expectingBinary = 'init'
           pendingBinaryIntegrity = {
@@ -588,8 +680,20 @@ export function useMseStream(
             expectedHash: pendingBinaryIntegrity.expectedHash,
           })
           break
+		  }
 
         case 'partial':
+		  if (Number(msg.generation) !== initGeneration) {
+			expectingBinary = null
+			pendingPartialMetadata = null
+			diag.log('stalePartialDiscarded', {
+				generation: msg.generation,
+				initGeneration,
+				segmentIndex: msg.segmentIndex,
+				partIndex: msg.partIndex,
+			})
+			break
+		  }
           // Skip non-independent partials until first keyframe
           if (waitingForKeyframe && !msg.independent) {
             expectingBinary = null // Will discard the binary frame
@@ -620,7 +724,6 @@ export function useMseStream(
             releaseRendering: releaseRenderOnIndependent && Boolean(msg.independent),
             renderSuppressionToken,
           }
-          if (pendingPartialMetadata.releaseRendering) releaseRenderOnIndependent = false
           diag.log('partial', {
             segmentIndex: msg.segmentIndex,
             partIndex: msg.partIndex,
@@ -632,6 +735,10 @@ export function useMseStream(
           break
 
         case 'decodeCorruption':
+		  if (Number(msg.generation) !== initGeneration) {
+			diag.log('staleDecodeCorruptionDiscarded', { generation: msg.generation, initGeneration })
+			break
+		  }
           diag.stats.decodeCorruptionCount++
           if (!renderSuppressed.value) diag.stats.renderSuppressionCount++
           renderSuppressionToken++
@@ -647,6 +754,10 @@ export function useMseStream(
           break
 
         case 'decodeRecovery':
+		  if (Number(msg.generation) !== initGeneration) {
+			diag.log('staleDecodeRecoveryDiscarded', { generation: msg.generation, initGeneration })
+			break
+		  }
           if (renderSuppressed.value) {
             releaseRenderOnIndependent = true
             diag.log('decodeRecoveryPending', {
@@ -665,9 +776,17 @@ export function useMseStream(
           break
 
         case 'discontinuity':
-          initGeneration = msg.generation
-          diag.log('discontinuity', { generation: msg.generation })
-          handleDiscontinuity()
+		  if (Number(msg.generation) <= initGeneration && !awaitingInit) {
+			diag.log('staleDiscontinuityDiscarded', {
+				generation: msg.generation,
+				initGeneration,
+			})
+			break
+		  }
+		  initGeneration = Number(msg.generation)
+		  awaitingInit = true
+		  diag.log('discontinuity', { generation: msg.generation })
+		  handleDiscontinuity()
           break
       }
     } catch {
@@ -752,6 +871,10 @@ export function useMseStream(
           diag.stats.totalFragments++
           isActive.value = true
         }
+		} else if (pendingPartialMetadata?.independent) {
+			// The MediaSource may still be opening after a stream switch. Do not
+			// consume the release keyframe until one can actually be appended.
+			waitingForKeyframe = true
       }
       expectingBinary = null
       pendingPartialMetadata = null
@@ -760,8 +883,9 @@ export function useMseStream(
     }
   }
 
-  function handleDiscontinuity() {
-    clearRenderSuppression()
+	function handleDiscontinuity(preserveRenderedFrame = false) {
+		if (!preserveRenderedFrame) clearRenderSuppression()
+		awaitingInit = true
     // Full teardown of media pipeline — removeSourceBuffer alone can leave
     // MediaSource in a corrupted state after camera reconnects
     if (sourceBuffer && mediaSource && mediaSource.readyState === 'open') {
@@ -823,16 +947,25 @@ export function useMseStream(
     const url = getWsUrl()
     diag.log('connecting', { url })
 
-    ws = new WebSocket(url)
-    ws.binaryType = 'arraybuffer'
+	initGeneration = -1
+	awaitingInit = true
+	intentionalClose = false
+	const socket = new WebSocket(url)
+	ws = socket
+		hasReceivedStreamSelection = false
+	socket.binaryType = 'arraybuffer'
 
-    ws.onopen = () => {
+	socket.onopen = () => {
+	  if (ws !== socket) return
       diag.log('wsOpen')
       streamStartTime = Date.now()
       restartBackoffMs = 3000
+		const viewport = adaptiveStream && !useSubStream ? viewportSize() : null
+		if (viewport) updateViewport(viewport.width, viewport.height)
     }
 
-    ws.onmessage = (event: MessageEvent) => {
+	socket.onmessage = (event: MessageEvent) => {
+	  if (ws !== socket) return
       if (typeof event.data === 'string') {
         handleControlMessage(event.data)
       } else if (event.data instanceof ArrayBuffer) {
@@ -840,12 +973,14 @@ export function useMseStream(
       }
     }
 
-    ws.onerror = () => {
+	socket.onerror = () => {
+	  if (ws !== socket) return
       diag.stats.errorCount++
       diag.log('wsError')
     }
 
-    ws.onclose = (event: CloseEvent) => {
+	socket.onclose = (event: CloseEvent) => {
+	  if (ws !== socket) return
       diag.log('wsClose', { code: event.code, reason: event.reason })
       ws = null
       isActive.value = false
@@ -875,6 +1010,7 @@ export function useMseStream(
         lastFragTime = 0
         streamStartTime = Date.now()
         expectingBinary = null
+		awaitingInit = true
         waitingForKeyframe = true
         hasInitialBuffer = false
         pendingInitData = null
@@ -941,6 +1077,7 @@ export function useMseStream(
     lastFragTime = 0
     streamStartTime = Date.now()
     expectingBinary = null
+	awaitingInit = true
     waitingForKeyframe = true
     hasInitialBuffer = false
     pendingInitData = null
@@ -1147,6 +1284,7 @@ export function useMseStream(
       connectionLost: connectionLost.value,
       isActive: isActive.value,
       renderSuppressed: renderSuppressed.value,
+		selectedStream: selectedStream.value,
       releaseRenderOnIndependent,
       renderSuppressionToken,
       latencyMs: latencyMs.value,
@@ -1163,6 +1301,7 @@ export function useMseStream(
       mediaSourceState: mediaSource?.readyState ?? null,
       lowReadyStateMs: lowReadyStateSince ? Date.now() - lowReadyStateSince : 0,
       initGeneration,
+		awaitingInit,
     }))
     element.muted = !audioEnabled()
     // Playback begins explicitly once the initial reserve has accumulated.
@@ -1233,5 +1372,14 @@ export function useMseStream(
     stop()
   })
 
-  return { showSpinner, connectionLost, isActive, latencyMs, codecUnsupported, renderSuppressed }
+	return {
+		showSpinner,
+		connectionLost,
+		isActive,
+		latencyMs,
+		codecUnsupported,
+		renderSuppressed,
+		selectedStream,
+		updateViewport,
+	}
 }

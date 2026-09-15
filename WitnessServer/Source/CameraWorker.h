@@ -8,6 +8,8 @@
 #include <LiveOutputStream.h>
 #include <ContinuousOutputStream.h>
 #include <MotionFilter.h>
+#include <atomic>
+#include <mutex>
 
 class GlobalContext;
 class ObservingMotionFilter;
@@ -138,22 +140,25 @@ public:
 
 	// Returns the video codec name (e.g. "h264", "hevc") or empty if not connected
 	std::string GetVideoCodecName() const;
+	int GetVideoWidth() const;
+	int GetVideoHeight() const;
 
-	std::shared_ptr<LiveOutputStream>& GetLiveStream()
+	std::shared_ptr<LiveOutputStream> GetLiveStream() const
 	{
-		return LiveStream;
+		std::lock_guard<std::mutex> Lock( m_StreamMetadataMutex );
+		return m_PublishedLiveStream;
 	}
 
-	SubStreamWorker* GetSubStreamWorker() const
+	std::shared_ptr<SubStreamWorker> GetSubStreamWorker() const
 	{
-		return m_SubStreamWorker.get();
+		std::lock_guard<std::mutex> Lock( m_StreamMetadataMutex );
+		return m_SubStreamWorker;
 	}
 
 	std::shared_ptr<LiveOutputStream> GetSubStreamLive() const
 	{
-		if (m_SubStreamWorker)
-			return m_SubStreamWorker->GetLiveStream();
-		return nullptr;
+		auto Worker = GetSubStreamWorker();
+		return Worker ? Worker->GetLiveStream() : nullptr;
 	}
 
 	const CameraSettings& GetCameraSettings() const
@@ -178,9 +183,14 @@ private:
 
 	std::shared_ptr<OutputStream> RecordStream;
 	std::shared_ptr<LiveOutputStream> LiveStream;
+	std::shared_ptr<LiveOutputStream> m_PublishedLiveStream;
 	std::shared_ptr<ContinuousOutputStream> ContinuousStream;
 
 	std::shared_ptr<InputStream> CameraStream;
+	mutable std::mutex m_StreamMetadataMutex;
+	std::string m_VideoCodecName;
+	std::atomic<int> m_VideoWidth{ 0 };
+	std::atomic<int> m_VideoHeight{ 0 };
 	std::shared_ptr<IRecordFilter> Filter;
 	std::shared_ptr<ObservingMotionFilter> Observer;
 
@@ -198,5 +208,5 @@ private:
 	int m_ConsecutiveConnectFailures = 0; // Counts consecutive RTSP connect timeouts
 	bool m_RebootRequested = false;       // True while waiting for camera to come back after reboot
 
-	std::unique_ptr<SubStreamWorker> m_SubStreamWorker;
+	std::shared_ptr<SubStreamWorker> m_SubStreamWorker;
 };

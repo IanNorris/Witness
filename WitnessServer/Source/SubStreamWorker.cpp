@@ -39,10 +39,18 @@ void SubStreamWorker::Stop()
 
 std::string SubStreamWorker::GetCodecName() const
 {
-	auto stream = m_InputStream;
-	if (stream)
-		return stream->GetCodecName();
-	return "";
+	std::lock_guard<std::mutex> lock(m_StreamMetadataMutex);
+	return m_VideoCodecName;
+}
+
+int SubStreamWorker::GetVideoWidth() const
+{
+	return m_VideoWidth.load();
+}
+
+int SubStreamWorker::GetVideoHeight() const
+{
+	return m_VideoHeight.load();
 }
 
 void SubStreamWorker::ThreadFunc()
@@ -62,6 +70,12 @@ void SubStreamWorker::ThreadFunc()
 		setup.PassthroughOnly = true;
 
 		m_InputStream = std::make_shared<InputStream>(setup, m_CameraId, nullptr, m_SubStreamUrl);
+		{
+			std::lock_guard<std::mutex> lock(m_StreamMetadataMutex);
+			m_VideoCodecName = m_InputStream->GetCodecName();
+		}
+		m_VideoWidth = m_InputStream->GetVideoWidth();
+		m_VideoHeight = m_InputStream->GetVideoHeight();
 
 		if (!m_LiveStream)
 		{
@@ -72,7 +86,7 @@ void SubStreamWorker::ThreadFunc()
 			// Wire up MSE WebSocket notifications for sub-stream channel
 			int cameraId = m_CameraId;
 			auto streams = m_Context->Streams;
-			int subChannelId = cameraId + 10000; // Sub-stream channel offset
+			int subChannelId = cameraId + StreamBroadcaster::SubStreamChannelOffset;
 
 			m_LiveStream->SetEventCallback([cameraId, subChannelId, streams](const LiveStreamEvent& ev)
 			{
@@ -95,6 +109,7 @@ void SubStreamWorker::ThreadFunc()
 
 				case LiveStreamEvent::PartialReady:
 					ctrl["type"] = "partial";
+					ctrl["generation"] = ev.Generation;
 					ctrl["segmentIndex"] = ev.SegmentIndex;
 					ctrl["partIndex"] = ev.PartIndex;
 					ctrl["duration"] = ev.Duration;
@@ -108,6 +123,7 @@ void SubStreamWorker::ThreadFunc()
 
 				case LiveStreamEvent::SegmentReady:
 					ctrl["type"] = "segment";
+					ctrl["generation"] = ev.Generation;
 					ctrl["segmentIndex"] = ev.SegmentIndex;
 					ctrl["duration"] = ev.Duration;
 					streams->SendControl(subChannelId, ctrl.dump());
@@ -141,6 +157,10 @@ void SubStreamWorker::ThreadFunc()
 		else
 		{
 			m_LiveStream->ResetForReconnect(m_InputStream.get());
+		}
+		{
+			std::lock_guard<std::mutex> lock(m_StreamMetadataMutex);
+			m_PublishedLiveStream = m_LiveStream;
 		}
 
 		m_Connected = true;
@@ -182,9 +202,22 @@ void SubStreamWorker::ThreadFunc()
 				}
 				break; // Break inner loop to reconnect
 			}
+			if (m_VideoWidth.load() == 0 || m_VideoHeight.load() == 0)
+			{
+				std::lock_guard<std::mutex> lock(m_StreamMetadataMutex);
+				m_VideoCodecName = m_InputStream->GetCodecName();
+				m_VideoWidth = m_InputStream->GetVideoWidth();
+				m_VideoHeight = m_InputStream->GetVideoHeight();
+			}
 		}
 	}
 
 	m_Connected = false;
+	{
+		std::lock_guard<std::mutex> lock(m_StreamMetadataMutex);
+		m_VideoCodecName.clear();
+	}
+	m_VideoWidth = 0;
+	m_VideoHeight = 0;
 	LOG_INFO("[SubStream] Camera %d sub-stream worker stopped", m_CameraId);
 }

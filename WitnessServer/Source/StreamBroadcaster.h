@@ -10,6 +10,7 @@
 #include <atomic>
 #include <vector>
 #include <memory>
+#include <functional>
 #include "crow.h"
 #include "crow/json.h"
 #include <Log.h>
@@ -23,6 +24,12 @@ class StreamBroadcaster
 {
 public:
 	static constexpr size_t MaxPendingPerClient = 128; // Higher than EventBroadcaster -- binary data is larger
+	static constexpr int SubStreamChannelOffset = 10000;
+	struct BootstrapPayload
+	{
+		std::string ControlJson;
+		Witness::Camera::SegmentBuffer Data;
+	};
 
 	~StreamBroadcaster()
 	{
@@ -86,6 +93,89 @@ public:
 			return true;
 		auto it = m_Subscriptions.find( cameraId );
 		return it != m_Subscriptions.end() && !it->second.empty();
+	}
+
+	void Resubscribe( int cameraId, crow::websocket::connection* conn )
+	{
+		std::lock_guard<std::mutex> lock( m_Mutex );
+		auto existing = m_ConnectionCamera.find( conn );
+		if( existing != m_ConnectionCamera.end() )
+		{
+			const int oldCameraId = existing->second;
+			if( oldCameraId == cameraId )
+				return;
+			auto subscribers = m_Subscriptions.find( oldCameraId );
+			if( subscribers != m_Subscriptions.end() )
+			{
+				subscribers->second.erase( conn );
+				if( subscribers->second.empty() )
+					m_Subscriptions.erase( subscribers );
+			}
+		}
+
+		m_Subscriptions[cameraId].insert( conn );
+		m_ConnectionCamera[conn] = cameraId;
+		m_PendingCount[conn] = 0;
+		LOG_INFO( "[MSE] Client switched to stream channel %d (%d viewers)",
+			cameraId, (int)m_Subscriptions[cameraId].size() );
+	}
+
+	// Atomically move a connection to a channel and bootstrap its decoder. The
+	// broadcast loop uses the same lock, so no queued control/binary pair can
+	// split selection, init metadata, and init bytes during a stream switch.
+	void SubscribeWithBootstrap(
+		int cameraId, crow::websocket::connection* conn,
+		const std::string& selectionJson,
+		const std::function<BootstrapPayload()>& buildBootstrap )
+	{
+		std::lock_guard<std::mutex> lock( m_Mutex );
+		try
+		{
+			conn->send_text( selectionJson );
+		}
+		catch( ... ) {}
+
+		auto existing = m_ConnectionCamera.find( conn );
+		if( existing != m_ConnectionCamera.end() )
+		{
+			const int oldCameraId = existing->second;
+			auto subscribers = m_Subscriptions.find( oldCameraId );
+			if( subscribers != m_Subscriptions.end() )
+			{
+				subscribers->second.erase( conn );
+				if( subscribers->second.empty() )
+					m_Subscriptions.erase( subscribers );
+			}
+		}
+
+		m_Subscriptions[cameraId].insert( conn );
+		m_ConnectionCamera[conn] = cameraId;
+		m_PendingCount[conn] = 0;
+
+		// Capture the init only after the subscription is visible. HasViewers()
+		// deliberately returns true while this lock is held, so a concurrent
+		// reconnect queues its replacement init instead of dropping it.
+		const auto bootstrap = buildBootstrap();
+		if( !bootstrap.ControlJson.empty() && bootstrap.Data && !bootstrap.Data->empty() )
+		{
+			try
+			{
+				conn->send_text( bootstrap.ControlJson );
+				conn->send_binary( std::string(
+					reinterpret_cast<const char*>( bootstrap.Data->data() ), bootstrap.Data->size() ) );
+			}
+			catch( ... ) {}
+		}
+
+		LOG_INFO( "[MSE] Client subscribed to stream channel %d (%d viewers)",
+			cameraId, (int)m_Subscriptions[cameraId].size() );
+	}
+
+	int GetSubscriptionChannel( crow::websocket::connection* conn ) const
+	{
+		std::lock_guard<std::mutex> lock( m_Mutex );
+		auto it = m_ConnectionCamera.find( conn );
+		return it != m_ConnectionCamera.end() ? it->second : 0;
 	}
 
 	// Send a JSON control message to all subscribers of a camera

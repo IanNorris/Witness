@@ -189,6 +189,17 @@ const mseCodecHint = computed(() => {
   return 'avc1.42001e'
 })
 
+const adaptiveStreamEligible = computed(() => {
+	if (!props.camera.hasSubStream || useSubStream.value || !props.camera.subCodec) return false
+	return !isHevcCodec(props.camera.subCodec) || hevcSupported
+})
+
+const adaptiveSubStream = computed(() =>
+	effectiveModeWithFallback.value === 'mse' &&
+	!useSubStream.value &&
+	(hlsPlayerRef.value as any)?.selectedStream === 'sub',
+)
+
 onUnmounted(() => {
   jpegRunning = false
   if (refreshTimer) clearTimeout(refreshTimer)
@@ -212,11 +223,13 @@ onUnmounted(() => {
         <!-- MSE preview mode -->
         <MsePlayer
           v-else-if="effectiveModeWithFallback === 'mse' && isConnected"
+		  :key="`${camera.id}-${useSubStream ? 'forced-sub' : 'main'}-${adaptiveStreamEligible ? 'adaptive' : 'fixed'}`"
           ref="hlsPlayerRef"
           :camera-id="camera.id"
           :use-sub-stream="useSubStream"
           :codec-hint="mseCodecHint"
           :audio-enabled="audioActive && !dashboardHidden"
+		  :adaptive-stream="adaptiveStreamEligible"
         />
 
         <!-- JPEG preview mode -->
@@ -248,7 +261,7 @@ onUnmounted(() => {
         <div v-if="proactiveCodecFallback && !useSubStream && isConnected" class="codec-fallback-overlay">
           H.265 → JPEG
         </div>
-        <div v-else-if="useSubStream && isConnected" class="codec-fallback-overlay">
+        <div v-else-if="(useSubStream || adaptiveSubStream) && isConnected" class="codec-fallback-overlay">
           Sub
         </div>
 

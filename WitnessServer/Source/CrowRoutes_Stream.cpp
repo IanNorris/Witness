@@ -23,7 +23,7 @@ void CrowListener::HandlePlaylist( const crow::request& req, crow::response& res
 		return;
 	}
 
-	std::shared_ptr<LiveOutputStream>& LiveStream = CameraState->Worker->GetLiveStream();
+	std::shared_ptr<LiveOutputStream> LiveStream = CameraState->Worker->GetLiveStream();
 	if( !LiveStream )
 	{
 		res.code = 503;
@@ -161,7 +161,7 @@ void CrowListener::HandleSegment( const crow::request& req, crow::response& res,
 		return;
 	}
 
-	std::shared_ptr<LiveOutputStream>& LiveStream = CameraState->Worker->GetLiveStream();
+	std::shared_ptr<LiveOutputStream> LiveStream = CameraState->Worker->GetLiveStream();
 	if( !LiveStream )
 	{
 		res.code = 503;

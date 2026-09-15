@@ -615,6 +615,18 @@ std::string InputStream::GetCodecName() const
 	return "";
 }
 
+int InputStream::GetVideoWidth() const
+{
+	auto& ID = *m_InternalData;
+	return ID.CodecContext ? ID.CodecContext->width : 0;
+}
+
+int InputStream::GetVideoHeight() const
+{
+	auto& ID = *m_InternalData;
+	return ID.CodecContext ? ID.CodecContext->height : 0;
+}
+
 CameraStreamError InputStream::WriteInterleavedPacket(const AVPacket* Packet)
 {
 	STREAM_ERROR(InvalidSetup, 0);

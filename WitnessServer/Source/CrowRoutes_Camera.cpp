@@ -176,14 +176,19 @@ void CrowListener::HandleCameraEnum( const crow::request& req, crow::response& r
 								std::string codecName = CameraState->Worker->GetVideoCodecName();
 								if( !codecName.empty() )
 									Camera["codec"] = codecName;
+								Camera["width"] = CameraState->Worker->GetVideoWidth();
+								Camera["height"] = CameraState->Worker->GetVideoHeight();
 
 								// Report sub-stream availability
-								if( CameraState->Worker->GetSubStreamWorker() )
+								auto SubWorker = CameraState->Worker->GetSubStreamWorker();
+								if( SubWorker )
 								{
 									Camera["hasSubStream"] = true;
-									std::string subCodec = CameraState->Worker->GetSubStreamWorker()->GetCodecName();
+									std::string subCodec = SubWorker->GetCodecName();
 									if( !subCodec.empty() )
 										Camera["subCodec"] = subCodec;
+									Camera["subWidth"] = SubWorker->GetVideoWidth();
+									Camera["subHeight"] = SubWorker->GetVideoHeight();
 								}
 
 								auto StreamStats = CameraState->Worker->GetStreamStats();

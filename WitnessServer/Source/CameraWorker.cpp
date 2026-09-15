@@ -31,12 +31,18 @@
 
 std::string CameraWorker::GetVideoCodecName() const
 {
-	std::shared_ptr<InputStream> Stream = CameraStream;
-	if( Stream )
-	{
-		return Stream->GetCodecName();
-	}
-	return "";
+	std::lock_guard<std::mutex> Lock( m_StreamMetadataMutex );
+	return m_VideoCodecName;
+}
+
+int CameraWorker::GetVideoWidth() const
+{
+	return m_VideoWidth.load();
+}
+
+int CameraWorker::GetVideoHeight() const
+{
+	return m_VideoHeight.load();
 }
 
 void CameraWorker::CreateInputStream()
@@ -61,6 +67,12 @@ void CameraWorker::CreateInputStream()
 	std::string CachePath = std::string(Context->CachePath.begin(), Context->CachePath.end());
 
 	CameraStream = std::make_shared<InputStream>( Setup, Camera.ID, Camera.JobQueue, CamPath );
+	{
+		std::lock_guard<std::mutex> Lock( m_StreamMetadataMutex );
+		m_VideoCodecName = CameraStream->GetCodecName();
+	}
+	m_VideoWidth = CameraStream->GetVideoWidth();
+	m_VideoHeight = CameraStream->GetVideoHeight();
 
 	if (LiveStream)
 	{
@@ -95,6 +107,7 @@ void CameraWorker::CreateInputStream()
 
 			case Witness::Camera::LiveStreamEvent::PartialReady:
 				ctrl["type"] = "partial";
+				ctrl["generation"] = ev.Generation;
 				ctrl["segmentIndex"] = ev.SegmentIndex;
 				ctrl["partIndex"] = ev.PartIndex;
 				ctrl["duration"] = ev.Duration;
@@ -108,6 +121,7 @@ void CameraWorker::CreateInputStream()
 
 			case Witness::Camera::LiveStreamEvent::SegmentReady:
 				ctrl["type"] = "segment";
+				ctrl["generation"] = ev.Generation;
 				ctrl["segmentIndex"] = ev.SegmentIndex;
 				ctrl["duration"] = ev.Duration;
 				streams->SendControl(cameraId, ctrl.dump());
@@ -139,6 +153,10 @@ void CameraWorker::CreateInputStream()
 		});
 	}
 	LiveStream->SetTimestampNormalizationAllowed( DetectCameraProfile( CamPath ) == CameraProfile::Reolink );
+	{
+		std::lock_guard<std::mutex> Lock( m_StreamMetadataMutex );
+		m_PublishedLiveStream = LiveStream;
+	}
 
 	// Continuous recording
 	if (Camera.ContinuousRecording)
@@ -767,21 +785,37 @@ void CameraWorker::WorkerInit()
 	if (!Camera.PathSub.empty())
 	{
 		std::string cachePath = std::string(Context->CachePath.begin(), Context->CachePath.end());
-		m_SubStreamWorker = std::make_unique<SubStreamWorker>(Camera.ID, Camera.PathSub, cachePath, Context);
-		m_SubStreamWorker->Start();
+		auto SubWorker = std::make_shared<SubStreamWorker>(Camera.ID, Camera.PathSub, cachePath, Context);
+		{
+			std::lock_guard<std::mutex> Lock( m_StreamMetadataMutex );
+			m_SubStreamWorker = SubWorker;
+		}
+		SubWorker->Start();
 	}
 }
 
 void CameraWorker::WorkerShutdown()
 {
 	// Stop sub-stream worker first
-	m_SubStreamWorker.reset();
+	std::shared_ptr<SubStreamWorker> SubWorker;
+	{
+		std::lock_guard<std::mutex> Lock( m_StreamMetadataMutex );
+		SubWorker = std::move( m_SubStreamWorker );
+		m_PublishedLiveStream.reset();
+	}
+	SubWorker.reset();
 
 	//Ensure destruction is done on the worker thread
 	Filter = nullptr;
 	ContinuousStream = nullptr;
 	LiveStream = nullptr;
 	CameraStream = nullptr;
+	{
+		std::lock_guard<std::mutex> Lock( m_StreamMetadataMutex );
+		m_VideoCodecName.clear();
+	}
+	m_VideoWidth = 0;
+	m_VideoHeight = 0;
 
 	MessageBusObject->SendToClient( nullptr, std::make_shared<ThreadShutdownMessage>() );
 }
@@ -853,6 +887,13 @@ void CameraWorker::WorkerMain()
 
 	if( Error == CameraStreamError::Success )
 	{
+		if( m_VideoWidth.load() == 0 || m_VideoHeight.load() == 0 )
+		{
+			std::lock_guard<std::mutex> Lock( m_StreamMetadataMutex );
+			m_VideoCodecName = CameraStream->GetCodecName();
+			m_VideoWidth = CameraStream->GetVideoWidth();
+			m_VideoHeight = CameraStream->GetVideoHeight();
+		}
 		if( !IsConnected )
 		{
 			IsConnected = true;

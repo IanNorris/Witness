@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
+import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { useMseStream } from '../../composables/useMseStream'
 import { useDetectionOverlay } from '../../composables/useDetectionOverlay'
 
@@ -9,18 +9,66 @@ const props = defineProps<{
   useSubStream?: boolean
   codecHint?: string
   audioEnabled?: boolean
+	adaptiveStream?: boolean
 }>()
 
+const containerRef = ref<HTMLDivElement | null>(null)
 const videoRef = ref<HTMLVideoElement | null>(null)
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 const freezeCanvasRef = ref<HTMLCanvasElement | null>(null)
-const { showSpinner, connectionLost, latencyMs, codecUnsupported, renderSuppressed } = useMseStream(
+let viewportWidth = 0
+let viewportHeight = 0
+let resizeObserver: ResizeObserver | null = null
+let resizeTimer: ReturnType<typeof setTimeout> | null = null
+let resolutionQuery: MediaQueryList | null = null
+
+function measureViewport() {
+	const container = containerRef.value
+	if (!container) return
+	const rect = container.getBoundingClientRect()
+	const scale = window.devicePixelRatio || 1
+	// Bucketing avoids stream-policy churn from one-pixel layout changes.
+	viewportWidth = Math.max(1, Math.ceil((rect.width * scale) / 64) * 64)
+	viewportHeight = Math.max(1, Math.ceil((rect.height * scale) / 64) * 64)
+}
+
+function scheduleViewportUpdate() {
+	measureViewport()
+	if (resizeTimer) clearTimeout(resizeTimer)
+	resizeTimer = setTimeout(() => {
+		resizeTimer = null
+		updateViewport(viewportWidth, viewportHeight)
+	}, 250)
+}
+
+function watchDevicePixelRatio() {
+	resolutionQuery?.removeEventListener('change', handleDevicePixelRatioChange)
+	resolutionQuery = window.matchMedia(`(resolution: ${window.devicePixelRatio || 1}dppx)`)
+	resolutionQuery.addEventListener('change', handleDevicePixelRatioChange)
+}
+
+function handleDevicePixelRatioChange() {
+	scheduleViewportUpdate()
+	watchDevicePixelRatio()
+}
+
+const {
+	showSpinner,
+	connectionLost,
+	latencyMs,
+	codecUnsupported,
+	renderSuppressed,
+	selectedStream,
+	updateViewport,
+} = useMseStream(
   props.cameraId,
   videoRef,
   props.suffix ?? '',
   props.useSubStream ?? false,
   props.codecHint,
   () => props.audioEnabled ?? false,
+	props.adaptiveStream ?? false,
+	() => ({ width: viewportWidth, height: viewportHeight }),
 )
 
 const { enabled: overlayEnabled, toggle: toggleOverlay } = useDetectionOverlay(
@@ -54,11 +102,34 @@ watch(renderSuppressed, suppressed => {
   canvas.getContext('2d')?.drawImage(video, 0, 0, canvas.width, canvas.height)
 }, { flush: 'sync' })
 
-defineExpose({ latencyMs, overlayEnabled, toggleOverlay, codecUnsupported, toggleAudio, setAudioEnabled })
+onMounted(() => {
+	measureViewport()
+	updateViewport(viewportWidth, viewportHeight)
+	if (!props.adaptiveStream || !containerRef.value) return
+	resizeObserver = new ResizeObserver(scheduleViewportUpdate)
+	resizeObserver.observe(containerRef.value)
+	watchDevicePixelRatio()
+})
+
+onUnmounted(() => {
+	resizeObserver?.disconnect()
+	resolutionQuery?.removeEventListener('change', handleDevicePixelRatioChange)
+	if (resizeTimer) clearTimeout(resizeTimer)
+})
+
+defineExpose({
+	latencyMs,
+	overlayEnabled,
+	toggleOverlay,
+	codecUnsupported,
+	selectedStream,
+	toggleAudio,
+	setAudioEnabled,
+})
 </script>
 
 <template>
-  <div class="mse-container">
+  <div ref="containerRef" class="mse-container">
     <video ref="videoRef" playsinline :muted="!(audioEnabled ?? false)" />
     <canvas ref="freezeCanvasRef" class="render-freeze" v-show="renderSuppressed" />
     <canvas ref="canvasRef" class="detection-overlay" v-show="overlayEnabled" />
