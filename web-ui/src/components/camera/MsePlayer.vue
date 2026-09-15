@@ -13,7 +13,8 @@ const props = defineProps<{
 
 const videoRef = ref<HTMLVideoElement | null>(null)
 const canvasRef = ref<HTMLCanvasElement | null>(null)
-const { showSpinner, connectionLost, latencyMs, codecUnsupported } = useMseStream(
+const freezeCanvasRef = ref<HTMLCanvasElement | null>(null)
+const { showSpinner, connectionLost, latencyMs, codecUnsupported, renderSuppressed } = useMseStream(
   props.cameraId,
   videoRef,
   props.suffix ?? '',
@@ -42,12 +43,24 @@ function toggleAudio() {
 
 watch(() => props.audioEnabled, enabled => setAudioEnabled(enabled ?? false))
 
+watch(renderSuppressed, suppressed => {
+  if (!suppressed) return
+  const video = videoRef.value
+  const canvas = freezeCanvasRef.value
+  if (!video || !canvas || video.videoWidth <= 0 || video.videoHeight <= 0) return
+
+  canvas.width = video.videoWidth
+  canvas.height = video.videoHeight
+  canvas.getContext('2d')?.drawImage(video, 0, 0, canvas.width, canvas.height)
+}, { flush: 'sync' })
+
 defineExpose({ latencyMs, overlayEnabled, toggleOverlay, codecUnsupported, toggleAudio, setAudioEnabled })
 </script>
 
 <template>
   <div class="mse-container">
     <video ref="videoRef" playsinline :muted="!(audioEnabled ?? false)" />
+    <canvas ref="freezeCanvasRef" class="render-freeze" v-show="renderSuppressed" />
     <canvas ref="canvasRef" class="detection-overlay" v-show="overlayEnabled" />
 
     <!-- Spinner: connecting / buffering -->
@@ -84,6 +97,17 @@ defineExpose({ latencyMs, overlayEnabled, toggleOverlay, codecUnsupported, toggl
   height: 100%;
   object-fit: contain;
   background: #000;
+}
+
+.render-freeze {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+  pointer-events: none;
+  z-index: 4;
 }
 
 .detection-overlay {

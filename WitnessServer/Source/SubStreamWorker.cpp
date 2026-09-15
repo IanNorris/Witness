@@ -118,6 +118,23 @@ void SubStreamWorker::ThreadFunc()
 					ctrl["generation"] = ev.Generation;
 					streams->SendControl(subChannelId, ctrl.dump());
 					break;
+
+				case LiveStreamEvent::DecodeCorruption:
+					ctrl["type"] = "decodeCorruption";
+					ctrl["generation"] = ev.Generation;
+					ctrl["segmentIndex"] = ev.SegmentIndex;
+					ctrl["partIndex"] = ev.PartIndex;
+					ctrl["decodeErrorFlags"] = ev.DecodeErrorFlags;
+					streams->SendControl(subChannelId, ctrl.dump());
+					break;
+
+				case LiveStreamEvent::DecodeRecovery:
+					ctrl["type"] = "decodeRecovery";
+					ctrl["generation"] = ev.Generation;
+					ctrl["segmentIndex"] = ev.SegmentIndex;
+					ctrl["partIndex"] = ev.PartIndex;
+					streams->SendControl(subChannelId, ctrl.dump());
+					break;
 				}
 			});
 		}

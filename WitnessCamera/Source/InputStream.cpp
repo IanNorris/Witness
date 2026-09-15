@@ -1,5 +1,6 @@
 #include "InputStream.h"
 #include "OutputStream.h"
+#include "LiveOutputStream.h"
 #include "StreamManager.h"
 #include "StreamData.h"
 #include "ImageProcessingData.h"
@@ -35,6 +36,7 @@ InputStream::~InputStream()
 
 CameraStreamError InputStream::Initialize()
 {
+	FFmpegLogContextScope LogContext( UniqueSourceID, "initialize" );
 	if( m_InternalData->HasInitialized )
 	{
 		return CameraStreamError::Success;
@@ -185,6 +187,7 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 	{
 		return InitError;
 	}
+	FFmpegLogContextScope InputLogContext( UniqueSourceID, "input" );
 
 	auto& ID = *m_InternalData;
 
@@ -281,6 +284,15 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 				ID.FreeAllQueuedPackets();
 				return WriteError;
 			}
+
+			// Some demuxers report damaged input through av_log while still returning
+			// a packet. Keep forwarding/decoding it, but hold presentation until a
+			// later random-access frame rather than trusting this packet as recovery.
+			if( InputLogContext.HasError() )
+			{
+				auto* LiveOutput = dynamic_cast<LiveOutputStream*>( LiveStream );
+				if( LiveOutput ) LiveOutput->NotifyDecodeCorruption( 0 );
+			}
 		}
 
 		// Invoke packet callback (used by ContinuousOutputStream)
@@ -339,6 +351,9 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 
 			if (shouldDecode)
 			{
+				FFmpegLogContextScope DecodeLogContext( UniqueSourceID, "decode" );
+				bool DecodeCorruptionReported = false;
+				auto* LiveOutput = dynamic_cast<LiveOutputStream*>( LiveStream );
 				// When doing keyframe-only decode, flush the decoder first so it doesn't
 				// expect reference frames from packets we skipped
 				if (StreamSetup.MotionFilterFrameSkip > 1 && isKeyframe)
@@ -361,6 +376,7 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 		}
 		else if( Result < 0 )
 		{
+			if( LiveOutput ) LiveOutput->NotifyDecodeCorruption( Result );
 			av_packet_unref( &ID.Packet );
 			STREAM_ERROR( PacketError, Result );
 		}
@@ -375,11 +391,21 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 			}
 			else if( Result < 0 )
 			{
+				if( LiveOutput ) LiveOutput->NotifyDecodeCorruption( Result );
 				av_packet_unref( &ID.Packet );
 				STREAM_ERROR( DecoderReceiverError, Result );
 			}
 			else
 			{
+				AVFrame* DecodedFrame = ID.Input->GetFrame();
+				const int DecodeErrorFlags = DecodedFrame->decode_error_flags;
+				const bool FrameCorrupt = (DecodedFrame->flags & AV_FRAME_FLAG_CORRUPT) != 0;
+				if( LiveOutput && !DecodeCorruptionReported &&
+					(DecodeLogContext.HasError() || DecodeErrorFlags != 0 || FrameCorrupt) )
+				{
+					LiveOutput->NotifyDecodeCorruption( DecodeErrorFlags );
+					DecodeCorruptionReported = true;
+				}
 				// Always send decoded keyframe frames to the filter chain
 				// (FrameIndex counting already handled above)
 				{
@@ -425,6 +451,8 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 				}
 			}
 		}
+		if( LiveOutput && !DecodeCorruptionReported && DecodeLogContext.HasError() )
+			LiveOutput->NotifyDecodeCorruption( 0 );
 			} // end if (shouldDecode)
 		} // end if (!PassthroughOnly)
 	}

@@ -3,6 +3,14 @@
 
 #include <windows.h>
 #include <vector>
+#include <Log.h>
+
+namespace
+{
+	thread_local int FFmpegLogSourceID = -1;
+	thread_local const char* FFmpegLogPhase = "unscoped";
+	thread_local uint64_t FFmpegLogErrorCount = 0;
+}
 
 void FFMPEGErrorToString(int ErrorCode, char* Buffer, size_t BufferSize)
 {
@@ -18,6 +26,26 @@ void FFMPEGErrorToString(int ErrorCode, char* Buffer, size_t BufferSize)
 
 namespace Witness{
 namespace Camera{
+
+FFmpegLogContextScope::FFmpegLogContextScope( int SourceID, const char* Phase )
+	: PreviousSourceID( FFmpegLogSourceID )
+	, PreviousPhase( FFmpegLogPhase )
+	, StartingErrorCount( FFmpegLogErrorCount )
+{
+	FFmpegLogSourceID = SourceID;
+	FFmpegLogPhase = Phase ? Phase : "unknown";
+}
+
+FFmpegLogContextScope::~FFmpegLogContextScope()
+{
+	FFmpegLogSourceID = PreviousSourceID;
+	FFmpegLogPhase = PreviousPhase;
+}
+
+bool FFmpegLogContextScope::HasError() const
+{
+	return FFmpegLogErrorCount != StartingErrorCount;
+}
 
 PIMPL_CONSTRUCT(StreamData)
 
@@ -90,10 +118,23 @@ void Stream::LogCallback( void* AVData, int Level, const char* Format, va_list A
 		return;
 	}
 
-	size_t OriginalMessageSizeNeeded = std::vsnprintf(NULL, 0, Format, Args) + 1;
-	std::vector<char> OriginalMessageBuf( OriginalMessageSizeNeeded );
+	va_list SizeArgs;
+	va_copy( SizeArgs, Args );
+	int OriginalMessageLength = std::vsnprintf(NULL, 0, Format, SizeArgs);
+	va_end( SizeArgs );
+	if( OriginalMessageLength < 0 )
+		return;
+	std::vector<char> OriginalMessageBuf( (size_t)OriginalMessageLength + 1 );
 
-	std::vsnprintf( OriginalMessageBuf.data(), OriginalMessageBuf.size(), Format, Args );
+	va_list MessageArgs;
+	va_copy( MessageArgs, Args );
+	std::vsnprintf( OriginalMessageBuf.data(), OriginalMessageBuf.size(), Format, MessageArgs );
+	va_end( MessageArgs );
+	while( OriginalMessageLength > 0 &&
+		(OriginalMessageBuf[OriginalMessageLength - 1] == '\n' || OriginalMessageBuf[OriginalMessageLength - 1] == '\r') )
+	{
+		OriginalMessageBuf[--OriginalMessageLength] = '\0';
+	}
 
 	AVClass* AVClassData = AVData ? *(AVClass**)AVData : nullptr;
 
@@ -105,6 +146,14 @@ void Stream::LogCallback( void* AVData, int Level, const char* Format, va_list A
 	std::snprintf( MessageBuf.data(), MessageBuf.size(), OutputFormat, AVClassData ? AVClassData->item_name(AVData) : "Unknown", OriginalMessageBuf.data());
 
 	OutputDebugStringA( MessageBuf.data() );
+
+	if( Level <= AV_LOG_ERROR )
+	{
+		++FFmpegLogErrorCount;
+		LOG_ERROR( "[FFmpeg] Camera %d %s (%s): %s", FFmpegLogSourceID,
+			FFmpegLogPhase, AVClassData ? AVClassData->item_name(AVData) : "unknown",
+			OriginalMessageBuf.data() );
+	}
 }
 
 }}

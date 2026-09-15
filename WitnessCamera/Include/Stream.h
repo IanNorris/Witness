@@ -7,11 +7,27 @@
 
 #include <string>
 #include <memory>
+#include <cstdint>
 
 struct AVPacket;
 
 namespace Witness{
 namespace Camera{
+
+// Associates FFmpeg's process-wide log callback with the camera operation on
+// the current worker thread, and records whether FFmpeg emitted a decode error.
+class CAMERA_API FFmpegLogContextScope
+{
+public:
+	FFmpegLogContextScope( int SourceID, const char* Phase );
+	~FFmpegLogContextScope();
+	bool HasError() const;
+
+private:
+	int PreviousSourceID;
+	const char* PreviousPhase;
+	uint64_t StartingErrorCount;
+};
 
 CAMERA_API extern DebugConsole* TargetDebugConsole;
 

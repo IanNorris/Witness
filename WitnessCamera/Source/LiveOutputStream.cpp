@@ -397,6 +397,7 @@ void LiveOutputStream::ResetForReconnect(InputStream* NewInputStream)
 	_CurrentPartialHasPacket = false;
 	_CurrentPartialKeyframeSeekSafe = false;
 	_DiscontinuityPending = true;
+	_DecodeCorruptionActive = false;
 	{
 		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
 		_InitGeneration++;
@@ -588,6 +589,27 @@ CameraStreamError LiveOutputStream::InitFormatContext()
 	return CameraStreamError::Success;
 }
 
+void LiveOutputStream::NotifyDecodeCorruption(int ErrorFlags)
+{
+	if (_DecodeCorruptionActive)
+		return;
+
+	_DecodeCorruptionActive = true;
+	LOG_WARNING("[HLS] Camera %d detected corrupt video; holding presentation until the next keyframe (decode_error_flags=0x%x)",
+		_InputStream->GetSourceId(), ErrorFlags);
+
+	if (_EventCallback)
+	{
+		LiveStreamEvent Event;
+		Event.EventType = LiveStreamEvent::DecodeCorruption;
+		Event.SegmentIndex = _CurrentSegmentIndex;
+		Event.PartIndex = _CurrentPartialIndex;
+		Event.Generation = _InitGeneration;
+		Event.DecodeErrorFlags = ErrorFlags;
+		_EventCallback(Event);
+	}
+}
+
 CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packet)
 {
 	if (!_FormatContext)
@@ -605,6 +627,23 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 	AVRational InputTimebase =
 		_InputStream->GetData().FormatContext->streams[Packet->stream_index]->time_base;
 	const bool IsVideoKeyframe = IsVideo && (Packet->flags & AV_PKT_FLAG_KEY);
+	if (IsVideoKeyframe && _DecodeCorruptionActive)
+	{
+		_DecodeCorruptionActive = false;
+		LOG_INFO("[HLS] Camera %d reached a recovery keyframe; resuming presentation after it is buffered",
+			_InputStream->GetSourceId());
+		if (_EventCallback)
+		{
+			LiveStreamEvent Event;
+			Event.EventType = LiveStreamEvent::DecodeRecovery;
+			Event.SegmentIndex = _CurrentSegmentIndex;
+			Event.PartIndex = _CurrentPartialIndex;
+			Event.Generation = _InitGeneration;
+			_EventCallback(Event);
+		}
+	}
+	if (IsVideo && (Packet->flags & AV_PKT_FLAG_CORRUPT))
+		NotifyDecodeCorruption(0);
 	const bool SourceHasDts = Packet->dts != AV_NOPTS_VALUE;
 	const bool SourceHasPts = Packet->pts != AV_NOPTS_VALUE;
 	const int64_t SourceDtsUs = SourceHasDts ?
@@ -689,6 +728,7 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 		++_SegmentMissingVideoDtsPackets;
 		++_SegmentDroppedVideoPackets;
 		RecordPacket("missingVideoDts");
+		NotifyDecodeCorruption(0);
 		return CameraStreamError::Success;
 	}
 
@@ -803,6 +843,7 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 						_NormalizeNoBFrameTimestamps ? 1 : 0);
 				}
 				RecordPacket("nonMonotonicInput");
+				NotifyDecodeCorruption(0);
 				av_packet_unref(&PacketCopy);
 				return CameraStreamError::Success;
 			}
@@ -1018,6 +1059,8 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 		}
 		RecordPacket("nonMonotonicOutput", true,
 			PacketCopy.dts, PacketCopy.pts, PacketCopy.duration);
+		if (IsVideo)
+			NotifyDecodeCorruption(0);
 		av_packet_unref(&PacketCopy);
 		return CameraStreamError::Success;
 	}

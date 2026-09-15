@@ -26,6 +26,8 @@ interface MseDiagStats {
   minLatencyMs: number | null
   verifiedBinaryMessages: number
   integrityMismatchCount: number
+  decodeCorruptionCount: number
+  renderSuppressionCount: number
 }
 
 function fnv1a32(data: ArrayBuffer): string {
@@ -51,6 +53,8 @@ class MseDiagnostics {
     minLatencyMs: null,
     verifiedBinaryMessages: 0,
     integrityMismatchCount: 0,
+    decodeCorruptionCount: 0,
+    renderSuppressionCount: 0,
   }
   _element: HTMLVideoElement | null = null
 
@@ -188,6 +192,7 @@ export interface MseStreamState {
   isActive: Ref<boolean>
   latencyMs: Ref<number>
   codecUnsupported: Ref<boolean>
+  renderSuppressed: Ref<boolean>
 }
 
 interface PartialAppendMetadata {
@@ -198,6 +203,8 @@ interface PartialAppendMetadata {
   partIndex: number
   expectedBytes: number | null
   expectedHash?: string
+  releaseRendering?: boolean
+  renderSuppressionToken?: number
 }
 
 interface BinaryIntegrityMetadata {
@@ -242,6 +249,7 @@ export function useMseStream(
   const isActive = ref(false)
   const latencyMs = ref(0)
   const codecUnsupported = ref(false)
+  const renderSuppressed = ref(false)
 
   const diagId = String(cameraId) + (suffix ? '_' + suffix : '_mse')
   const diag = new MseDiagnostics(diagId)
@@ -280,6 +288,43 @@ export function useMseStream(
   let lastKeyframeSeekTarget = -1
   let lastAnomalyReportTime = 0
   let lastAnomalyReason = ''
+  let releaseRenderOnIndependent = false
+  let renderSuppressionToken = 0
+
+  function clearRenderSuppression() {
+    renderSuppressionToken++
+    renderSuppressed.value = false
+    releaseRenderOnIndependent = false
+  }
+
+  function releaseRenderingAfterFrame(targetTime: number, generation: number, suppressionToken: number) {
+    const video = videoRef.value
+    if (!video) {
+      clearRenderSuppression()
+      return
+    }
+
+    const releaseIfReady = (mediaTime: number) => {
+      if (!renderSuppressed.value || destroyed || sourceBufferGeneration !== generation ||
+        renderSuppressionToken !== suppressionToken) return true
+      if (mediaTime + 0.01 < targetTime) return false
+      renderSuppressed.value = false
+      diag.log('renderResumed', { targetTime, mediaTime, generation })
+      return true
+    }
+
+    if (typeof video.requestVideoFrameCallback === 'function') {
+      const waitForFrame = (_now: number, metadata: VideoFrameCallbackMetadata) => {
+        if (!releaseIfReady(metadata.mediaTime)) video.requestVideoFrameCallback(waitForFrame)
+      }
+      video.requestVideoFrameCallback(waitForFrame)
+    } else {
+      const waitForTime = () => {
+        if (!releaseIfReady(video.currentTime)) setTimeout(waitForTime, 50)
+      }
+      setTimeout(waitForTime, 50)
+    }
+  }
 
   function getWsUrl(): string {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:'
@@ -471,6 +516,11 @@ export function useMseStream(
           }
         }
 
+        if (partial?.releaseRendering) {
+          const targetTime = operation.startTime ?? videoRef.value?.currentTime ?? 0
+          releaseRenderingAfterFrame(targetTime, generation, partial.renderSuppressionToken ?? -1)
+        }
+
         // Build enough reserve to absorb ordinary network/camera burstiness before
         // starting playback. Camera 11 regularly delivers 600-700ms gaps.
         if (!hasInitialBuffer) {
@@ -567,7 +617,10 @@ export function useMseStream(
             partIndex: Number(msg.partIndex),
             expectedBytes: Number.isFinite(Number(msg.bytes)) ? Number(msg.bytes) : null,
             expectedHash: typeof msg.hash === 'string' ? msg.hash : undefined,
+            releaseRendering: releaseRenderOnIndependent && Boolean(msg.independent),
+            renderSuppressionToken,
           }
+          if (pendingPartialMetadata.releaseRendering) releaseRenderOnIndependent = false
           diag.log('partial', {
             segmentIndex: msg.segmentIndex,
             partIndex: msg.partIndex,
@@ -576,6 +629,32 @@ export function useMseStream(
             expectedBytes: pendingPartialMetadata.expectedBytes,
             expectedHash: pendingPartialMetadata.expectedHash,
           })
+          break
+
+        case 'decodeCorruption':
+          diag.stats.decodeCorruptionCount++
+          if (!renderSuppressed.value) diag.stats.renderSuppressionCount++
+          renderSuppressionToken++
+          renderSuppressed.value = true
+          releaseRenderOnIndependent = false
+          reportDiagnosticAnomaly('decodeCorruption')
+          diag.log('decodeCorruption', {
+            generation: msg.generation,
+            segmentIndex: msg.segmentIndex,
+            partIndex: msg.partIndex,
+            decodeErrorFlags: msg.decodeErrorFlags,
+          })
+          break
+
+        case 'decodeRecovery':
+          if (renderSuppressed.value) {
+            releaseRenderOnIndependent = true
+            diag.log('decodeRecoveryPending', {
+              generation: msg.generation,
+              segmentIndex: msg.segmentIndex,
+              partIndex: msg.partIndex,
+            })
+          }
           break
 
         case 'segment':
@@ -682,6 +761,7 @@ export function useMseStream(
   }
 
   function handleDiscontinuity() {
+    clearRenderSuppression()
     // Full teardown of media pipeline — removeSourceBuffer alone can leave
     // MediaSource in a corrupted state after camera reconnects
     if (sourceBuffer && mediaSource && mediaSource.readyState === 'open') {
@@ -769,6 +849,7 @@ export function useMseStream(
       diag.log('wsClose', { code: event.code, reason: event.reason })
       ws = null
       isActive.value = false
+      clearRenderSuppression()
 
       if (!destroyed && !intentionalClose) {
         // Full teardown — stale MediaSource/SourceBuffer can't be reused reliably
@@ -825,6 +906,7 @@ export function useMseStream(
     diag.stats.restartCount++
     diag.log('restart', { reason, generation: initGeneration })
     reportDiagnosticAnomaly(reason)
+    clearRenderSuppression()
 
     // Cancel any pending reconnect timer to prevent duplicate WebSocket creation
     if (reconnectTimer) {
@@ -1064,6 +1146,9 @@ export function useMseStream(
       showSpinner: showSpinner.value,
       connectionLost: connectionLost.value,
       isActive: isActive.value,
+      renderSuppressed: renderSuppressed.value,
+      releaseRenderOnIndependent,
+      renderSuppressionToken,
       latencyMs: latencyMs.value,
       lastFragAge: lastFragTime ? Date.now() - lastFragTime : null,
       restartBackoffMs,
@@ -1091,6 +1176,7 @@ export function useMseStream(
 
   function stop() {
     destroyed = true
+    clearRenderSuppression()
     catchUpActive = false
     highLatencySince = 0
 
@@ -1147,5 +1233,5 @@ export function useMseStream(
     stop()
   })
 
-  return { showSpinner, connectionLost, isActive, latencyMs, codecUnsupported }
+  return { showSpinner, connectionLost, isActive, latencyMs, codecUnsupported, renderSuppressed }
 }

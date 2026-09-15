@@ -35,7 +35,9 @@ struct CAMERA_API LiveStreamEvent
 		InitSegmentReady,    // Init segment (ftyp+moov) captured or recaptured
 		PartialReady,        // A partial segment (~0.33s) has been flushed
 		SegmentReady,        // A full segment is complete and ready
-		Discontinuity        // Camera reconnected — new init segment coming
+		Discontinuity,       // Camera reconnected — new init segment coming
+		DecodeCorruption,    // Keep decoding but suppress presentation
+		DecodeRecovery       // A subsequent random-access frame can be presented
 	};
 
 	Type EventType;
@@ -49,6 +51,7 @@ struct CAMERA_API LiveStreamEvent
 	std::string AudioCodec;    // MSE codec string when the init has an audio track
 	uint64_t ByteSize = 0;     // expected binary WebSocket message size
 	uint32_t TransportHash = 0; // FNV-1a hash verified by the browser
+	int DecodeErrorFlags = 0;
 };
 
 using LiveStreamEventCallback = std::function<void(const LiveStreamEvent&)>;
@@ -141,6 +144,7 @@ public:
 	}
 
 	void ResetForReconnect(InputStream* NewInputStream);
+	void NotifyDecodeCorruption(int ErrorFlags);
 
 	// Observer for MSE WebSocket streaming — called on camera worker thread
 	void SetEventCallback(LiveStreamEventCallback Callback)
@@ -225,6 +229,7 @@ private:
 	size_t _PartialBufferOffset;
 
 	bool _DiscontinuityPending; // set on reconnect, consumed by next segment
+	bool _DecodeCorruptionActive = false;
 
 	int _InitGeneration; // incremented on reconnect so HLS.js refetches init segment
 

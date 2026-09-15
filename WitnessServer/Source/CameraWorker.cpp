@@ -118,6 +118,23 @@ void CameraWorker::CreateInputStream()
 				ctrl["generation"] = ev.Generation;
 				streams->SendControl(cameraId, ctrl.dump());
 				break;
+
+			case Witness::Camera::LiveStreamEvent::DecodeCorruption:
+				ctrl["type"] = "decodeCorruption";
+				ctrl["generation"] = ev.Generation;
+				ctrl["segmentIndex"] = ev.SegmentIndex;
+				ctrl["partIndex"] = ev.PartIndex;
+				ctrl["decodeErrorFlags"] = ev.DecodeErrorFlags;
+				streams->SendControl(cameraId, ctrl.dump());
+				break;
+
+			case Witness::Camera::LiveStreamEvent::DecodeRecovery:
+				ctrl["type"] = "decodeRecovery";
+				ctrl["generation"] = ev.Generation;
+				ctrl["segmentIndex"] = ev.SegmentIndex;
+				ctrl["partIndex"] = ev.PartIndex;
+				streams->SendControl(cameraId, ctrl.dump());
+				break;
 			}
 		});
 	}
