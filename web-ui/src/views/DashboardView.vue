@@ -36,7 +36,19 @@ const dashboardLayout = ref<DashboardLayout>(createDefaultDashboardLayout([]))
 let layoutBeforeEditing: DashboardLayout | null = null
 const focusedCameraId = ref<number | null>(null)
 const manuallyFocused = ref(false)
+const fullscreenControlsVisible = ref(true)
 let focusReleaseTimer: ReturnType<typeof setTimeout> | null = null
+let fullscreenControlsTimer: ReturnType<typeof setTimeout> | null = null
+
+function showFullscreenControls() {
+  if (!settings.fullscreenMode) return
+  fullscreenControlsVisible.value = true
+  if (fullscreenControlsTimer) clearTimeout(fullscreenControlsTimer)
+  fullscreenControlsTimer = setTimeout(() => {
+    fullscreenControlsVisible.value = false
+    fullscreenControlsTimer = null
+  }, 2500)
+}
 
 const layoutStorageKey = computed(() =>
   `witness-dashboard-layout-v1-${selectedGroupId.value === null ? 'all' : selectedGroupId.value}`,
@@ -309,6 +321,15 @@ watch([selectedGroupId, () => currentCameraIds.value.join(',')], () => {
   if (!editingLayout.value) loadLayout()
 }, { immediate: true })
 
+watch(() => settings.fullscreenMode, fullscreen => {
+  if (fullscreenControlsTimer) {
+    clearTimeout(fullscreenControlsTimer)
+    fullscreenControlsTimer = null
+  }
+  fullscreenControlsVisible.value = true
+  if (fullscreen) showFullscreenControls()
+})
+
 watch(
   [() => cameraStore.cameras.map(camera => `${camera.id}:${camera.motionActive ? 1 : 0}`).join(','),
     () => dashboardLayout.value.autoFocusEnabled,
@@ -318,9 +339,17 @@ watch(
 
 onUnmounted(() => {
   if (focusReleaseTimer) clearTimeout(focusReleaseTimer)
+  if (fullscreenControlsTimer) clearTimeout(fullscreenControlsTimer)
+  window.removeEventListener('pointermove', showFullscreenControls)
+  window.removeEventListener('pointerdown', showFullscreenControls)
+  window.removeEventListener('keydown', showFullscreenControls)
 })
 
 onMounted(async () => {
+  window.addEventListener('pointermove', showFullscreenControls, { passive: true })
+  window.addEventListener('pointerdown', showFullscreenControls, { passive: true })
+  window.addEventListener('keydown', showFullscreenControls)
+  if (settings.fullscreenMode) showFullscreenControls()
   await cameraStore.fetchCameras()
   if (groupStore.groups.length === 0) {
     await groupStore.fetchGroups()
@@ -408,6 +437,7 @@ onMounted(async () => {
       :fullscreen-layout="editorTiles"
       :editing-layout="editingLayout"
       :editing-layout-mode="editingLayoutMode"
+      :fullscreen-controls-visible="fullscreenControlsVisible"
       :focused-camera-id="displayedFocusedCameraId"
       :focus-eligible-camera-ids="dashboardLayout.focusEligibleCameraIds"
       :visible-camera-ids="dashboardLayout.visibleCameraIds"
@@ -432,7 +462,12 @@ onMounted(async () => {
       @play="playingClip = $event"
     />
 
-    <div v-if="settings.fullscreenMode" class="fullscreen-dashboard-controls" :style="fullscreenControlsStyle">
+    <div
+      v-if="settings.fullscreenMode"
+      class="fullscreen-dashboard-controls fullscreen-fading-controls"
+      :class="{ visible: fullscreenControlsVisible }"
+      :style="fullscreenControlsStyle"
+    >
       <button
         v-if="!editingLayout"
         class="fullscreen-focus-toggle"
@@ -454,7 +489,11 @@ onMounted(async () => {
       >Activity</button>
     </div>
 
-    <div v-if="settings.fullscreenMode && editingLayout" class="layout-editor-toolbar">
+    <div
+      v-if="settings.fullscreenMode && editingLayout"
+      class="layout-editor-toolbar fullscreen-fading-controls"
+      :class="{ visible: fullscreenControlsVisible }"
+    >
       <button :class="{ active: editingLayoutMode === 'regular' }" @click="setLayoutEditorMode('regular')">Regular</button>
       <button :class="{ active: editingLayoutMode === 'focus' }" @click="setLayoutEditorMode('focus')">Auto-focus</button>
       <select
@@ -509,7 +548,17 @@ onMounted(async () => {
   z-index: 1002;
   display: flex;
   gap: 6px;
-  transition: top 0.15s, right 0.15s;
+  transition: top 0.15s, right 0.15s, opacity 0.2s;
+}
+
+.fullscreen-fading-controls {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.fullscreen-fading-controls.visible {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .fullscreen-dashboard-controls button {
@@ -539,6 +588,7 @@ onMounted(async () => {
   background: rgba(12, 12, 16, 0.94);
   color: #fff;
   font-size: 0.72rem;
+  transition: opacity 0.2s;
 }
 
 .layout-editor-toolbar button {

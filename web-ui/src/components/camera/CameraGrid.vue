@@ -17,6 +17,7 @@ const props = defineProps<{
   focusRegion?: DashboardGridArea
   focusSlots?: DashboardGridArea[]
   editingLayoutMode?: 'regular' | 'focus'
+  fullscreenControlsVisible?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -201,6 +202,7 @@ onUnmounted(() => {
     <button
       v-if="settings.fullscreenMode"
       class="fullscreen-exit-btn"
+      :class="{ visible: fullscreenControlsVisible }"
       @click="settings.toggleFullscreen"
       title="Exit fullscreen (Esc)"
     >

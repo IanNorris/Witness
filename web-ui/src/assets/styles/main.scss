@@ -312,7 +312,8 @@ html, body, #app {
   padding: 6px 10px;
   cursor: pointer;
   opacity: 0;
-  transition: opacity 0.2s;
+  pointer-events: none;
+  transition: opacity 0.2s, background 0.15s;
 
   &:hover {
     background: rgba(0, 0, 0, 0.85);
@@ -320,8 +321,9 @@ html, body, #app {
   }
 }
 
-.camera-grid.fullscreen:hover .fullscreen-exit-btn {
+.fullscreen-exit-btn.visible {
   opacity: 0.7;
+  pointer-events: auto;
 }
 
 .camera-card {
