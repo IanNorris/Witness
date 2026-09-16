@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { ref, onBeforeUnmount, onMounted, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { useAuthStore } from '../../stores/auth'
 import { useCameraStore } from '../../stores/cameras'
 import { useGroupStore } from '../../stores/groups'
 import { useEventStream } from '../../composables/useEventStream'
+import { ensureClientHealthResponder } from '../../composables/useClientHealth'
 import { format } from 'date-fns'
 
 const auth = useAuthStore()
@@ -12,6 +13,7 @@ const cameraStore = useCameraStore()
 const groupStore = useGroupStore()
 const { connected } = useEventStream()
 const route = useRoute()
+let stopClientHealthResponder: (() => void) | null = null
 
 const clockTime = ref('')
 const clockDate = ref('')
@@ -32,13 +34,26 @@ function downloadDiag() {
 
 // Close mobile menu on route change
 watch(() => route.path, () => { mobileMenuOpen.value = false })
+watch(
+  () => auth.isAuthenticated && auth.isAdmin,
+  allowed => {
+    stopClientHealthResponder?.()
+    stopClientHealthResponder = allowed
+      ? ensureClientHealthResponder(() => auth.isAuthenticated && auth.isAdmin)
+      : null
+  },
+  { immediate: true },
+)
 
 onMounted(() => {
   updateClock()
   clockTimer = setInterval(updateClock, 1000)
   groupStore.fetchGroups()
 })
-onUnmounted(() => { if (clockTimer) clearInterval(clockTimer) })
+onBeforeUnmount(() => {
+  if (clockTimer) clearInterval(clockTimer)
+  stopClientHealthResponder?.()
+})
 </script>
 
 <template>

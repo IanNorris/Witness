@@ -272,7 +272,7 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 		auto Diag = Stream->GetStreamingDiagnostics( false );
 		Value["initGeneration"] = Diag.InitGeneration;
 		Value["segmentIndex"] = Diag.CurrentSegmentIndex;
-		Value["backlogSegments"] = Diag.BacklogSize;
+		Value["retainedSegments"] = Diag.BacklogSize;
 		Value["videoCodec"] = Diag.VideoCodec;
 		Value["audioCodec"] = Diag.AudioCodec;
 		Value["inputFormat"] = Diag.InputFormat;
