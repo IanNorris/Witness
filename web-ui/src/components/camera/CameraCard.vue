@@ -40,6 +40,7 @@ const isConnected = ref(false)
 const imgRef = ref<HTMLImageElement | null>(null)
 const hlsPlayerRef = ref<InstanceType<typeof HlsPlayer> | InstanceType<typeof MsePlayer> | null>(null)
 const detectionOverlayActive = ref(false)
+const selectedMseStream = ref<'main' | 'sub' | null>(null)
 const showPtzControls = ref(false)
 const {
   mode: audioMode,
@@ -52,7 +53,7 @@ let refreshTimer: ReturnType<typeof setInterval> | null = null
 let jpegRunning = false
 let clickTimer: ReturnType<typeof setTimeout> | null = null
 
-const latencyLabel = computed(() => {
+const measuredLatencyLabel = computed(() => {
   const ms = hlsPlayerRef.value?.latencyMs ?? 0
   if (ms === 0) return ''
   const sec = ms / 1000
@@ -181,6 +182,21 @@ const effectiveModeWithFallback = computed(() => {
   return effectiveMode.value
 })
 
+const latencyLabel = computed(() => {
+  const measured = measuredLatencyLabel.value
+  if (effectiveModeWithFallback.value !== 'mse') return measured
+  const streamCode = selectedMseStream.value === 'main'
+    ? 'M'
+    : selectedMseStream.value === 'sub'
+      ? 'P'
+      : 'U'
+  return measured ? `${measured} ${streamCode}` : streamCode
+})
+
+function onStreamChanged(stream: 'main' | 'sub') {
+  selectedMseStream.value = stream
+}
+
 // Codec hint for MSE SourceBuffer — use the correct codec string for the stream we're actually playing
 const mseCodecHint = computed(() => {
   const codec = useSubStream.value ? props.camera.subCodec : props.camera.codec
@@ -224,6 +240,7 @@ onUnmounted(() => {
           :codec-hint="mseCodecHint"
           :audio-enabled="audioActive && !dashboardHidden"
           :adaptive-stream="adaptiveStreamEligible"
+          @stream-changed="onStreamChanged"
         />
 
         <!-- JPEG preview mode -->
