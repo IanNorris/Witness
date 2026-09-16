@@ -136,14 +136,32 @@ if(NPM_EXECUTABLE)
     # to npm.cmd, and commands following it in the same generated batch block are
     # not reliably executed.
     add_custom_target(SyncWebUI
+		COMMAND ${CMAKE_COMMAND} -E rm -rf "$<TARGET_FILE_DIR:WitnessServer>/Web.new"
+		COMMAND ${CMAKE_COMMAND} -E copy_directory
+			"${CMAKE_SOURCE_DIR}/WitnessServer/Web"
+			"$<TARGET_FILE_DIR:WitnessServer>/Web.new"
         COMMAND ${CMAKE_COMMAND} -E rm -rf "$<TARGET_FILE_DIR:WitnessServer>/Web"
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-            "${CMAKE_SOURCE_DIR}/WitnessServer/Web"
-            "$<TARGET_FILE_DIR:WitnessServer>/Web"
+		COMMAND ${CMAKE_COMMAND} -E rename
+			"$<TARGET_FILE_DIR:WitnessServer>/Web.new"
+			"$<TARGET_FILE_DIR:WitnessServer>/Web"
         COMMENT "Synchronizing Vue 3 web UI beside WitnessServer"
     )
     add_dependencies(SyncWebUI WebUI)
     add_dependencies(WitnessServer SyncWebUI)
+else()
+    # Package the checked-in/prebuilt bundle on systems without npm. Use the
+    # same staged publication so a running server never observes a partial tree.
+    add_custom_command(TARGET WitnessServer POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E rm -rf "$<TARGET_FILE_DIR:WitnessServer>/Web.new"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+            "${CMAKE_SOURCE_DIR}/WitnessServer/Web"
+            "$<TARGET_FILE_DIR:WitnessServer>/Web.new"
+        COMMAND ${CMAKE_COMMAND} -E rm -rf "$<TARGET_FILE_DIR:WitnessServer>/Web"
+        COMMAND ${CMAKE_COMMAND} -E rename
+            "$<TARGET_FILE_DIR:WitnessServer>/Web.new"
+            "$<TARGET_FILE_DIR:WitnessServer>/Web"
+        COMMENT "Synchronizing prebuilt web UI beside WitnessServer"
+    )
 endif()
 
 # Copy ONNX models to output at build time

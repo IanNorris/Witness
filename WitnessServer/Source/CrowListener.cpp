@@ -252,7 +252,19 @@ void CrowListener::Initialise( const std::unordered_map< std::string, std::strin
 #endif
 	m_StaticRoot = ( exePath / "Web" ).string();
 
-	// Build static file map
+	size_t StaticFileCount = 0;
+	ScanStaticFiles( StaticFileCount );
+	LOG_INFO( "Static root: %s (%zu files)", m_StaticRoot.c_str(), StaticFileCount );
+
+	// Read build hash for auto-refresh detection
+	ReadBuildHash();
+
+	RegisterRoutes();
+}
+
+bool CrowListener::ScanStaticFiles( size_t& FileCount )
+{
+	std::unordered_map<std::string, std::string> StaticFiles;
 	std::unordered_map<std::string, std::string> MimeTypes;
 	MimeTypes["css"] = "text/css";
 	MimeTypes["html"] = "text/html";
@@ -268,17 +280,22 @@ void CrowListener::Initialise( const std::unordered_map< std::string, std::strin
 	MimeTypes["map"] = "application/json";
 
 	std::error_code ec;
-	for( auto& Entry : fs::recursive_directory_iterator( m_StaticRoot, ec ) )
+	fs::recursive_directory_iterator Entry( m_StaticRoot, ec );
+	const fs::recursive_directory_iterator End;
+	while( !ec && Entry != End )
 	{
-		if( !fs::is_directory( Entry ) )
+		const bool IsDirectory = Entry->is_directory( ec );
+		if( ec ) break;
+		if( !IsDirectory )
 		{
-			auto RelPath = fs::relative( Entry.path(), m_StaticRoot );
+			auto RelPath = fs::relative( Entry->path(), m_StaticRoot, ec );
+			if( ec ) break;
 			std::string PathStr = RelPath.generic_string();
 
 			std::string ContentType = "application/octet-stream";
-			if( Entry.path().has_extension() )
+			if( Entry->path().has_extension() )
 			{
-				std::string Ext = Entry.path().extension().string().substr(1);
+				std::string Ext = Entry->path().extension().string().substr(1);
 				auto It = MimeTypes.find( Ext );
 				if( It != MimeTypes.end() )
 				{
@@ -286,21 +303,31 @@ void CrowListener::Initialise( const std::unordered_map< std::string, std::strin
 				}
 			}
 
-			m_StaticFiles[PathStr] = ContentType;
+			StaticFiles[PathStr] = ContentType;
 		}
+		Entry.increment( ec );
 	}
 
 	if( ec )
 	{
 		LOG_ERROR( "Static file scan error: %s", ec.message().c_str() );
+		return false;
+	}
+	if( StaticFiles.find( "index.html" ) == StaticFiles.end() )
+	{
+		LOG_WARNING( "Static file scan incomplete: index.html not found" );
+		return false;
 	}
 
-	LOG_INFO( "Static root: %s (%zu files)", m_StaticRoot.c_str(), m_StaticFiles.size() );
-
-	// Read build hash for auto-refresh detection
-	ReadBuildHash();
-
-	RegisterRoutes();
+	FileCount = StaticFiles.size();
+	{
+		std::lock_guard<std::mutex> Lock( m_FileCacheMutex );
+		m_StaticFiles = std::move( StaticFiles );
+		m_FileCache.clear();
+		m_StaticFilesGeneration++;
+		m_StaticFilesReady = true;
+	}
+	return true;
 }
 
 void CrowListener::RegisterRoutes()
@@ -1041,8 +1068,11 @@ void CrowListener::RegisterRoutes()
 				}
 			}
 			initData["cameras"] = std::move( cams );
-			if( !m_GlobalContext->BuildHash.empty() )
-				initData["buildHash"] = m_GlobalContext->BuildHash;
+			{
+				std::shared_lock<std::shared_mutex> lock( m_GlobalContext->Mutex );
+				if( !m_GlobalContext->BuildHash.empty() )
+					initData["buildHash"] = m_GlobalContext->BuildHash;
+			}
 
 			crow::json::wvalue envelope;
 			envelope["event"] = "init";
@@ -1094,41 +1124,56 @@ void CrowListener::ServeStaticFile( const crow::request& req, crow::response& re
 
 	auto serveFromCacheOrDisk = [&]( const std::string& key ) -> bool
 	{
-		auto it = m_StaticFiles.find( key );
-		if( it == m_StaticFiles.end() ) return false;
-
-		// Check cache first
+		auto SetHeaders = [&]( const std::string& ContentType )
 		{
-			std::lock_guard<std::mutex> lock( m_FileCacheMutex );
-			auto cacheIt = m_FileCache.find( key );
-			if( cacheIt != m_FileCache.end() )
+			res.set_header( "Content-Type", ContentType );
+			res.set_header( "Cache-Control", key == "index.html" || key == "build-hash.txt" ?
+				"no-cache, no-store, must-revalidate" :
+				( key.rfind( "assets/", 0 ) == 0 ? "public, max-age=31536000, immutable" : "no-cache" ) );
+		};
+
+		// A deployment may replace the Web directory while a request is reading.
+		// Retry once if the inventory changes, and never repopulate a refreshed
+		// cache with content read under the previous generation.
+		for( int Attempt = 0; Attempt < 2; Attempt++ )
+		{
+			std::string ContentType;
+			uint64_t Generation = 0;
 			{
-				res.set_header( "Content-Type", it->second );
-				res.body = cacheIt->second;
-				res.code = 200;
-				return true;
+				std::lock_guard<std::mutex> Lock( m_FileCacheMutex );
+				auto It = m_StaticFiles.find( key );
+				if( It == m_StaticFiles.end() ) return false;
+				ContentType = It->second;
+				Generation = m_StaticFilesGeneration;
+
+				auto CacheIt = m_FileCache.find( key );
+				if( CacheIt != m_FileCache.end() )
+				{
+					SetHeaders( ContentType );
+					res.body = CacheIt->second;
+					res.code = 200;
+					return true;
+				}
 			}
+
+			fs::path FullPath = fs::path( m_StaticRoot ) / key;
+			std::ifstream File( FullPath, std::ios::binary );
+			if( !File ) return false;
+			std::string Body( (std::istreambuf_iterator<char>(File)),
+				std::istreambuf_iterator<char>() );
+
+			{
+				std::lock_guard<std::mutex> Lock( m_FileCacheMutex );
+				if( Generation != m_StaticFilesGeneration ) continue;
+				m_FileCache[key] = Body;
+			}
+
+			SetHeaders( ContentType );
+			res.body = std::move( Body );
+			res.code = 200;
+			return true;
 		}
-
-		// Read from disk and cache
-		fs::path fullPath = m_StaticRoot;
-		fullPath /= it->first;
-
-		std::ifstream file( fullPath, std::ios::binary );
-		if( !file ) return false;
-
-		std::string body( (std::istreambuf_iterator<char>(file)),
-						  std::istreambuf_iterator<char>() );
-
-		{
-			std::lock_guard<std::mutex> lock( m_FileCacheMutex );
-			m_FileCache[key] = body;
-		}
-
-		res.set_header( "Content-Type", it->second );
-		res.body = std::move( body );
-		res.code = 200;
-		return true;
+		return false;
 	};
 
 	for( int pass = 0; pass < 2; pass++ )
@@ -1166,14 +1211,29 @@ void CrowListener::ReadBuildHash()
 			hash.pop_back();
 		if( !hash.empty() )
 		{
-			if( !m_GlobalContext->BuildHash.empty() && m_GlobalContext->BuildHash != hash )
+			std::string PreviousHash;
 			{
-				// Build hash changed -- invalidate static file cache
-				std::lock_guard<std::mutex> lock( m_FileCacheMutex );
-				m_FileCache.clear();
-				LOG_INFO( "Build hash changed (%s -> %s), static file cache cleared", m_GlobalContext->BuildHash.c_str(), hash.c_str() );
+				std::shared_lock<std::shared_mutex> Lock( m_GlobalContext->Mutex );
+				PreviousHash = m_GlobalContext->BuildHash;
 			}
-			m_GlobalContext->BuildHash = hash;
+			bool StaticFilesReady = false;
+			{
+				std::lock_guard<std::mutex> Lock( m_FileCacheMutex );
+				StaticFilesReady = m_StaticFilesReady;
+			}
+			if( !StaticFilesReady || PreviousHash != hash )
+			{
+				// Hashed asset names change on each build, so refresh the inventory as
+				// well as cached file contents before asking clients to reload.
+				size_t StaticFileCount = 0;
+				if( !ScanStaticFiles( StaticFileCount ) ) return;
+				LOG_INFO( "Build hash changed (%s -> %s), static files refreshed (%zu files)",
+					PreviousHash.c_str(), hash.c_str(), StaticFileCount );
+			}
+			{
+				std::unique_lock<std::shared_mutex> Lock( m_GlobalContext->Mutex );
+				m_GlobalContext->BuildHash = hash;
+			}
 		}
 	}
 	else

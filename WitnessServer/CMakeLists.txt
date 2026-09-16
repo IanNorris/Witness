@@ -122,15 +122,6 @@ target_link_libraries(WitnessServer PRIVATE
     unofficial::sqlite3::sqlite3
 )
 
-# Copy the Web directory next to the executable (real copy, not symlink, for robocopy deployment)
-add_custom_command(TARGET WitnessServer POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E rm -rf "$<TARGET_FILE_DIR:WitnessServer>/Web"
-    COMMAND ${CMAKE_COMMAND} -E copy_directory
-        "${CMAKE_SOURCE_DIR}/WitnessServer/Web"
-        "$<TARGET_FILE_DIR:WitnessServer>/Web"
-    COMMENT "Copying Web directory"
-)
-
 # Copy models directory next to the executable
 add_custom_command(TARGET WitnessServer POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory

@@ -420,10 +420,15 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 	Timer->AddTimer( [this](){
 		Server->ReadBuildHash();
 		auto& ctx = *Context;
-		if( !ctx.BuildHash.empty() )
+		std::string BuildHash;
+		{
+			std::shared_lock<std::shared_mutex> Lock( ctx.Mutex );
+			BuildHash = ctx.BuildHash;
+		}
+		if( !BuildHash.empty() )
 		{
 			crow::json::wvalue data;
-			data["hash"] = ctx.BuildHash;
+			data["hash"] = BuildHash;
 			ctx.Events->Broadcast( "build:hash", std::move( data ) );
 		}
 	}, 30 );

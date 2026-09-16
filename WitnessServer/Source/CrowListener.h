@@ -72,6 +72,7 @@ private:
 	void RegisterRoutes();
 
 	// Static file serving
+	bool ScanStaticFiles( size_t& FileCount );
 	void ServeStaticFile( const crow::request& req, crow::response& res, const std::string& path );
 
 	// HLS streaming
@@ -202,6 +203,8 @@ private:
 	std::unordered_map<std::string, std::string> m_StaticFiles; // relative path -> content type
 	std::unordered_map<std::string, std::string> m_FileCache;  // relative path -> file content
 	std::mutex m_FileCacheMutex;
+	uint64_t m_StaticFilesGeneration = 0;
+	bool m_StaticFilesReady = false;
 	std::string m_StaticRoot;
 
 	std::string m_BaseUri;

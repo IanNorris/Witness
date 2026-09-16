@@ -99,6 +99,7 @@ const diagMap = ((window as unknown as Record<string, unknown>)._witnessDiag ??=
   const dump = {
     timestamp: new Date().toISOString(),
     userAgent: navigator.userAgent,
+    buildHash: __BUILD_HASH__,
     cameras: {} as Record<string, unknown>,
   }
   for (const id in diagMap) {
@@ -119,6 +120,7 @@ const diagMap = ((window as unknown as Record<string, unknown>)._witnessDiag ??=
   const clientDump = {
     timestamp: new Date().toISOString(),
     userAgent: navigator.userAgent,
+    buildHash: __BUILD_HASH__,
     cameras: {} as Record<string, unknown>,
   }
   for (const id in diagMap) {

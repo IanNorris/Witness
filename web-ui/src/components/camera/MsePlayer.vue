@@ -12,10 +12,6 @@ const props = defineProps<{
 	adaptiveStream?: boolean
 }>()
 
-const emit = defineEmits<{
-	streamChanged: [stream: 'main' | 'sub']
-}>()
-
 const containerRef = ref<HTMLDivElement | null>(null)
 const videoRef = ref<HTMLVideoElement | null>(null)
 const canvasRef = ref<HTMLCanvasElement | null>(null)
@@ -74,8 +70,6 @@ const {
 	props.adaptiveStream ?? false,
 	() => ({ width: viewportWidth, height: viewportHeight }),
 )
-
-watch(selectedStream, stream => emit('streamChanged', stream), { immediate: true })
 
 const { enabled: overlayEnabled, toggle: toggleOverlay } = useDetectionOverlay(
   props.cameraId,
@@ -140,6 +134,10 @@ defineExpose({
     <canvas ref="freezeCanvasRef" class="render-freeze" v-show="renderSuppressed" />
     <canvas ref="canvasRef" class="detection-overlay" v-show="overlayEnabled" />
 
+    <div v-if="!showSpinner && !connectionLost" class="stream-tier-indicator">
+      {{ selectedStream === 'sub' ? 'Sub' : 'Main' }}
+    </div>
+
     <!-- Spinner: connecting / buffering -->
     <div v-if="showSpinner" class="spinner-indicator">
       <div class="spinner-border spinner-border-sm text-light" role="status">
@@ -202,6 +200,21 @@ defineExpose({
   top: 6px;
   right: 8px;
   z-index: 10;
+  pointer-events: none;
+}
+
+.stream-tier-indicator {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  z-index: 11;
+  color: #fbbf24;
+  font-size: 0.65rem;
+  font-weight: 500;
+  line-height: 1.2;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 2px 6px;
+  border-radius: 3px;
   pointer-events: none;
 }
 </style>
