@@ -12,6 +12,7 @@ const HLS_WATCHDOG_SCHEDULING_GRACE_MS = 1000
 
 // ── Diagnostics ───────────────────────────────────────────────────────
 const DIAG_MAX_AGE_MS = 24 * 60 * 60 * 1000
+const DIAG_MAX_EVENTS = 1000
 
 interface DiagEvent {
   t: string
@@ -60,6 +61,9 @@ class StreamDiagnostics {
     const cutoff = Date.now() - DIAG_MAX_AGE_MS
     while (this.events.length > 0 && new Date(this.events[0]!.t).getTime() < cutoff) {
       this.events.shift()
+    }
+    if (this.events.length > DIAG_MAX_EVENTS) {
+      this.events.splice(0, this.events.length - DIAG_MAX_EVENTS)
     }
   }
 

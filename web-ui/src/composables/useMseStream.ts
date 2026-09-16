@@ -10,6 +10,8 @@ const MSE_CATCH_UP_START_SECONDS = 1.75
 
 // ── Diagnostics ───────────────────────────────────────────────────────
 const DIAG_MAX_AGE_MS = 24 * 60 * 60 * 1000
+const DIAG_MAX_EVENTS = 1000
+const DIAG_MAX_IMPORTANT_EVENTS = 500
 
 interface DiagEvent {
   t: string
@@ -105,6 +107,15 @@ class MseDiagnostics {
       new Date(this.importantEvents[0]!.t).getTime() < cutoff
     ) {
       this.importantEvents.shift()
+    }
+    if (this.events.length > DIAG_MAX_EVENTS) {
+      this.events.splice(0, this.events.length - DIAG_MAX_EVENTS)
+    }
+    if (this.importantEvents.length > DIAG_MAX_IMPORTANT_EVENTS) {
+      this.importantEvents.splice(
+        0,
+        this.importantEvents.length - DIAG_MAX_IMPORTANT_EVENTS,
+      )
     }
   }
 

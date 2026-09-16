@@ -55,7 +55,11 @@ CameraWorker::~CameraWorker()
 
 InputStream::StreamStats CameraWorker::GetStreamStats()
 {
-	std::shared_ptr<InputStream> Stream = CameraStream;
+	std::shared_ptr<InputStream> Stream;
+	{
+		std::lock_guard<std::mutex> Lock( m_StreamMetadataMutex );
+		Stream = CameraStream;
+	}
 	return Stream ? Stream->GetStats() : InputStream::StreamStats();
 }
 
@@ -124,13 +128,17 @@ void CameraWorker::CreateInputStream()
 
 	std::string CachePath = std::string(Context->CachePath.begin(), Context->CachePath.end());
 
-	CameraStream = std::make_shared<InputStream>( Setup, Camera.ID, Camera.JobQueue, CamPath );
+	auto NewCameraStream = std::make_shared<InputStream>( Setup, Camera.ID, Camera.JobQueue, CamPath );
+	std::shared_ptr<InputStream> RetiredCameraStream;
 	{
 		std::lock_guard<std::mutex> Lock( m_StreamMetadataMutex );
-		m_VideoCodecName = CameraStream->GetCodecName();
+		RetiredCameraStream = std::move( CameraStream );
+		CameraStream = NewCameraStream;
+		m_VideoCodecName = NewCameraStream->GetCodecName();
 	}
-	m_VideoWidth = CameraStream->GetVideoWidth();
-	m_VideoHeight = CameraStream->GetVideoHeight();
+	RetiredCameraStream.reset();
+	m_VideoWidth = NewCameraStream->GetVideoWidth();
+	m_VideoHeight = NewCameraStream->GetVideoHeight();
 
 	if (LiveStream)
 	{
@@ -868,11 +876,13 @@ void CameraWorker::WorkerShutdown()
 	Filter = nullptr;
 	ContinuousStream = nullptr;
 	LiveStream = nullptr;
-	CameraStream = nullptr;
+	std::shared_ptr<InputStream> RetiredCameraStream;
 	{
 		std::lock_guard<std::mutex> Lock( m_StreamMetadataMutex );
+		RetiredCameraStream = std::move( CameraStream );
 		m_VideoCodecName.clear();
 	}
+	RetiredCameraStream.reset();
 	m_VideoWidth = 0;
 	m_VideoHeight = 0;
 

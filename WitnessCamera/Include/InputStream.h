@@ -4,6 +4,7 @@
 #include "ImageProcessingJob.h"
 
 #include <functional>
+#include <mutex>
 
 struct AVRational;
 
@@ -80,7 +81,7 @@ public:
 	using PacketCallback = std::function<void(const AVPacket*)>;
 	void SetPacketCallback(PacketCallback callback) { m_PacketCallback = std::move(callback); }
 
-	StreamStats GetStats() { return Stats; }
+	StreamStats GetStats() const;
 
 	// Returns the codec short name (e.g. "h264", "hevc") or empty if not initialized
 	std::string GetCodecName() const;
@@ -98,6 +99,7 @@ private:
 
 	InputStreamSetup StreamSetup;
 	StreamStats Stats;
+	mutable std::mutex StatsMutex;
 
 	ImageProcessingJobQueue* CommonJobQueue;
 
