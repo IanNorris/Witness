@@ -40,6 +40,7 @@ const isConnected = ref(false)
 const imgRef = ref<HTMLImageElement | null>(null)
 const hlsPlayerRef = ref<InstanceType<typeof HlsPlayer> | InstanceType<typeof MsePlayer> | null>(null)
 const detectionOverlayActive = ref(false)
+const selectedMseStream = ref<'main' | 'sub'>('main')
 const showPtzControls = ref(false)
 const {
   mode: audioMode,
@@ -194,11 +195,15 @@ const adaptiveStreamEligible = computed(() => {
 	return !isHevcCodec(props.camera.subCodec) || hevcSupported
 })
 
-const adaptiveSubStream = computed(() =>
-	effectiveModeWithFallback.value === 'mse' &&
-	!useSubStream.value &&
-	(hlsPlayerRef.value as any)?.selectedStream === 'sub',
-)
+const streamBadge = computed(() => {
+	if (effectiveModeWithFallback.value !== 'mse' || !isConnected.value) return ''
+	if (useSubStream.value) return 'Sub'
+	return selectedMseStream.value === 'sub' ? 'Sub' : 'Main'
+})
+
+function onStreamChanged(stream: 'main' | 'sub') {
+	selectedMseStream.value = stream
+}
 
 onUnmounted(() => {
   jpegRunning = false
@@ -230,6 +235,7 @@ onUnmounted(() => {
           :codec-hint="mseCodecHint"
           :audio-enabled="audioActive && !dashboardHidden"
 		  :adaptive-stream="adaptiveStreamEligible"
+		  @stream-changed="onStreamChanged"
         />
 
         <!-- JPEG preview mode -->
@@ -261,8 +267,8 @@ onUnmounted(() => {
         <div v-if="proactiveCodecFallback && !useSubStream && isConnected" class="codec-fallback-overlay">
           H.265 → JPEG
         </div>
-        <div v-else-if="(useSubStream || adaptiveSubStream) && isConnected" class="codec-fallback-overlay">
-          Sub
+        <div v-else-if="streamBadge" class="codec-fallback-overlay">
+          {{ streamBadge }}
         </div>
 
         <!-- Camera name overlay in fullscreen -->

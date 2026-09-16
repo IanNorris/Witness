@@ -12,6 +12,10 @@ const props = defineProps<{
 	adaptiveStream?: boolean
 }>()
 
+const emit = defineEmits<{
+	streamChanged: [stream: 'main' | 'sub']
+}>()
+
 const containerRef = ref<HTMLDivElement | null>(null)
 const videoRef = ref<HTMLVideoElement | null>(null)
 const canvasRef = ref<HTMLCanvasElement | null>(null)
@@ -70,6 +74,8 @@ const {
 	props.adaptiveStream ?? false,
 	() => ({ width: viewportWidth, height: viewportHeight }),
 )
+
+watch(selectedStream, stream => emit('streamChanged', stream), { immediate: true })
 
 const { enabled: overlayEnabled, toggle: toggleOverlay } = useDetectionOverlay(
   props.cameraId,
