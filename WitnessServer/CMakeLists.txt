@@ -106,7 +106,7 @@ if(MSVC)
 endif()
 
 if(WIN32)
-    target_link_libraries(WitnessServer PRIVATE winmm)
+    target_link_libraries(WitnessServer PRIVATE winmm psapi)
 endif()
 
 target_link_directories(WitnessServer PRIVATE ${FFMPEG_LIBRARY_DIRS})

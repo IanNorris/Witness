@@ -407,6 +407,13 @@ void LiveOutputStream::ResetForReconnect(InputStream* NewInputStream)
 		_DiagLastAudioOutputUs = 0;
 		_DiagHasVideoOutputTimestamp = false;
 		_DiagHasAudioOutputTimestamp = false;
+		_DiagInitStructureObserved = false;
+		_DiagInitStructureValid = false;
+		_DiagInitBoxCount = 0;
+		_DiagInitFtypCount = 0;
+		_DiagInitMoovCount = 0;
+		_DiagInitStructureError = 0;
+		_DiagInitErrorOffset = 0;
 	}
 
 	// Notify MSE subscribers of discontinuity before new init segment arrives
@@ -1309,6 +1316,7 @@ CameraStreamError LiveOutputStream::StartNewSegment(const AVPacket* Packet)
 			InitEvent.TransportHash = InitEvent.ByteSize > 0 ?
 				HashBytes32(_InitSegmentData->data(), _InitSegmentData->size()) : 0;
 			_DiagInitStructureValid = InitStructure.Valid;
+			_DiagInitStructureObserved = true;
 			_DiagInitBoxCount = InitStructure.BoxCount;
 			_DiagInitFtypCount = InitStructure.FtypCount;
 			_DiagInitMoovCount = InitStructure.MoovCount;
@@ -1471,7 +1479,7 @@ void LiveOutputStream::FinishCurrentSegment(int64_t NextKeyframeDTS)
 	}
 }
 
-LiveOutputStream::StreamingDiagnostics LiveOutputStream::GetStreamingDiagnostics() const
+LiveOutputStream::StreamingDiagnostics LiveOutputStream::GetStreamingDiagnostics( bool IncludeHistory ) const
 {
 	StreamingDiagnostics Diag;
 	const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
@@ -1490,7 +1498,8 @@ LiveOutputStream::StreamingDiagnostics LiveOutputStream::GetStreamingDiagnostics
 	Diag.CorruptVideoPackets = _DiagCorruptVideoPackets;
 	Diag.VideoPhaseErrorMs = _DiagVideoPhaseErrorMs;
 	Diag.VideoCorrectionMs = _DiagVideoCorrectionMs;
-	if (_DiagHasAudioOutputTimestamp && _DiagHasVideoOutputTimestamp)
+	Diag.HasAudioVideoSkew = _DiagHasAudioOutputTimestamp && _DiagHasVideoOutputTimestamp;
+	if (Diag.HasAudioVideoSkew)
 		Diag.AudioVideoSkewMs = (_DiagLastAudioOutputUs - _DiagLastVideoOutputUs) / 1000.0;
 	Diag.TimestampCorrectionSaturatedPackets = _DiagTimestampCorrectionSaturatedPackets;
 	Diag.VideoCodec = _DiagVideoCodec;
@@ -1512,17 +1521,22 @@ LiveOutputStream::StreamingDiagnostics LiveOutputStream::GetStreamingDiagnostics
 	Diag.AudioExtradataBytes = _DiagAudioExtradataBytes;
 	Diag.AudioExtradataHash = _DiagAudioExtradataHash;
 	Diag.InitStructureValid = _DiagInitStructureValid;
+	Diag.InitStructureObserved = _DiagInitStructureObserved;
 	Diag.InitBoxCount = _DiagInitBoxCount;
 	Diag.InitFtypCount = _DiagInitFtypCount;
 	Diag.InitMoovCount = _DiagInitMoovCount;
 	Diag.InitStructureError = _DiagInitStructureError;
 	Diag.InitErrorOffset = _DiagInitErrorOffset;
 	Diag.BacklogSize = (int)_StreamBacklog->size();
+	const int count = _DiagRingCount;
+	if( count > 0 )
+		Diag.TimestampNormalizationActive =
+			_DiagRing[(_DiagRingPos - 1) % DIAG_RING_SIZE].TimestampNormalizationActive;
+
+	if( !IncludeHistory )
+		return Diag;
 
 	// Copy recent segment entries from ring buffer
-	int count = _DiagRingCount;
-	if (count > 0)
-		Diag.TimestampNormalizationActive = _DiagRing[(_DiagRingPos - 1) % DIAG_RING_SIZE].TimestampNormalizationActive;
 	int start = (_DiagRingPos - count);
 	if (start < 0) start += DIAG_RING_SIZE;
 	for (int i = 0; i < count; i++)

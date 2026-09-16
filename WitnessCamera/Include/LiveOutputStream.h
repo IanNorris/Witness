@@ -341,6 +341,7 @@ public:
 		double VideoPhaseErrorMs = 0.0;
 		double VideoCorrectionMs = 0.0;
 		double AudioVideoSkewMs = 0.0;
+		bool HasAudioVideoSkew = false;
 		uint64_t TimestampCorrectionSaturatedPackets = 0;
 		std::string VideoCodec;
 		std::string AudioCodec;
@@ -361,6 +362,7 @@ public:
 		int AudioExtradataBytes = 0;
 		uint64_t AudioExtradataHash = 0;
 		bool InitStructureValid = false;
+		bool InitStructureObserved = false;
 		int InitBoxCount = 0;
 		int InitFtypCount = 0;
 		int InitMoovCount = 0;
@@ -382,7 +384,7 @@ public:
 		std::vector<AnomalyCapture> Anomalies; // last 3 client-reported failures
 	};
 
-	StreamingDiagnostics GetStreamingDiagnostics() const;
+	StreamingDiagnostics GetStreamingDiagnostics( bool IncludeHistory = true ) const;
 	void CaptureDiagnosticAnomaly(const std::string& Reason);
 
 private:
@@ -434,6 +436,7 @@ private:
 	int _DiagAudioExtradataBytes = 0;
 	uint64_t _DiagAudioExtradataHash = 0;
 	bool _DiagInitStructureValid = false;
+	bool _DiagInitStructureObserved = false;
 	int _DiagInitBoxCount = 0;
 	int _DiagInitFtypCount = 0;
 	int _DiagInitMoovCount = 0;
