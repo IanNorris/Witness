@@ -2,6 +2,7 @@
 
 #include <thread>
 #include <chrono>
+#include <atomic>
 
 #include "Common.h"
 
@@ -43,16 +44,14 @@ public:
 
 	void RequestShutdown()
 	{
-		Shutdown = true;
-		if (MessageBusQueue)
-		{
-			MessageBusQueue->Push(std::make_shared<ThreadShutdownMessage>());
-		}
+		if( !Shutdown.exchange( true ) )
+			MessageBusObject->SendToClient( this, std::make_shared<ThreadShutdownMessage>() );
 	}
 
 	void Join()
 	{
-		Thread->join();
+		if( Thread && Thread->joinable() )
+			Thread->join();
 	}
 
 
@@ -76,7 +75,7 @@ protected:
 			std::chrono::system_clock::now().time_since_epoch() ).count()), NewAction } );
 	}
 
-	bool IsShutdownRequested() const { return Shutdown; }
+	bool IsShutdownRequested() const { return Shutdown.load(); }
 
 private:
 
@@ -90,6 +89,6 @@ private:
 
 	std::unique_ptr<std::thread> Thread;
 
-	bool Shutdown;
-	bool Complete;
+	std::atomic<bool> Shutdown;
+	std::atomic<bool> Complete;
 };

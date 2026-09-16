@@ -87,21 +87,38 @@ void WitnessServer::MessageLoop( bool& ContinueRunning )
 
 		Msg->Handle< CameraAddedMessage>([&](const CameraAddedMessage& Data)
 		{
-			std::unique_lock<std::shared_mutex> Lock(Context->Mutex);
+			std::shared_ptr<CameraWorker> RetiredWorker;
 
-			MAKE_QUERY(GetCamera);
-			GetCamera->Bind("@CameraId", Data.Camera);
+			{
+				std::unique_lock<std::shared_mutex> Lock(Context->Mutex);
 
-			GetCamera->Execute(
-				[&](const SQLiteDatabaseQuery& query)
-				{
-					StartCamera(query);
+				auto Existing = Context->GetCameraMap().find( Data.Camera );
+				if( Existing != Context->GetCameraMap().end() )
+					RetiredWorker = Existing->second.Worker;
 
-					Context->LongPoll->NotifyAll();
+				MAKE_QUERY(GetCamera);
+				GetCamera->Bind("@CameraId", Data.Camera);
 
-					return true;
-				}
-			);
+				GetCamera->Execute(
+					[&](const SQLiteDatabaseQuery& query)
+					{
+						StartCamera(query);
+
+						Context->LongPoll->NotifyAll();
+
+						return true;
+					}
+				);
+			}
+
+			// Destroying a camera worker joins its thread. Do that only after
+			// releasing Context->Mutex because the worker may need the same lock.
+			if( RetiredWorker )
+			{
+				Watchdog->RemoveTarget( RetiredWorker );
+				RetiredWorker->RequestShutdown();
+				RetiredWorker->Join();
+			}
 		});
 
 		Msg->Handle<CameraRemovedMessage>([&](const CameraRemovedMessage& Data)

@@ -112,64 +112,22 @@ struct CameraSettings
 class CameraWorker : public WorkerBase
 {
 public:
-	CameraWorker( const VideoSettings& Video, const CameraSettings& Camera, const std::shared_ptr<MessageBus>& MessageBus, const std::shared_ptr<GlobalContext>& Context )
-	: WorkerBase( MessageBus )
-	, Context( Context )
-	, Video( Video )
-	, Camera( Camera )
-	, LastFrameTime( 0 )
-	, LastDeleteTime( 0 )
-	, IsConnected( false )
-	, IsRTSP( false )
-	, m_AuthFailureBackoff( 3000 )
-	{
-	}
+	CameraWorker( const VideoSettings& Video, const CameraSettings& Camera,
+		const std::shared_ptr<MessageBus>& MessageBus, const std::shared_ptr<GlobalContext>& Context );
+	~CameraWorker() override;
 
-	InputStream::StreamStats GetStreamStats()
-	{
-		std::shared_ptr<InputStream> Stream = CameraStream;
-		if( Stream )
-		{
-			return Stream->GetStats();
-		}
-		else
-		{
-			return InputStream::StreamStats();
-		}
-	}
+	InputStream::StreamStats GetStreamStats();
 
 	// Returns the video codec name (e.g. "h264", "hevc") or empty if not connected
 	std::string GetVideoCodecName() const;
 	int GetVideoWidth() const;
 	int GetVideoHeight() const;
 
-	std::shared_ptr<LiveOutputStream> GetLiveStream() const
-	{
-		std::lock_guard<std::mutex> Lock( m_StreamMetadataMutex );
-		return m_PublishedLiveStream;
-	}
-
-	std::shared_ptr<SubStreamWorker> GetSubStreamWorker() const
-	{
-		std::lock_guard<std::mutex> Lock( m_StreamMetadataMutex );
-		return m_SubStreamWorker;
-	}
-
-	std::shared_ptr<LiveOutputStream> GetSubStreamLive() const
-	{
-		auto Worker = GetSubStreamWorker();
-		return Worker ? Worker->GetLiveStream() : nullptr;
-	}
-
-	const CameraSettings& GetCameraSettings() const
-	{
-		return Camera;
-	}
-
-	void SetLowLatencyHLS( int Value )
-	{
-		Camera.LowLatencyHLS = Value;
-	}
+	std::shared_ptr<LiveOutputStream> GetLiveStream() const;
+	std::shared_ptr<SubStreamWorker> GetSubStreamWorker() const;
+	std::shared_ptr<LiveOutputStream> GetSubStreamLive() const;
+	const CameraSettings& GetCameraSettings() const;
+	void SetLowLatencyHLS( int Value );
 
 private:
 

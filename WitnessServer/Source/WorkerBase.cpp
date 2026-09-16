@@ -9,7 +9,7 @@ void WorkerBase::WorkerThread()
 
 	WorkerInit();
 
-	while( !Shutdown )
+	while( !Shutdown.load() )
 	{
 		UpdateLastTimedAction("Working...");
 
@@ -26,7 +26,7 @@ void WorkerBase::WorkerThread()
 	//Don't allow Complete to be fired until all work above is complete
 	MemoryBarrier();
 
-	Complete = true; 
+	Complete.store( true );
 
 	UpdateLastTimedAction("Finished...");
 }

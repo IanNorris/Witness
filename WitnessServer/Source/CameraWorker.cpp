@@ -29,6 +29,64 @@
 #include <unordered_map>
 #include "SoundManager.h"
 
+CameraWorker::CameraWorker(
+	const VideoSettings& VideoIn, const CameraSettings& CameraIn,
+	const std::shared_ptr<MessageBus>& MessageBus,
+	const std::shared_ptr<GlobalContext>& ContextIn )
+: WorkerBase( MessageBus )
+, Context( ContextIn )
+, Video( VideoIn )
+, Camera( CameraIn )
+, LastFrameTime( 0 )
+, LastDeleteTime( 0 )
+, IsConnected( false )
+, IsRTSP( false )
+, m_AuthFailureBackoff( 3000 )
+{
+}
+
+CameraWorker::~CameraWorker()
+{
+	// Join while derived state still exists. WorkerBase's destructor is too late:
+	// C++ destroys CameraWorker members before entering the base destructor.
+	RequestShutdown();
+	Join();
+}
+
+InputStream::StreamStats CameraWorker::GetStreamStats()
+{
+	std::shared_ptr<InputStream> Stream = CameraStream;
+	return Stream ? Stream->GetStats() : InputStream::StreamStats();
+}
+
+std::shared_ptr<LiveOutputStream> CameraWorker::GetLiveStream() const
+{
+	std::lock_guard<std::mutex> Lock( m_StreamMetadataMutex );
+	return m_PublishedLiveStream;
+}
+
+std::shared_ptr<SubStreamWorker> CameraWorker::GetSubStreamWorker() const
+{
+	std::lock_guard<std::mutex> Lock( m_StreamMetadataMutex );
+	return m_SubStreamWorker;
+}
+
+std::shared_ptr<LiveOutputStream> CameraWorker::GetSubStreamLive() const
+{
+	auto Worker = GetSubStreamWorker();
+	return Worker ? Worker->GetLiveStream() : nullptr;
+}
+
+const CameraSettings& CameraWorker::GetCameraSettings() const
+{
+	return Camera;
+}
+
+void CameraWorker::SetLowLatencyHLS( int Value )
+{
+	Camera.LowLatencyHLS = Value;
+}
+
 std::string CameraWorker::GetVideoCodecName() const
 {
 	std::lock_guard<std::mutex> Lock( m_StreamMetadataMutex );
@@ -755,6 +813,7 @@ void CameraWorker::WorkerInit()
 			// Register Baichuan client for PTZ use
 			if (auto bcClient = filter->GetClient())
 			{
+				std::unique_lock<std::shared_mutex> Lock( Context->Mutex );
 				Context->BaichuanClients[Camera.ID] = bcClient;
 			}
 
