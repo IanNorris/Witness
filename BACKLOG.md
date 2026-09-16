@@ -16,11 +16,39 @@ details should be refined when an item is scheduled.
 - Build a terminal dashboard showing queue lengths, camera connection health,
   stream latency, processing throughput, and the latest detection details.
   Preserve a conventional log mode for redirection and service operation.
+- Build a unified performance and health dashboard with colour-coded warnings
+  for host CPU capacity, queue depths, processing and stream latency, and other
+  resource constraints. Include an exportable/copyable per-camera table with
+  detailed counters and rates: per-activation and all-frame averages, activation
+  counts versus total frames, scaling/JPEG work that should only occur for
+  clips, and enough context to identify unexpected processing.
+- Correlate the server dashboard with client-side playback/decode statistics,
+  including hardware decoder/encoder usage and known used/available session or
+  throughput limits. The combined view should contain the information normally
+  needed to diagnose a performance or streaming incident without collecting
+  several separate reports.
+- Show dismissible warning toasts when a camera becomes unhealthy. Define
+  health using connection stability, stream freshness, decode errors, latency,
+  and sustained queue pressure, with rate limiting and recovery notification so
+  intermittent cameras do not continuously interrupt the operator.
 - Rate-limit repeated FFmpeg errors without losing their first occurrence,
   total count, camera/codec context, or the timestamps of an error cluster.
 
+## Audio intelligence
+
+- Investigate low-cost sound-event classification for opt-in detection,
+  flagging, recording, and automation triggers. Initial classes should include
+  a vehicle starting, footsteps, dog barking, and human speech. Evaluate model
+  accuracy, compute cost, microphone variability, privacy controls, confidence
+  thresholds, and whether inference can operate on short buffered windows
+  without retaining continuous audio.
+
 ## Dashboard layouts
 
+- Present three explicit dashboard modes: **Tiles**, **Layout**, and **Full
+  Screen**. Tiles should remain the conventional responsive grid; Layout should
+  use the configurable per-group canvas and automatic slots; Full Screen should
+  be the distraction-free presentation of the selected layout.
 - Allow the recent-activity view to occupy an arbitrary resizable rectangle in
   a custom layout, rather than only a full-width or full-height dock edge. This
   should make it possible to fill otherwise unusable gaps in asymmetric camera
@@ -38,6 +66,12 @@ details should be refined when an item is scheduled.
 
 ## Activity quality
 
+- In recent activity, use the interesting-object bounding boxes to select a
+  tighter thumbnail crop/zoom. When face extraction produced a useful face
+  image, offer it as an overlay without obscuring the wider event context.
+- Remove clips from recent activity when post-processing finds no object or
+  event worth retaining. Keep the underlying retention/audit policy separate so
+  hiding low-value activity does not silently delete evidence unless configured.
 - Prototype inexpensive visual-similarity grouping for adjacent clips so
   repeated grass movement, cobwebs, lighting changes, and other nearly
   identical events do not dominate recent activity. Compare perceptual hashes
@@ -48,6 +82,14 @@ details should be refined when an item is scheduled.
   clips straightforward. Measure false grouping on people, vehicles, animals,
   night vision transitions, and mostly static scenes before enabling it by
   default.
+
+## Clip generation
+
+- Coalesce clips from the same camera when one stops and another starts within
+  a configurable threshold (initially around one minute). Export them as one
+  continuous clip and use DVR/continuous-recording segments to fill the gaps,
+  while preserving the original event metadata and avoiding duplicate or
+  non-monotonic audio/video timestamps.
 
 ## Streaming diagnostics
 
