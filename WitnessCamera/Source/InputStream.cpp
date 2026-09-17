@@ -180,6 +180,11 @@ CameraStreamError InputStream::Initialize()
 
 CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter>& Filter, Stream* TargetStream, Stream* LiveStream )
 {
+	auto* DiagnosticLiveOutput = dynamic_cast<LiveOutputStream*>( LiveStream );
+	const uint64_t DiagnosticActivityID = DiagnosticLiveOutput ?
+		DiagnosticLiveOutput->BeginDiagnosticActivity() : 0;
+	FFmpegLogContextScope ActivityLogContext( UniqueSourceID, "frame",
+		DiagnosticLiveOutput, DiagnosticActivityID );
 	auto ProcessingStart = std::chrono::high_resolution_clock::now().time_since_epoch().count();
 
 	CameraStreamError InitError = Initialize();

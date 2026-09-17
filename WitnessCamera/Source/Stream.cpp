@@ -1,4 +1,5 @@
 #include "InputStream.h"
+#include "LiveOutputStream.h"
 #include "StreamData.h"
 
 #include <windows.h>
@@ -10,6 +11,8 @@ namespace
 	thread_local int FFmpegLogSourceID = -1;
 	thread_local const char* FFmpegLogPhase = "unscoped";
 	thread_local uint64_t FFmpegLogErrorCount = 0;
+	thread_local Witness::Camera::LiveOutputStream* FFmpegDiagnosticStream = nullptr;
+	thread_local uint64_t FFmpegDiagnosticActivityID = 0;
 }
 
 void FFMPEGErrorToString(int ErrorCode, char* Buffer, size_t BufferSize)
@@ -31,15 +34,33 @@ FFmpegLogContextScope::FFmpegLogContextScope( int SourceID, const char* Phase )
 	: PreviousSourceID( FFmpegLogSourceID )
 	, PreviousPhase( FFmpegLogPhase )
 	, StartingErrorCount( FFmpegLogErrorCount )
+	, PreviousDiagnosticStream( FFmpegDiagnosticStream )
+	, PreviousActivityID( FFmpegDiagnosticActivityID )
 {
 	FFmpegLogSourceID = SourceID;
 	FFmpegLogPhase = Phase ? Phase : "unknown";
+}
+
+FFmpegLogContextScope::FFmpegLogContextScope( int SourceID, const char* Phase,
+	LiveOutputStream* DiagnosticStream, uint64_t ActivityID )
+	: PreviousSourceID( FFmpegLogSourceID )
+	, PreviousPhase( FFmpegLogPhase )
+	, StartingErrorCount( FFmpegLogErrorCount )
+	, PreviousDiagnosticStream( FFmpegDiagnosticStream )
+	, PreviousActivityID( FFmpegDiagnosticActivityID )
+{
+	FFmpegLogSourceID = SourceID;
+	FFmpegLogPhase = Phase ? Phase : "unknown";
+	FFmpegDiagnosticStream = DiagnosticStream;
+	FFmpegDiagnosticActivityID = ActivityID;
 }
 
 FFmpegLogContextScope::~FFmpegLogContextScope()
 {
 	FFmpegLogSourceID = PreviousSourceID;
 	FFmpegLogPhase = PreviousPhase;
+	FFmpegDiagnosticStream = PreviousDiagnosticStream;
+	FFmpegDiagnosticActivityID = PreviousActivityID;
 }
 
 bool FFmpegLogContextScope::HasError() const
@@ -146,6 +167,13 @@ void Stream::LogCallback( void* AVData, int Level, const char* Format, va_list A
 	std::snprintf( MessageBuf.data(), MessageBuf.size(), OutputFormat, AVClassData ? AVClassData->item_name(AVData) : "Unknown", OriginalMessageBuf.data());
 
 	OutputDebugStringA( MessageBuf.data() );
+
+	if( FFmpegDiagnosticStream )
+	{
+		FFmpegDiagnosticStream->RecordFFmpegLog( Level, FFmpegLogPhase,
+			AVClassData ? AVClassData->item_name( AVData ) : "unknown",
+			OriginalMessageBuf.data(), FFmpegDiagnosticActivityID );
+	}
 
 	if( Level <= AV_LOG_ERROR )
 	{

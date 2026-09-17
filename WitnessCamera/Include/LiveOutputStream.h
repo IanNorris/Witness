@@ -321,6 +321,32 @@ public:
 		std::string Disposition;
 	};
 
+	struct MediaDiagnosticEvent
+	{
+		uint64_t Sequence = 0;
+		uint64_t ActivityID = 0;
+		uint64_t PacketSequence = 0;
+		int64_t TimestampUnixMs = 0;
+		int64_t ElapsedMs = 0;
+		int Generation = 0;
+		int SegmentIndex = 0;
+		int PartialIndex = 0;
+		std::string Category;
+		std::string Severity;
+		std::string Phase;
+		std::string Component;
+		std::string Message;
+		std::string Disposition;
+		bool Audio = false;
+		bool Keyframe = false;
+		bool Corrupt = false;
+		int PacketSize = 0;
+		int64_t SourceDtsUs = 0;
+		int64_t SourcePtsUs = 0;
+		bool HasSourceDts = false;
+		bool HasSourcePts = false;
+	};
+
 	struct StreamingDiagnostics
 	{
 		int TotalSegments = 0;
@@ -338,6 +364,16 @@ public:
 		uint64_t DroppedVideoPackets = 0;
 		uint64_t MissingVideoDtsPackets = 0;
 		uint64_t CorruptVideoPackets = 0;
+		uint64_t WaitingForKeyframePackets = 0;
+		uint64_t MissingTimestampPackets = 0;
+		uint64_t BeforeVideoEpochPackets = 0;
+		uint64_t NegativeTimestampPackets = 0;
+		uint64_t NonMonotonicInputPackets = 0;
+		uint64_t NoMuxBufferPackets = 0;
+		uint64_t NonMonotonicOutputPackets = 0;
+		uint64_t MuxErrorPackets = 0;
+		uint64_t DecodeCorruptionEvents = 0;
+		uint64_t DecodeRecoveryEvents = 0;
 		double VideoPhaseErrorMs = 0.0;
 		double VideoCorrectionMs = 0.0;
 		double AudioVideoSkewMs = 0.0;
@@ -371,6 +407,7 @@ public:
 		std::vector<SegmentDiagEntry> RecentSegments; // last 30
 		std::vector<FragmentDiagEntry> RecentFragments; // last 180 MSE partials
 		std::vector<PacketDiagEntry> RecentPackets; // last 1024 audio/video access units
+		std::vector<MediaDiagnosticEvent> RecentMediaEvents; // last 48 warnings/errors/actions
 		struct AnomalyCapture
 		{
 			uint64_t Sequence = 0;
@@ -386,6 +423,9 @@ public:
 
 	StreamingDiagnostics GetStreamingDiagnostics( bool IncludeHistory = true ) const;
 	void CaptureDiagnosticAnomaly(const std::string& Reason);
+	uint64_t BeginDiagnosticActivity();
+	void RecordFFmpegLog( int Level, const char* Phase, const char* Component,
+		const char* Message, uint64_t ActivityID );
 
 private:
 	// Ring buffer of recent segment diagnostics
@@ -403,6 +443,16 @@ private:
 	uint64_t _DiagDroppedVideoPackets = 0;
 	uint64_t _DiagMissingVideoDtsPackets = 0;
 	uint64_t _DiagCorruptVideoPackets = 0;
+	uint64_t _DiagWaitingForKeyframePackets = 0;
+	uint64_t _DiagMissingTimestampPackets = 0;
+	uint64_t _DiagBeforeVideoEpochPackets = 0;
+	uint64_t _DiagNegativeTimestampPackets = 0;
+	uint64_t _DiagNonMonotonicInputPackets = 0;
+	uint64_t _DiagNoMuxBufferPackets = 0;
+	uint64_t _DiagNonMonotonicOutputPackets = 0;
+	uint64_t _DiagMuxErrorPackets = 0;
+	uint64_t _DiagDecodeCorruptionEvents = 0;
+	uint64_t _DiagDecodeRecoveryEvents = 0;
 	double _DiagVideoPhaseErrorMs = 0.0;
 	double _DiagVideoCorrectionMs = 0.0;
 	int64_t _DiagLastVideoOutputUs = 0;
@@ -452,6 +502,13 @@ private:
 	int _PacketDiagRingCount = 0;
 	uint64_t _PacketDiagSequence = 0;
 	std::chrono::steady_clock::time_point _PacketDiagEpoch = std::chrono::steady_clock::now();
+	static const int MEDIA_EVENT_RING_SIZE = 128;
+	MediaDiagnosticEvent _MediaEventRing[MEDIA_EVENT_RING_SIZE] = {};
+	int _MediaEventRingPos = 0;
+	int _MediaEventRingCount = 0;
+	uint64_t _MediaEventSequence = 0;
+	uint64_t _DiagnosticActivitySequence = 0;
+	uint64_t _CurrentDiagnosticActivity = 0;
 	std::vector<StreamingDiagnostics::AnomalyCapture> _DiagAnomalies;
 	uint64_t _DiagAnomalySequence = 0;
 };

@@ -284,6 +284,18 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 		Value["droppedVideoPackets"] = (uint64_t)Diag.DroppedVideoPackets;
 		Value["missingVideoDtsPackets"] = (uint64_t)Diag.MissingVideoDtsPackets;
 		Value["corruptVideoPackets"] = (uint64_t)Diag.CorruptVideoPackets;
+		crow::json::wvalue DropReasons;
+		DropReasons["waitingForKeyframe"] = (uint64_t)Diag.WaitingForKeyframePackets;
+		DropReasons["missingTimestamp"] = (uint64_t)Diag.MissingTimestampPackets;
+		DropReasons["beforeVideoEpoch"] = (uint64_t)Diag.BeforeVideoEpochPackets;
+		DropReasons["negativeTimestamp"] = (uint64_t)Diag.NegativeTimestampPackets;
+		DropReasons["nonMonotonicInput"] = (uint64_t)Diag.NonMonotonicInputPackets;
+		DropReasons["noMuxBuffer"] = (uint64_t)Diag.NoMuxBufferPackets;
+		DropReasons["nonMonotonicOutput"] = (uint64_t)Diag.NonMonotonicOutputPackets;
+		DropReasons["muxError"] = (uint64_t)Diag.MuxErrorPackets;
+		DropReasons["decodeCorruption"] = (uint64_t)Diag.DecodeCorruptionEvents;
+		DropReasons["decodeRecovery"] = (uint64_t)Diag.DecodeRecoveryEvents;
+		Value["packetDispositionCounts"] = std::move( DropReasons );
 		Value["timestampCorrectionSaturatedPackets"] =
 			(uint64_t)Diag.TimestampCorrectionSaturatedPackets;
 		Value["timestampNormalizationLastCompletedSegment"] = Diag.TotalSegments > 0 ?
@@ -302,6 +314,36 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 			crow::json::wvalue( Diag.InitStructureValid ) : crow::json::wvalue( nullptr );
 		Value["initStructureError"] = Diag.InitStructureObserved ?
 			crow::json::wvalue( Diag.InitStructureError ) : crow::json::wvalue( nullptr );
+		std::vector<crow::json::wvalue> MediaEvents;
+		MediaEvents.reserve( Diag.RecentMediaEvents.size() );
+		for( const auto& Event : Diag.RecentMediaEvents )
+		{
+			crow::json::wvalue Item;
+			Item["sequence"] = Event.Sequence;
+			Item["activityId"] = Event.ActivityID;
+			Item["packetSequence"] = Event.PacketSequence;
+			Item["timestampUnixMs"] = Event.TimestampUnixMs;
+			Item["elapsedMs"] = Event.ElapsedMs;
+			Item["generation"] = Event.Generation;
+			Item["segmentIndex"] = Event.SegmentIndex;
+			Item["partialIndex"] = Event.PartialIndex;
+			Item["category"] = Event.Category;
+			Item["severity"] = Event.Severity;
+			Item["phase"] = Event.Phase;
+			Item["component"] = Event.Component;
+			Item["message"] = Event.Message;
+			Item["disposition"] = Event.Disposition;
+			Item["audio"] = Event.Audio;
+			Item["keyframe"] = Event.Keyframe;
+			Item["corrupt"] = Event.Corrupt;
+			Item["packetSize"] = Event.PacketSize;
+			Item["sourceDtsUs"] = Event.HasSourceDts ?
+				crow::json::wvalue( Event.SourceDtsUs ) : crow::json::wvalue( nullptr );
+			Item["sourcePtsUs"] = Event.HasSourcePts ?
+				crow::json::wvalue( Event.SourcePtsUs ) : crow::json::wvalue( nullptr );
+			MediaEvents.push_back( std::move( Item ) );
+		}
+		Value["recentMediaEvents"] = std::move( MediaEvents );
 		return Value;
 	};
 
@@ -388,10 +430,11 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 	Coverage["otherBrowserClients"] = "notCollectedInV1";
 	Coverage["rateCalculationSupported"] = false;
 	Coverage["rateCalculationReason"] = "worker and processing counter epochs are not yet exposed";
+	Coverage["mediaEventFeed"] = "last 48 warning, error, packet disposition, and recovery events per stream";
 
 	const auto CollectionEnd = std::chrono::steady_clock::now();
 	crow::json::wvalue Data;
-	Data["schemaVersion"] = 1;
+	Data["schemaVersion"] = 2;
 	Data["sampledAtUtc"] = std::format( "{:%Y-%m-%dT%H:%M:%S}Z",
 		std::chrono::system_clock::now() );
 	Data["collectionStartedMonotonicMs"] =
@@ -520,7 +563,7 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 						default: return "unknown";
 						}
 					};
-					StreamData["diagnosticsSchemaVersion"] = 5;
+					StreamData["diagnosticsSchemaVersion"] = 6;
 					StreamData["packetTraceCapacity"] = 1024;
 					StreamData["totalSegments"] = Diag.TotalSegments;
 					StreamData["reconnectCount"] = Diag.ReconnectCount;
@@ -538,6 +581,18 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 					StreamData["droppedVideoPackets"] = (int64_t)Diag.DroppedVideoPackets;
 					StreamData["missingVideoDtsPackets"] = (int64_t)Diag.MissingVideoDtsPackets;
 					StreamData["corruptVideoPackets"] = (int64_t)Diag.CorruptVideoPackets;
+					crow::json::wvalue DropReasons;
+					DropReasons["waitingForKeyframe"] = Diag.WaitingForKeyframePackets;
+					DropReasons["missingTimestamp"] = Diag.MissingTimestampPackets;
+					DropReasons["beforeVideoEpoch"] = Diag.BeforeVideoEpochPackets;
+					DropReasons["negativeTimestamp"] = Diag.NegativeTimestampPackets;
+					DropReasons["nonMonotonicInput"] = Diag.NonMonotonicInputPackets;
+					DropReasons["noMuxBuffer"] = Diag.NoMuxBufferPackets;
+					DropReasons["nonMonotonicOutput"] = Diag.NonMonotonicOutputPackets;
+					DropReasons["muxError"] = Diag.MuxErrorPackets;
+					DropReasons["decodeCorruption"] = Diag.DecodeCorruptionEvents;
+					DropReasons["decodeRecovery"] = Diag.DecodeRecoveryEvents;
+					StreamData["packetDispositionCounts"] = std::move( DropReasons );
 					StreamData["videoPhaseErrorMs"] = Diag.VideoPhaseErrorMs;
 					StreamData["videoCorrectionMs"] = Diag.VideoCorrectionMs;
 					StreamData["audioVideoSkewMs"] = Diag.AudioVideoSkewMs;
@@ -730,6 +785,35 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 						Packets.push_back( SerializePacket( Packet ) );
 					}
 					StreamData["recentPackets"] = std::move( Packets );
+
+					std::vector<crow::json::wvalue> MediaEvents;
+					MediaEvents.reserve( Diag.RecentMediaEvents.size() );
+					for( const auto& Event : Diag.RecentMediaEvents )
+					{
+						crow::json::wvalue Item;
+						Item["sequence"] = Event.Sequence;
+						Item["activityId"] = Event.ActivityID;
+						Item["packetSequence"] = Event.PacketSequence;
+						Item["timestampUnixMs"] = Event.TimestampUnixMs;
+						Item["elapsedMs"] = Event.ElapsedMs;
+						Item["generation"] = Event.Generation;
+						Item["segmentIndex"] = Event.SegmentIndex;
+						Item["partialIndex"] = Event.PartialIndex;
+						Item["category"] = Event.Category;
+						Item["severity"] = Event.Severity;
+						Item["phase"] = Event.Phase;
+						Item["component"] = Event.Component;
+						Item["message"] = Event.Message;
+						Item["disposition"] = Event.Disposition;
+						Item["audio"] = Event.Audio;
+						Item["keyframe"] = Event.Keyframe;
+						Item["corrupt"] = Event.Corrupt;
+						Item["packetSize"] = Event.PacketSize;
+						if( Event.HasSourceDts ) Item["sourceDtsUs"] = Event.SourceDtsUs;
+						if( Event.HasSourcePts ) Item["sourcePtsUs"] = Event.SourcePtsUs;
+						MediaEvents.push_back( std::move( Item ) );
+					}
+					StreamData["recentMediaEvents"] = std::move( MediaEvents );
 
 					std::vector<crow::json::wvalue> Anomalies;
 					Anomalies.reserve( Diag.Anomalies.size() );

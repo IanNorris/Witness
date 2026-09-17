@@ -10,6 +10,13 @@ details should be refined when an item is scheduled.
   operator kernels and GPU providers from CPU deployments, and investigate a
   supported prebuilt package so routine toolchain changes do not require a
   multi-hour dependency rebuild.
+- Profile slow native builds with the Visual C++ and MSBuild profiling tools
+  before changing the project structure. Capture clean and incremental
+  baselines, an MSBuild binary log, compiler frontend/backend timings (`/Bt+`
+  and `/d1reportTime`), and include/template/PCH diagnostics. Use the results to
+  identify slow translation units, expensive shared headers, serialized custom
+  steps, and unnecessary rebuild fan-out, then target the largest measured
+  costs.
 
 ## Operational UI and logging
 

@@ -14,12 +14,16 @@ struct AVPacket;
 namespace Witness{
 namespace Camera{
 
+class LiveOutputStream;
+
 // Associates FFmpeg's process-wide log callback with the camera operation on
 // the current worker thread, and records whether FFmpeg emitted a decode error.
 class CAMERA_API FFmpegLogContextScope
 {
 public:
 	FFmpegLogContextScope( int SourceID, const char* Phase );
+	FFmpegLogContextScope( int SourceID, const char* Phase,
+		LiveOutputStream* DiagnosticStream, uint64_t ActivityID );
 	~FFmpegLogContextScope();
 	bool HasError() const;
 
@@ -27,6 +31,8 @@ private:
 	int PreviousSourceID;
 	const char* PreviousPhase;
 	uint64_t StartingErrorCount;
+	LiveOutputStream* PreviousDiagnosticStream;
+	uint64_t PreviousActivityID;
 };
 
 CAMERA_API extern DebugConsole* TargetDebugConsole;

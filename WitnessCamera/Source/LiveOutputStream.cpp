@@ -41,6 +41,34 @@ static uint32_t HashBytes32(const uint8_t* Data, size_t Size)
 
 namespace
 {
+std::string RedactUrlCredentials( const char* Message )
+{
+	std::string Result = Message ? Message : "";
+	size_t SearchFrom = 0;
+	while( true )
+	{
+		const size_t SchemeEnd = Result.find( "://", SearchFrom );
+		if( SchemeEnd == std::string::npos )
+			break;
+		const size_t AuthorityStart = SchemeEnd + 3;
+		const size_t AuthorityEnd = Result.find_first_of( "/ \\t\\r\\n", AuthorityStart );
+		const size_t At = Result.find( '@', AuthorityStart );
+		if( At != std::string::npos &&
+			(AuthorityEnd == std::string::npos || At < AuthorityEnd) )
+		{
+			const size_t Colon = Result.find( ':', AuthorityStart );
+			if( Colon != std::string::npos && Colon < At )
+			{
+				Result.replace( Colon + 1, At - Colon - 1, "[redacted]" );
+				SearchFrom = Colon + 11;
+				continue;
+			}
+		}
+		SearchFrom = AuthorityStart;
+	}
+	return Result;
+}
+
 struct PacketStructure
 {
 	int Packetization = 0;
@@ -301,6 +329,39 @@ CameraStreamError LiveOutputStream::Initialize()
 CameraStreamError LiveOutputStream::ProcessFrame(const std::shared_ptr<IRecordFilter>& Filter, Stream* TargetStream, Stream* LiveStream)
 {
 	return CameraStreamError::Success;
+}
+
+uint64_t LiveOutputStream::BeginDiagnosticActivity()
+{
+	_CurrentDiagnosticActivity = ++_DiagnosticActivitySequence;
+	return _CurrentDiagnosticActivity;
+}
+
+void LiveOutputStream::RecordFFmpegLog( int Level, const char* Phase,
+	const char* Component, const char* Message, uint64_t ActivityID )
+{
+	MediaDiagnosticEvent Event;
+	Event.TimestampUnixMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+		std::chrono::system_clock::now().time_since_epoch()).count();
+	Event.ElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+		std::chrono::steady_clock::now() - _PacketDiagEpoch).count();
+	Event.ActivityID = ActivityID;
+	Event.Category = "ffmpeg";
+	Event.Severity = Level <= AV_LOG_ERROR ? "error" : "warning";
+	Event.Phase = Phase ? std::string( Phase ).substr( 0, 64 ) : "unknown";
+	Event.Component = Component ? std::string( Component ).substr( 0, 128 ) : "unknown";
+	Event.Message = RedactUrlCredentials( Message ).substr( 0, 1024 );
+
+	const std::lock_guard<std::mutex> Guard( *_SegmentsMutex );
+	Event.Sequence = ++_MediaEventSequence;
+	Event.PacketSequence = _PacketDiagSequence;
+	Event.Generation = _InitGeneration;
+	Event.SegmentIndex = _CurrentSegmentIndex;
+	Event.PartialIndex = _CurrentPartialIndex;
+	_MediaEventRing[_MediaEventRingPos % MEDIA_EVENT_RING_SIZE] = std::move( Event );
+	++_MediaEventRingPos;
+	if( _MediaEventRingCount < MEDIA_EVENT_RING_SIZE )
+		++_MediaEventRingCount;
 }
 
 void LiveOutputStream::Shutdown()
@@ -602,6 +663,32 @@ void LiveOutputStream::NotifyDecodeCorruption(int ErrorFlags)
 		return;
 
 	_DecodeCorruptionActive = true;
+	{
+		MediaDiagnosticEvent Event;
+		Event.TimestampUnixMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+			std::chrono::system_clock::now().time_since_epoch()).count();
+		Event.ElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+			std::chrono::steady_clock::now() - _PacketDiagEpoch).count();
+		Event.ActivityID = _CurrentDiagnosticActivity;
+		Event.Category = "decode";
+		Event.Severity = "error";
+		Event.Phase = "presentation";
+		Event.Component = "decoder";
+		Event.Message = "Corrupt video detected; presentation held until recovery keyframe (flags=" +
+			std::to_string( ErrorFlags ) + ")";
+		Event.Disposition = "decodeCorruption";
+		const std::lock_guard<std::mutex> Guard( *_SegmentsMutex );
+		++_DiagDecodeCorruptionEvents;
+		Event.Sequence = ++_MediaEventSequence;
+		Event.PacketSequence = _PacketDiagSequence;
+		Event.Generation = _InitGeneration;
+		Event.SegmentIndex = _CurrentSegmentIndex;
+		Event.PartialIndex = _CurrentPartialIndex;
+		_MediaEventRing[_MediaEventRingPos % MEDIA_EVENT_RING_SIZE] = std::move( Event );
+		++_MediaEventRingPos;
+		if( _MediaEventRingCount < MEDIA_EVENT_RING_SIZE )
+			++_MediaEventRingCount;
+	}
 	LOG_WARNING("[HLS] Camera %d detected corrupt video; holding presentation until the next keyframe (decode_error_flags=0x%x)",
 		_InputStream->GetSourceId(), ErrorFlags);
 
@@ -637,6 +724,32 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 	if (IsVideoKeyframe && _DecodeCorruptionActive)
 	{
 		_DecodeCorruptionActive = false;
+		{
+			MediaDiagnosticEvent Event;
+			Event.TimestampUnixMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+				std::chrono::system_clock::now().time_since_epoch()).count();
+			Event.ElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+				std::chrono::steady_clock::now() - _PacketDiagEpoch).count();
+			Event.ActivityID = _CurrentDiagnosticActivity;
+			Event.Category = "decode";
+			Event.Severity = "info";
+			Event.Phase = "presentation";
+			Event.Component = "decoder";
+			Event.Message = "Recovery keyframe reached; presentation can resume";
+			Event.Disposition = "decodeRecovery";
+			Event.Keyframe = true;
+			const std::lock_guard<std::mutex> Guard( *_SegmentsMutex );
+			++_DiagDecodeRecoveryEvents;
+			Event.Sequence = ++_MediaEventSequence;
+			Event.PacketSequence = _PacketDiagSequence + 1;
+			Event.Generation = _InitGeneration;
+			Event.SegmentIndex = _CurrentSegmentIndex;
+			Event.PartialIndex = _CurrentPartialIndex;
+			_MediaEventRing[_MediaEventRingPos % MEDIA_EVENT_RING_SIZE] = std::move( Event );
+			++_MediaEventRingPos;
+			if( _MediaEventRingCount < MEDIA_EVENT_RING_SIZE )
+				++_MediaEventRingCount;
+		}
 		LOG_INFO("[HLS] Camera %d reached a recovery keyframe; resuming presentation after it is buffered",
 			_InputStream->GetSourceId());
 		if (_EventCallback)
@@ -716,12 +829,55 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 			(std::max)(Packet->size, 0), (int)sizeof(Entry.PayloadPrefix));
 		if (Packet->data && Entry.PayloadPrefixLength > 0)
 			memcpy(Entry.PayloadPrefix, Packet->data, Entry.PayloadPrefixLength);
-		Entry.Disposition = Disposition;
+		const std::string DispositionText = Disposition ? Disposition : "unknown";
+		Entry.Disposition = DispositionText;
 		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
+		if( DispositionText == "waitingForKeyframe" ) ++_DiagWaitingForKeyframePackets;
+		else if( DispositionText == "missingTimestamp" ) ++_DiagMissingTimestampPackets;
+		else if( DispositionText == "beforeVideoEpoch" ) ++_DiagBeforeVideoEpochPackets;
+		else if( DispositionText == "negativeTimestamp" ) ++_DiagNegativeTimestampPackets;
+		else if( DispositionText == "nonMonotonicInput" ) ++_DiagNonMonotonicInputPackets;
+		else if( DispositionText == "noMuxBuffer" ) ++_DiagNoMuxBufferPackets;
+		else if( DispositionText == "nonMonotonicOutput" ) ++_DiagNonMonotonicOutputPackets;
+		else if( DispositionText == "muxError" ) ++_DiagMuxErrorPackets;
 		_PacketDiagRing[_PacketDiagRingPos % PACKET_DIAG_RING_SIZE] = std::move(Entry);
 		++_PacketDiagRingPos;
 		if (_PacketDiagRingCount < PACKET_DIAG_RING_SIZE)
 			++_PacketDiagRingCount;
+
+		const bool Noteworthy = DispositionText != "written" &&
+			DispositionText != "waitingForKeyframe";
+		if( Noteworthy )
+		{
+			MediaDiagnosticEvent Event;
+			Event.Sequence = ++_MediaEventSequence;
+			Event.ActivityID = _CurrentDiagnosticActivity;
+			Event.PacketSequence = PacketSequence;
+			Event.TimestampUnixMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+				std::chrono::system_clock::now().time_since_epoch()).count();
+			Event.ElapsedMs = ArrivalMs;
+			Event.Generation = _InitGeneration;
+			Event.SegmentIndex = SegmentIndex >= 0 ? SegmentIndex : _CurrentSegmentIndex;
+			Event.PartialIndex = PartialIndex >= 0 ? PartialIndex : _CurrentPartialIndex;
+			Event.Category = "packet";
+			Event.Severity = DispositionText == "muxError" ? "error" : "warning";
+			Event.Phase = "live-mux";
+			Event.Component = IsAudio ? "audio-packet" : "video-packet";
+			Event.Message = "Packet disposition: " + DispositionText;
+			Event.Disposition = DispositionText;
+			Event.Audio = IsAudio;
+			Event.Keyframe = IsVideoKeyframe;
+			Event.Corrupt = (Packet->flags & AV_PKT_FLAG_CORRUPT) != 0;
+			Event.PacketSize = Packet->size;
+			Event.SourceDtsUs = SourceDtsUs;
+			Event.SourcePtsUs = SourcePtsUs;
+			Event.HasSourceDts = SourceHasDts;
+			Event.HasSourcePts = SourceHasPts;
+			_MediaEventRing[_MediaEventRingPos % MEDIA_EVENT_RING_SIZE] = std::move( Event );
+			++_MediaEventRingPos;
+			if( _MediaEventRingCount < MEDIA_EVENT_RING_SIZE )
+				++_MediaEventRingCount;
+		}
 	};
 	// Never mutate segment state around a keyframe that cannot be placed on the
 	// decode timeline. Continue waiting for the next usable random-access point.
@@ -1496,6 +1652,16 @@ LiveOutputStream::StreamingDiagnostics LiveOutputStream::GetStreamingDiagnostics
 	Diag.DroppedVideoPackets = _DiagDroppedVideoPackets;
 	Diag.MissingVideoDtsPackets = _DiagMissingVideoDtsPackets;
 	Diag.CorruptVideoPackets = _DiagCorruptVideoPackets;
+	Diag.WaitingForKeyframePackets = _DiagWaitingForKeyframePackets;
+	Diag.MissingTimestampPackets = _DiagMissingTimestampPackets;
+	Diag.BeforeVideoEpochPackets = _DiagBeforeVideoEpochPackets;
+	Diag.NegativeTimestampPackets = _DiagNegativeTimestampPackets;
+	Diag.NonMonotonicInputPackets = _DiagNonMonotonicInputPackets;
+	Diag.NoMuxBufferPackets = _DiagNoMuxBufferPackets;
+	Diag.NonMonotonicOutputPackets = _DiagNonMonotonicOutputPackets;
+	Diag.MuxErrorPackets = _DiagMuxErrorPackets;
+	Diag.DecodeCorruptionEvents = _DiagDecodeCorruptionEvents;
+	Diag.DecodeRecoveryEvents = _DiagDecodeRecoveryEvents;
 	Diag.VideoPhaseErrorMs = _DiagVideoPhaseErrorMs;
 	Diag.VideoCorrectionMs = _DiagVideoCorrectionMs;
 	Diag.HasAudioVideoSkew = _DiagHasAudioOutputTimestamp && _DiagHasVideoOutputTimestamp;
@@ -1532,6 +1698,14 @@ LiveOutputStream::StreamingDiagnostics LiveOutputStream::GetStreamingDiagnostics
 	if( count > 0 )
 		Diag.TimestampNormalizationActive =
 			_DiagRing[(_DiagRingPos - 1) % DIAG_RING_SIZE].TimestampNormalizationActive;
+	const int MediaEventCount = (std::min)(_MediaEventRingCount, 48);
+	const int MediaEventStart = _MediaEventRingPos - MediaEventCount;
+	Diag.RecentMediaEvents.reserve( MediaEventCount );
+	for( int Index = 0; Index < MediaEventCount; ++Index )
+	{
+		Diag.RecentMediaEvents.push_back(
+			_MediaEventRing[(MediaEventStart + Index) % MEDIA_EVENT_RING_SIZE] );
+	}
 
 	if( !IncludeHistory )
 		return Diag;

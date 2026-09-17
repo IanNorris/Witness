@@ -26,6 +26,35 @@ interface StreamHealth {
   audioVideoSkewMs?: number | null
   maxSegmentDriftMs?: number
   initStructureValid?: boolean | null
+  packetDispositionCounts?: Record<string, number>
+  recentMediaEvents?: MediaDiagnosticEvent[]
+}
+
+interface MediaDiagnosticEvent {
+  sequence: number
+  activityId: number
+  packetSequence: number
+  timestampUnixMs: number
+  elapsedMs: number
+  generation: number
+  segmentIndex: number
+  partialIndex: number
+  category: string
+  severity: string
+  phase: string
+  component: string
+  message: string
+  disposition?: string
+  audio: boolean
+  keyframe: boolean
+  corrupt: boolean
+  packetSize: number
+  sourceDtsUs?: number | null
+  sourcePtsUs?: number | null
+}
+
+interface DisplayMediaDiagnosticEvent extends MediaDiagnosticEvent {
+  tier: string
 }
 
 interface ProcessingHealth {
@@ -77,6 +106,7 @@ const loading = ref(false)
 const error = ref('')
 const copied = ref(false)
 const copyFailed = ref(false)
+const expandedCameraId = ref<number | null>(null)
 const nowMonotonicMs = ref(performance.now())
 const snapshotReceivedAtMonotonicMs = ref<number | null>(null)
 const clientBuildHash = __BUILD_HASH__
@@ -155,6 +185,48 @@ function playerLabel(id: string): string {
 
 function formatCount(value: number | undefined): string {
   return value == null ? '—' : value.toLocaleString()
+}
+
+const dispositionLabels: Record<string, string> = {
+  waitingForKeyframe: 'waiting for keyframe',
+  missingTimestamp: 'missing timestamp',
+  beforeVideoEpoch: 'before video epoch',
+  negativeTimestamp: 'negative timestamp',
+  nonMonotonicInput: 'non-monotonic input',
+  noMuxBuffer: 'no mux buffer',
+  nonMonotonicOutput: 'non-monotonic output',
+  muxError: 'mux error',
+  decodeCorruption: 'decode suppression',
+  decodeRecovery: 'decode recovery',
+}
+
+function dropReasonSummary(stream: StreamHealth): string {
+  return Object.entries(stream.packetDispositionCounts ?? {})
+    .filter(([, count]) => count > 0)
+    .sort((left, right) => right[1] - left[1])
+    .map(([reason, count]) => `${count.toLocaleString()} ${dispositionLabels[reason] ?? reason}`)
+    .join(' · ')
+}
+
+function cameraMediaEvents(camera: CameraHealth): DisplayMediaDiagnosticEvent[] {
+  return camera.streams
+    .flatMap(stream => (stream.recentMediaEvents ?? []).map(event => ({ ...event, tier: stream.tier })))
+    .sort((left, right) => right.timestampUnixMs - left.timestampUnixMs || right.sequence - left.sequence)
+}
+
+function mediaEventTime(timestampUnixMs: number): string {
+  const iso = new Date(timestampUnixMs).toISOString()
+  return `${iso.slice(11, 23)} UTC`
+}
+
+function mediaEventClass(severity: string): string {
+  if (severity === 'error') return 'event-error'
+  if (severity === 'warning') return 'event-warning'
+  return 'event-info'
+}
+
+function toggleCameraEvents(cameraId: number) {
+  expandedCameraId.value = expandedCameraId.value === cameraId ? null : cameraId
 }
 
 function stateClass(state: string): string {
@@ -326,8 +398,20 @@ onBeforeUnmount(() => {
               <th>AI queue</th><th>Packet integrity</th><th>Stream timing</th>
             </tr></thead>
             <tbody>
-              <tr v-for="camera in snapshot.cameras" :key="camera.cameraId">
-                <td><div class="camera-name">{{ camera.name }}</div><div class="health-secondary small">Camera #{{ camera.cameraId }}</div></td>
+              <template v-for="camera in snapshot.cameras" :key="camera.cameraId">
+              <tr>
+                <td>
+                  <div class="camera-name">{{ camera.name }}</div>
+                  <div class="health-secondary small">Camera #{{ camera.cameraId }}</div>
+                  <button
+                    class="btn btn-link btn-sm event-toggle p-0 mt-1"
+                    :disabled="cameraMediaEvents(camera).length === 0"
+                    @click="toggleCameraEvents(camera.cameraId)"
+                  >
+                    {{ expandedCameraId === camera.cameraId ? 'Hide' : 'Show' }} media events
+                    <span v-if="cameraMediaEvents(camera).length">({{ cameraMediaEvents(camera).length }})</span>
+                  </button>
+                </td>
                 <td><span class="badge" :class="stateClass(camera.state)">{{ camera.state }}</span></td>
                 <td>
                   <div v-for="stream in camera.streams" :key="stream.tier" class="stream-line">
@@ -354,6 +438,9 @@ onBeforeUnmount(() => {
                     {{ stream.corruptVideoPackets ?? '—' }} corrupt ·
                     {{ stream.repairedVideoTimestamps ?? '—' }} timestamp repairs ·
                     {{ stream.missingVideoDtsPackets ?? '—' }} missing DTS
+                    <div v-if="dropReasonSummary(stream)" class="health-secondary disposition-summary">
+                      {{ streamTierLabel(stream.tier) }} dispositions: {{ dropReasonSummary(stream) }}
+                    </div>
                   </div>
                 </td>
                 <td>
@@ -363,6 +450,38 @@ onBeforeUnmount(() => {
                   </div>
                 </td>
               </tr>
+              <tr v-if="expandedCameraId === camera.cameraId" class="media-event-row">
+                <td colspan="7">
+                  <div class="media-event-header">
+                    Recent media activity for {{ camera.name }}
+                    <span class="health-secondary">Newest first · bounded to the last 48 events per stream</span>
+                  </div>
+                  <div class="media-event-feed">
+                    <div
+                      v-for="event in cameraMediaEvents(camera)"
+                      :key="`${event.tier}-${event.sequence}`"
+                      class="media-event"
+                      :class="mediaEventClass(event.severity)"
+                    >
+                      <div class="event-meta">
+                        <span class="event-time">{{ mediaEventTime(event.timestampUnixMs) }}</span>
+                        <span class="badge bg-secondary">{{ streamTierLabel(event.tier) }}</span>
+                        <span class="badge" :class="event.severity === 'error' ? 'bg-danger' : event.severity === 'warning' ? 'bg-warning text-dark' : 'bg-info text-dark'">{{ event.severity }}</span>
+                        <span>{{ event.category }} · {{ event.phase }} · {{ event.component }}</span>
+                      </div>
+                      <code class="event-message">{{ event.message }}</code>
+                      <div class="event-correlation health-secondary">
+                        Activity #{{ event.activityId || '—' }} · packet #{{ event.packetSequence || '—' }} · generation {{ event.generation }} · segment {{ event.segmentIndex }}.{{ event.partialIndex }}
+                        <template v-if="event.disposition"> · {{ event.disposition }}</template>
+                        <template v-if="event.sourceDtsUs != null"> · DTS {{ event.sourceDtsUs }}µs</template>
+                        <template v-if="event.keyframe"> · keyframe</template>
+                      </div>
+                    </div>
+                    <div v-if="cameraMediaEvents(camera).length === 0" class="health-secondary p-2">No recent media events.</div>
+                  </div>
+                </td>
+              </tr>
+              </template>
             </tbody>
           </table>
         </div>
@@ -422,4 +541,17 @@ onBeforeUnmount(() => {
 .monitor-hint { padding: 0.55rem 0.75rem; color: #aeb7c2; background: rgba(74, 144, 217, 0.08); border-bottom: 1px solid var(--bs-border-color); }
 .session-row td { padding: 0.55rem 0.75rem; background: #20252d; border-top-width: 2px; }
 .client-table tbody tr:not(.session-row) td:first-child { padding-left: 1.25rem; }
+.event-toggle { color: #7eb8f2; font-size: 0.74rem; text-decoration: none; }
+.event-toggle:disabled { color: #77818c; opacity: 1; }
+.disposition-summary { max-width: 30rem; margin-top: 0.15rem; line-height: 1.35; }
+.media-event-row td { padding: 0 !important; background: #11151b; }
+.media-event-header { display: flex; justify-content: space-between; gap: 1rem; padding: 0.55rem 0.75rem; color: #f3f4f6; background: #20252d; font-size: 0.8rem; font-weight: 600; }
+.media-event-feed { max-height: 22rem; overflow: auto; }
+.media-event { padding: 0.6rem 0.75rem; border-bottom: 1px solid #2d333b; border-left: 3px solid #58a6ff; }
+.media-event.event-warning { border-left-color: #d29922; }
+.media-event.event-error { border-left-color: #f85149; }
+.event-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 0.4rem; color: #aeb7c2; font-size: 0.73rem; }
+.event-time { min-width: 6.8rem; color: #d8dee6; font-variant-numeric: tabular-nums; }
+.event-message { display: block; margin-top: 0.35rem; color: #f0f3f6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.event-correlation { margin-top: 0.3rem; font-size: 0.72rem; font-variant-numeric: tabular-nums; }
 </style>
