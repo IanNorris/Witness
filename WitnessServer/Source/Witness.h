@@ -10,6 +10,9 @@
 #include "ClipReprocessWorker.h"
 #include "CameraState.h"
 #include <ImageProcessingJob.h>
+#include "OperationalStatus.h"
+#include <mutex>
+#include <unordered_map>
 
 class CrowListener;
 class GlobalContext;
@@ -27,8 +30,21 @@ public:
 
 	void Shutdown();
 	void RequestShutdown();
+	OperationalStatus GetOperationalStatus() const;
 
 private:
+	struct OperationalCameraFlags
+	{
+		std::string State = "Starting";
+		bool Recording = false;
+		bool MotionActive = false;
+	};
+
+	void SetOperationalState( int Camera, const std::string& State );
+	void SetOperationalActivity( int Camera, bool Recording, bool MotionActive );
+	void SetOperationalRecording( int Camera, bool Recording );
+	void SetOperationalMotion( int Camera, bool MotionActive );
+
 
 	void StatusMessage( int Camera, std::string NewStatus, std::string Reason );
 
@@ -71,4 +87,6 @@ private:
 
 	std::string CachePath;
 	bool AllCamerasReported = false;
+	mutable std::mutex OperationalMutex;
+	std::unordered_map<int, OperationalCameraFlags> OperationalCameraStates;
 };

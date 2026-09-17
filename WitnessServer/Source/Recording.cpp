@@ -173,6 +173,8 @@ void WitnessServer::StatusMessage( int Camera, std::string NewStatus, std::strin
 			CameraName = CameraState->Name;
 		}
 	}
+	if( !NewStatus.empty() )
+		SetOperationalState( Camera, NewStatus );
 
 	LOG_INFO( "%s: %s", CameraName.c_str(), Reason.c_str() );
 };

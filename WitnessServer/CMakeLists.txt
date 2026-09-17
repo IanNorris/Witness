@@ -37,6 +37,7 @@ set(SERVER_SOURCES
     Source/MessageDispatcher.cpp
     Source/MotionEvents.cpp
     Source/ObservingMotionFilter.cpp
+    Source/OperationalStatus.cpp
     Source/Recording.cpp
     Source/ReolinkClient.cpp
     Source/SetupConfig.cpp
@@ -47,6 +48,7 @@ set(SERVER_SOURCES
     Source/StatusEvents.cpp
     Source/SubStreamWorker.cpp
     Source/TagHelpers.cpp
+    Source/TerminalDashboard.cpp
     Source/TimerWorker.cpp
     Source/WatchdogWorker.cpp
     Source/WorkerBase.cpp
@@ -79,6 +81,8 @@ set(SERVER_HEADERS
     Source/SQLite.h
     Source/SubStreamWorker.h
     Source/TagHelpers.h
+    Source/TerminalDashboard.h
+    Source/OperationalStatus.h
     Source/EventBroadcaster.h
     Source/TimerWorker.h
     Source/WatchdogWorker.h

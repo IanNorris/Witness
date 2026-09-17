@@ -3,6 +3,7 @@
 #include "Database.h"
 #include "SetupConfig.h"
 #include "SetupServer.h"
+#include "TerminalDashboard.h"
 #include "sodium.h"
 #include "ObservingMotionFilter.h"
 #include "Witness.h"
@@ -24,6 +25,7 @@ extern "C" {
 #include <mmsystem.h>
 #include <minmax.h>
 #include <chrono>
+#include <atomic>
 #include <thread>
 #include <iostream>
 #include <Log.h>
@@ -134,6 +136,9 @@ bool IsService = true;
 SERVICE_STATUS ServiceStatus = {};
 SERVICE_STATUS_HANDLE ServiceHandle = nullptr;
 int ReturnValue = 0;
+bool UseTerminalDashboard = false;
+Witness::LogLevel DashboardLogLevel = Witness::LogLevel::Warning;
+Witness::LogLevel PlainConsoleLogLevel = Witness::LogLevel::Warning;
 
 void UpdateStatus(DWORD NewStatus, DWORD WaitHintInSeconds = 0, DWORD ErrorCode = 0)
 {
@@ -179,6 +184,8 @@ BOOL WINAPI ConsoleHandlerRoutine(DWORD ControlType)
 
 void WINAPI ServiceMain(DWORD dwArgc, PWSTR* pszArgv)
 {
+	if( IsService )
+		Witness::LogSetConsoleLevel( PlainConsoleLogLevel );
 	if (IsService)
 	{
 		ServiceHandle = RegisterServiceCtrlHandler(SERVICE_NAME, ServiceController);
@@ -227,10 +234,21 @@ void WINAPI ServiceMain(DWORD dwArgc, PWSTR* pszArgv)
 
 	WitnessServer Server;
 	GlobalServer = &Server;
+	TerminalDashboard Dashboard( DashboardLogLevel );
+	std::atomic<bool> DashboardServerReady{ false };
+	if( UseTerminalDashboard && !IsService )
+	{
+		Dashboard.Start( [&Server, &DashboardServerReady]()
+		{
+			return DashboardServerReady.load( std::memory_order_acquire ) ?
+				Server.GetOperationalStatus() : OperationalStatus{};
+		} );
+	}
 
 	if (sodium_init() == -1)
 	{
 		LOG_ERROR( "Unable to initialize libsodium." );
+		Dashboard.Stop();
 		UpdateStatus(SERVICE_STOPPED, 0, ReturnValue);
 		return;
 	}
@@ -238,15 +256,21 @@ void WINAPI ServiceMain(DWORD dwArgc, PWSTR* pszArgv)
 	if (!Server.Initialize(&DebugConsoleInstance))
 	{
 		ReturnValue = 1;
+		Dashboard.Stop();
 		UpdateStatus(SERVICE_STOPPED, 0, ReturnValue);
 		return;
 	}
+	DashboardServerReady.store( true, std::memory_order_release );
 
 	UpdateStatus( SERVICE_RUNNING );
 
 	Server.MessageLoop(ContinueRunning);
 
 	GlobalServer = nullptr;
+	DashboardServerReady.store( false, std::memory_order_release );
+	Dashboard.Stop();
+	if( UseTerminalDashboard && !IsService )
+		Witness::LogSetConsoleLevel( Witness::LogLevel::Warning );
 	Server.Shutdown();
 
 	Witness::Camera::TargetDebugConsole = nullptr;
@@ -261,6 +285,7 @@ int wmain( int argc, wchar_t* argv[] )
 	// Keep the interactive console focused on actionable warnings by default;
 	// the rotating file log still retains Debug and above for diagnostics.
 	Witness::LogLevel ConsoleLogLevel = Witness::LogLevel::Warning;
+	bool PlainConsoleRequested = false;
 	for( int Index = 1; Index < argc; ++Index )
 	{
 		if( _wcsicmp( argv[Index], L"/verbose" ) == 0 ||
@@ -273,13 +298,39 @@ int wmain( int argc, wchar_t* argv[] )
 		{
 			ConsoleLogLevel = Witness::LogLevel::Debug;
 		}
+		else if( _wcsicmp( argv[Index], L"/plain-console" ) == 0 ||
+			_wcsicmp( argv[Index], L"--plain-console" ) == 0 ||
+			_wcsicmp( argv[Index], L"/no-dashboard" ) == 0 ||
+			_wcsicmp( argv[Index], L"--no-dashboard" ) == 0 )
+		{
+			PlainConsoleRequested = true;
+		}
 	}
+
+	// Helper and setup commands retain their traditional line-oriented output.
+	const bool HelperInvocation = argc >= 2 &&
+		_wcsicmp( argv[1], L"/verbose" ) != 0 &&
+		_wcsicmp( argv[1], L"--verbose" ) != 0 &&
+		_wcsicmp( argv[1], L"/debug-console" ) != 0 &&
+		_wcsicmp( argv[1], L"--debug-console" ) != 0 &&
+		_wcsicmp( argv[1], L"/plain-console" ) != 0 &&
+		_wcsicmp( argv[1], L"--plain-console" ) != 0 &&
+		_wcsicmp( argv[1], L"/no-dashboard" ) != 0 &&
+		_wcsicmp( argv[1], L"--no-dashboard" ) != 0;
+	UseTerminalDashboard = !HelperInvocation && !PlainConsoleRequested &&
+		TerminalDashboard::IsSupported();
+	// A bounded event pane can include lifecycle information without recreating
+	// scrolling console spam. Plain-console defaults remain warning-only.
+	DashboardLogLevel = ConsoleLogLevel == Witness::LogLevel::Warning ?
+		Witness::LogLevel::Info : ConsoleLogLevel;
+	PlainConsoleLogLevel = ConsoleLogLevel;
 
 	// Initialize logging early (before any LOG_* calls).
 	{
 		auto logDir = GetConfigFilePath( "logs" );
 		std::filesystem::create_directories( logDir );
-		Witness::LogInit( logDir.string(), ConsoleLogLevel );
+		Witness::LogInit( logDir.string(), UseTerminalDashboard ?
+			Witness::LogLevel::Off : ConsoleLogLevel );
 	}
 
 	if (argc >= 2)

@@ -4,7 +4,41 @@ This file tracks worthwhile product and engineering work that is not part of the
 current implementation branch. Items are intentionally outcome-focused; design
 details should be refined when an item is scheduled.
 
+Current priority after the terminal-dashboard review is: complete the audio-
+intelligence investigation, complete the activity-intelligence investigation,
+then concentrate on build health (dependency stability, reproducibility,
+compile-time profiling, and native ABI warning cleanup) before resuming broader
+feature work.
+
 ## Build and inference
+
+- Immediately after the audio-intelligence investigation, stop automatic
+  dependency churn during ordinary configure/builds. Add a checked-in Witness
+  triplet with compiler tracking disabled so compatible VS Insiders servicing
+  updates do not invalidate every native dependency; introduce it as a planned
+  one-time dependency rebuild and retain an explicit clean-rebuild escape hatch
+  for genuine compiler ABI changes. Treat the
+  vcpkg tool revision, registry baseline, triplet, compiler toolset, CMake
+  version, feature set, and dependency ABI as one explicitly versioned build
+  environment. Routine CMake generation must fail with a clear diagnostic
+  rather than remove/rebuild installed packages. Add an explicit dependency
+  update/bootstrap command, use a shared local/CI binary cache, publish a
+  reusable release-only dependency artifact, and keep old environments usable
+  until the replacement has completed successfully. Record why an ABI changed
+  before accepting a rebuild, and investigate a checked-in custom release-only
+  triplet so local RelWithDebInfo work does not also compile every dependency's
+  Debug variant.
+- Re-evaluate the CMake and vcpkg foundations rather than assuming they remain
+  the long-term build/package solution. Compare at least: a native/generated
+  Visual Studio build with an explicit Linux build path; Meson; Conan-backed
+  builds; and a tightly pinned, non-mutating CMake/vcpkg configuration. The
+  decision must cover reproducible Windows and Linux builds, IDE integration,
+  prebuilt dependency consumption, offline/cache behaviour, security updates,
+  CI packaging, incremental build time, and the cost of maintaining one versus
+  two platform build descriptions. A replacement must coexist with the current
+  build until it produces equivalent binaries and tests; ordinary developer
+  builds must never update package metadata or invalidate dependencies merely
+  because a global tool installation changed.
 
 - Reduce the ONNX Runtime/vcpkg build surface. In particular, remove unused
   operator kernels and GPU providers from CPU deployments, and investigate a
@@ -17,8 +51,22 @@ details should be refined when an item is scheduled.
   identify slow translation units, expensive shared headers, serialized custom
   steps, and unnecessary rebuild fan-out, then target the largest measured
   costs.
+- Clean up the native DLL ABI boundaries currently producing MSVC C4251
+  warnings. Inventory exported classes that expose STL containers, strings,
+  callbacks, mutexes, smart pointers, or chrono types; move implementation
+  state behind PIMPL where it provides a stable ownership and ABI boundary,
+  and keep deliberately header-defined value types explicit rather than merely
+  suppressing the warning globally. Add a small cross-DLL construction and
+  destruction test so allocator/runtime mismatches are caught.
+- Define and document Witness's minimum supported Windows version through one
+  shared `_WIN32_WINNT`/`WINVER` build setting. Remove the current implicit
+  Boost fallback to Windows 7 and verify that the selected SDK target is used
+  consistently by the server and native libraries.
 
 ## Operational UI and logging
+
+The initial Windows console dashboard and the standalone Windows/Linux boundary
+are described in [TERMINAL_DASHBOARD.md](TERMINAL_DASHBOARD.md).
 
 - Build a terminal dashboard showing queue lengths, camera connection health,
   stream latency, processing throughput, and the latest detection details.
@@ -104,6 +152,15 @@ empty/baseline observation evidence as a prerequisite for reliable persistence.
   non-monotonic audio/video timestamps.
 
 ## Streaming diagnostics
+
+- Investigate malformed Reolink AAC timestamps in the live MP4 muxer. The
+  17 September health export showed all Reolink main and preview streams
+  continuously emitting negative audio packet-duration and missing-PTS
+  warnings, sometimes including `audio-packet / nonMonotonicOutput`. Capture
+  raw AAC DTS/PTS/duration, attribute stream-1 mux warnings as audio, then
+  validate whether AAC PTS can safely follow DTS and duration can be derived
+  from samples/timebase. Aggregate repeated messages so they cannot evict
+  reconnect and recovery evidence from the diagnostic ring.
 
 - Add bounded, opt-in retention of encoded media around an anomaly so the exact
   access units can be replayed through software decoders offline. Redact stream
