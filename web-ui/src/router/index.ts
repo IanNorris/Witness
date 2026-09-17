@@ -52,6 +52,11 @@ const routes = [
     ],
   },
   {
+    path: '/health-monitor',
+    component: () => import('../views/HealthMonitorView.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true },
+  },
+  {
     path: '/login',
     component: () => import('../views/LoginView.vue'),
   },

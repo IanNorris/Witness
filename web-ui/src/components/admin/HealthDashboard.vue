@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { api } from '../../composables/useApi'
+import { openHealthMonitor } from '../../composables/useHealthMonitor'
 import {
   collectClientHealthSessions,
   type ClientHealthSession,
 } from '../../composables/useClientHealth'
+
+defineProps<{ standalone?: boolean }>()
 
 interface StreamHealth {
   tier: string
@@ -74,7 +77,10 @@ const loading = ref(false)
 const error = ref('')
 const copied = ref(false)
 const copyFailed = ref(false)
+const nowMonotonicMs = ref(performance.now())
+const snapshotReceivedAtMonotonicMs = ref<number | null>(null)
 const clientBuildHash = __BUILD_HASH__
+let ageTimer: ReturnType<typeof setInterval> | null = null
 
 async function refresh() {
   loading.value = true
@@ -87,6 +93,8 @@ async function refresh() {
         error: err instanceof Error ? err.message : String(err),
       }))
     snapshot.value = await api<HealthSnapshot>('/debug/health')
+    snapshotReceivedAtMonotonicMs.value = performance.now()
+    nowMonotonicMs.value = snapshotReceivedAtMonotonicMs.value
     const clients = await clientRequest
     clientSessions.value = clients.collection?.sessions ?? []
     if (clients.error || !clients.collection) {
@@ -126,20 +134,55 @@ function formatMs(value: number | null | undefined): string {
 
 function streamLabel(stream: StreamHealth): string {
   const dimensions = stream.width && stream.height ? ` ${stream.width}×${stream.height}` : ''
-  return `${stream.tier === 'preview' ? 'P' : 'M'} ${stream.videoCodec || 'unknown'}${dimensions}`
+  return `${(stream.videoCodec || 'unknown').toUpperCase()}${dimensions}`
+}
+
+function streamTierLabel(tier: string): string {
+  if (tier === 'preview' || tier === 'sub') return 'Preview'
+  if (tier === 'main') return 'Main'
+  return 'Unknown'
+}
+
+function readyStateLabel(value: number | undefined): string {
+  return ['No media', 'Metadata', 'Current frame', 'Future frames', 'Buffered'][value ?? -1] ?? 'Unknown'
+}
+
+function playerLabel(id: string): string {
+  const cameraId = Number.parseInt(id, 10)
+  const camera = snapshot.value?.cameras.find(candidate => candidate.cameraId === cameraId)
+  return camera ? `${camera.name} (#${cameraId})` : id.replace(/_mse$/i, '')
+}
+
+function formatCount(value: number | undefined): string {
+  return value == null ? '—' : value.toLocaleString()
 }
 
 function stateClass(state: string): string {
   const normalized = state.toLowerCase()
   if (normalized === 'connected' || normalized === 'healthy') return 'bg-success'
-  if (normalized.includes('start') || normalized.includes('connect')) return 'bg-warning text-dark'
-  return 'bg-danger'
+  if (['starting', 'connecting', 'reconnecting'].includes(normalized)) return 'bg-warning text-dark'
+  if (['disconnected', 'failed', 'error', 'unhealthy'].includes(normalized)) return 'bg-danger'
+  return 'bg-secondary'
 }
 
 const memoryUsed = computed(() => {
   const host = snapshot.value?.server.host
   if (!host?.totalMemoryBytes || host.availableMemoryBytes == null) return null
   return host.totalMemoryBytes - host.availableMemoryBytes
+})
+
+const snapshotAge = computed(() => {
+  if (!snapshot.value || snapshotReceivedAtMonotonicMs.value == null) {
+    return { label: 'No snapshot', className: 'bg-secondary' }
+  }
+  const seconds = Math.max(0, Math.floor((nowMonotonicMs.value - snapshotReceivedAtMonotonicMs.value) / 1000))
+  if (seconds < 5) return { label: 'Just now', className: 'bg-success' }
+  if (seconds < 60) return { label: `${seconds}s ago`, className: 'bg-secondary' }
+  const minutes = Math.floor(seconds / 60)
+  return {
+    label: `${minutes}m ago`,
+    className: minutes >= 5 ? 'bg-danger' : 'bg-warning text-dark',
+  }
 })
 
 function combinedExport() {
@@ -204,19 +247,26 @@ async function copyTable() {
   window.setTimeout(() => { copied.value = false; copyFailed.value = false }, 2000)
 }
 
-onMounted(refresh)
+onMounted(() => {
+  refresh()
+  ageTimer = window.setInterval(() => { nowMonotonicMs.value = performance.now() }, 1000)
+})
+onBeforeUnmount(() => {
+  if (ageTimer) window.clearInterval(ageTimer)
+})
 </script>
 
 <template>
-  <div>
+  <div class="health-dashboard" data-bs-theme="dark">
     <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
       <div>
         <h5 class="mb-1">Performance and health</h5>
-        <div class="text-muted small">
-          On-demand server snapshot combined with players active in this browser.
+        <div class="health-secondary small">
+          On-demand server snapshot combined with active players in this browser profile.
         </div>
       </div>
       <div class="d-flex gap-2">
+        <button v-if="!standalone" class="btn btn-sm btn-outline-primary" @click="openHealthMonitor">Open monitor</button>
         <button class="btn btn-sm btn-outline-secondary" :disabled="!snapshot" @click="copyTable">
           {{ copied ? 'Copied' : copyFailed ? 'Copy failed' : 'Copy table' }}
         </button>
@@ -233,75 +283,83 @@ onMounted(refresh)
       <div class="row g-3 mb-3">
         <div class="col-sm-6 col-xl-3">
           <div class="card h-100"><div class="card-body py-3">
-            <div class="text-muted small">Host memory</div>
+            <div class="health-secondary small">Host memory</div>
             <div class="fs-5">{{ formatBytes(memoryUsed) }} / {{ formatBytes(snapshot.server.host.totalMemoryBytes) }}</div>
             <div class="small">{{ snapshot.server.host.memoryLoadPercent ?? 'Unknown' }}% physical memory used · {{ snapshot.server.host.logicalProcessors }} logical CPUs</div>
           </div></div>
         </div>
         <div class="col-sm-6 col-xl-3">
           <div class="card h-100"><div class="card-body py-3">
-            <div class="text-muted small">Witness process private memory</div>
+            <div class="health-secondary small">Witness process private memory</div>
             <div class="fs-5">{{ formatBytes(snapshot.server.host.processPrivateBytes) }}</div>
             <div class="small">{{ formatBytes(snapshot.server.host.processWorkingSetBytes) }} working set</div>
           </div></div>
         </div>
         <div class="col-sm-6 col-xl-3">
           <div class="card h-100"><div class="card-body py-3">
-            <div class="text-muted small">Build identity</div>
+            <div class="health-secondary small">Build identity</div>
             <div class="fs-6 font-monospace text-break">{{ snapshot.server.webBuildHash || 'Unknown' }}</div>
             <div class="small">Client {{ clientBuildHash }}</div>
           </div></div>
         </div>
         <div class="col-sm-6 col-xl-3">
           <div class="card h-100"><div class="card-body py-3">
-            <div class="text-muted small">Snapshot</div>
-            <div class="fs-6">{{ new Date(snapshot.sampledAtUtc).toLocaleString() }}</div>
+            <div class="health-secondary small">Snapshot</div>
+            <div class="fs-6 d-flex align-items-center gap-2">
+              {{ new Date(snapshot.sampledAtUtc).toLocaleString() }}
+              <span class="badge" :class="snapshotAge.className">{{ snapshotAge.label }}</span>
+            </div>
             <div class="small">Collected in {{ snapshot.collectionDurationMs }} ms · {{ snapshot.server.collectionMode }}</div>
           </div></div>
         </div>
       </div>
 
       <div class="card mb-3">
-        <div class="card-header d-flex justify-content-between">
+        <div class="card-header d-flex flex-wrap justify-content-between gap-2">
           <span>Server cameras</span>
-          <span class="text-muted small">Rates intentionally disabled until reset epochs are available</span>
+          <span class="health-secondary small">Cumulative totals · reset scope varies · rates unavailable</span>
         </div>
         <div class="table-responsive">
-          <table class="table table-sm table-hover align-middle mb-0 health-table">
+          <table class="table table-dark table-sm table-hover align-middle mb-0 health-table">
             <thead><tr>
-              <th>Camera</th><th>State</th><th>Streams</th><th>Essential queue</th>
-              <th>AI queue</th><th>Cumulative packet evidence</th><th>Timing evidence</th>
+              <th>Camera</th><th>Connection</th><th>Streams</th><th>Essential queue</th>
+              <th>AI queue</th><th>Packet integrity</th><th>Stream timing</th>
             </tr></thead>
             <tbody>
               <tr v-for="camera in snapshot.cameras" :key="camera.cameraId">
-                <td><div>{{ camera.name }}</div><div class="text-muted small">#{{ camera.cameraId }}</div></td>
+                <td><div class="camera-name">{{ camera.name }}</div><div class="health-secondary small">Camera #{{ camera.cameraId }}</div></td>
                 <td><span class="badge" :class="stateClass(camera.state)">{{ camera.state }}</span></td>
                 <td>
                   <div v-for="stream in camera.streams" :key="stream.tier" class="stream-line">
-                    <span class="badge me-1" :class="stateClass(stream.state)">{{ stream.tier === 'preview' ? 'P' : 'M' }}</span>
+                    <span class="stream-tier">{{ streamTierLabel(stream.tier) }}</span>
+                    <span class="badge stream-state me-1" :class="stateClass(stream.state)">{{ stream.state }}</span>
                     {{ streamLabel(stream) }}
-                    <span v-if="stream.retainedSegments != null" class="text-muted"> · {{ stream.retainedSegments }} retained</span>
+                    <span v-if="stream.retainedSegments != null" class="health-secondary"> · {{ stream.retainedSegments }} retained segments</span>
+                    <span v-if="stream.initStructureValid === false" class="badge bg-danger ms-1">Invalid init</span>
                   </div>
-                  <span v-if="camera.streams.length === 0" class="text-muted">None</span>
+                  <span v-if="camera.streams.length === 0" class="health-secondary">No stream data</span>
                 </td>
                 <td>
-                  {{ camera.processing?.pendingEssential ?? '—' }} pending
-                  <div class="text-muted small">oldest {{ formatMs(camera.processing?.oldestPendingEssentialMs) }} · mean {{ formatMs(camera.processing?.ingressWaitMeanMs) }}</div>
+                  <strong>{{ camera.processing?.pendingEssential ?? '—' }}</strong> pending
+                  <div class="health-secondary small">Oldest {{ formatMs(camera.processing?.oldestPendingEssentialMs) }} · mean wait {{ formatMs(camera.processing?.ingressWaitMeanMs) }}</div>
                 </td>
                 <td>
-                  {{ camera.processing?.pendingAI ?? '—' }} pending
-                  <div class="text-muted small">oldest {{ formatMs(camera.processing?.oldestPendingAIMs) }} · coalesced {{ camera.processing?.coalescedAIFrames ?? '—' }}</div>
+                  <strong>{{ camera.processing?.pendingAI ?? '—' }}</strong> pending
+                  <div class="health-secondary small">Oldest {{ formatMs(camera.processing?.oldestPendingAIMs) }} · {{ formatCount(camera.processing?.coalescedAIFrames) }} coalesced</div>
                 </td>
                 <td>
                   <div v-for="stream in camera.streams" :key="`${stream.tier}-packets`" class="small">
-                    {{ stream.tier === 'preview' ? 'P' : 'M' }}:
-                    {{ stream.droppedVideoPackets ?? '—' }} drop · {{ stream.corruptVideoPackets ?? '—' }} corrupt ·
-                    {{ stream.repairedVideoTimestamps ?? '—' }} repair · {{ stream.missingVideoDtsPackets ?? '—' }} no DTS
+                    <span class="evidence-tier">{{ streamTierLabel(stream.tier) }}</span>
+                    {{ stream.droppedVideoPackets ?? '—' }} dropped ·
+                    {{ stream.corruptVideoPackets ?? '—' }} corrupt ·
+                    {{ stream.repairedVideoTimestamps ?? '—' }} timestamp repairs ·
+                    {{ stream.missingVideoDtsPackets ?? '—' }} missing DTS
                   </div>
                 </td>
                 <td>
                   <div v-for="stream in camera.streams" :key="`${stream.tier}-av`" class="small">
-                    {{ stream.tier === 'preview' ? 'P' : 'M' }} A/V skew {{ formatMs(stream.audioVideoSkewMs) }} · max segment duration discrepancy {{ formatMs(stream.maxSegmentDriftMs) }}
+                    <span class="evidence-tier">{{ streamTierLabel(stream.tier) }}</span>
+                    A/V skew {{ formatMs(stream.audioVideoSkewMs) }} · maximum segment duration difference {{ formatMs(stream.maxSegmentDriftMs) }}
                   </div>
                 </td>
               </tr>
@@ -311,22 +369,31 @@ onMounted(refresh)
       </div>
 
       <div class="card">
-        <div class="card-header d-flex justify-content-between">
-          <span>This browser profile</span><span class="text-muted small">{{ clientCoverage }}</span>
+        <div class="card-header d-flex flex-wrap justify-content-between gap-2">
+          <span>Browser players</span><span class="health-secondary small">{{ clientCoverage }}</span>
         </div>
-        <div v-if="clientSessions.every(session => session.players.length === 0)" class="card-body text-muted">
+        <div class="monitor-hint small">
+          Open the monitor from a dashboard, then keep both windows visible side by side for representative rendering data. Minimized or obscured pages may be reported as hidden by the browser.
+        </div>
+        <div v-if="clientSessions.every(session => session.players.length === 0)" class="card-body health-secondary">
           No active live players replied from this browser profile. Keep a dashboard or stream tab open to collect presentation evidence.
         </div>
         <div v-else class="table-responsive">
-          <table class="table table-sm mb-0 health-table">
-            <thead><tr><th>Tab</th><th>Player</th><th>Tier</th><th>Latency</th><th>Ready</th><th>Frames</th><th>Dropped</th><th>Corrupt</th><th>Restarts / stalls / errors</th></tr></thead>
+          <table class="table table-dark table-sm table-hover mb-0 health-table client-table">
+            <thead><tr><th>Camera</th><th>Stream</th><th>Playback lag</th><th>Buffer state</th><th>Frames</th><th>Dropped</th><th>Corrupt</th><th>Restarts / stalls / errors</th></tr></thead>
             <tbody>
               <template v-for="session in clientSessions" :key="session.sessionId">
+                <tr class="session-row">
+                  <td colspan="8">
+                    <span class="session-path">{{ session.path }}</span>
+                    <span class="badge ms-2" :class="session.visibilityState === 'visible' ? 'bg-success' : 'bg-secondary'">{{ session.visibilityState }}</span>
+                    <span class="health-secondary ms-2">Build {{ session.buildHash }} · sampled {{ new Date(session.sampledAtUtc).toLocaleTimeString() }}<span v-if="session.playersTruncated"> · truncated</span></span>
+                  </td>
+                </tr>
                 <tr v-for="player in session.players" :key="`${session.sessionId}-${player.id}`">
-                  <td><div>{{ session.path }}</div><div class="text-muted small">{{ session.visibilityState }} · {{ session.buildHash }} · {{ new Date(session.sampledAtUtc).toLocaleTimeString() }}<span v-if="session.playersTruncated"> · truncated</span></div></td>
-                  <td>{{ player.id }}</td><td>{{ player.selectedStream ?? 'unknown' }}</td><td>{{ formatMs(player.latencyMs) }}</td>
-                  <td>{{ player.readyState ?? '—' }}</td><td>{{ player.totalVideoFrames ?? '—' }}</td>
-                  <td>{{ player.droppedVideoFrames ?? '—' }}</td><td>{{ player.corruptedVideoFrames ?? '—' }}</td>
+                  <td>{{ playerLabel(player.id) }}</td><td>{{ streamTierLabel(player.selectedStream ?? 'unknown') }}</td><td>{{ formatMs(player.latencyMs) }}</td>
+                  <td>{{ readyStateLabel(player.readyState) }}</td><td>{{ formatCount(player.totalVideoFrames) }}</td>
+                  <td>{{ formatCount(player.droppedVideoFrames) }}</td><td>{{ formatCount(player.corruptedVideoFrames) }}</td>
                   <td>{{ player.restartCount ?? 0 }} / {{ player.stallCount ?? 0 }} / {{ player.errorCount ?? 0 }}</td>
                 </tr>
               </template>
@@ -339,7 +406,20 @@ onMounted(refresh)
 </template>
 
 <style scoped>
-.health-table th { white-space: nowrap; font-size: 0.75rem; color: var(--bs-secondary-color); }
-.health-table td { font-size: 0.8rem; }
-.stream-line { white-space: nowrap; }
+.health-dashboard {
+  --bs-body-color: #e1e4e8;
+  --bs-secondary-color: #9da7b3;
+  --bs-emphasis-color: #f3f4f6;
+  color: #e1e4e8;
+}
+.health-secondary { color: #9da7b3; }
+.health-table { --bs-table-color: #d8dee6; --bs-table-hover-color: #f3f4f6; }
+.health-table th { white-space: nowrap; font-size: 0.75rem; color: #aeb7c2; letter-spacing: 0.015em; }
+.health-table td { padding-top: 0.45rem; padding-bottom: 0.45rem; font-size: 0.82rem; }
+.camera-name, .session-path { color: #f3f4f6; font-weight: 600; }
+.stream-line { white-space: nowrap; line-height: 1.55; }
+.stream-tier, .evidence-tier { display: inline-block; min-width: 3.4rem; color: #7eb8f2; font-weight: 600; }
+.monitor-hint { padding: 0.55rem 0.75rem; color: #aeb7c2; background: rgba(74, 144, 217, 0.08); border-bottom: 1px solid var(--bs-border-color); }
+.session-row td { padding: 0.55rem 0.75rem; background: #20252d; border-top-width: 2px; }
+.client-table tbody tr:not(.session-row) td:first-child { padding-left: 1.25rem; }
 </style>
