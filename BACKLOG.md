@@ -48,7 +48,8 @@ details should be refined when an item is scheduled.
   a vehicle starting, footsteps, dog barking, and human speech. Evaluate model
   accuracy, compute cost, microphone variability, privacy controls, confidence
   thresholds, and whether inference can operate on short buffered windows
-  without retaining continuous audio.
+  without retaining continuous audio. The staged model and evaluation proposal
+  is recorded in [AUDIO_INTELLIGENCE.md](AUDIO_INTELLIGENCE.md).
 
 ## Dashboard layouts
 
@@ -72,6 +73,10 @@ details should be refined when an item is scheduled.
   camera stream's normal startup delay.
 
 ## Activity quality
+
+The grouping, user-relevance, and object-persistence design is recorded in
+[ACTIVITY_INTELLIGENCE.md](ACTIVITY_INTELLIGENCE.md). It identifies preserving
+empty/baseline observation evidence as a prerequisite for reliable persistence.
 
 - In recent activity, use the interesting-object bounding boxes to select a
   tighter thumbnail crop/zoom. When face extraction produced a useful face
