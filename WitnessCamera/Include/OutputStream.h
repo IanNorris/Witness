@@ -57,11 +57,20 @@ public:
 		m_Isolated = Isolated;
 	}
 
+	// Some no-B-frame RTSP cameras (notably Reolink) deliver every access unit
+	// but attach a bursty DTS clock. Preserve the packets and record them on a
+	// stable cadence instead of dropping reference pictures.
+	void SetTimestampNormalizationAllowed(bool Allowed)
+	{
+		m_TimestampNormalizationAllowed = Allowed;
+	}
+
 private:
 
 	static int GlobalOutputStreamIndex;
 
 	CameraStreamError SendAll( void );
+	bool NormalizeVideoTimestamp(AVPacket* Packet, AVRational InputTimebase);
 
 	InputStream * m_InputStream;
 	FFMPEG::InMemoryIOContext* m_IOContext;
@@ -85,6 +94,19 @@ private:
 	bool m_HasAudioStream;
 	int m_AudioInputStreamIndex;
 	int64_t m_InitialTimestampUs;
+	bool m_TimestampNormalizationAllowed;
+	int64_t m_LastRawVideoDTS;
+	int64_t m_LastNormalizedVideoDuration;
+	int64_t m_TimestampCorrectionRemainder;
+	uint64_t m_RepairedVideoTimestamps;
+	bool m_TimestampNormalizationActive;
+	bool m_TimestampNormalizationRejected;
+	int m_TimestampProbeSamples;
+	int m_TimestampProbeOutliers;
+	int64_t m_TimestampProbeDeltaTicks;
+	int64_t m_TimestampProbeNominalTicks;
+	int64_t m_QualifiedVideoDuration;
+	int64_t m_TimestampSourceOffset;
 };
 
 }}

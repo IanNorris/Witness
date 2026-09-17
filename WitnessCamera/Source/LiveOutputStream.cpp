@@ -308,6 +308,7 @@ LiveOutputStream::LiveOutputStream(const std::string& LiveCachePath, InputStream
 	, _InitGeneration(0)
 	, _SegmentsMutex( new std::mutex )
 {
+	_PendingVideoPacket = av_packet_alloc();
 }
 
 LiveOutputStream::~LiveOutputStream()
@@ -396,6 +397,8 @@ void LiveOutputStream::Shutdown()
 	}
 
 	_CurrentBuffer.reset();
+	if( _PendingVideoPacket )
+		av_packet_free( &_PendingVideoPacket );
 }
 
 void LiveOutputStream::ResetForReconnect(InputStream* NewInputStream)
@@ -424,6 +427,9 @@ void LiveOutputStream::ResetForReconnect(InputStream* NewInputStream)
 	}
 
 	_CurrentBuffer.reset();
+	if( _PendingVideoPacket )
+		av_packet_unref( _PendingVideoPacket );
+	_PendingVideoActivityID = 0;
 	_InputStream = NewInputStream;
 	_HeaderWritten = false;
 	_InitSegmentCaptured = false;
@@ -459,8 +465,25 @@ void LiveOutputStream::ResetForReconnect(InputStream* NewInputStream)
 	_CurrentPartialKeyframeSeekSafe = false;
 	_DiscontinuityPending = true;
 	_DecodeCorruptionActive = false;
+	_DecodeCorruptionActivityID = 0;
+	_RecoveryPendingPublication = false;
+	_RecoverySegmentIndex = -1;
+	_RecoveryPartialIndex = -1;
+	_RecoveryActivityID = 0;
+	_RecoveryPacketSequence = 0;
 	{
 		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
+		_StartupGraceStarted = {};
+		_StreamEstablished = false;
+		_StartupAcceptedVideoPackets = 0;
+		_StartupDroppedVideoPackets = 0;
+		_StartupRepairedVideoTimestamps = 0;
+		_GenerationAcceptedVideoPacketsBaseline = _DiagAcceptedVideoPackets;
+		_GenerationDroppedVideoPacketsBaseline = _DiagDroppedVideoPackets;
+		_GenerationRepairedVideoTimestampsBaseline = _DiagRepairedVideoTimestamps;
+		_EstablishedAcceptedVideoPacketsBaseline = _DiagAcceptedVideoPackets;
+		_EstablishedDroppedVideoPacketsBaseline = _DiagDroppedVideoPackets;
+		_EstablishedRepairedVideoTimestampsBaseline = _DiagRepairedVideoTimestamps;
 		_InitGeneration++;
 		_DiagVideoPhaseErrorMs = 0.0;
 		_DiagVideoCorrectionMs = 0.0;
@@ -659,6 +682,13 @@ CameraStreamError LiveOutputStream::InitFormatContext()
 
 void LiveOutputStream::NotifyDecodeCorruption(int ErrorFlags)
 {
+	_DecodeCorruptionActivityID = (std::max)(
+		_DecodeCorruptionActivityID, _CurrentDiagnosticActivity);
+	_RecoveryPendingPublication = false;
+	_RecoverySegmentIndex = -1;
+	_RecoveryPartialIndex = -1;
+	_RecoveryActivityID = 0;
+	_RecoveryPacketSequence = 0;
 	if (_DecodeCorruptionActive)
 		return;
 
@@ -706,6 +736,62 @@ void LiveOutputStream::NotifyDecodeCorruption(int ErrorFlags)
 
 CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packet)
 {
+	if( !Packet || !_InputStream )
+		return CameraStreamError::Success;
+
+	const auto& InputData = _InputStream->GetData();
+	const bool IsVideo = Packet->stream_index == InputData.ChosenStreamIndex;
+	if( !IsVideo || !_PendingVideoPacket )
+		return WritePacketWithKnownDuration( Packet, _CurrentDiagnosticActivity );
+
+	{
+		const std::lock_guard<std::mutex> Guard(*_SegmentsMutex);
+		if( _StartupGraceStarted.time_since_epoch().count() == 0 )
+			_StartupGraceStarted = std::chrono::steady_clock::now();
+	}
+
+	if( _PendingVideoPacket->data || _PendingVideoPacket->size > 0 )
+	{
+		const int64_t SourceDuration = _PendingVideoPacket->duration;
+		if( _PendingVideoPacket->dts != AV_NOPTS_VALUE && Packet->dts != AV_NOPTS_VALUE )
+		{
+			const int64_t Delta = Packet->dts - _PendingVideoPacket->dts;
+			const AVRational Timebase = InputData.FormatContext->
+				streams[InputData.ChosenStreamIndex]->time_base;
+			const int64_t MaximumLookahead = av_rescale_q(
+				2 * AV_TIME_BASE, AV_TIME_BASE_Q, Timebase );
+			// The next raw DTS is useful for generic VFR streams, but it is exactly
+			// the noisy signal the Reolink profile is meant to reject. Keep that
+			// profile's declared/advertised cadence intact for the PLL below.
+			if( !_AllowTimestampNormalization && Delta > 0 && Delta <= MaximumLookahead )
+				_PendingVideoPacket->duration = Delta;
+		}
+
+		const uint64_t CurrentActivityID = _CurrentDiagnosticActivity;
+		FFmpegLogContextScope PendingLogContext( _InputStream->GetSourceId(),
+			"live-mux", this, _PendingVideoActivityID );
+		CameraStreamError Result = WritePacketWithKnownDuration(
+			_PendingVideoPacket, _PendingVideoActivityID, SourceDuration );
+		_CurrentDiagnosticActivity = CurrentActivityID;
+		av_packet_unref( _PendingVideoPacket );
+		_PendingVideoActivityID = 0;
+		if( Result != CameraStreamError::Success )
+			return Result;
+	}
+
+	const int RefResult = av_packet_ref( _PendingVideoPacket, Packet );
+	if( RefResult < 0 )
+	{
+		STREAM_ERROR( RefError, RefResult );
+	}
+	_PendingVideoActivityID = _CurrentDiagnosticActivity;
+	return CameraStreamError::Success;
+}
+
+CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
+	const AVPacket* Packet, uint64_t ActivityID, int64_t SourceDuration )
+{
+	_CurrentDiagnosticActivity = ActivityID;
 	if (!_FormatContext)
 	{
 		CameraStreamError Result = InitFormatContext();
@@ -721,57 +807,21 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 	AVRational InputTimebase =
 		_InputStream->GetData().FormatContext->streams[Packet->stream_index]->time_base;
 	const bool IsVideoKeyframe = IsVideo && (Packet->flags & AV_PKT_FLAG_KEY);
-	if (IsVideoKeyframe && _DecodeCorruptionActive)
-	{
-		_DecodeCorruptionActive = false;
-		{
-			MediaDiagnosticEvent Event;
-			Event.TimestampUnixMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-				std::chrono::system_clock::now().time_since_epoch()).count();
-			Event.ElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-				std::chrono::steady_clock::now() - _PacketDiagEpoch).count();
-			Event.ActivityID = _CurrentDiagnosticActivity;
-			Event.Category = "decode";
-			Event.Severity = "info";
-			Event.Phase = "presentation";
-			Event.Component = "decoder";
-			Event.Message = "Recovery keyframe reached; presentation can resume";
-			Event.Disposition = "decodeRecovery";
-			Event.Keyframe = true;
-			const std::lock_guard<std::mutex> Guard( *_SegmentsMutex );
-			++_DiagDecodeRecoveryEvents;
-			Event.Sequence = ++_MediaEventSequence;
-			Event.PacketSequence = _PacketDiagSequence + 1;
-			Event.Generation = _InitGeneration;
-			Event.SegmentIndex = _CurrentSegmentIndex;
-			Event.PartialIndex = _CurrentPartialIndex;
-			_MediaEventRing[_MediaEventRingPos % MEDIA_EVENT_RING_SIZE] = std::move( Event );
-			++_MediaEventRingPos;
-			if( _MediaEventRingCount < MEDIA_EVENT_RING_SIZE )
-				++_MediaEventRingCount;
-		}
-		LOG_INFO("[HLS] Camera %d reached a recovery keyframe; resuming presentation after it is buffered",
-			_InputStream->GetSourceId());
-		if (_EventCallback)
-		{
-			LiveStreamEvent Event;
-			Event.EventType = LiveStreamEvent::DecodeRecovery;
-			Event.SegmentIndex = _CurrentSegmentIndex;
-			Event.PartIndex = _CurrentPartialIndex;
-			Event.Generation = _InitGeneration;
-			_EventCallback(Event);
-		}
-	}
 	if (IsVideo && (Packet->flags & AV_PKT_FLAG_CORRUPT))
 		NotifyDecodeCorruption(0);
+	const bool IsRecoveryCandidate = IsVideoKeyframe && _DecodeCorruptionActive &&
+		_CurrentDiagnosticActivity > _DecodeCorruptionActivityID &&
+		(Packet->flags & AV_PKT_FLAG_CORRUPT) == 0;
 	const bool SourceHasDts = Packet->dts != AV_NOPTS_VALUE;
 	const bool SourceHasPts = Packet->pts != AV_NOPTS_VALUE;
 	const int64_t SourceDtsUs = SourceHasDts ?
 		av_rescale_q(Packet->dts, InputTimebase, AV_TIME_BASE_Q) : 0;
 	const int64_t SourcePtsUs = SourceHasPts ?
 		av_rescale_q(Packet->pts, InputTimebase, AV_TIME_BASE_Q) : 0;
-	const int64_t SourceDurationUs = Packet->duration > 0 ?
-		av_rescale_q(Packet->duration, InputTimebase, AV_TIME_BASE_Q) : 0;
+	const int64_t OriginalSourceDuration = SourceDuration != INT64_MIN ?
+		SourceDuration : Packet->duration;
+	const int64_t SourceDurationUs = OriginalSourceDuration > 0 ?
+		av_rescale_q(OriginalSourceDuration, InputTimebase, AV_TIME_BASE_Q) : 0;
 	const uint64_t PayloadHash = Packet->data && Packet->size > 0 ?
 		HashBytes(Packet->data, (size_t)Packet->size) : Fnv1aOffsetBasis;
 	const AVCodecID PacketCodec = _InputStream->GetData().FormatContext->
@@ -970,6 +1020,26 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 		PacketCopy.duration = 0;
 		DurationSynthesized = true;
 	}
+	if( IsVideo && !_HasBFrames && _AllowTimestampNormalization )
+	{
+		const AVRational Framerate = _InputStream->GetData().CodecContext->framerate;
+		if( Framerate.num > 0 && Framerate.den > 0 )
+		{
+			const double FramesPerSecond = av_q2d(Framerate);
+			if( FramesPerSecond >= 1.0 && FramesPerSecond <= 120.0 )
+			{
+				const int64_t AdvertisedDuration = av_rescale_q(
+					1, av_inv_q(Framerate), InputTimebase);
+				if( AdvertisedDuration > 0 && (PacketCopy.duration <= 0 ||
+					PacketCopy.duration * 2 < AdvertisedDuration ||
+					PacketCopy.duration > AdvertisedDuration * 2) )
+				{
+					PacketCopy.duration = AdvertisedDuration;
+					DurationSynthesized = true;
+				}
+			}
+		}
+	}
 
 	// Reject duplicate or out-of-order input packets unless this source has
 	// already qualified for duration-derived timestamp repair. In that case the
@@ -1118,10 +1188,29 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 		// Enforce a minimum segment duration of 1 second. Cameras like Tapo send
 		// keyframes every ~50-100ms, which would create unusable micro-segments.
 		const bool ShouldSplit = !_HeaderWritten || _CurrentSegmentDuration >= 1.0;
+		// A recovery random-access point must be the first video sample in the
+		// partial that releases presentation. Do not label a mixed partial as
+		// independent merely because it contains a later keyframe.
+		if( IsRecoveryCandidate && _HeaderWritten && !ShouldSplit &&
+			_CurrentPartialHasPacket )
+		{
+			if( !FlushPartialSegment( _CurrentPartialIsIndependent ) )
+			{
+				av_packet_unref(&PacketCopy);
+				return CameraStreamError::WriteFailed;
+			}
+		}
 		if (ShouldSplit)
 		{
 			if (_HeaderWritten)
-				FinishCurrentSegment(PacketCopy.dts);
+			{
+				CameraStreamError FinishResult = FinishCurrentSegment(PacketCopy.dts);
+				if( FinishResult != CameraStreamError::Success )
+				{
+					av_packet_unref(&PacketCopy);
+					return FinishResult;
+				}
+			}
 
 			CameraStreamError StartResult = StartNewSegment(&PacketCopy);
 			if (StartResult != CameraStreamError::Success)
@@ -1149,6 +1238,9 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 		DurationSynthesized = true;
 	}
 	const int64_t NominalVideoDuration = IsVideo ? PacketCopy.duration : 0;
+	const int64_t SourceNominalVideoDuration = IsVideo && OriginalSourceDuration > 0 &&
+		OriginalSourceDuration <= INT_MAX ?
+		OriginalSourceDuration : NominalVideoDuration;
 
 	// Once the Reolink source has met the guarded jitter test, build a continuous
 	// output clock from declared durations, then gently steer it towards the raw
@@ -1277,10 +1369,10 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 	{
 		AVRational TimeBase = _FormatContext->streams[0]->time_base;
 		double PacketDurationSec = (double)(PacketCopy.duration * TimeBase.num) / TimeBase.den;
-		double NominalPacketDurationSec =
-			(double)(NominalVideoDuration * TimeBase.num) / TimeBase.den;
 		_CurrentSegmentDuration += PacketDurationSec;
-		_CurrentSegmentNominalDuration += NominalPacketDurationSec;
+		const double SourceNominalPacketDurationSec =
+			(double)(SourceNominalVideoDuration * TimeBase.num) / TimeBase.den;
+		_CurrentSegmentNominalDuration += SourceNominalPacketDurationSec;
 		_CurrentPartialDuration += PacketDurationSec;
 
 		// With multiplexed audio, SourceBuffer range boundaries are not guaranteed
@@ -1290,6 +1382,7 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 		if (!_CurrentPartialHasPacket)
 		{
 			_CurrentPartialHasPacket = true;
+			_CurrentPartialIsIndependent = IsVideoKeyframe;
 			_CurrentPartialKeyframeSeekSafe = PacketKeyframeSeekSafe;
 		}
 		else
@@ -1303,10 +1396,6 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 		double PacketDurationSec = (double)(PacketCopy.duration * InputTimebase.num) / InputTimebase.den;
 		_CurrentPartialAudioDuration += PacketDurationSec;
 	}
-
-	// Track whether this partial contains a keyframe (first partial of segment)
-	if (IsVideo && (PacketCopy.flags & AV_PKT_FLAG_KEY))
-		_CurrentPartialIsIndependent = true;
 
 	const int TraceSegmentIndex = _CurrentSegmentIndex;
 	const int TracePartialIndex = _CurrentPartialIndex;
@@ -1326,6 +1415,16 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 	}
 	RecordPacket("written", true, TraceOutputDts, TraceOutputPts,
 		TraceOutputDuration, TraceSegmentIndex, TracePartialIndex);
+	if( IsRecoveryCandidate )
+	{
+		_RecoveryPendingPublication = true;
+		_RecoverySegmentIndex = TraceSegmentIndex;
+		_RecoveryPartialIndex = TracePartialIndex;
+		_RecoveryActivityID = _CurrentDiagnosticActivity;
+		_RecoveryPacketSequence = PacketSequence;
+	}
+	if( IsVideoKeyframe )
+		MarkStreamEstablished();
 	_SegmentPacketPayloadHash = HashBytes(
 		reinterpret_cast<const uint8_t*>(&PayloadHash), sizeof(PayloadHash),
 		_SegmentPacketPayloadHash);
@@ -1333,28 +1432,39 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 	// Flush a partial segment when we've accumulated enough duration
 	if (IsVideo && _CurrentPartialDuration >= _PartialTargetDuration)
 	{
-		FlushPartialSegment(_CurrentPartialIsIndependent);
+		if( !FlushPartialSegment(_CurrentPartialIsIndependent) )
+			return CameraStreamError::WriteFailed;
 	}
 
 	return CameraStreamError::Success;
 }
 
-void LiveOutputStream::FlushPartialSegment(bool IsIndependent)
+bool LiveOutputStream::FlushPartialSegment(bool IsIndependent)
 {
 	if (!_FormatContext || !_CurrentBuffer)
-		return;
+		return true;
 
 	// Flush current fragment data into the buffer
-	av_interleaved_write_frame(_FormatContext, nullptr);
-	av_write_frame(_FormatContext, nullptr);
+	const int InterleaveResult = av_interleaved_write_frame(_FormatContext, nullptr);
+	const int FragmentResult = av_write_frame(_FormatContext, nullptr);
 	avio_flush(_FormatContext->pb);
+	if( InterleaveResult < 0 || FragmentResult < 0 )
+	{
+		const int Error = InterleaveResult < 0 ? InterleaveResult : FragmentResult;
+		LOG_WARNING("[HLS] Camera %d failed to flush partial %d/%d: ffmpeg error %d",
+			_InputStream ? _InputStream->GetSourceId() : -1,
+			_CurrentSegmentIndex, _CurrentPartialIndex, Error);
+		CaptureDiagnosticAnomaly("fragmentFlushError");
+		_RecoveryPendingPublication = false;
+		return false;
+	}
 
 	// Only create a partial if we actually accumulated data since the last flush
 	size_t CurrentSize = _CurrentBuffer->size();
 	// windows.h defines max as a macro in this translation unit.
 	double PartialDuration = (std::max)(_CurrentPartialDuration, _CurrentPartialAudioDuration);
 	if (CurrentSize <= _PartialBufferOffset)
-		return;
+		return true;
 	// Some RTSP sources omit AAC packet durations. The fragment still needs to
 	// be delivered; use the configured target as a conservative playlist value.
 	if (PartialDuration <= 0.0)
@@ -1406,6 +1516,10 @@ void LiveOutputStream::FlushPartialSegment(bool IsIndependent)
 	}
 	if (!PartialStructure.Valid)
 		CaptureDiagnosticAnomaly("invalidFragmentStructure");
+	const bool PublishesRecovery = _RecoveryPendingPublication &&
+		_RecoverySegmentIndex == _CurrentSegmentIndex &&
+		_RecoveryPartialIndex == Partial.PartIndex && Partial.Independent &&
+		PartialStructure.Valid;
 
 	_CurrentPartialIndex++;
 	_CurrentPartialDuration = 0.0;
@@ -1413,6 +1527,11 @@ void LiveOutputStream::FlushPartialSegment(bool IsIndependent)
 	_CurrentPartialIsIndependent = false;
 	_CurrentPartialHasPacket = false;
 	_CurrentPartialKeyframeSeekSafe = false;
+	// Arm the browser before the matching partial metadata is delivered. The
+	// subsequent control and binary messages are queued on the same WebSocket,
+	// so releaseRendering is captured on this exact independent fragment.
+	if( PublishesRecovery )
+		PublishDecodeRecovery( FragmentDiag.SegmentIndex, FragmentDiag.PartIndex );
 
 	// Notify MSE subscribers of new partial
 	if (_EventCallback)
@@ -1431,6 +1550,72 @@ void LiveOutputStream::FlushPartialSegment(bool IsIndependent)
 			HashBytes32(Event.Data->data(), Event.Data->size()) : 0;
 		_EventCallback(Event);
 	}
+	return true;
+}
+
+void LiveOutputStream::PublishDecodeRecovery(int SegmentIndex, int PartialIndex)
+{
+	if( !_RecoveryPendingPublication || !_DecodeCorruptionActive )
+		return;
+
+	LiveStreamEvent Event;
+	Event.EventType = LiveStreamEvent::DecodeRecovery;
+	Event.SegmentIndex = SegmentIndex;
+	Event.PartIndex = PartialIndex;
+	Event.Generation = _InitGeneration;
+	{
+		MediaDiagnosticEvent Diagnostic;
+		Diagnostic.TimestampUnixMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+			std::chrono::system_clock::now().time_since_epoch()).count();
+		Diagnostic.ElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+			std::chrono::steady_clock::now() - _PacketDiagEpoch).count();
+		Diagnostic.ActivityID = _RecoveryActivityID;
+		Diagnostic.PacketSequence = _RecoveryPacketSequence;
+		Diagnostic.Generation = _InitGeneration;
+		Diagnostic.SegmentIndex = SegmentIndex;
+		Diagnostic.PartialIndex = PartialIndex;
+		Diagnostic.Category = "decode";
+		Diagnostic.Severity = "info";
+		Diagnostic.Phase = "presentation";
+		Diagnostic.Component = "muxer";
+		Diagnostic.Message = "Published an independently decodable recovery fragment";
+		Diagnostic.Disposition = "decodeRecovery";
+		const std::lock_guard<std::mutex> Guard( *_SegmentsMutex );
+		++_DiagDecodeRecoveryEvents;
+		Diagnostic.Sequence = ++_MediaEventSequence;
+		_MediaEventRing[_MediaEventRingPos % MEDIA_EVENT_RING_SIZE] = std::move(Diagnostic);
+		++_MediaEventRingPos;
+		if( _MediaEventRingCount < MEDIA_EVENT_RING_SIZE )
+			++_MediaEventRingCount;
+	}
+	_DecodeCorruptionActive = false;
+	_RecoveryPendingPublication = false;
+	_RecoverySegmentIndex = -1;
+	_RecoveryPartialIndex = -1;
+	_RecoveryActivityID = 0;
+	_RecoveryPacketSequence = 0;
+	if( _EventCallback )
+		_EventCallback(Event);
+}
+
+void LiveOutputStream::MarkStreamEstablished()
+{
+	const std::lock_guard<std::mutex> Guard( *_SegmentsMutex );
+	if( _StreamEstablished || _StartupGraceStarted.time_since_epoch().count() == 0 )
+		return;
+	const auto Elapsed = std::chrono::steady_clock::now() - _StartupGraceStarted;
+	if( Elapsed < std::chrono::seconds(5) )
+		return;
+	_StartupAcceptedVideoPackets = _DiagAcceptedVideoPackets -
+		_GenerationAcceptedVideoPacketsBaseline;
+	_StartupDroppedVideoPackets = _DiagDroppedVideoPackets -
+		_GenerationDroppedVideoPacketsBaseline;
+	_StartupRepairedVideoTimestamps = _DiagRepairedVideoTimestamps -
+		_GenerationRepairedVideoTimestampsBaseline;
+	_EstablishedAcceptedVideoPacketsBaseline = _DiagAcceptedVideoPackets;
+	_EstablishedDroppedVideoPacketsBaseline = _DiagDroppedVideoPackets;
+	_EstablishedRepairedVideoTimestampsBaseline = _DiagRepairedVideoTimestamps;
+	_StreamEstablished = true;
 }
 
 CameraStreamError LiveOutputStream::StartNewSegment(const AVPacket* Packet)
@@ -1539,15 +1724,16 @@ CameraStreamError LiveOutputStream::StartNewSegment(const AVPacket* Packet)
 	return CameraStreamError::Success;
 }
 
-void LiveOutputStream::FinishCurrentSegment(int64_t NextKeyframeDTS)
+CameraStreamError LiveOutputStream::FinishCurrentSegment(int64_t NextKeyframeDTS)
 {
 	if (!_FormatContext || !_CurrentBuffer)
 	{
-		return;
+		return CameraStreamError::Success;
 	}
 
 	// Flush remaining data as the final partial of this segment
-	FlushPartialSegment(_CurrentPartialIsIndependent);
+	if( !FlushPartialSegment(_CurrentPartialIsIndependent) )
+		return CameraStreamError::WriteFailed;
 
 	// Compute accurate segment duration from DTS span instead of
 	// accumulated packet durations. Accumulated durations drift over
@@ -1633,6 +1819,7 @@ void LiveOutputStream::FinishCurrentSegment(int64_t NextKeyframeDTS)
 		Event.Generation = _InitGeneration;
 		_EventCallback(Event);
 	}
+	return CameraStreamError::Success;
 }
 
 LiveOutputStream::StreamingDiagnostics LiveOutputStream::GetStreamingDiagnostics( bool IncludeHistory ) const
@@ -1662,6 +1849,31 @@ LiveOutputStream::StreamingDiagnostics LiveOutputStream::GetStreamingDiagnostics
 	Diag.MuxErrorPackets = _DiagMuxErrorPackets;
 	Diag.DecodeCorruptionEvents = _DiagDecodeCorruptionEvents;
 	Diag.DecodeRecoveryEvents = _DiagDecodeRecoveryEvents;
+	Diag.StreamEstablished = _StreamEstablished;
+	if( _StartupGraceStarted.time_since_epoch().count() != 0 )
+		Diag.StartupGraceElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+			std::chrono::steady_clock::now() - _StartupGraceStarted).count();
+	if( _StreamEstablished )
+	{
+		Diag.StartupAcceptedVideoPackets = _StartupAcceptedVideoPackets;
+		Diag.StartupDroppedVideoPackets = _StartupDroppedVideoPackets;
+		Diag.StartupRepairedVideoTimestamps = _StartupRepairedVideoTimestamps;
+		Diag.EstablishedAcceptedVideoPackets = _DiagAcceptedVideoPackets -
+			_EstablishedAcceptedVideoPacketsBaseline;
+		Diag.EstablishedDroppedVideoPackets = _DiagDroppedVideoPackets -
+			_EstablishedDroppedVideoPacketsBaseline;
+		Diag.EstablishedRepairedVideoTimestamps = _DiagRepairedVideoTimestamps -
+			_EstablishedRepairedVideoTimestampsBaseline;
+	}
+	else
+	{
+		Diag.StartupAcceptedVideoPackets = _DiagAcceptedVideoPackets -
+			_GenerationAcceptedVideoPacketsBaseline;
+		Diag.StartupDroppedVideoPackets = _DiagDroppedVideoPackets -
+			_GenerationDroppedVideoPacketsBaseline;
+		Diag.StartupRepairedVideoTimestamps = _DiagRepairedVideoTimestamps -
+			_GenerationRepairedVideoTimestampsBaseline;
+	}
 	Diag.VideoPhaseErrorMs = _DiagVideoPhaseErrorMs;
 	Diag.VideoCorrectionMs = _DiagVideoCorrectionMs;
 	Diag.HasAudioVideoSkew = _DiagHasAudioOutputTimestamp && _DiagHasVideoOutputTimestamp;

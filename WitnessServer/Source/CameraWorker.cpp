@@ -219,6 +219,7 @@ void CameraWorker::CreateInputStream()
 		});
 	}
 	LiveStream->SetTimestampNormalizationAllowed( DetectCameraProfile( CamPath ) == CameraProfile::Reolink );
+	const bool NormalizeCameraTimestamps = DetectCameraProfile( CamPath ) == CameraProfile::Reolink;
 	{
 		std::lock_guard<std::mutex> Lock( m_StreamMetadataMutex );
 		m_PublishedLiveStream = LiveStream;
@@ -267,6 +268,7 @@ void CameraWorker::CreateInputStream()
 				}
 			);
 		}
+		ContinuousStream->SetTimestampNormalizationAllowed(NormalizeCameraTimestamps);
 
 		// Wire packet callback so ContinuousStream receives every video packet
 		auto contStream = ContinuousStream;
@@ -912,6 +914,8 @@ void CameraWorker::WorkerMain()
 				
 			Observer->SetManualClipStart( Data.Timestamp );
 			RecordStream = std::make_shared<OutputStream>( std::string( Data.Path.begin(), Data.Path.end() ), CameraStream.get(), false, false, false, false );
+			RecordStream->SetTimestampNormalizationAllowed(
+				DetectCameraProfile( Camera.Path ) == CameraProfile::Reolink );
 			CameraStreamError InitResult = RecordStream->Initialize();
 			if (InitResult != CameraStreamError::Success)
 			{

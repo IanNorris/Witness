@@ -33,6 +33,10 @@ public:
 
 	// Target segment duration in seconds (actual will be longer, split on next keyframe)
 	void SetTargetSegmentDuration(int seconds);
+	void SetTimestampNormalizationAllowed(bool allowed)
+	{
+		m_TimestampNormalizationAllowed = allowed;
+	}
 
 	// Write a selected video or AAC audio packet without transcoding.
 	CameraStreamError WritePacket(const AVPacket* packet);
@@ -46,6 +50,7 @@ public:
 private:
 	CameraStreamError StartNewSegment();
 	CameraStreamError FinalizeCurrentSegment();
+	bool NormalizeVideoTimestamp(AVPacket* packet, AVRational inputTimebase);
 
 	std::string m_BasePath;		// Directory: CachePath/continuous/{CameraID}/
 	int m_CameraUID;
@@ -61,6 +66,19 @@ private:
 	int64_t m_FirstTimestampUs;		// Common video/audio timeline origin
 	int64_t m_LastWrittenDTS;
 	int64_t m_LastWrittenAudioDTS;
+	bool m_TimestampNormalizationAllowed;
+	int64_t m_LastRawVideoDTS;
+	int64_t m_LastNormalizedVideoDuration;
+	int64_t m_TimestampCorrectionRemainder;
+	uint64_t m_RepairedVideoTimestamps;
+	bool m_TimestampNormalizationActive;
+	bool m_TimestampNormalizationRejected;
+	int m_TimestampProbeSamples;
+	int m_TimestampProbeOutliers;
+	int64_t m_TimestampProbeDeltaTicks;
+	int64_t m_TimestampProbeNominalTicks;
+	int64_t m_QualifiedVideoDuration;
+	int64_t m_TimestampSourceOffset;
 	double m_SegmentDuration;			// Accumulated duration in seconds
 
 	int m_TargetSegmentDuration;		// Target duration before looking for next keyframe

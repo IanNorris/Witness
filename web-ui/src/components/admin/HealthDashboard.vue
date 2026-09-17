@@ -22,6 +22,14 @@ interface StreamHealth {
   droppedVideoPackets?: number
   corruptVideoPackets?: number
   repairedVideoTimestamps?: number
+	streamEstablished?: boolean
+	startupGraceElapsedMs?: number
+	startupAcceptedVideoPackets?: number
+	startupDroppedVideoPackets?: number
+	startupRepairedVideoTimestamps?: number
+	establishedAcceptedVideoPackets?: number
+	establishedDroppedVideoPackets?: number
+	establishedRepairedVideoTimestamps?: number
   missingVideoDtsPackets?: number
   audioVideoSkewMs?: number | null
   maxSegmentDriftMs?: number
@@ -187,6 +195,12 @@ function formatCount(value: number | undefined): string {
   return value == null ? '—' : value.toLocaleString()
 }
 
+function steadyCount(stream: StreamHealth, establishedKey: keyof StreamHealth, _lifetimeKey: keyof StreamHealth): number | undefined {
+	if (!stream.streamEstablished) return undefined
+	const value = stream[establishedKey]
+  return typeof value === 'number' ? value : undefined
+}
+
 const dispositionLabels: Record<string, string> = {
   waitingForKeyframe: 'waiting for keyframe',
   missingTimestamp: 'missing timestamp',
@@ -284,8 +298,8 @@ async function copyTable() {
   if (!snapshot.value) return
   const header = [
     'Camera', 'State', 'Tier', 'Codec', 'Resolution', 'Pending essential',
-    'Oldest essential ms', 'Retained segments', 'Dropped packets',
-    'Corrupt packets', 'Repaired timestamps', 'Missing DTS',
+	'Oldest essential ms', 'Retained segments', 'Steady-state dropped packets',
+	'Lifetime corrupt packets', 'Steady-state repaired timestamps', 'Lifetime missing DTS',
   ]
   const rows = snapshot.value.cameras.flatMap(camera => {
     const streams = camera.streams.length ? camera.streams : [{ tier: 'none', available: false, state: 'unavailable' } as StreamHealth]
@@ -298,9 +312,9 @@ async function copyTable() {
       camera.processing?.pendingEssential ?? '',
       camera.processing?.oldestPendingEssentialMs ?? '',
       stream.retainedSegments ?? '',
-      stream.droppedVideoPackets ?? '',
+	  steadyCount(stream, 'establishedDroppedVideoPackets', 'droppedVideoPackets') ?? '',
       stream.corruptVideoPackets ?? '',
-      stream.repairedVideoTimestamps ?? '',
+	  steadyCount(stream, 'establishedRepairedVideoTimestamps', 'repairedVideoTimestamps') ?? '',
       stream.missingVideoDtsPackets ?? '',
     ])
   })
@@ -434,10 +448,14 @@ onBeforeUnmount(() => {
                 <td>
                   <div v-for="stream in camera.streams" :key="`${stream.tier}-packets`" class="small">
                     <span class="evidence-tier">{{ streamTierLabel(stream.tier) }}</span>
-                    {{ stream.droppedVideoPackets ?? '—' }} dropped ·
-                    {{ stream.corruptVideoPackets ?? '—' }} corrupt ·
-                    {{ stream.repairedVideoTimestamps ?? '—' }} timestamp repairs ·
-                    {{ stream.missingVideoDtsPackets ?? '—' }} missing DTS
+					{{ steadyCount(stream, 'establishedDroppedVideoPackets', 'droppedVideoPackets') ?? '—' }} steady-state dropped ·
+					{{ steadyCount(stream, 'establishedRepairedVideoTimestamps', 'repairedVideoTimestamps') ?? '—' }} steady-state repairs ·
+					{{ stream.corruptVideoPackets ?? '—' }} lifetime corrupt ·
+					{{ stream.missingVideoDtsPackets ?? '—' }} lifetime missing DTS
+					<div v-if="stream.streamEstablished && (stream.startupDroppedVideoPackets || stream.startupRepairedVideoTimestamps)" class="health-secondary">
+					  Startup excluded: {{ stream.startupDroppedVideoPackets ?? 0 }} dropped ·
+					  {{ stream.startupRepairedVideoTimestamps ?? 0 }} repairs
+					</div>
                     <div v-if="dropReasonSummary(stream)" class="health-secondary disposition-summary">
                       {{ streamTierLabel(stream.tier) }} dispositions: {{ dropReasonSummary(stream) }}
                     </div>

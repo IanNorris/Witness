@@ -85,7 +85,7 @@ public:
 	virtual CameraStreamError ProcessFrame( const std::shared_ptr<IRecordFilter>& Filter, Stream* TargetStream, Stream* LiveStream ) override;
 	virtual void Shutdown() override;
 
-	CameraStreamError WriteInterleavedPacket( const AVPacket* Packet );
+	CameraStreamError WriteInterleavedPacket( const AVPacket* Packet ) override;
 
 	int GetCurrentSegment()
 	{
@@ -156,9 +156,13 @@ public:
 private:
 
 	CameraStreamError InitFormatContext();
+	CameraStreamError WritePacketWithKnownDuration( const AVPacket* Packet,
+		uint64_t ActivityID, int64_t SourceDuration = INT64_MIN );
 	CameraStreamError StartNewSegment(const AVPacket* Packet);
-	void FinishCurrentSegment(int64_t NextKeyframeDTS);
-	void FlushPartialSegment(bool IsIndependent);
+	CameraStreamError FinishCurrentSegment(int64_t NextKeyframeDTS);
+	bool FlushPartialSegment(bool IsIndependent);
+	void PublishDecodeRecovery(int SegmentIndex, int PartialIndex);
+	void MarkStreamEstablished();
 
 	void SetupMemoryIO();
 
@@ -230,6 +234,16 @@ private:
 
 	bool _DiscontinuityPending; // set on reconnect, consumed by next segment
 	bool _DecodeCorruptionActive = false;
+	uint64_t _DecodeCorruptionActivityID = 0;
+	bool _RecoveryPendingPublication = false;
+	int _RecoverySegmentIndex = -1;
+	int _RecoveryPartialIndex = -1;
+	uint64_t _RecoveryActivityID = 0;
+	uint64_t _RecoveryPacketSequence = 0;
+	AVPacket* _PendingVideoPacket = nullptr;
+	uint64_t _PendingVideoActivityID = 0;
+	std::chrono::steady_clock::time_point _StartupGraceStarted;
+	bool _StreamEstablished = false;
 
 	int _InitGeneration; // incremented on reconnect so HLS.js refetches init segment
 
@@ -374,6 +388,14 @@ public:
 		uint64_t MuxErrorPackets = 0;
 		uint64_t DecodeCorruptionEvents = 0;
 		uint64_t DecodeRecoveryEvents = 0;
+		bool StreamEstablished = false;
+		int64_t StartupGraceElapsedMs = 0;
+		uint64_t StartupAcceptedVideoPackets = 0;
+		uint64_t StartupDroppedVideoPackets = 0;
+		uint64_t StartupRepairedVideoTimestamps = 0;
+		uint64_t EstablishedAcceptedVideoPackets = 0;
+		uint64_t EstablishedDroppedVideoPackets = 0;
+		uint64_t EstablishedRepairedVideoTimestamps = 0;
 		double VideoPhaseErrorMs = 0.0;
 		double VideoCorrectionMs = 0.0;
 		double AudioVideoSkewMs = 0.0;
@@ -453,6 +475,15 @@ private:
 	uint64_t _DiagMuxErrorPackets = 0;
 	uint64_t _DiagDecodeCorruptionEvents = 0;
 	uint64_t _DiagDecodeRecoveryEvents = 0;
+	uint64_t _StartupAcceptedVideoPackets = 0;
+	uint64_t _StartupDroppedVideoPackets = 0;
+	uint64_t _StartupRepairedVideoTimestamps = 0;
+	uint64_t _GenerationAcceptedVideoPacketsBaseline = 0;
+	uint64_t _GenerationDroppedVideoPacketsBaseline = 0;
+	uint64_t _GenerationRepairedVideoTimestampsBaseline = 0;
+	uint64_t _EstablishedAcceptedVideoPacketsBaseline = 0;
+	uint64_t _EstablishedDroppedVideoPacketsBaseline = 0;
+	uint64_t _EstablishedRepairedVideoTimestampsBaseline = 0;
 	double _DiagVideoPhaseErrorMs = 0.0;
 	double _DiagVideoCorrectionMs = 0.0;
 	int64_t _DiagLastVideoOutputUs = 0;

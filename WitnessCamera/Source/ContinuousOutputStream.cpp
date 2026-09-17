@@ -6,6 +6,8 @@
 #include <filesystem>
 #include <chrono>
 #include <cstring>
+#include <algorithm>
+#include <climits>
 
 extern "C" {
 #include <libavformat/avformat.h>
@@ -31,6 +33,19 @@ ContinuousOutputStream::ContinuousOutputStream(const std::string& basePath, int 
 	, m_FirstTimestampUs(AV_NOPTS_VALUE)
 	, m_LastWrittenDTS(AV_NOPTS_VALUE)
 	, m_LastWrittenAudioDTS(AV_NOPTS_VALUE)
+	, m_TimestampNormalizationAllowed(false)
+	, m_LastRawVideoDTS(AV_NOPTS_VALUE)
+	, m_LastNormalizedVideoDuration(0)
+	, m_TimestampCorrectionRemainder(0)
+	, m_RepairedVideoTimestamps(0)
+	, m_TimestampNormalizationActive(false)
+	, m_TimestampNormalizationRejected(false)
+	, m_TimestampProbeSamples(0)
+	, m_TimestampProbeOutliers(0)
+	, m_TimestampProbeDeltaTicks(0)
+	, m_TimestampProbeNominalTicks(0)
+	, m_QualifiedVideoDuration(0)
+	, m_TimestampSourceOffset(0)
 	, m_SegmentDuration(0.0)
 	, m_TargetSegmentDuration(300) // 5 minutes
 	, m_WaitingForKeyframe(false)
@@ -164,6 +179,17 @@ CameraStreamError ContinuousOutputStream::StartNewSegment()
 	m_FirstTimestampUs = AV_NOPTS_VALUE;
 	m_LastWrittenDTS = AV_NOPTS_VALUE;
 	m_LastWrittenAudioDTS = AV_NOPTS_VALUE;
+	m_LastRawVideoDTS = AV_NOPTS_VALUE;
+	m_LastNormalizedVideoDuration = 0;
+	m_TimestampCorrectionRemainder = 0;
+	m_TimestampNormalizationActive = false;
+	m_TimestampNormalizationRejected = false;
+	m_TimestampProbeSamples = 0;
+	m_TimestampProbeOutliers = 0;
+	m_TimestampProbeDeltaTicks = 0;
+	m_TimestampProbeNominalTicks = 0;
+	m_QualifiedVideoDuration = 0;
+	m_TimestampSourceOffset = 0;
 	m_SegmentDuration = 0.0;
 	m_WaitingForKeyframe = false;
 
@@ -292,6 +318,9 @@ CameraStreamError ContinuousOutputStream::WritePacket(const AVPacket* packet)
 
 	pktCopy.pos = -1;
 	pktCopy.stream_index = isAudio ? m_AudioOutStream->index : m_OutStream->index;
+	if (pktCopy.duration < 0 || pktCopy.duration > INT_MAX)
+		pktCopy.duration = 0;
+	const bool timestampRepaired = isVideo && NormalizeVideoTimestamp(&pktCopy, inputTimebase);
 
 	// Drop non-monotonic DTS
 	const int64_t lastStreamDTS = isAudio ? m_LastWrittenAudioDTS : m_LastWrittenDTS;
@@ -330,6 +359,13 @@ CameraStreamError ContinuousOutputStream::WritePacket(const AVPacket* packet)
 		av_packet_unref(&pktCopy);
 		return CameraStreamError::WriteFailed;
 	}
+	if (timestampRepaired)
+	{
+		++m_RepairedVideoTimestamps;
+		if (m_RepairedVideoTimestamps <= 5 || (m_RepairedVideoTimestamps % 500) == 0)
+			LOG_WARNING("ContinuousOutputStream: Camera %d repaired jittery video timestamps (%llu packets)",
+				m_CameraUID, (unsigned long long)m_RepairedVideoTimestamps);
+	}
 
 	// Check if we've exceeded target duration — if so, wait for next keyframe
 	if (!m_WaitingForKeyframe && m_SegmentDuration >= m_TargetSegmentDuration)
@@ -338,6 +374,135 @@ CameraStreamError ContinuousOutputStream::WritePacket(const AVPacket* packet)
 	}
 
 	return CameraStreamError::Success;
+}
+
+bool ContinuousOutputStream::NormalizeVideoTimestamp(AVPacket* packet, AVRational inputTimebase)
+{
+	if (!m_TimestampNormalizationAllowed || !m_InputStream || !packet ||
+		m_InputStream->GetData().CodecContext->has_b_frames != 0)
+		return false;
+
+	const int64_t rawDTS = packet->dts;
+	const AVRational framerate = m_InputStream->GetData().CodecContext->framerate;
+	int64_t nominalDuration = 0;
+	if (framerate.num > 0 && framerate.den > 0)
+	{
+		const double framesPerSecond = av_q2d(framerate);
+		if (framesPerSecond >= 1.0 && framesPerSecond <= 120.0)
+			nominalDuration = av_rescale_q(1, av_inv_q(framerate), inputTimebase);
+	}
+	if (nominalDuration <= 0 && packet->duration > 0 && packet->duration <= INT_MAX)
+		nominalDuration = packet->duration;
+	if (nominalDuration > INT_MAX)
+		nominalDuration = 0;
+
+	const int64_t probeDuration = m_TimestampNormalizationActive ?
+		m_QualifiedVideoDuration : nominalDuration;
+	if (m_LastRawVideoDTS != AV_NOPTS_VALUE && probeDuration > 0 &&
+		!m_TimestampNormalizationRejected)
+	{
+		const int64_t delta = rawDTS - m_LastRawVideoDTS;
+		const int64_t error = delta - probeDuration;
+		++m_TimestampProbeSamples;
+		m_TimestampProbeDeltaTicks += delta;
+		m_TimestampProbeNominalTicks += probeDuration;
+		if (std::abs(error) * 2 > probeDuration)
+			++m_TimestampProbeOutliers;
+		if (!m_TimestampNormalizationActive && m_TimestampProbeSamples >= 40)
+		{
+			const int64_t totalError = m_TimestampProbeDeltaTicks - m_TimestampProbeNominalTicks;
+			const bool averageCadenceMatches = m_TimestampProbeDeltaTicks > 0 &&
+				std::abs(totalError) * 100 <= m_TimestampProbeNominalTicks * 5;
+			const bool sourceClockIsJittery =
+				m_TimestampProbeOutliers * 5 >= m_TimestampProbeSamples;
+			if (averageCadenceMatches && sourceClockIsJittery)
+			{
+				m_TimestampNormalizationActive = true;
+				m_QualifiedVideoDuration = (std::max<int64_t>)(1,
+					m_TimestampProbeNominalTicks / m_TimestampProbeSamples);
+				LOG_INFO("ContinuousOutputStream: Camera %d enabled guarded timestamp normalization after %d samples",
+					m_CameraUID, m_TimestampProbeSamples);
+			}
+			else if (m_TimestampProbeSamples >= 120)
+			{
+				m_TimestampProbeSamples = 0;
+				m_TimestampProbeOutliers = 0;
+				m_TimestampProbeDeltaTicks = 0;
+				m_TimestampProbeNominalTicks = 0;
+			}
+		}
+		if (m_TimestampNormalizationActive &&
+			av_rescale_q(m_TimestampProbeNominalTicks, inputTimebase, AV_TIME_BASE_Q) >=
+				120 * AV_TIME_BASE)
+		{
+			const int64_t totalError = m_TimestampProbeDeltaTicks - m_TimestampProbeNominalTicks;
+			if (std::abs(totalError) * 100 > m_TimestampProbeNominalTicks * 5)
+			{
+				m_TimestampNormalizationActive = false;
+				m_TimestampNormalizationRejected = true;
+				m_TimestampSourceOffset =
+					(m_LastWrittenDTS + m_LastNormalizedVideoDuration) - rawDTS;
+				LOG_WARNING("ContinuousOutputStream: Camera %d disabled timestamp normalization after sustained cadence mismatch",
+					m_CameraUID);
+			}
+			m_TimestampProbeSamples = 0;
+			m_TimestampProbeOutliers = 0;
+			m_TimestampProbeDeltaTicks = 0;
+			m_TimestampProbeNominalTicks = 0;
+		}
+	}
+
+	if (m_LastWrittenDTS == AV_NOPTS_VALUE)
+	{
+		packet->pts = packet->dts;
+		if (packet->duration <= 0 && nominalDuration > 0)
+			packet->duration = nominalDuration;
+		m_LastRawVideoDTS = rawDTS;
+		m_LastNormalizedVideoDuration = packet->duration > 0 ? packet->duration : 1;
+		return false;
+	}
+
+	const int64_t stepDuration = m_TimestampNormalizationActive ?
+		m_QualifiedVideoDuration : (nominalDuration > 0 ? nominalDuration : m_LastNormalizedVideoDuration);
+	const int64_t expectedDTS = m_LastWrittenDTS + (std::max<int64_t>)(1, m_LastNormalizedVideoDuration);
+	if (!m_TimestampNormalizationActive)
+	{
+		const int64_t adjustedRawDTS = rawDTS + m_TimestampSourceOffset;
+		const bool repaired = adjustedRawDTS <= m_LastWrittenDTS;
+		if (repaired)
+			packet->dts = expectedDTS;
+		else
+			packet->dts = adjustedRawDTS;
+		packet->pts = packet->dts;
+		if (packet->duration <= 0 && stepDuration > 0)
+			packet->duration = stepDuration;
+		m_LastRawVideoDTS = rawDTS;
+		m_LastNormalizedVideoDuration = packet->duration > 0 ? packet->duration : 1;
+		return repaired;
+	}
+
+	const int64_t stableDuration = (std::min<int64_t>)(INT_MAX,
+		(std::max<int64_t>)(1, stepDuration));
+	const int64_t phaseError = rawDTS - expectedDTS;
+	const int64_t responseWindow = av_rescale_q(10 * AV_TIME_BASE, AV_TIME_BASE_Q, inputTimebase);
+	const int64_t maxCorrection = (std::min)(
+		stableDuration / 20, (int64_t)INT_MAX - stableDuration);
+	int64_t correction = 0;
+	if (responseWindow > 0)
+	{
+		const int64_t phaseLimit = (std::max<int64_t>)(1, responseWindow / 10);
+		const int64_t boundedError = (std::max)(-phaseLimit, (std::min)(phaseError, phaseLimit));
+		const int64_t numerator = boundedError * stableDuration + m_TimestampCorrectionRemainder;
+		correction = numerator / responseWindow;
+		m_TimestampCorrectionRemainder = numerator % responseWindow;
+	}
+	correction = (std::max)(-maxCorrection, (std::min)(correction, maxCorrection));
+	packet->dts = expectedDTS;
+	packet->pts = expectedDTS;
+	packet->duration = (std::max<int64_t>)(1, stableDuration + correction);
+	m_LastRawVideoDTS = rawDTS;
+	m_LastNormalizedVideoDuration = packet->duration;
+	return rawDTS != expectedDTS;
 }
 
 void ContinuousOutputStream::Finalize()

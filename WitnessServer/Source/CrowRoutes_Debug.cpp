@@ -284,6 +284,14 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 		Value["droppedVideoPackets"] = (uint64_t)Diag.DroppedVideoPackets;
 		Value["missingVideoDtsPackets"] = (uint64_t)Diag.MissingVideoDtsPackets;
 		Value["corruptVideoPackets"] = (uint64_t)Diag.CorruptVideoPackets;
+		Value["streamEstablished"] = Diag.StreamEstablished;
+		Value["startupGraceElapsedMs"] = Diag.StartupGraceElapsedMs;
+		Value["startupAcceptedVideoPackets"] = (uint64_t)Diag.StartupAcceptedVideoPackets;
+		Value["startupDroppedVideoPackets"] = (uint64_t)Diag.StartupDroppedVideoPackets;
+		Value["startupRepairedVideoTimestamps"] = (uint64_t)Diag.StartupRepairedVideoTimestamps;
+		Value["establishedAcceptedVideoPackets"] = (uint64_t)Diag.EstablishedAcceptedVideoPackets;
+		Value["establishedDroppedVideoPackets"] = (uint64_t)Diag.EstablishedDroppedVideoPackets;
+		Value["establishedRepairedVideoTimestamps"] = (uint64_t)Diag.EstablishedRepairedVideoTimestamps;
 		crow::json::wvalue DropReasons;
 		DropReasons["waitingForKeyframe"] = (uint64_t)Diag.WaitingForKeyframePackets;
 		DropReasons["missingTimestamp"] = (uint64_t)Diag.MissingTimestampPackets;
@@ -434,7 +442,7 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 
 	const auto CollectionEnd = std::chrono::steady_clock::now();
 	crow::json::wvalue Data;
-	Data["schemaVersion"] = 2;
+	Data["schemaVersion"] = 3;
 	Data["sampledAtUtc"] = std::format( "{:%Y-%m-%dT%H:%M:%S}Z",
 		std::chrono::system_clock::now() );
 	Data["collectionStartedMonotonicMs"] =
@@ -563,7 +571,7 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 						default: return "unknown";
 						}
 					};
-					StreamData["diagnosticsSchemaVersion"] = 6;
+					StreamData["diagnosticsSchemaVersion"] = 7;
 					StreamData["packetTraceCapacity"] = 1024;
 					StreamData["totalSegments"] = Diag.TotalSegments;
 					StreamData["reconnectCount"] = Diag.ReconnectCount;
@@ -581,6 +589,14 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 					StreamData["droppedVideoPackets"] = (int64_t)Diag.DroppedVideoPackets;
 					StreamData["missingVideoDtsPackets"] = (int64_t)Diag.MissingVideoDtsPackets;
 					StreamData["corruptVideoPackets"] = (int64_t)Diag.CorruptVideoPackets;
+					StreamData["streamEstablished"] = Diag.StreamEstablished;
+					StreamData["startupGraceElapsedMs"] = Diag.StartupGraceElapsedMs;
+					StreamData["startupAcceptedVideoPackets"] = (int64_t)Diag.StartupAcceptedVideoPackets;
+					StreamData["startupDroppedVideoPackets"] = (int64_t)Diag.StartupDroppedVideoPackets;
+					StreamData["startupRepairedVideoTimestamps"] = (int64_t)Diag.StartupRepairedVideoTimestamps;
+					StreamData["establishedAcceptedVideoPackets"] = (int64_t)Diag.EstablishedAcceptedVideoPackets;
+					StreamData["establishedDroppedVideoPackets"] = (int64_t)Diag.EstablishedDroppedVideoPackets;
+					StreamData["establishedRepairedVideoTimestamps"] = (int64_t)Diag.EstablishedRepairedVideoTimestamps;
 					crow::json::wvalue DropReasons;
 					DropReasons["waitingForKeyframe"] = Diag.WaitingForKeyframePackets;
 					DropReasons["missingTimestamp"] = Diag.MissingTimestampPackets;

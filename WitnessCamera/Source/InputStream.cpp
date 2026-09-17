@@ -293,21 +293,21 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 		//Add the new packet to the live stream
 		if (LiveStream)
 		{
+			// Attribute demux damage to this packet before live output sees it. A
+			// damaged keyframe must never be accepted as the recovery point for an
+			// earlier corruption episode.
+			if( DemuxHadError )
+			{
+				auto* LiveOutput = dynamic_cast<LiveOutputStream*>( LiveStream );
+				if( LiveOutput ) LiveOutput->NotifyDecodeCorruption( 0 );
+			}
+
 			CameraStreamError WriteError = WritePacket( LiveStream, &ID.Packet, "live-mux" );
 			if (WriteError != CameraStreamError::Success)
 			{
 				memcpy(m_ErrorMessage, LiveStream->GetFFMPEGErrorMessage(), 256);
 				ID.FreeAllQueuedPackets();
 				return WriteError;
-			}
-
-			// Some demuxers report damaged input through av_log while still returning
-			// a packet. Keep forwarding/decoding it, but hold presentation until a
-			// later random-access frame rather than trusting this packet as recovery.
-			if( DemuxHadError )
-			{
-				auto* LiveOutput = dynamic_cast<LiveOutputStream*>( LiveStream );
-				if( LiveOutput ) LiveOutput->NotifyDecodeCorruption( 0 );
 			}
 		}
 

@@ -3,6 +3,10 @@
 #include "StreamData.h"
 #include "InMemoryIOContext.h"
 
+#include <Log.h>
+#include <algorithm>
+#include <climits>
+
 namespace Witness{
 namespace Camera{
 
@@ -29,6 +33,19 @@ OutputStream::OutputStream( const std::string& Path, InputStream * InputStream, 
 , m_HasAudioStream( false )
 , m_AudioInputStreamIndex( -1 )
 , m_InitialTimestampUs( AV_NOPTS_VALUE )
+, m_TimestampNormalizationAllowed( false )
+, m_LastRawVideoDTS( AV_NOPTS_VALUE )
+, m_LastNormalizedVideoDuration( 0 )
+, m_TimestampCorrectionRemainder( 0 )
+, m_RepairedVideoTimestamps( 0 )
+, m_TimestampNormalizationActive( false )
+, m_TimestampNormalizationRejected( false )
+, m_TimestampProbeSamples( 0 )
+, m_TimestampProbeOutliers( 0 )
+, m_TimestampProbeDeltaTicks( 0 )
+, m_TimestampProbeNominalTicks( 0 )
+, m_QualifiedVideoDuration( 0 )
+, m_TimestampSourceOffset( 0 )
 {
 	m_InputStream->Initialize();
 
@@ -83,6 +100,19 @@ OutputStream::OutputStream( const std::string& Path, unsigned int Width, unsigne
 , m_HasAudioStream( false )
 , m_AudioInputStreamIndex( -1 )
 , m_InitialTimestampUs( AV_NOPTS_VALUE )
+, m_TimestampNormalizationAllowed( false )
+, m_LastRawVideoDTS( AV_NOPTS_VALUE )
+, m_LastNormalizedVideoDuration( 0 )
+, m_TimestampCorrectionRemainder( 0 )
+, m_RepairedVideoTimestamps( 0 )
+, m_TimestampNormalizationActive( false )
+, m_TimestampNormalizationRejected( false )
+, m_TimestampProbeSamples( 0 )
+, m_TimestampProbeOutliers( 0 )
+, m_TimestampProbeDeltaTicks( 0 )
+, m_TimestampProbeNominalTicks( 0 )
+, m_QualifiedVideoDuration( 0 )
+, m_TimestampSourceOffset( 0 )
 {
 	auto& ID = *m_InternalData;
 
@@ -491,9 +521,14 @@ CameraStreamError OutputStream::WriteInterleavedPacket( const AVPacket* Packet )
 
 	PacketCopy.pos = -1;
 	PacketCopy.stream_index = IsAudio ? 1 : 0;
+	if( PacketCopy.duration < 0 || PacketCopy.duration > INT_MAX )
+		PacketCopy.duration = 0;
+	const bool TimestampRepaired = !IsAudio &&
+		NormalizeVideoTimestamp(&PacketCopy, m_InputStream->GetData().FormatContext->
+			streams[Packet->stream_index]->time_base);
 
-	// Drop packets with non-monotonic DTS — B-frame streams (e.g. Tapo)
-	// can deliver packets that cause av_interleaved_write_frame to fail.
+	// Retain the conservative guard for generic/B-frame streams. Qualified
+	// no-B-frame cameras have already been placed on a continuous output clock.
 	const int64_t LastStreamDTS = IsAudio ? m_LastWrittenAudioDTS : m_LastWrittenDTS;
 	if (LastStreamDTS != AV_NOPTS_VALUE && PacketCopy.dts <= LastStreamDTS)
 	{
@@ -536,8 +571,143 @@ CameraStreamError OutputStream::WriteInterleavedPacket( const AVPacket* Packet )
 	}
 
 	FrameIndex++;
+	if( TimestampRepaired )
+	{
+		++m_RepairedVideoTimestamps;
+		if( m_RepairedVideoTimestamps <= 5 || (m_RepairedVideoTimestamps % 500) == 0 )
+			LOG_WARNING("Recording repaired jittery video timestamps (%llu packets)",
+				(unsigned long long)m_RepairedVideoTimestamps);
+	}
 
 	return CameraStreamError::Success;
+}
+
+bool OutputStream::NormalizeVideoTimestamp(AVPacket* Packet, AVRational InputTimebase)
+{
+	if( !m_TimestampNormalizationAllowed || !m_InputStream || !Packet ||
+		m_InputStream->GetData().CodecContext->has_b_frames != 0 )
+		return false;
+
+	const int64_t RawDTS = Packet->dts;
+	const AVRational Framerate = m_InputStream->GetData().CodecContext->framerate;
+	int64_t NominalDuration = 0;
+	if( Framerate.num > 0 && Framerate.den > 0 )
+	{
+		const double FramesPerSecond = av_q2d(Framerate);
+		if( FramesPerSecond >= 1.0 && FramesPerSecond <= 120.0 )
+			NominalDuration = av_rescale_q(1, av_inv_q(Framerate), InputTimebase);
+	}
+	if( NominalDuration <= 0 && Packet->duration > 0 && Packet->duration <= INT_MAX )
+		NominalDuration = Packet->duration;
+	if( NominalDuration > INT_MAX )
+		NominalDuration = 0;
+
+	const int64_t ProbeDuration = m_TimestampNormalizationActive ?
+		m_QualifiedVideoDuration : NominalDuration;
+	if( m_LastRawVideoDTS != AV_NOPTS_VALUE && ProbeDuration > 0 &&
+		!m_TimestampNormalizationRejected )
+	{
+		const int64_t Delta = RawDTS - m_LastRawVideoDTS;
+		const int64_t Error = Delta - ProbeDuration;
+		++m_TimestampProbeSamples;
+		m_TimestampProbeDeltaTicks += Delta;
+		m_TimestampProbeNominalTicks += ProbeDuration;
+		if( std::abs(Error) * 2 > ProbeDuration )
+			++m_TimestampProbeOutliers;
+		if( !m_TimestampNormalizationActive && m_TimestampProbeSamples >= 40 )
+		{
+			const int64_t TotalError = m_TimestampProbeDeltaTicks - m_TimestampProbeNominalTicks;
+			const bool AverageCadenceMatches = m_TimestampProbeDeltaTicks > 0 &&
+				std::abs(TotalError) * 100 <= m_TimestampProbeNominalTicks * 5;
+			const bool SourceClockIsJittery =
+				m_TimestampProbeOutliers * 5 >= m_TimestampProbeSamples;
+			if( AverageCadenceMatches && SourceClockIsJittery )
+			{
+				m_TimestampNormalizationActive = true;
+				m_QualifiedVideoDuration = (std::max<int64_t>)(1,
+					m_TimestampProbeNominalTicks / m_TimestampProbeSamples);
+				LOG_INFO("Recording enabled guarded timestamp normalization after %d samples",
+					m_TimestampProbeSamples);
+			}
+			else if( m_TimestampProbeSamples >= 120 )
+			{
+				m_TimestampProbeSamples = 0;
+				m_TimestampProbeOutliers = 0;
+				m_TimestampProbeDeltaTicks = 0;
+				m_TimestampProbeNominalTicks = 0;
+			}
+		}
+		if( m_TimestampNormalizationActive &&
+			av_rescale_q(m_TimestampProbeNominalTicks, InputTimebase, AV_TIME_BASE_Q) >=
+				120 * AV_TIME_BASE )
+		{
+			const int64_t TotalError = m_TimestampProbeDeltaTicks - m_TimestampProbeNominalTicks;
+			if( std::abs(TotalError) * 100 > m_TimestampProbeNominalTicks * 5 )
+			{
+				m_TimestampNormalizationActive = false;
+				m_TimestampNormalizationRejected = true;
+				m_TimestampSourceOffset =
+					(m_LastWrittenDTS + m_LastNormalizedVideoDuration) - RawDTS;
+				LOG_WARNING("Recording disabled timestamp normalization after sustained cadence mismatch");
+			}
+			m_TimestampProbeSamples = 0;
+			m_TimestampProbeOutliers = 0;
+			m_TimestampProbeDeltaTicks = 0;
+			m_TimestampProbeNominalTicks = 0;
+		}
+	}
+
+	if( m_LastWrittenDTS == AV_NOPTS_VALUE )
+	{
+		Packet->pts = Packet->dts;
+		if( Packet->duration <= 0 && NominalDuration > 0 )
+			Packet->duration = NominalDuration;
+		m_LastRawVideoDTS = RawDTS;
+		m_LastNormalizedVideoDuration = Packet->duration > 0 ? Packet->duration : 1;
+		return false;
+	}
+
+	const int64_t StepDuration = m_TimestampNormalizationActive ?
+		m_QualifiedVideoDuration : (NominalDuration > 0 ? NominalDuration : m_LastNormalizedVideoDuration);
+	const int64_t ExpectedDTS = m_LastWrittenDTS + (std::max<int64_t>)(1, m_LastNormalizedVideoDuration);
+	if( !m_TimestampNormalizationActive )
+	{
+		const int64_t AdjustedRawDTS = RawDTS + m_TimestampSourceOffset;
+		const bool Repaired = AdjustedRawDTS <= m_LastWrittenDTS;
+		if( Repaired )
+			Packet->dts = ExpectedDTS;
+		else
+			Packet->dts = AdjustedRawDTS;
+		Packet->pts = Packet->dts;
+		if( Packet->duration <= 0 && StepDuration > 0 )
+			Packet->duration = StepDuration;
+		m_LastRawVideoDTS = RawDTS;
+		m_LastNormalizedVideoDuration = Packet->duration > 0 ? Packet->duration : 1;
+		return Repaired;
+	}
+
+	const int64_t StableDuration = (std::min<int64_t>)(INT_MAX,
+		(std::max<int64_t>)(1, StepDuration));
+	const int64_t PhaseError = RawDTS - ExpectedDTS;
+	const int64_t ResponseWindow = av_rescale_q(10 * AV_TIME_BASE, AV_TIME_BASE_Q, InputTimebase);
+	const int64_t MaxCorrection = (std::min)(
+		StableDuration / 20, (int64_t)INT_MAX - StableDuration);
+	int64_t Correction = 0;
+	if( ResponseWindow > 0 )
+	{
+		const int64_t PhaseLimit = (std::max<int64_t>)(1, ResponseWindow / 10);
+		const int64_t BoundedError = (std::max)(-PhaseLimit, (std::min)(PhaseError, PhaseLimit));
+		const int64_t Numerator = BoundedError * StableDuration + m_TimestampCorrectionRemainder;
+		Correction = Numerator / ResponseWindow;
+		m_TimestampCorrectionRemainder = Numerator % ResponseWindow;
+	}
+	Correction = (std::max)(-MaxCorrection, (std::min)(Correction, MaxCorrection));
+	Packet->dts = ExpectedDTS;
+	Packet->pts = ExpectedDTS;
+	Packet->duration = (std::max<int64_t>)(1, StableDuration + Correction);
+	m_LastRawVideoDTS = RawDTS;
+	m_LastNormalizedVideoDuration = Packet->duration;
+	return RawDTS != ExpectedDTS;
 }
 
 CameraStreamError OutputStream::WriteFrame( FFMPEG::Frame* Frame )
