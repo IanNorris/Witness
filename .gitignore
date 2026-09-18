@@ -312,6 +312,8 @@ vcpkg_installed
 # CMake build output
 build/
 /build-*/
+.build-tools/
+.worktrees/
 out/
 CMakeSettings.json
 

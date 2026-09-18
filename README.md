@@ -4,11 +4,16 @@ A video surveillance server with motion detection, HLS live streaming, and clip 
 
 ## Quick Start
 
-1. Build the project:
+1. Bootstrap and build the preferred Windows environment:
+   ```powershell
+   .\scripts\bootstrap-vcpkg.ps1
+   .\scripts\bootstrap-dependencies.ps1
+   .\scripts\build-windows.ps1
    ```
-   cmake -B build -S .
-   cmake --build build --config Release
-   ```
+
+   Dependency installation is explicit so routine Visual Studio/CMake
+   configuration cannot unexpectedly rebuild the package graph. See
+   [BUILDING.md](BUILDING.md) for existing trees, caches, and non-Windows builds.
 
 2. Run the server:
    ```
