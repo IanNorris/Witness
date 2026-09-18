@@ -12,6 +12,7 @@ void WitnessServer::HandleCameraStartupMessage(const CameraStartupMessage& Data)
 void WitnessServer::HandleCameraReconnectMessage(const CameraReconnectMessage& Data)
 {
 	StatusMessage( Data.Camera, "Reconnecting", Data.Error );
+	SetOperationalActivity( Data.Camera, false, false );
 
 	auto CameraState = Context->FindCameraById( Data.Camera );
 	if(CameraState)

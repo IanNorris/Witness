@@ -16,6 +16,7 @@ static void BroadcastMotionState( GlobalContext& Context, int CameraID, bool Act
 
 void WitnessServer::HandleCameraBeginMotionMessage(const CameraBeginMotionMessage& Data)
 {
+	SetOperationalActivity( Data.Camera, true, true );
 	std::shared_ptr<CameraWorker> Worker;
 	std::string CameraName;
 	bool StartRecording = false;
@@ -107,6 +108,7 @@ void WitnessServer::HandleCameraBeginMotionMessage(const CameraBeginMotionMessag
 
 		for (int pairedId : pairedCameraIds)
 		{
+			SetOperationalActivity( pairedId, true, true );
 			auto pairedState = Context->FindCameraById(pairedId);
 			if (pairedState)
 			{
@@ -142,6 +144,7 @@ void WitnessServer::HandleCameraUpdateMotionMessage(const CameraUpdateMotionMess
 
 void WitnessServer::HandleCameraEndMotionMessage(const CameraEndMotionMessage& Data)
 {
+	SetOperationalMotion( Data.Camera, false );
 	auto StopRecord = std::make_shared<CameraStopRecordMessage>( Data.Camera, false );
 
 	std::shared_ptr<CameraWorker> Worker;
@@ -171,6 +174,7 @@ void WitnessServer::HandleCameraEndMotionMessage(const CameraEndMotionMessage& D
 
 	if( StopRecording && Worker )
 	{
+		SetOperationalRecording( Data.Camera, false );
 		Context->MessageBus->SendToClient( Worker.get(), StopRecord );
 	}
 
@@ -188,6 +192,7 @@ void WitnessServer::HandleCameraEndMotionMessage(const CameraEndMotionMessage& D
 
 		for (int pairedId : pairedCameraIds)
 		{
+			SetOperationalMotion( pairedId, false );
 			auto pairedState = Context->FindCameraById(pairedId);
 			if (pairedState)
 			{
@@ -196,6 +201,7 @@ void WitnessServer::HandleCameraEndMotionMessage(const CameraEndMotionMessage& D
 			}
 			if (pairedState && pairedState->IsRecording && !pairedState->IsManualRecording)
 			{
+				SetOperationalRecording( pairedId, false );
 				pairedState->IsRecording = false;
 
 				crow::json::wvalue pairedEv;

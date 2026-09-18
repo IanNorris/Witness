@@ -1,5 +1,19 @@
 cmake_minimum_required(VERSION 3.20)
 
+option(WITNESS_MANAGED_DEPENDENCIES
+    "Require explicitly bootstrapped, fingerprinted vcpkg dependencies" OFF)
+option(WITNESS_BOOTSTRAP_DEPENDENCIES
+    "Allow vcpkg to install/update the managed dependency environment" OFF)
+option(WITNESS_PROFILE_BUILD
+    "Enable verbose MSVC frontend/backend timing diagnostics" OFF)
+
+# Managed builds never mutate dependencies as a side effect of routine IDE or
+# command-line configuration. The bootstrap script opts into installation.
+if(WITNESS_MANAGED_DEPENDENCIES)
+    set(VCPKG_MANIFEST_INSTALL ${WITNESS_BOOTSTRAP_DEPENDENCIES}
+        CACHE BOOL "Install vcpkg manifest dependencies" FORCE)
+endif()
+
 # vcpkg does not yet auto-discover VS 2026 Insiders on this machine. Pin both
 # the project and dependency builds to it unless the caller explicitly selects
 # another installation with VCPKG_VISUAL_STUDIO_PATH.
@@ -57,6 +71,105 @@ endif()
 
 project(Witness LANGUAGES CXX C)
 
+if(WITNESS_MANAGED_DEPENDENCIES)
+    if(NOT DEFINED VCPKG_TARGET_TRIPLET OR VCPKG_TARGET_TRIPLET STREQUAL "")
+        message(FATAL_ERROR "Managed dependencies require VCPKG_TARGET_TRIPLET.")
+    endif()
+
+    file(SHA256 "${CMAKE_SOURCE_DIR}/vcpkg.json" _WITNESS_MANIFEST_SHA)
+    file(SHA256 "${CMAKE_SOURCE_DIR}/vcpkg-configuration.json" _WITNESS_REGISTRY_SHA)
+    file(SHA256 "${CMAKE_SOURCE_DIR}/build-environment.json" _WITNESS_ENVIRONMENT_SHA)
+    file(READ "${CMAKE_SOURCE_DIR}/build-environment.json" _WITNESS_ENVIRONMENT_JSON)
+    string(JSON _WITNESS_EXPECTED_VCPKG_COMMIT GET
+        "${_WITNESS_ENVIRONMENT_JSON}" vcpkgCommit)
+    string(JSON _WITNESS_EXPECTED_MSVC_FAMILY GET
+        "${_WITNESS_ENVIRONMENT_JSON}" msvcCompilerFamily)
+    set(_WITNESS_TRIPLET_FILE
+        "${CMAKE_SOURCE_DIR}/triplets/${VCPKG_TARGET_TRIPLET}.cmake")
+    if(NOT EXISTS "${_WITNESS_TRIPLET_FILE}")
+        message(FATAL_ERROR
+            "Managed dependency triplet not found: ${_WITNESS_TRIPLET_FILE}")
+    endif()
+    file(SHA256 "${_WITNESS_TRIPLET_FILE}" _WITNESS_TRIPLET_SHA)
+
+    get_filename_component(_WITNESS_VCPKG_BUILDSYSTEM_DIR
+        "${CMAKE_TOOLCHAIN_FILE}" DIRECTORY)
+    get_filename_component(_WITNESS_VCPKG_SCRIPTS_DIR
+        "${_WITNESS_VCPKG_BUILDSYSTEM_DIR}" DIRECTORY)
+    get_filename_component(_WITNESS_VCPKG_ROOT
+        "${_WITNESS_VCPKG_SCRIPTS_DIR}" DIRECTORY)
+    if(WIN32)
+        set(_WITNESS_VCPKG_EXE "${_WITNESS_VCPKG_ROOT}/vcpkg.exe")
+    else()
+        set(_WITNESS_VCPKG_EXE "${_WITNESS_VCPKG_ROOT}/vcpkg")
+    endif()
+    if(NOT EXISTS "${_WITNESS_VCPKG_EXE}")
+        message(FATAL_ERROR "Cannot fingerprint vcpkg at ${_WITNESS_VCPKG_EXE}")
+    endif()
+    execute_process(
+        COMMAND "${_WITNESS_VCPKG_EXE}" version
+        OUTPUT_VARIABLE _WITNESS_VCPKG_VERSION
+        OUTPUT_STRIP_TRAILING_WHITESPACE
+        RESULT_VARIABLE _WITNESS_VCPKG_VERSION_RESULT)
+    if(NOT _WITNESS_VCPKG_VERSION_RESULT EQUAL 0)
+        message(FATAL_ERROR "Could not query the selected vcpkg version.")
+    endif()
+    string(FIND "${_WITNESS_VCPKG_VERSION}"
+        "${_WITNESS_EXPECTED_VCPKG_COMMIT}" _WITNESS_VCPKG_COMMIT_POSITION)
+    if(_WITNESS_VCPKG_COMMIT_POSITION EQUAL -1)
+        message(FATAL_ERROR
+            "The selected vcpkg does not match pinned commit "
+            "${_WITNESS_EXPECTED_VCPKG_COMMIT}. Run "
+            "scripts/bootstrap-vcpkg.ps1 or explicitly select a matching VCPKG_ROOT.")
+    endif()
+    if(MSVC AND NOT CMAKE_CXX_COMPILER_VERSION MATCHES
+            "^${_WITNESS_EXPECTED_MSVC_FAMILY}(\\.|$)")
+        message(FATAL_ERROR
+            "The selected compiler ${CMAKE_CXX_COMPILER_VERSION} is outside the pinned "
+            "MSVC ${_WITNESS_EXPECTED_MSVC_FAMILY} ABI family. Review and update "
+            "build-environment.json plus the Witness triplet before rebuilding dependencies.")
+    endif()
+
+    string(SHA256 _WITNESS_DEPENDENCY_SIGNATURE
+        "${_WITNESS_MANIFEST_SHA}|${_WITNESS_REGISTRY_SHA}|${_WITNESS_TRIPLET_SHA}|${_WITNESS_ENVIRONMENT_SHA}|${_WITNESS_VCPKG_VERSION}")
+    set(_WITNESS_DEPENDENCY_STAMP
+        "${CMAKE_BINARY_DIR}/witness-dependency-environment.txt")
+
+    if(WITNESS_BOOTSTRAP_DEPENDENCIES)
+        file(WRITE "${_WITNESS_DEPENDENCY_STAMP}"
+            "signature=${_WITNESS_DEPENDENCY_SIGNATURE}\n"
+            "triplet=${VCPKG_TARGET_TRIPLET}\n"
+            "vcpkg=${_WITNESS_VCPKG_VERSION}\n"
+            "manifest_sha256=${_WITNESS_MANIFEST_SHA}\n"
+            "registry_sha256=${_WITNESS_REGISTRY_SHA}\n"
+            "triplet_sha256=${_WITNESS_TRIPLET_SHA}\n"
+            "environment_sha256=${_WITNESS_ENVIRONMENT_SHA}\n"
+            "cmake=${CMAKE_VERSION}\n"
+            "compiler=${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION}\n"
+            "generator=${CMAKE_GENERATOR}\n"
+            "generator_toolset=${CMAKE_GENERATOR_TOOLSET}\n")
+        message(STATUS "Bootstrapped managed dependency environment ${_WITNESS_DEPENDENCY_SIGNATURE}")
+    else()
+        if(NOT EXISTS "${_WITNESS_DEPENDENCY_STAMP}")
+            message(FATAL_ERROR
+                "Managed dependencies have not been bootstrapped in this build directory. "
+                "Run scripts/bootstrap-dependencies.ps1, then configure again.")
+        endif()
+        file(STRINGS "${_WITNESS_DEPENDENCY_STAMP}" _WITNESS_STAMP_SIGNATURE
+            REGEX "^signature=")
+        if(NOT _WITNESS_STAMP_SIGNATURE STREQUAL
+                "signature=${_WITNESS_DEPENDENCY_SIGNATURE}")
+            message(FATAL_ERROR
+                "The pinned dependency environment changed. Ordinary configure will not "
+                "modify installed packages. Review vcpkg.json, vcpkg-configuration.json, "
+                "the Witness triplet, and vcpkg version, then explicitly run "
+                "scripts/bootstrap-dependencies.ps1 if the change is intended.")
+        endif()
+        message(STATUS
+            "Using immutable managed dependency environment ${_WITNESS_DEPENDENCY_SIGNATURE}")
+    endif()
+endif()
+
 # A Visual Studio or Ninja environment can still select a different cl.exe from
 # the one vcpkg was pinned to. Reject that combination before it can invalidate
 # or produce ABI-incompatible dependencies.
@@ -82,6 +195,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 if(MSVC)
     add_compile_options(/Z7)
     add_link_options(/DEBUG /OPT:REF /OPT:ICF)
+    if(WITNESS_PROFILE_BUILD)
+        add_compile_options(/Bt+ /d1reportTime)
+    endif()
 endif()
 
 # Put all binaries in a single output directory so DLLs are found at runtime

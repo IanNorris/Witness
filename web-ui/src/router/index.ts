@@ -47,8 +47,14 @@ const routes = [
       { path: 'actions', component: () => import('../components/admin/ActionManager.vue') },
       { path: 'faces', component: () => import('../components/admin/FaceManager.vue') },
       { path: 'queue', component: () => import('../components/admin/QueueManager.vue') },
+      { path: 'health', component: () => import('../components/admin/HealthDashboard.vue') },
       { path: 'debug', component: () => import('../components/admin/DebugValues.vue') },
     ],
+  },
+  {
+    path: '/health-monitor',
+    component: () => import('../views/HealthMonitorView.vue'),
+    meta: { requiresAuth: true, requiresAdmin: true },
   },
   {
     path: '/login',

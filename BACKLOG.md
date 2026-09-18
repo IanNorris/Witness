@@ -4,18 +4,82 @@ This file tracks worthwhile product and engineering work that is not part of the
 current implementation branch. Items are intentionally outcome-focused; design
 details should be refined when an item is scheduled.
 
+Current priority after the terminal-dashboard review is: complete the audio-
+intelligence investigation, complete the activity-intelligence investigation,
+then concentrate on build health (dependency stability, reproducibility,
+compile-time profiling, and native ABI warning cleanup) before resuming broader
+feature work.
+
 ## Build and inference
+
+- Immediately after the audio-intelligence investigation, stop automatic
+  dependency churn during ordinary configure/builds. Add a checked-in Witness
+  triplet with compiler tracking disabled so compatible VS Insiders servicing
+  updates do not invalidate every native dependency; introduce it as a planned
+  one-time dependency rebuild and retain an explicit clean-rebuild escape hatch
+  for genuine compiler ABI changes. Treat the
+  vcpkg tool revision, registry baseline, triplet, compiler toolset, CMake
+  version, feature set, and dependency ABI as one explicitly versioned build
+  environment. Routine CMake generation must fail with a clear diagnostic
+  rather than remove/rebuild installed packages. Add an explicit dependency
+  update/bootstrap command, use a shared local/CI binary cache, publish a
+  reusable release-only dependency artifact, and keep old environments usable
+  until the replacement has completed successfully. Record why an ABI changed
+  before accepting a rebuild, and investigate a checked-in custom release-only
+  triplet so local RelWithDebInfo work does not also compile every dependency's
+  Debug variant.
+- Re-evaluate the CMake and vcpkg foundations rather than assuming they remain
+  the long-term build/package solution. Compare at least: a native/generated
+  Visual Studio build with an explicit Linux build path; Meson; Conan-backed
+  builds; and a tightly pinned, non-mutating CMake/vcpkg configuration. The
+  decision must cover reproducible Windows and Linux builds, IDE integration,
+  prebuilt dependency consumption, offline/cache behaviour, security updates,
+  CI packaging, incremental build time, and the cost of maintaining one versus
+  two platform build descriptions. A replacement must coexist with the current
+  build until it produces equivalent binaries and tests; ordinary developer
+  builds must never update package metadata or invalidate dependencies merely
+  because a global tool installation changed.
 
 - Reduce the ONNX Runtime/vcpkg build surface. In particular, remove unused
   operator kernels and GPU providers from CPU deployments, and investigate a
   supported prebuilt package so routine toolchain changes do not require a
   multi-hour dependency rebuild.
+- Profile slow native builds with the Visual C++ and MSBuild profiling tools
+  before changing the project structure. Capture clean and incremental
+  baselines, an MSBuild binary log, compiler frontend/backend timings (`/Bt+`
+  and `/d1reportTime`), and include/template/PCH diagnostics. Use the results to
+  identify slow translation units, expensive shared headers, serialized custom
+  steps, and unnecessary rebuild fan-out, then target the largest measured
+  costs.
+- Clean up the native DLL ABI boundaries currently producing MSVC C4251
+  warnings. Inventory exported classes that expose STL containers, strings,
+  callbacks, mutexes, smart pointers, or chrono types; move implementation
+  state behind PIMPL where it provides a stable ownership and ABI boundary,
+  and keep deliberately header-defined value types explicit rather than merely
+  suppressing the warning globally. Add a small cross-DLL construction and
+  destruction test so allocator/runtime mismatches are caught.
+- Define and document Witness's minimum supported Windows version through one
+  shared `_WIN32_WINNT`/`WINVER` build setting. Remove the current implicit
+  Boost fallback to Windows 7 and verify that the selected SDK target is used
+  consistently by the server and native libraries.
 
 ## Operational UI and logging
 
+The initial Windows console dashboard and the standalone Windows/Linux boundary
+are described in [TERMINAL_DASHBOARD.md](TERMINAL_DASHBOARD.md).
+
+- Add a scoped API-key authentication path for trusted automation and
+  diagnostics. Keys should be revocable, named, auditable, and restricted by
+  source IP/CIDR; local/dev exemptions must not accidentally apply to the
+  production LAN service. Prefer read-only diagnostic scopes first, then add
+  narrowly-scoped write operations only when needed.
 - Build a terminal dashboard showing queue lengths, camera connection health,
   stream latency, processing throughput, and the latest detection details.
   Preserve a conventional log mode for redirection and service operation.
+- During startup, the terminal dashboard should show an explicit **Loading** or
+  **Starting web server/websocket** state until the HTTP server and websocket
+  endpoints are actually bound and ready to accept clients, rather than
+  implying the service is already interactive.
 - Build a unified performance and health dashboard with colour-coded warnings
   for host CPU capacity, queue depths, processing and stream latency, and other
   resource constraints. Include an exportable/copyable per-camera table with
@@ -27,6 +91,12 @@ details should be refined when an item is scheduled.
   throughput limits. The combined view should contain the information normally
   needed to diagnose a performance or streaming incident without collecting
   several separate reports.
+- Persist a bounded history of browser/client health reports server-side,
+  keyed by logged-in username plus a stable locally stored browser/session
+  identifier. A health export from any browser should include recent telemetry
+  from all known clients, including hidden tabs and sessions that have since
+  disconnected, so opening the Health page cannot erase or perturb the evidence
+  of a playback failure.
 - Show dismissible warning toasts when a camera becomes unhealthy. Define
   health using connection stability, stream freshness, decode errors, latency,
   and sustained queue pressure, with rate limiting and recovery notification so
@@ -41,7 +111,15 @@ details should be refined when an item is scheduled.
   a vehicle starting, footsteps, dog barking, and human speech. Evaluate model
   accuracy, compute cost, microphone variability, privacy controls, confidence
   thresholds, and whether inference can operate on short buffered windows
-  without retaining continuous audio.
+  without retaining continuous audio. The staged model and evaluation proposal
+  is recorded in [AUDIO_INTELLIGENCE.md](AUDIO_INTELLIGENCE.md).
+- Add an audio timeline to the all-clips dashboard and clip player. Show the
+  classified sound events along the clip duration, including background classes
+  such as wind, so operators can see why a clip has or lacks useful audio.
+  Treat wind/background-only detection as a positive signal for playback
+  ergonomics: allow clips to start muted or suppress audio automatically when
+  no higher-value sound source is present, while still exposing the underlying
+  classification for review and threshold tuning.
 
 ## Dashboard layouts
 
@@ -65,6 +143,10 @@ details should be refined when an item is scheduled.
   camera stream's normal startup delay.
 
 ## Activity quality
+
+The grouping, user-relevance, and object-persistence design is recorded in
+[ACTIVITY_INTELLIGENCE.md](ACTIVITY_INTELLIGENCE.md). It identifies preserving
+empty/baseline observation evidence as a prerequisite for reliable persistence.
 
 - In recent activity, use the interesting-object bounding boxes to select a
   tighter thumbnail crop/zoom. When face extraction produced a useful face
@@ -91,7 +173,31 @@ details should be refined when an item is scheduled.
   while preserving the original event metadata and avoiding duplicate or
   non-monotonic audio/video timestamps.
 
+## DVR and historical search
+
+- Rework DVR playback around operator intent rather than starting every stream
+  at once. Let the user first choose the time and cameras of interest, then opt
+  cameras in to playback so resource pressure scales with the investigation
+  rather than the total camera count. The DVR should respond directly to clicks
+  on the UI timeline/timecode and make the file/time mapping unnecessary for
+  normal use.
+- Restore and finish the bisection search workflow for finding when something
+  appeared, moved, or disappeared. The operator should mark samples as
+  **Too Early** or **Too Late**; Witness then moves the corresponding bound and
+  proposes the midpoint of the remaining range. This remains useful even after
+  persistent object tracking because it gives a deterministic manual fallback
+  for ambiguous cases.
+
 ## Streaming diagnostics
+
+- Investigate malformed Reolink AAC timestamps in the live MP4 muxer. The
+  17 September health export showed all Reolink main and preview streams
+  continuously emitting negative audio packet-duration and missing-PTS
+  warnings, sometimes including `audio-packet / nonMonotonicOutput`. Capture
+  raw AAC DTS/PTS/duration, attribute stream-1 mux warnings as audio, then
+  validate whether AAC PTS can safely follow DTS and duration can be derived
+  from samples/timebase. Aggregate repeated messages so they cannot evict
+  reconnect and recovery evidence from the diagnostic ring.
 
 - Add bounded, opt-in retention of encoded media around an anomaly so the exact
   access units can be replayed through software decoders offline. Redact stream

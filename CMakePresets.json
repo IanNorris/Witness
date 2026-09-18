@@ -25,6 +25,26 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug"
             }
+        },
+        {
+            "name": "windows-vs2026-stable",
+            "displayName": "Windows VS2026 (stable release dependencies)",
+            "description": "Pinned VS2026 ABI family; dependency changes require scripts/bootstrap-dependencies.ps1",
+            "binaryDir": "${sourceDir}/build-vs2026-stable",
+            "generator": "Visual Studio 18 2026",
+            "architecture": {
+                "value": "x64",
+                "strategy": "set"
+            },
+            "cacheVariables": {
+                "VCPKG_TARGET_TRIPLET": "x64-windows-witness-v145-release",
+                "VCPKG_HOST_TRIPLET": "x64-windows-witness-v145-release",
+                "WITNESS_MANAGED_DEPENDENCIES": "ON",
+                "WITNESS_BOOTSTRAP_DEPENDENCIES": "OFF"
+            },
+            "environment": {
+                "VCPKG_MAX_CONCURRENCY": "18"
+            }
         }
     ],
     "buildPresets": [
@@ -37,6 +57,12 @@
             "name": "debug",
             "configurePreset": "debug",
             "configuration": "Debug"
+        },
+        {
+            "name": "windows-vs2026-relwithdebinfo",
+            "configurePreset": "windows-vs2026-stable",
+            "configuration": "RelWithDebInfo",
+            "jobs": 18
         }
     ]
 }

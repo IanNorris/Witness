@@ -23,6 +23,7 @@ const tabs = [
   { path: '/admin/actions', label: 'Actions' },
   { path: '/admin/faces', label: 'Faces' },
   { path: '/admin/queue', label: 'Queue' },
+  { path: '/admin/health', label: 'Health' },
   { path: '/admin/debug', label: 'Debug' },
 ]
 </script>

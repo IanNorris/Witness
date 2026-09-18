@@ -4,6 +4,7 @@
 #include <ctime>
 #include <chrono>
 #include <mutex>
+#include <condition_variable>
 #include <filesystem>
 #include <algorithm>
 
@@ -21,6 +22,10 @@ static std::string s_CurrentLogDate;
 static LogLevel s_ConsoleLevel = LogLevel::Warning;
 static LogLevel s_FileLevel = LogLevel::Debug;
 static int s_RetentionDays = 30;
+static LogObserver s_LogObserver = nullptr;
+static void* s_LogObserverContext = nullptr;
+static size_t s_LogObserverCalls = 0;
+static std::condition_variable s_LogObserverIdle;
 
 static const char* LevelToString( LogLevel level )
 {
@@ -144,6 +149,21 @@ void LogShutdown()
 	}
 }
 
+void LogSetObserver( LogObserver observer, void* context )
+{
+	std::unique_lock<std::mutex> lock( s_LogMutex );
+	s_LogObserver = observer;
+	s_LogObserverContext = observer ? context : nullptr;
+	if( !observer )
+		s_LogObserverIdle.wait( lock, [] { return s_LogObserverCalls == 0; } );
+}
+
+void LogSetConsoleLevel( LogLevel level )
+{
+	std::lock_guard<std::mutex> lock( s_LogMutex );
+	s_ConsoleLevel = level;
+}
+
 void Log( LogLevel level, const char* fmt, ... )
 {
 	char timestamp[32];
@@ -164,25 +184,51 @@ void Log( LogLevel level, const char* fmt, ... )
 
 	const char* levelStr = LevelToString( level );
 
-	std::lock_guard<std::mutex> lock( s_LogMutex );
-
-	// Console output (errors and warnings by default)
-	if( level >= s_ConsoleLevel )
+	LogObserver observer = nullptr;
+	void* observerContext = nullptr;
 	{
-		FILE* stream = ( level >= LogLevel::Warning ) ? stderr : stdout;
-		fprintf( stream, "[%s] [%s] %s\n", timestamp, levelStr, msgBuf );
-		fflush( stream );
+		std::lock_guard<std::mutex> lock( s_LogMutex );
+
+		// Console output (errors and warnings by default)
+		if( level >= s_ConsoleLevel )
+		{
+			FILE* stream = ( level >= LogLevel::Warning ) ? stderr : stdout;
+			fprintf( stream, "[%s] [%s] %s\n", timestamp, levelStr, msgBuf );
+			fflush( stream );
+		}
+
+		// File output (all levels by default)
+		if( level >= s_FileLevel && !s_LogDirectory.empty() )
+		{
+			RotateLogFile( dateStr );
+			if( s_LogFile )
+			{
+				fprintf( s_LogFile, "[%s] [%s] %s\n", timestamp, levelStr, msgBuf );
+				fflush( s_LogFile );
+			}
+		}
+
+		observer = s_LogObserver;
+		observerContext = s_LogObserverContext;
+		if( observer )
+			++s_LogObserverCalls;
 	}
 
-	// File output (all levels by default)
-	if( level >= s_FileLevel && !s_LogDirectory.empty() )
+	// Never call application code while holding the logging lock. A dashboard
+	// refresh can snapshot workers that are concurrently producing this entry.
+	if( observer )
 	{
-		RotateLogFile( dateStr );
-		if( s_LogFile )
+		try
 		{
-			fprintf( s_LogFile, "[%s] [%s] %s\n", timestamp, levelStr, msgBuf );
-			fflush( s_LogFile );
+			observer( observerContext, level, timestamp, msgBuf );
 		}
+		catch( ... )
+		{
+			// Logging must remain safe even if an optional presentation sink fails.
+		}
+		std::lock_guard<std::mutex> lock( s_LogMutex );
+		if( --s_LogObserverCalls == 0 )
+			s_LogObserverIdle.notify_all();
 	}
 }
 

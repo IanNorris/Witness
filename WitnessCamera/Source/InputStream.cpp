@@ -180,6 +180,11 @@ CameraStreamError InputStream::Initialize()
 
 CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter>& Filter, Stream* TargetStream, Stream* LiveStream )
 {
+	auto* DiagnosticLiveOutput = dynamic_cast<LiveOutputStream*>( LiveStream );
+	const uint64_t DiagnosticActivityID = DiagnosticLiveOutput ?
+		DiagnosticLiveOutput->BeginDiagnosticActivity() : 0;
+	FFmpegLogContextScope ActivityLogContext( UniqueSourceID, "frame",
+		DiagnosticLiveOutput, DiagnosticActivityID );
 	auto ProcessingStart = std::chrono::high_resolution_clock::now().time_since_epoch().count();
 
 	CameraStreamError InitError = Initialize();
@@ -187,8 +192,6 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 	{
 		return InitError;
 	}
-	FFmpegLogContextScope InputLogContext( UniqueSourceID, "input" );
-
 	auto& ID = *m_InternalData;
 
 	ActiveTimeoutSeconds = ReadTimeoutSeconds;
@@ -197,7 +200,15 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 	
 	auto ReadStart = std::chrono::high_resolution_clock::now().time_since_epoch().count();
 
-	int Result = av_read_frame( m_InternalData->FormatContext, &ID.Packet );
+	int Result = 0;
+	bool DemuxHadError = false;
+	{
+		// Keep demux attribution narrower than the rest of the packet pipeline.
+		// A mux or decoder error must not be mistaken for damaged camera input.
+		FFmpegLogContextScope DemuxLogContext( UniqueSourceID, "demux" );
+		Result = av_read_frame( m_InternalData->FormatContext, &ID.Packet );
+		DemuxHadError = DemuxLogContext.HasError();
+	}
 
 	auto ReadEnd = std::chrono::high_resolution_clock::now().time_since_epoch().count();
 
@@ -215,6 +226,11 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 
 	uint64_t OutputStart = 0;
 	uint64_t OutputEnd = 0;
+	auto WritePacket = [this]( Stream* Destination, const AVPacket* Packet, const char* Phase )
+	{
+		FFmpegLogContextScope MuxLogContext( UniqueSourceID, Phase );
+		return Destination->WriteInterleavedPacket( Packet );
+	};
 
 	if( ID.Packet.stream_index == ID.ChosenStreamIndex )
 	{
@@ -247,7 +263,7 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 
 						WrittenFrames++;
 
-						CameraStreamError WriteError = Output->WriteInterleavedPacket( &Packet );
+						CameraStreamError WriteError = WritePacket( Output, &Packet, "record-mux" );
 						if( WriteError != CameraStreamError::Success )
 						{
 							return WriteError;
@@ -264,7 +280,7 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 		{
 			//printf( "PT DTS=%" PRId64 ", PTS=%" PRId64 ", Dur=%" PRId64 "\n", ID.Packet.dts, ID.Packet.pts, ID.Packet.duration );
 
-			CameraStreamError WriteError = Output->WriteInterleavedPacket( &ID.Packet );
+			CameraStreamError WriteError = WritePacket( Output, &ID.Packet, "record-mux" );
 			if( WriteError != CameraStreamError::Success )
 			{
 				ID.FreeAllQueuedPackets();
@@ -277,27 +293,28 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 		//Add the new packet to the live stream
 		if (LiveStream)
 		{
-			CameraStreamError WriteError = LiveStream->WriteInterleavedPacket(&ID.Packet);
+			// Attribute demux damage to this packet before live output sees it. A
+			// damaged keyframe must never be accepted as the recovery point for an
+			// earlier corruption episode.
+			if( DemuxHadError )
+			{
+				auto* LiveOutput = dynamic_cast<LiveOutputStream*>( LiveStream );
+				if( LiveOutput ) LiveOutput->NotifyDecodeCorruption( 0 );
+			}
+
+			CameraStreamError WriteError = WritePacket( LiveStream, &ID.Packet, "live-mux" );
 			if (WriteError != CameraStreamError::Success)
 			{
 				memcpy(m_ErrorMessage, LiveStream->GetFFMPEGErrorMessage(), 256);
 				ID.FreeAllQueuedPackets();
 				return WriteError;
 			}
-
-			// Some demuxers report damaged input through av_log while still returning
-			// a packet. Keep forwarding/decoding it, but hold presentation until a
-			// later random-access frame rather than trusting this packet as recovery.
-			if( InputLogContext.HasError() )
-			{
-				auto* LiveOutput = dynamic_cast<LiveOutputStream*>( LiveStream );
-				if( LiveOutput ) LiveOutput->NotifyDecodeCorruption( 0 );
-			}
 		}
 
 		// Invoke packet callback (used by ContinuousOutputStream)
 		if (m_PacketCallback)
 		{
+			FFmpegLogContextScope ContinuousMuxLogContext( UniqueSourceID, "continuous-mux" );
 			m_PacketCallback(&ID.Packet);
 		}
 
@@ -460,7 +477,7 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 	{
 		if( TargetStream )
 		{
-			CameraStreamError WriteError = TargetStream->WriteInterleavedPacket( &ID.Packet );
+			CameraStreamError WriteError = WritePacket( TargetStream, &ID.Packet, "record-mux" );
 			if( WriteError != CameraStreamError::Success )
 			{
 				av_packet_unref( &ID.Packet );
@@ -470,7 +487,7 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 
 		if( LiveStream )
 		{
-			CameraStreamError WriteError = LiveStream->WriteInterleavedPacket( &ID.Packet );
+			CameraStreamError WriteError = WritePacket( LiveStream, &ID.Packet, "live-mux" );
 			if( WriteError != CameraStreamError::Success )
 			{
 				memcpy( m_ErrorMessage, LiveStream->GetFFMPEGErrorMessage(), 256 );
@@ -480,7 +497,10 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 		}
 
 		if( m_PacketCallback )
+		{
+			FFmpegLogContextScope ContinuousMuxLogContext( UniqueSourceID, "continuous-mux" );
 			m_PacketCallback( &ID.Packet );
+		}
 
 		// Keep audio in the same keyframe-bounded history as video so event
 		// recordings retain synchronized pre-trigger sound.
@@ -510,14 +530,23 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 	uint64_t ReadDiff = ReadEnd - ReadStart;
 	uint64_t OutputDiff = OutputEnd - OutputStart;
 
-	Stats.FrameCount++;
-	Stats.DecoderTimeTotal += (ProcessingEnd - ProcessingStart) - ReadDiff - OutputDiff;
-	Stats.OutputTimeTotal += OutputDiff;
-	Stats.ReadTimeTotal += ReadDiff;
+	{
+		std::lock_guard<std::mutex> Lock( StatsMutex );
+		Stats.FrameCount++;
+		Stats.DecoderTimeTotal += (ProcessingEnd - ProcessingStart) - ReadDiff - OutputDiff;
+		Stats.OutputTimeTotal += OutputDiff;
+		Stats.ReadTimeTotal += ReadDiff;
+	}
 
 	//Sleep(10);
 
 	return CameraStreamError::Success;
+}
+
+InputStream::StreamStats InputStream::GetStats() const
+{
+	std::lock_guard<std::mutex> Lock( StatsMutex );
+	return Stats;
 }
 
 void InputStream::Shutdown()

@@ -2,6 +2,26 @@
 
 This directory stores ONNX model files for object detection and face recognition. Models are not committed to the repository due to their size.
 
+It also holds the optional YAMNet audio-classification research model. Download
+it with `python scripts/download-models.py --audio`; the downloader pins and
+verifies the exact ONNX conversion and AudioSet class map. Then evaluate one or
+more camera clips without retaining decoded audio:
+
+```bash
+pip install numpy onnxruntime
+python scripts/audio_intelligence_eval.py clip.mp4 --json audio-report.json
+```
+
+`ffmpeg` and `ffprobe` must be on `PATH`, or supplied with the corresponding
+command-line options. The evaluator records model hashes, provider/thread
+settings, whole-clip and per-window timings, grouped trigger scores, signal
+levels, and packet-size correlations in the report.
+
+YAMNet is Apache-2.0 and the AudioSet labels are CC BY 4.0. The pinned ONNX
+artifact is a straight `tf2onnx` conversion of Google YAMNet v1 with unchanged
+weights; provenance is documented by its publisher at
+https://huggingface.co/audiomagic/yamnet-onnx.
+
 ## Quick Start
 
 Download the default detection model (nano) and face recognition model:
