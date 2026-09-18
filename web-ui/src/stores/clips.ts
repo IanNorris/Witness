@@ -28,11 +28,23 @@ export const useClipStore = defineStore('clips', () => {
   const pageSize = computed(() => settings.clipsPerPage)
   const currentPage = computed(() => Math.floor(pageOffset.value / pageSize.value))
   const totalPages = computed(() => Math.ceil(totalCount.value / pageSize.value))
+  let audioRefreshTimer: ReturnType<typeof setTimeout> | null = null
 
   // Listen for reprocess progress events
   const events = useEventStream()
 
   events.onEvent((evt) => {
+    if (evt.event === 'audio:classified') {
+      const data = evt.data as unknown as { clipUID?: number; eventCount?: number }
+      const clip = clips.value.find(candidate => candidate.uid === data.clipUID)
+      if (!clip) return
+      if (audioRefreshTimer) clearTimeout(audioRefreshTimer)
+      audioRefreshTimer = setTimeout(() => {
+        audioRefreshTimer = null
+        void fetchClips(currentCameraId.value, pageOffset.value)
+      }, 350)
+      return
+    }
     if (evt.event !== 'reprocess:progress') return
     const data = evt.data as unknown as {
       clipUID: number; stage: string; frame: number; totalFrames: number;

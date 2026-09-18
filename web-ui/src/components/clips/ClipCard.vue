@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { Clip } from '../../types/clip'
+import type { AudioEvent, Clip } from '../../types/clip'
 import { LightingCondition } from '../../types/clip'
 import { useClipStore } from '../../stores/clips'
 import { useCameraStore } from '../../stores/cameras'
@@ -48,6 +48,31 @@ const durationStr = computed(() => {
 
 const displayTags = computed(() => tagStore.getDisplayTags(props.clip.tags))
 
+const audioIcons: Record<string, string> = {
+  speech: '🗣',
+  dog: '🐕',
+  animal: '🐾',
+  footsteps: '👣',
+  vehicle: '🚗',
+  alarm: '🚨',
+  glass: '◫',
+  door: '🚪',
+  wind: '〰',
+}
+
+const audioLabels = computed(() => {
+  const strongest = new Map<string, AudioEvent>()
+  for (const event of props.clip.audioEvents ?? []) {
+    const previous = strongest.get(event.group)
+    if (!previous || event.peakScore > previous.peakScore) {
+      strongest.set(event.group, event)
+    }
+  }
+  return [...strongest.values()]
+    .sort((left, right) => right.peakScore - left.peakScore)
+    .slice(0, 4)
+})
+
 const lightingLabel = computed(() => {
   if (props.clip.lighting === LightingCondition.Day) return 'Day'
   if (props.clip.lighting === LightingCondition.Night) return 'Night'
@@ -59,6 +84,23 @@ const lightingClass = computed(() => {
   if (props.clip.lighting === LightingCondition.Night) return 'bg-primary'
   return ''
 })
+
+function audioIcon(group: string) {
+  return audioIcons[group.toLowerCase()] ?? '🔊'
+}
+
+function formatAudioScore(score: number) {
+  return `${Math.round(score * 100)}%`
+}
+
+function formatClipOffset(time: number) {
+  const offset = Math.max(0, time - props.clip.timestamp)
+  return `${offset.toFixed(offset < 10 ? 1 : 0)}s`
+}
+
+function audioTitle(event: AudioEvent) {
+  return `${event.group} audio · ${formatAudioScore(event.peakScore)} · ${formatClipOffset(event.startTime)}–${formatClipOffset(event.endTime)}`
+}
 </script>
 
 <template>
@@ -127,6 +169,14 @@ const lightingClass = computed(() => {
             class="badge bg-primary clip-tag-chip"
           >
             👤 {{ name }}
+          </span>
+          <span
+            v-for="event in audioLabels"
+            :key="'audio-' + event.group"
+            class="badge clip-tag-chip clip-audio-chip"
+            :title="audioTitle(event)"
+          >
+            {{ audioIcon(event.group) }} {{ event.group }} <span class="clip-audio-score">{{ formatAudioScore(event.peakScore) }}</span>
           </span>
         </div>
       </div>
@@ -314,6 +364,19 @@ const lightingClass = computed(() => {
 }
 .clip-tag-chip:hover {
   background-color: var(--bs-primary, #7c3aed) !important;
+}
+.clip-audio-chip {
+  background: rgba(13, 202, 240, 0.16);
+  border: 1px solid rgba(13, 202, 240, 0.35);
+  color: #9eeaf9;
+  font-weight: 500;
+}
+.clip-audio-chip:hover {
+  background-color: rgba(13, 202, 240, 0.28) !important;
+}
+.clip-audio-score {
+  color: rgba(255, 255, 255, 0.65);
+  font-weight: 400;
 }
 
 .clip-actions {
