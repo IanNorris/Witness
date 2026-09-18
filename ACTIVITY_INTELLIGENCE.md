@@ -153,3 +153,54 @@ IR transitions, camera movement, corruption, outages, a parked car moving, a
 person crossing a routine zone, similar objects, occlusion, stationary people,
 and detector-empty/skipped frames.
 
+## Offline prototype results (18 September 2026)
+
+[`scripts/activity_similarity_eval.py`](scripts/activity_similarity_eval.py) now
+provides a reproducible, read-only evaluator for the two cheapest parts of this
+design. It deliberately does not change the database or hide clips.
+
+The grouping mode extracts a 64-bit dHash, 64-bit pHash, 256-bit block hash,
+illumination-normalised 8x8 spatial grid, and small HSV histogram. It compares
+only same-camera, compatible-regime group representatives inside bounded time,
+span, candidate-count, and group-size limits. Every match records its component
+distances so a future UI can explain why it grouped a clip.
+
+On the 1,000 most recent non-empty thumbnails in `X:\WitnessCache`, the initial
+0.20 threshold produced 456 cards: a 54.4% card-count reduction across nine
+cameras, with 575 representative comparisons and no decode failures. Descriptor
+extraction averaged 11.9 ms per thumbnail (p95 51.4 ms) in this Python/OpenCV
+prototype. The spread was strongly camera-dependent: 87.1% reduction for the
+static Utility Room view, 63.3% for Side Path, but under 10% for Rear Wide and
+Hallway. Visual inspection of large Utility Room and Front PTZ groups confirmed
+that their endpoints represented the same scene/routine event. This is evidence
+that the bounded cheap path has useful selectivity, but it is not a false-group
+accuracy measurement. A labelled audit set remains mandatory before enabling
+automatic collapsing.
+
+The compare mode validates the steady-state-region idea from Ian's note. Two
+full-resolution frames four seconds apart, with a cat moving across the drive,
+produced 0.87% changed pixels and two normalised regions covering the old and
+new positions. A day/night comparison of the same Front PTZ scene produced
+74.1% changed pixels and was classified as a whole-scene reset. The required
+product behaviour is therefore achievable with inexpensive image operations:
+retain region histories across a reset by geometry, but mark their continuity
+unknown until the new baseline confirms them.
+
+Example commands:
+
+```powershell
+python scripts/activity_similarity_eval.py --output artifacts/activity-groups.json `
+  group X:\WitnessCache --limit 1000
+
+python scripts/activity_similarity_eval.py --output artifacts/activity-change.json `
+  compare before.jpg after.jpg
+```
+
+Next, curate and label representative pairs (especially people behind webs,
+headlights, rain, IR transitions, and parked-car transitions), sweep thresholds
+per camera/regime, and measure important-event false grouping. Production work
+should then persist versioned descriptors and run grouping in shadow mode.
+
+# Ian Notes
+
+* Beyond just tracked objects, we can also establish object permenance by comparing steady state frames over time. For example when a bin is put out on the street, the new baseline will include that object until it then moves again. The user could then click on a bin pixel and track when those pixels (grouped by rectangular areas of pixels that differend from the previous baseline). That would let them see when the bin was put out, when it was collected, then skip forward to the clip when it was moved again, where they'd see it in the new position. The system doesn't know what a bin is, and it isn't tracking an object, we're just establishing that these pixels moved substantially between these times. Caveat to this - night vision would obviously cause a full reset. In that case I think we'd need to detect a whole frame reset and establish a new baseline immediately - while transferring the existing tracked areas. The rest of the pipeline would be the same, it just comes from background extraction and not an AI detection model.
