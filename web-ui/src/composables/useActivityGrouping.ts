@@ -211,8 +211,8 @@ export async function buildActivityGroups(
   options: GroupOptions = {},
 ): Promise<ActivityGroup[]> {
   const threshold = options.threshold ?? 0.17
-  const maxGap = options.maxGapSeconds ?? 60
-  const maxSpan = options.maxSpanSeconds ?? 600
+  const maxGap = options.maxGapSeconds ?? 180
+  const maxSpan = options.maxSpanSeconds ?? 3600
   const maxSize = options.maxGroupSize ?? 50
   const maxCandidates = options.maxCandidates ?? 8
   const chronological = [...clips].sort((left, right) => left.timestamp - right.timestamp)

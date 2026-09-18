@@ -76,7 +76,7 @@ export const useClipStore = defineStore('clips', () => {
     reprocessStatus.value = updated
   })
 
-  async function fetchClips(cameraId: number | null, offset = 0) {
+  async function fetchClips(cameraId: number | null, offset = 0, retryingClampedPage = false) {
     loading.value = true
     currentCameraId.value = cameraId
     pageOffset.value = offset
@@ -99,7 +99,15 @@ export const useClipStore = defineStore('clips', () => {
         `/clip/enum/${camParam}/${pageSize.value}/${startDate}/${rangePeriod}/${offset}${filterStore.filterQueryString}`
       )
       totalCount.value = data.count ?? 0
-      clips.value = (data.clips ?? []).map(mapClip)
+      const rawClips = data.clips ?? []
+      if (!retryingClampedPage && rawClips.length === 0 && totalCount.value > 0 && offset > 0) {
+        const lastPageOffset = Math.max(0, Math.floor((totalCount.value - 1) / pageSize.value) * pageSize.value)
+        if (lastPageOffset !== offset) {
+          await fetchClips(cameraId, lastPageOffset, true)
+          return
+        }
+      }
+      clips.value = rawClips.map(mapClip)
     } catch {
       clips.value = []
       totalCount.value = 0

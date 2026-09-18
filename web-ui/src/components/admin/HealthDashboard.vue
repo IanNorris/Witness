@@ -245,8 +245,9 @@ function cameraMediaEvents(camera: CameraHealth): DisplayMediaDiagnosticEvent[] 
 }
 
 function mediaEventTime(timestampUnixMs: number): string {
-  const iso = new Date(timestampUnixMs).toISOString()
-  return `${iso.slice(11, 23)} UTC`
+  const date = new Date(timestampUnixMs)
+  const pad = (value: number, length = 2) => String(value).padStart(length, '0')
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`
 }
 
 function mediaEventClass(severity: string): string {

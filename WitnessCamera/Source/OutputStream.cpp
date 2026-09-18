@@ -33,6 +33,8 @@ OutputStream::OutputStream( const std::string& Path, InputStream * InputStream, 
 , m_HasAudioStream( false )
 , m_AudioInputStreamIndex( -1 )
 , m_InitialTimestampUs( AV_NOPTS_VALUE )
+, m_AudioTimestampOffsetEstablished( false )
+, m_AudioTimestampOffsetUs( 0 )
 , m_TimestampNormalizationAllowed( false )
 , m_LastRawVideoDTS( AV_NOPTS_VALUE )
 , m_LastNormalizedVideoDuration( 0 )
@@ -100,6 +102,8 @@ OutputStream::OutputStream( const std::string& Path, unsigned int Width, unsigne
 , m_HasAudioStream( false )
 , m_AudioInputStreamIndex( -1 )
 , m_InitialTimestampUs( AV_NOPTS_VALUE )
+, m_AudioTimestampOffsetEstablished( false )
+, m_AudioTimestampOffsetUs( 0 )
 , m_TimestampNormalizationAllowed( false )
 , m_LastRawVideoDTS( AV_NOPTS_VALUE )
 , m_LastNormalizedVideoDuration( 0 )
@@ -506,9 +510,25 @@ CameraStreamError OutputStream::WriteInterleavedPacket( const AVPacket* Packet )
 			av_packet_unref( &PacketCopy );
 			return CameraStreamError::Success;
 		}
-		int64_t OffsetUs = PacketTimestampUs - m_InitialTimestampUs;
+		if( IsAudio && !m_AudioTimestampOffsetEstablished )
+		{
+			const int64_t AudioStartOffsetUs = PacketTimestampUs - m_InitialTimestampUs;
+			if( AudioStartOffsetUs > 30 * AV_TIME_BASE )
+			{
+				m_AudioTimestampOffsetUs = AudioStartOffsetUs;
+				LOG_WARNING( "Recording rebased audio timestamp origin by %.3fs", AudioStartOffsetUs / 1000000.0 );
+			}
+			m_AudioTimestampOffsetEstablished = true;
+		}
+		const int64_t StreamOriginUs = m_InitialTimestampUs + ( IsAudio ? m_AudioTimestampOffsetUs : 0 );
+		if( PacketTimestampUs < StreamOriginUs )
+		{
+			av_packet_unref( &PacketCopy );
+			return CameraStreamError::Success;
+		}
+		int64_t OffsetUs = PacketTimestampUs - StreamOriginUs;
 		PacketCopy.dts = av_rescale_q( OffsetUs, AV_TIME_BASE_Q, InputTimebase );
-		PacketCopy.pts = av_rescale_q( av_rescale_q(PacketCopy.pts, InputTimebase, AV_TIME_BASE_Q) - m_InitialTimestampUs, AV_TIME_BASE_Q, InputTimebase );
+		PacketCopy.pts = av_rescale_q( av_rescale_q(PacketCopy.pts, InputTimebase, AV_TIME_BASE_Q) - StreamOriginUs, AV_TIME_BASE_Q, InputTimebase );
 		if( !IsAudio && ID.IsFirstFrame )
 		{
 			ID.DTS = 0;
