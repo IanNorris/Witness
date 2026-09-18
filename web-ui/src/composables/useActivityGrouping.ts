@@ -67,12 +67,12 @@ function pixelLuma(data: Uint8ClampedArray, index: number) {
 }
 
 function normalisedTags(clip: Clip) {
-  return (clip.tags ?? '')
+  const visualTags = (clip.tags ?? '')
     .split(/[;,]/)
     .map(tag => tag.trim().toLowerCase())
     .filter(Boolean)
-    .sort()
-    .join(';')
+  const audioTags = [...new Set((clip.audioEvents ?? []).map(event => `audio:${event.group.toLowerCase()}`))]
+  return [...visualTags, ...audioTags].sort().join(';')
 }
 
 async function extractDescriptor(clip: Clip, thumbnailUrl: (clip: Clip) => string) {
@@ -173,7 +173,15 @@ function descriptorFor(clip: Clip, thumbnailUrl: (clip: Clip) => string) {
     pending = extractDescriptor(clip, thumbnailUrl)
     descriptorCache.set(clip.uid, pending)
   }
-  return pending
+  // Classification metadata can arrive after the thumbnail descriptor is
+  // cached. Refresh compatibility fields without re-decoding the image.
+  return pending.then(descriptor => ({
+    ...descriptor,
+    camera: clip.camera,
+    timestamp: clip.timestamp,
+    lighting: clip.lighting,
+    tags: normalisedTags(clip),
+  }))
 }
 
 function distance(left: ActivityDescriptor, right: ActivityDescriptor) {

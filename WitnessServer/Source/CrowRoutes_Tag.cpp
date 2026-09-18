@@ -257,6 +257,22 @@ void CrowListener::HandleClipRecent( const crow::request& req, crow::response& r
 			});
 		}
 		clips[i]["tags"] = tags;
+
+		std::vector<crow::json::wvalue> audioEvents;
+		SQLiteDatabaseQueryInstance aq( m_GlobalContext->Database, "SelectAudioEventsForClip" );
+		aq->Bind( "@ClipUID", clipUIDs[i] );
+		aq->Execute( [&audioEvents]( const SQLiteDatabaseQuery& query )
+		{
+			crow::json::wvalue Event;
+			Event["group"] = std::string( query.GetColumnValueText( 0 ) ? query.GetColumnValueText( 0 ) : "" );
+			Event["startTime"] = query.GetColumnValueDouble( 1 );
+			Event["endTime"] = query.GetColumnValueDouble( 2 );
+			Event["peakScore"] = query.GetColumnValueDouble( 3 );
+			Event["modelVersion"] = std::string( query.GetColumnValueText( 4 ) ? query.GetColumnValueText( 4 ) : "" );
+			audioEvents.push_back( std::move( Event ) );
+			return true;
+		} );
+		clips[i]["audioEvents"] = std::move( audioEvents );
 	}
 
 	crow::json::wvalue Data;

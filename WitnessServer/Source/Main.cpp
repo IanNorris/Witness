@@ -9,6 +9,7 @@
 #include "Witness.h"
 #include <Stream.h>
 #include <ONNXDetectionFilter.h>
+#include <AudioClassifier.h>
 
 extern "C" {
 #include <libavformat/avformat.h>
@@ -26,8 +27,10 @@ extern "C" {
 #include <minmax.h>
 #include <chrono>
 #include <atomic>
+#include <algorithm>
 #include <thread>
 #include <iostream>
+#include <iomanip>
 #include <Log.h>
 
 #ifdef CROW_ENABLE_SSL
@@ -468,6 +471,42 @@ int wmain( int argc, wchar_t* argv[] )
 				std::filesystem::exists(modelPath) ? modelPathStr.c_str() : nullptr,
 				cudnnPath );
 			return success ? 0 : 1;
+		}
+		else if (_wcsicmp(argv[1], L"/test-audio") == 0)
+		{
+			if( argc < 3 )
+			{
+				std::cerr << "Usage: WitnessServer.exe /test-audio <clip.mp4> [confidence]" << std::endl;
+				return 1;
+			}
+			char ClipPath[MAX_PATH] = {};
+			WideCharToMultiByte( CP_UTF8, 0, argv[2], -1, ClipPath, MAX_PATH, nullptr, nullptr );
+			float Threshold = argc >= 4 ? static_cast<float>( _wtof( argv[3] ) ) : 0.5f;
+			Threshold = std::clamp( Threshold, 0.05f, 0.99f );
+
+			wchar_t ExeBuffer[MAX_PATH] = {};
+			GetModuleFileNameW( nullptr, ExeBuffer, MAX_PATH );
+			const auto Models = std::filesystem::path( ExeBuffer ).parent_path() / "models";
+			auto Classifier = std::make_shared<Witness::Camera::AudioClassifier>();
+			if( !Classifier->LoadModel( ( Models / "yamnet.onnx" ).string().c_str(),
+				( Models / "yamnet_class_map.csv" ).string().c_str() ) ) return 1;
+
+			std::vector<float> Samples;
+			if( !DecodeAudioForIntelligence( ClipPath, Samples ) )
+			{
+				std::cerr << "No decodable audio in: " << ClipPath << std::endl;
+				return 1;
+			}
+			const auto Events = Classifier->Classify( Samples, Threshold );
+			std::cout << "Decoded " << std::fixed << std::setprecision( 2 )
+				<< static_cast<double>( Samples.size() ) / 16000.0 << "s; threshold " << Threshold << std::endl;
+			for( const auto& Event : Events )
+			{
+				std::cout << std::setw( 10 ) << Event.Group << "  " << Event.StartSeconds << "-"
+					<< Event.EndSeconds << "s  peak " << std::setprecision( 0 )
+					<< Event.PeakScore * 100.0f << "%" << std::setprecision( 2 ) << std::endl;
+			}
+			return 0;
 		}
 		else if (_wcsicmp(argv[1], L"/test-detection") == 0)
 		{

@@ -41,6 +41,7 @@ set_target_properties(onnxruntime::onnxruntime PROPERTIES
 set(WITNESS_ONNX_CUDA_AVAILABLE 0)
 
 set(CAMERA_SOURCES
+    Source/AudioClassifier.cpp
     Source/ContinuousOutputStream.cpp
     Source/DebugBind.cpp
     Source/FaceDetectionFilter.cpp
@@ -63,6 +64,7 @@ set(CAMERA_SOURCES
 )
 
 set(CAMERA_HEADERS
+    Include/AudioClassifier.h
     Include/ContinuousOutputStream.h
     Include/DebugBind.h
     Include/Export.h

@@ -106,8 +106,25 @@ python scripts/download-models.py --face
 | `face_recognition_model_path` | *(optional)* | Path to .onnx file (default: `models/face_recognition.onnx` next to exe) |
 | `face_recognition_confidence` | `0.5` | Cosine similarity threshold for identity match (0.0-1.0) |
 
+## Audio Intelligence Model
+
+YAMNet classifies mono 16 kHz audio into AudioSet classes. Witness maps those
+raw scores into a small set of product-facing sound families and stores only
+event metadata. Install the pinned, hash-verified model and class map with:
+
+```bash
+python scripts/download-models.py --audio
+```
+
+Audio intelligence is disabled by default and enabled per camera in the admin
+UI. Optional global overrides are `audio_intelligence_model_path` and
+`audio_intelligence_class_map_path`; otherwise the server looks in its adjacent
+`models` directory.
+
 ## License
 
 YOLO26 model weights are licensed under AGPL-3.0 by Ultralytics, compatible with Witness's GPLv3 license.
 YuNet model is licensed under MIT by OpenCV Zoo — no restrictions for any use.
 MobileFaceNet (w600k_mbf) from InsightFace is for **non-commercial research purposes only**.
+YAMNet is distributed by TensorFlow Models under Apache-2.0; AudioSet labels are
+descriptive metadata rather than retained training media.

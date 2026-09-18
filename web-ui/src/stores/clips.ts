@@ -206,5 +206,6 @@ function mapClip(raw: Record<string, unknown>): Clip {
     lighting: (raw.lighting as number ?? 0) as LightingCondition,
     reviewed: (raw.reviewed as number) === 1,
     recognizedFaces: (raw.recognizedFaces as string[]) ?? [],
+    audioEvents: (raw.audioEvents as Clip['audioEvents']) ?? [],
   }
 }

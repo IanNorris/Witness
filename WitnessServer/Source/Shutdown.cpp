@@ -17,6 +17,7 @@ void WitnessServer::Shutdown()
 	Timer = nullptr;
 
 	ReprocessWorker = nullptr;
+	AudioWorker = nullptr;
 
 	ImageWorkers.clear();
 
@@ -60,6 +61,11 @@ void WitnessServer::RequestShutdown()
 	{
 		ReprocessWorker->RequestShutdown();
 		ReprocessWorker->Join();
+	}
+	if( AudioWorker )
+	{
+		AudioWorker->RequestShutdown();
+		AudioWorker->Join();
 	}
 	for (auto& Worker : ImageWorkers)
 	{

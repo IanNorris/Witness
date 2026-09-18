@@ -13,6 +13,7 @@
 #include <ONNXDetectionFilter.h>
 #include <FaceDetectionFilter.h>
 #include <FaceEmbeddingModel.h>
+#include <AudioClassifier.h>
 
 #include <filesystem>
 #include <fstream>
@@ -230,6 +231,25 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 		}
 
 		LOG_INFO( "Face recognition: %s", Video.FaceRecognitionEnabled ? "enabled" : "disabled" );
+	}
+
+	// Audio intelligence is opt-in per camera. Model paths may be overridden,
+	// otherwise use the pinned YAMNet artifacts beside the executable.
+	GetSettingsField( Settings, "audio_intelligence_model_path", Video.AudioIntelligenceModelPath, Errors );
+	GetSettingsField( Settings, "audio_intelligence_class_map_path", Video.AudioIntelligenceClassMapPath, Errors );
+	if( Video.AudioIntelligenceModelPath.empty() || Video.AudioIntelligenceClassMapPath.empty() )
+	{
+#ifdef _WIN32
+		wchar_t audioExeBuf[MAX_PATH] = {};
+		GetModuleFileNameW( nullptr, audioExeBuf, MAX_PATH );
+		auto audioModels = std::filesystem::path( audioExeBuf ).parent_path() / "models";
+#else
+		auto audioModels = std::filesystem::canonical( "/proc/self/exe" ).parent_path() / "models";
+#endif
+		if( Video.AudioIntelligenceModelPath.empty() )
+			Video.AudioIntelligenceModelPath = ( audioModels / "yamnet.onnx" ).string();
+		if( Video.AudioIntelligenceClassMapPath.empty() )
+			Video.AudioIntelligenceClassMapPath = ( audioModels / "yamnet_class_map.csv" ).string();
 	}
 
 	GetSettingsField( Settings, "mse_partial_duration", Video.MsePartialDuration, Errors );
@@ -512,6 +532,32 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 			LOG_INFO( "Clip reprocessor started (detection version %d, face detection: %s)", CURRENT_DETECTION_VERSION,
 				reprocessFaceFilter ? "enabled" : "disabled" );
 		}
+	}
+
+	if( std::filesystem::exists( Video.AudioIntelligenceModelPath ) &&
+		std::filesystem::exists( Video.AudioIntelligenceClassMapPath ) )
+	{
+		auto AudioClassifier = std::make_shared<Witness::Camera::AudioClassifier>();
+		if( AudioClassifier->LoadModel( Video.AudioIntelligenceModelPath.c_str(),
+			Video.AudioIntelligenceClassMapPath.c_str() ) )
+		{
+			auto ctx = Context;
+			AudioWorker = std::make_unique<AudioIntelligenceWorker>( Context->MessageBus,
+				Context->Database, AudioClassifier, CachePath, Context, [ctx]()
+				{
+					std::shared_lock<std::shared_mutex> Lock( ctx->Mutex );
+					for( const auto& [id, state] : ctx->GetCameraMap() )
+						if( state.IsRecording ) return false;
+					return true;
+				} );
+			AudioWorker->Start( WorkerBase::Priority::LowPriority );
+			Context->AudioIntelligence.WorkerLoaded.store( true );
+			LOG_INFO( "Audio intelligence worker started (shadow mode, version 1)" );
+		}
+	}
+	else
+	{
+		LOG_INFO( "Audio intelligence model not installed; per-camera audio analysis is unavailable" );
 	}
 
 	LOG_INFO( "Server boot complete..." );

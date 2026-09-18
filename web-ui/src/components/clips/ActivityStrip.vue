@@ -87,6 +87,19 @@ function clipTags(clip: Clip) {
   })
 }
 
+const audioIcons: Record<string, string> = {
+  speech: '🗣', dog: '🐕', animal: '🐾', footsteps: '👣', vehicle: '🚗',
+  alarm: '🚨', glass: '◫', door: '🚪', wind: '〰',
+}
+
+function audioGroups(clip: Clip) {
+  const strongest = new Map<string, number>()
+  for (const event of clip.audioEvents ?? []) {
+    strongest.set(event.group, Math.max(strongest.get(event.group) ?? 0, event.peakScore))
+  }
+  return [...strongest].sort((left, right) => right[1] - left[1])
+}
+
 function onClickClip(clip: Clip) {
   emit('play', clip)
   if (!clip.reviewed) {
@@ -142,6 +155,9 @@ onMounted(async () => {
     if (evt.event === 'camera:recording') {
       // Force preview refresh on recording state change
       previewTick.value++
+    }
+    else if (evt.event === 'clip:new' || evt.event === 'audio:classified') {
+      void clipStore.fetchRecent(50)
     }
   })
 })
@@ -203,6 +219,12 @@ onUnmounted(() => {
             <span v-for="name in (group.representative.recognizedFaces ?? [])" :key="'face-' + name" class="strip-tag strip-face-tag">
               👤
             </span>
+            <span
+              v-for="[audioGroup, score] in audioGroups(group.representative)"
+              :key="'audio-' + audioGroup"
+              class="strip-tag strip-audio-tag"
+              :title="`${audioGroup} audio · ${Math.round(score * 100)}%`"
+            >{{ audioIcons[audioGroup] ?? '🔊' }}</span>
           </div>
           <button
             v-if="group.clips.length > 1"
@@ -224,6 +246,20 @@ onUnmounted(() => {
           @click.stop="onClickClip(clip)"
         >
           <img :src="thumbUrl(clip)" :alt="`Clip ${clip.uid}`" loading="lazy" />
+          <div class="strip-thumb-tags">
+            <span v-for="tag in clipTags(clip)" :key="tag.name" class="strip-tag">
+              {{ tag.icon || tag.display }}
+            </span>
+            <span v-for="name in (clip.recognizedFaces ?? [])" :key="'face-' + name" class="strip-tag strip-face-tag">
+              👤
+            </span>
+            <span
+              v-for="[audioGroup, score] in audioGroups(clip)"
+              :key="'audio-' + audioGroup"
+              class="strip-tag strip-audio-tag"
+              :title="`${audioGroup} audio · ${Math.round(score * 100)}%`"
+            >{{ audioIcons[audioGroup] ?? '🔊' }}</span>
+          </div>
           <div class="strip-overlay-bottom">
             <span class="strip-cam-name">{{ cameraName(clip.camera) }}</span>
             <span class="strip-time-badge">{{ timeAgo(clip.timestamp) }}</span>
