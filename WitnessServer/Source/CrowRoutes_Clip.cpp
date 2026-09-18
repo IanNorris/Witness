@@ -446,6 +446,30 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 		}
 	}
 
+	// Populate classified audio events for recent activity. The dashboard uses
+	// these both for badges and as a grouping constraint.
+	if( !clipUIDs.empty() )
+	{
+		for( size_t i = 0; i < clipUIDs.size(); i++ )
+		{
+			std::vector<crow::json::wvalue> audioEvents;
+			SQLiteDatabaseQueryInstance q( m_GlobalContext->Database, "SelectAudioEventsForClip" );
+			q->Bind( "@ClipUID", clipUIDs[i] );
+			q->Execute( [&audioEvents]( const SQLiteDatabaseQuery& query )
+			{
+				crow::json::wvalue Event;
+				Event["group"] = std::string( query.GetColumnValueText( 0 ) ? query.GetColumnValueText( 0 ) : "" );
+				Event["startTime"] = query.GetColumnValueDouble( 1 );
+				Event["endTime"] = query.GetColumnValueDouble( 2 );
+				Event["peakScore"] = query.GetColumnValueDouble( 3 );
+				Event["modelVersion"] = std::string( query.GetColumnValueText( 4 ) ? query.GetColumnValueText( 4 ) : "" );
+				audioEvents.push_back( std::move( Event ) );
+				return true;
+			} );
+			Array[i]["audioEvents"] = std::move( audioEvents );
+		}
+	}
+
 	crow::json::wvalue Data;
 	Data["count"] = Count;
 	Data["clips"] = std::move( Array );
