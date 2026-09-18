@@ -1325,7 +1325,12 @@ void CrowListener::HandleReprocessQueue( const crow::request& req, crow::respons
 #ifdef CROW_ENABLE_SSL
 static bool LogCertExpiry( const std::string& certPath )
 {
-	FILE* fp = fopen( certPath.c_str(), "r" );
+	FILE* fp = nullptr;
+#ifdef _WIN32
+	fopen_s( &fp, certPath.c_str(), "r" );
+#else
+	fp = fopen( certPath.c_str(), "r" );
+#endif
 	if( !fp )
 	{
 		LOG_ERROR( "TLS: Unable to open certificate file: %s", certPath.c_str() );

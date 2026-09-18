@@ -568,7 +568,7 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 	}
 
 	const  AVMotionVector* MVData = (const AVMotionVector*)SideData->data;
-	const unsigned int MotionVectors = SideData->size / sizeof(*MVData);
+	const unsigned int MotionVectors = static_cast<unsigned int>( SideData->size / sizeof(*MVData) );
 
 	unsigned int UsableMotionVectors = 0;
 

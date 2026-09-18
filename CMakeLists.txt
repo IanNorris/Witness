@@ -71,6 +71,12 @@ endif()
 
 project(Witness LANGUAGES CXX C)
 
+if(WIN32)
+    # Witness targets supported Windows 10+ APIs; defining this before Asio/Crow
+    # headers also avoids their per-translation-unit Windows 7 fallback warning.
+    add_compile_definitions(_WIN32_WINNT=0x0A00 WINVER=0x0A00)
+endif()
+
 if(WITNESS_MANAGED_DEPENDENCIES)
     if(NOT DEFINED VCPKG_TARGET_TRIPLET OR VCPKG_TARGET_TRIPLET STREQUAL "")
         message(FATAL_ERROR "Managed dependencies require VCPKG_TARGET_TRIPLET.")
