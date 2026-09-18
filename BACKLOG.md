@@ -91,6 +91,12 @@ are described in [TERMINAL_DASHBOARD.md](TERMINAL_DASHBOARD.md).
   throughput limits. The combined view should contain the information normally
   needed to diagnose a performance or streaming incident without collecting
   several separate reports.
+- Persist a bounded history of browser/client health reports server-side,
+  keyed by logged-in username plus a stable locally stored browser/session
+  identifier. A health export from any browser should include recent telemetry
+  from all known clients, including hidden tabs and sessions that have since
+  disconnected, so opening the Health page cannot erase or perturb the evidence
+  of a playback failure.
 - Show dismissible warning toasts when a camera becomes unhealthy. Define
   health using connection stability, stream freshness, decode errors, latency,
   and sustained queue pressure, with rate limiting and recovery notification so
