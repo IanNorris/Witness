@@ -3,7 +3,7 @@ import { ref, onUnmounted, type Ref } from 'vue'
 // ── Constants ─────────────────────────────────────────────────────────
 const MSE_WATCHDOG_INTERVAL_MS = 250
 const MSE_WATCHDOG_SCHEDULING_GRACE_MS = 1000
-const MSE_INITIAL_TIMEOUT_MS = 5000
+const MSE_INITIAL_TIMEOUT_MS = 10000
 const MSE_BACK_BUFFER_SECONDS = 5
 const MSE_TARGET_HEADROOM_SECONDS = 1.25
 const MSE_CATCH_UP_START_SECONDS = 1.75
@@ -280,6 +280,7 @@ export function useMseStream(
   let lastTrimmedTo = 0
   let lastFragTime = 0
   let streamStartTime = Date.now()
+  let wsOpenedAt = 0
   let lastWatchdogTick = Date.now()
   let watchdog: ReturnType<typeof setInterval> | null = null
   let restartBackoffMs = 3000
@@ -930,6 +931,7 @@ export function useMseStream(
     consecutiveAppendErrors = 0
     lastFragTime = 0  // Reset so watchdog correctly detects stale connections
     streamStartTime = Date.now()
+    wsOpenedAt = 0
     lastCurrentTime = -1
     currentTimeStalledSince = 0
     lowReadyStateSince = 0
@@ -961,6 +963,7 @@ export function useMseStream(
 	initGeneration = -1
 	awaitingInit = true
 	intentionalClose = false
+    wsOpenedAt = 0
 	const socket = new WebSocket(url)
 	ws = socket
 		hasReceivedStreamSelection = false
@@ -970,6 +973,7 @@ export function useMseStream(
 	  if (ws !== socket) return
       diag.log('wsOpen')
       streamStartTime = Date.now()
+      wsOpenedAt = streamStartTime
       restartBackoffMs = 3000
 		const viewport = adaptiveStream && !useSubStream ? viewportSize() : null
 		if (viewport) updateViewport(viewport.width, viewport.height)
@@ -1020,6 +1024,7 @@ export function useMseStream(
         mediaSource = null
         lastFragTime = 0
         streamStartTime = Date.now()
+        wsOpenedAt = 0
         expectingBinary = null
 		awaitingInit = true
         waitingForKeyframe = true
@@ -1087,6 +1092,7 @@ export function useMseStream(
     mediaSource = null
     lastFragTime = 0
     streamStartTime = Date.now()
+    wsOpenedAt = 0
     expectingBinary = null
 	awaitingInit = true
     waitingForKeyframe = true
@@ -1103,12 +1109,16 @@ export function useMseStream(
     keyframeTimes = []
     lastKeyframeSeekTarget = -1
 
+    const delayMs = reason === 'initialTimeout' ? 1000 : restartBackoffMs
+
     // Reconnect
     reconnectTimer = setTimeout(() => {
       reconnectTimer = null
       connectWebSocket()
-    }, restartBackoffMs)
-    restartBackoffMs = Math.min(restartBackoffMs * 1.5, 30000)
+    }, delayMs)
+    if (reason !== 'initialTimeout') {
+      restartBackoffMs = Math.min(restartBackoffMs * 1.5, 30000)
+    }
   }
 
   // ── Watchdog ──────────────────────────────────────────────────────
@@ -1137,18 +1147,20 @@ export function useMseStream(
         diag.log('watchdogSchedulingDelay', { schedulingDelayMs: schedulingDelay, suspendedMs })
       }
       const hasFrags = lastFragTime > 0
-      const fragAge = hasFrags ? now - lastFragTime : now - streamStartTime
+      const startupReference = wsOpenedAt || streamStartTime
+      const fragAge = hasFrags ? now - lastFragTime : now - startupReference
 
       // Spinner: show during initial connect only, not during playback
       // (fragments flowing = stream is healthy, readyState dips are normal near live edge)
       showSpinner.value = !hasFrags && fragAge < MSE_INITIAL_TIMEOUT_MS
 
       // Connection lost: no fragments for extended period
-      connectionLost.value = fragAge > MSE_INITIAL_TIMEOUT_MS
+      connectionLost.value = !reconnectTimer && fragAge > MSE_INITIAL_TIMEOUT_MS
 
       // Initial timeout — never received first fragment
-      if (!hasFrags && fragAge > MSE_INITIAL_TIMEOUT_MS) {
-        diag.log('initialTimeout')
+      if (!hasFrags && !reconnectTimer && ws && ws.readyState === WebSocket.OPEN &&
+          wsOpenedAt > 0 && now - wsOpenedAt > MSE_INITIAL_TIMEOUT_MS) {
+        diag.log('initialTimeout', { waitedMs: now - wsOpenedAt })
         restartStream('initialTimeout')
         return
       }
@@ -1310,6 +1322,9 @@ export function useMseStream(
       sourceBufferUpdating: sourceBuffer?.updating ?? null,
       sourceBufferOperation: sourceBufferOperation?.kind ?? null,
       mediaSourceState: mediaSource?.readyState ?? null,
+      wsReadyState: ws?.readyState ?? null,
+      wsOpenAgeMs: wsOpenedAt ? Date.now() - wsOpenedAt : null,
+      reconnectPendingMs: reconnectTimer ? Math.max(0, restartBackoffMs) : null,
       lowReadyStateMs: lowReadyStateSince ? Date.now() - lowReadyStateSince : 0,
       initGeneration,
 		awaitingInit,
