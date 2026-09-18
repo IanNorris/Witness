@@ -5,6 +5,7 @@ import { openHealthMonitor } from '../../composables/useHealthMonitor'
 import {
   collectClientHealthSessions,
   type ClientHealthSession,
+  type ClientPlayerHealth,
 } from '../../composables/useClientHealth'
 
 defineProps<{ standalone?: boolean }>()
@@ -193,6 +194,11 @@ function streamTierLabel(tier: string): string {
 
 function readyStateLabel(value: number | undefined): string {
   return ['No media', 'Metadata', 'Current frame', 'Future frames', 'Buffered'][value ?? -1] ?? 'Unknown'
+}
+
+function playerRestartClue(player: ClientPlayerHealth): string {
+  const reason = player.lastRestartReason || player.lastEventType
+  return reason ? ` · ${reason}` : ''
 }
 
 function playerLabel(id: string): string {
@@ -562,7 +568,7 @@ onBeforeUnmount(() => {
                   <td>{{ playerLabel(player.id) }}</td><td>{{ streamTierLabel(player.selectedStream ?? 'unknown') }}</td><td>{{ formatMs(player.latencyMs) }}</td>
                   <td>{{ readyStateLabel(player.readyState) }}</td><td>{{ formatCount(player.totalVideoFrames) }}</td>
                   <td>{{ formatCount(player.droppedVideoFrames) }}</td><td>{{ formatCount(player.corruptedVideoFrames) }}</td>
-                  <td>{{ player.restartCount ?? 0 }} / {{ player.stallCount ?? 0 }} / {{ player.errorCount ?? 0 }}</td>
+                  <td>{{ player.restartCount ?? 0 }} / {{ player.stallCount ?? 0 }} / {{ player.errorCount ?? 0 }}<span class="health-secondary">{{ playerRestartClue(player) }}</span></td>
                 </tr>
               </template>
             </tbody>

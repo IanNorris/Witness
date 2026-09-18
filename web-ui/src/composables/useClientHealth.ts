@@ -3,12 +3,37 @@ export interface ClientPlayerHealth {
   selectedStream?: string
   latencyMs?: number
   readyState?: number
+  mediaSourceState?: string
   totalVideoFrames?: number
   droppedVideoFrames?: number
   corruptedVideoFrames?: number
   restartCount?: number
   stallCount?: number
   errorCount?: number
+  totalFragments?: number
+  integrityMismatchCount?: number
+  decodeCorruptionCount?: number
+  renderSuppressionCount?: number
+  lastEventType?: string
+  lastRestartReason?: string
+  recentEvents?: ClientPlayerEvent[]
+}
+
+export interface ClientPlayerEvent {
+  t: string
+  type: string
+  reason?: string
+  code?: number
+  message?: string
+  name?: string
+  readyState?: number
+  mediaSourceState?: string
+  generation?: number
+  segmentIndex?: number
+  partIndex?: number
+  backoffMs?: number
+  consecutive?: number
+  mimeType?: string
 }
 
 export interface ClientHealthSession {
@@ -31,6 +56,7 @@ export interface ClientHealthCollection {
 const CHANNEL_NAME = 'witness-client-health-v1'
 const MAX_SESSIONS = 32
 const MAX_PLAYERS_PER_SESSION = 64
+const MAX_EVENTS_PER_PLAYER = 12
 const TAB_ID = typeof crypto.randomUUID === 'function'
   ? crypto.randomUUID()
   : `${Date.now()}-${Math.random().toString(16).slice(2)}`
@@ -43,6 +69,51 @@ function boundedText(value: unknown, maxLength: number): string {
 
 function optionalFinite(value: unknown): number | undefined {
   return typeof value === 'number' && Number.isFinite(value) ? value : undefined
+}
+
+function optionalBoundedText(value: unknown, maxLength: number): string | undefined {
+  const text = boundedText(value, maxLength)
+  return text || undefined
+}
+
+function sanitizeEvent(value: unknown): ClientPlayerEvent | null {
+  if (!value || typeof value !== 'object') return null
+  const source = value as Record<string, unknown>
+  const t = boundedText(source.t, 40)
+  const type = boundedText(source.type, 64)
+  if (!Number.isFinite(Date.parse(t)) || !type) return null
+  return {
+    t,
+    type,
+    reason: optionalBoundedText(source.reason, 64),
+    code: optionalFinite(source.code),
+    message: optionalBoundedText(source.message, 160),
+    name: optionalBoundedText(source.name, 80),
+    readyState: optionalFinite(source.readyState),
+    mediaSourceState: optionalBoundedText(source.mediaSourceState, 32),
+    generation: optionalFinite(source.generation),
+    segmentIndex: optionalFinite(source.segmentIndex),
+    partIndex: optionalFinite(source.partIndex),
+    backoffMs: optionalFinite(source.backoffMs),
+    consecutive: optionalFinite(source.consecutive),
+    mimeType: optionalBoundedText(source.mimeType, 120),
+  }
+}
+
+function sanitizeEvents(value: unknown): ClientPlayerEvent[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const events = value.slice(-MAX_EVENTS_PER_PLAYER)
+    .map(sanitizeEvent)
+    .filter((event): event is ClientPlayerEvent => event !== null)
+  return events.length > 0 ? events : undefined
+}
+
+function lastEventOfType(events: ClientPlayerEvent[] | undefined, type: string): ClientPlayerEvent | undefined {
+  if (!events) return undefined
+  for (let i = events.length - 1; i >= 0; --i) {
+    if (events[i]!.type === type) return events[i]
+  }
+  return undefined
 }
 
 function validateSession(value: unknown): ClientHealthSession | null {
@@ -61,12 +132,20 @@ function validateSession(value: unknown): ClientHealthSession | null {
       selectedStream: boundedText(player.selectedStream, 32) || undefined,
       latencyMs: optionalFinite(player.latencyMs),
       readyState: optionalFinite(player.readyState),
+      mediaSourceState: optionalBoundedText(player.mediaSourceState, 32),
       totalVideoFrames: optionalFinite(player.totalVideoFrames),
       droppedVideoFrames: optionalFinite(player.droppedVideoFrames),
       corruptedVideoFrames: optionalFinite(player.corruptedVideoFrames),
       restartCount: optionalFinite(player.restartCount),
       stallCount: optionalFinite(player.stallCount),
       errorCount: optionalFinite(player.errorCount),
+      totalFragments: optionalFinite(player.totalFragments),
+      integrityMismatchCount: optionalFinite(player.integrityMismatchCount),
+      decodeCorruptionCount: optionalFinite(player.decodeCorruptionCount),
+      renderSuppressionCount: optionalFinite(player.renderSuppressionCount),
+      lastEventType: optionalBoundedText(player.lastEventType, 64),
+      lastRestartReason: optionalBoundedText(player.lastRestartReason, 64),
+      recentEvents: sanitizeEvents(player.recentEvents),
     })
   }
   const visibility = source.visibilityState
@@ -110,17 +189,32 @@ export function collectLocalClientHealth(): ClientHealthSession {
         continue
       }
       const quality = data.currentState?.playbackQuality
+      const recentEvents = sanitizeEvents(data.importantEvents ?? data.events)
+      const lastEvent = recentEvents?.[recentEvents.length - 1]
+      const lastRestart = lastEventOfType(recentEvents, 'restart') ??
+        lastEventOfType(recentEvents, 'reconnect') ??
+        lastEventOfType(recentEvents, 'stuckRestart') ??
+        lastEventOfType(recentEvents, 'frozenRestart') ??
+        lastEventOfType(recentEvents, 'initialTimeout')
       players.push({
         id: boundedText(id, 80),
         selectedStream: boundedText(data.liveState?.selectedStream, 32) || undefined,
         latencyMs: optionalFinite(data.liveState?.latencyMs),
         readyState: optionalFinite(data.currentState?.readyState),
+        mediaSourceState: optionalBoundedText(data.liveState?.mediaSourceState, 32),
         totalVideoFrames: optionalFinite(quality?.totalVideoFrames),
         droppedVideoFrames: optionalFinite(quality?.droppedVideoFrames),
         corruptedVideoFrames: optionalFinite(quality?.corruptedVideoFrames),
         restartCount: optionalFinite(data.stats?.restartCount),
         stallCount: optionalFinite(data.stats?.stallCount),
         errorCount: optionalFinite(data.stats?.errorCount),
+        totalFragments: optionalFinite(data.stats?.totalFragments),
+        integrityMismatchCount: optionalFinite(data.stats?.integrityMismatchCount),
+        decodeCorruptionCount: optionalFinite(data.stats?.decodeCorruptionCount),
+        renderSuppressionCount: optionalFinite(data.stats?.renderSuppressionCount),
+        lastEventType: lastEvent?.type,
+        lastRestartReason: lastRestart?.reason ?? lastRestart?.type,
+        recentEvents,
       })
       seen.add(id)
     }
