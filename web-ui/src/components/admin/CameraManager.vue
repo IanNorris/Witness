@@ -39,6 +39,8 @@ interface AdminCamera {
   ptzPassword?: string
   linkedCameraId?: number
   motionSourceCameraId?: number
+  audioIntelligenceEnabled?: number
+  audioConfidence?: number
   frameCount?: number
   processingTimeOfEachMS?: number
   processingActualMS?: number
@@ -140,6 +142,8 @@ function openEdit(cam: AdminCamera) {
     ptzPassword: cam.ptzPassword ?? '',
     linkedCameraId: cam.linkedCameraId ?? 0,
     motionSourceCameraId: cam.motionSourceCameraId ?? 0,
+    audioIntelligenceEnabled: cam.audioIntelligenceEnabled ?? 0,
+    audioConfidence: cam.audioConfidence ?? 0.5,
   }
   showEditor.value = true
 }

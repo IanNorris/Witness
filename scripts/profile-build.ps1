@@ -2,6 +2,10 @@
 param(
     [switch]$Clean,
 
+    [string]$BuildRoot = "",
+
+    [switch]$UseExistingConfiguration,
+
     [ValidateRange(1, 64)]
     [int]$Jobs = 18,
 
@@ -13,7 +17,11 @@ $ErrorActionPreference = "Stop"
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $outputRoot = Join-Path $repositoryRoot "artifacts\build-profile-$timestamp"
-$buildRoot = Join-Path $repositoryRoot "build-vs2026-stable"
+if (-not $BuildRoot) {
+    $BuildRoot = Join-Path $repositoryRoot "build-vs2026-stable"
+} elseif (-not [System.IO.Path]::IsPathRooted($BuildRoot)) {
+    $BuildRoot = Join-Path $repositoryRoot $BuildRoot
+}
 $bundledRoot = Join-Path $env:ProgramFiles "Microsoft Visual Studio\18\Insiders"
 $cmake = if ($env:WITNESS_CMAKE) {
     $env:WITNESS_CMAKE
@@ -41,7 +49,15 @@ $traceStarted = $false
 Start-Transcript -Path $transcript | Out-Null
 Push-Location $repositoryRoot
 try {
-    & $cmake --preset windows-vs2026-stable -DWITNESS_PROFILE_BUILD=ON
+    if ($UseExistingConfiguration) {
+        if (-not (Test-Path -LiteralPath (Join-Path $BuildRoot "CMakeCache.txt"))) {
+            throw "No existing CMake configuration was found at $BuildRoot."
+        }
+        & $cmake -S $repositoryRoot -B $BuildRoot `
+            -DWITNESS_PROFILE_BUILD=ON -DVCPKG_MANIFEST_INSTALL=OFF
+    } else {
+        & $cmake --preset windows-vs2026-stable -DWITNESS_PROFILE_BUILD=ON
+    }
     if ($LASTEXITCODE -ne 0) {
         throw "Profile configure failed with exit code $LASTEXITCODE."
     }

@@ -6,6 +6,7 @@ find_package(unofficial-sqlite3 CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
 
 set(SERVER_SOURCES
+    Source/AudioIntelligenceWorker.cpp
     Source/AsyncWorker.cpp
     Source/AuthHelpers.cpp
     Source/ClipHelpers.cpp
@@ -55,6 +56,7 @@ set(SERVER_SOURCES
 )
 
 set(SERVER_HEADERS
+    Source/AudioIntelligenceWorker.h
     Source/AsyncWorker.h
     Source/AuthHelpers.h
     Source/CameraState.h

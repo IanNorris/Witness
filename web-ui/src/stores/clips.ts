@@ -28,11 +28,23 @@ export const useClipStore = defineStore('clips', () => {
   const pageSize = computed(() => settings.clipsPerPage)
   const currentPage = computed(() => Math.floor(pageOffset.value / pageSize.value))
   const totalPages = computed(() => Math.ceil(totalCount.value / pageSize.value))
+  let audioRefreshTimer: ReturnType<typeof setTimeout> | null = null
 
   // Listen for reprocess progress events
   const events = useEventStream()
 
   events.onEvent((evt) => {
+    if (evt.event === 'audio:classified') {
+      const data = evt.data as unknown as { clipUID?: number; eventCount?: number }
+      const clip = clips.value.find(candidate => candidate.uid === data.clipUID)
+      if (!clip) return
+      if (audioRefreshTimer) clearTimeout(audioRefreshTimer)
+      audioRefreshTimer = setTimeout(() => {
+        audioRefreshTimer = null
+        void fetchClips(currentCameraId.value, pageOffset.value)
+      }, 350)
+      return
+    }
     if (evt.event !== 'reprocess:progress') return
     const data = evt.data as unknown as {
       clipUID: number; stage: string; frame: number; totalFrames: number;
@@ -64,7 +76,7 @@ export const useClipStore = defineStore('clips', () => {
     reprocessStatus.value = updated
   })
 
-  async function fetchClips(cameraId: number | null, offset = 0) {
+  async function fetchClips(cameraId: number | null, offset = 0, retryingClampedPage = false) {
     loading.value = true
     currentCameraId.value = cameraId
     pageOffset.value = offset
@@ -87,7 +99,15 @@ export const useClipStore = defineStore('clips', () => {
         `/clip/enum/${camParam}/${pageSize.value}/${startDate}/${rangePeriod}/${offset}${filterStore.filterQueryString}`
       )
       totalCount.value = data.count ?? 0
-      clips.value = (data.clips ?? []).map(mapClip)
+      const rawClips = data.clips ?? []
+      if (!retryingClampedPage && rawClips.length === 0 && totalCount.value > 0 && offset > 0) {
+        const lastPageOffset = Math.max(0, Math.floor((totalCount.value - 1) / pageSize.value) * pageSize.value)
+        if (lastPageOffset !== offset) {
+          await fetchClips(cameraId, lastPageOffset, true)
+          return
+        }
+      }
+      clips.value = rawClips.map(mapClip)
     } catch {
       clips.value = []
       totalCount.value = 0
@@ -206,5 +226,6 @@ function mapClip(raw: Record<string, unknown>): Clip {
     lighting: (raw.lighting as number ?? 0) as LightingCondition,
     reviewed: (raw.reviewed as number) === 1,
     recognizedFaces: (raw.recognizedFaces as string[]) ?? [],
+    audioEvents: (raw.audioEvents as Clip['audioEvents']) ?? [],
   }
 }

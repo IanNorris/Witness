@@ -5,6 +5,7 @@ import { openHealthMonitor } from '../../composables/useHealthMonitor'
 import {
   collectClientHealthSessions,
   type ClientHealthSession,
+  type ClientPlayerHealth,
 } from '../../composables/useClientHealth'
 
 defineProps<{ standalone?: boolean }>()
@@ -102,6 +103,16 @@ interface HealthSnapshot {
       processWorkingSetBytes: number | null
       processPrivateBytes: number | null
     }
+    audioIntelligence?: {
+      workerLoaded: boolean
+      clipsProcessed: number
+      eventsProduced: number
+      decodeFailures: number
+      inferenceFailures: number
+      lastClipUID: number
+      lastInferenceMs: number
+      meanInferenceMs: number
+    }
   }
   cameras: CameraHealth[]
   coverage: Record<string, unknown>
@@ -185,6 +196,31 @@ function readyStateLabel(value: number | undefined): string {
   return ['No media', 'Metadata', 'Current frame', 'Future frames', 'Buffered'][value ?? -1] ?? 'Unknown'
 }
 
+function websocketStateLabel(value: number | null | undefined): string {
+  if (value == null) return 'WS ?'
+  return ['WS connecting', 'WS open', 'WS closing', 'WS closed'][value] ?? `WS ${value}`
+}
+
+function playerBufferClue(player: ClientPlayerHealth): string {
+  const parts: string[] = []
+  parts.push(player.mediaSourceState ? `MSE ${player.mediaSourceState}` : 'MSE ?')
+  parts.push(websocketStateLabel(player.wsReadyState))
+  if (player.reconnectPendingMs != null) parts.push(`reconnect ${formatMs(player.reconnectPendingMs)}`)
+  if (player.wsOpenAgeMs != null) parts.push(`open ${formatMs(player.wsOpenAgeMs)}`)
+  if (player.lastFragAge != null) parts.push(`last frag ${formatMs(player.lastFragAge)}`)
+  if (player.awaitingInit) parts.push('awaiting init')
+  if (player.waitingForKeyframe) parts.push('waiting keyframe')
+  if (player.appendQueueLength != null && player.appendQueueLength > 0) parts.push(`append q ${player.appendQueueLength}`)
+  if (player.sourceBufferUpdating) parts.push(`appending ${player.sourceBufferOperation ?? ''}`.trim())
+  if (player.hasInitialBuffer === false) parts.push('no initial buffer')
+  return parts.join(' · ')
+}
+
+function playerRestartClue(player: ClientPlayerHealth): string {
+  const reason = player.lastRestartReason || player.lastEventType
+  return reason ? ` · ${reason}` : ''
+}
+
 function playerLabel(id: string): string {
   const cameraId = Number.parseInt(id, 10)
   const camera = snapshot.value?.cameras.find(candidate => candidate.cameraId === cameraId)
@@ -229,8 +265,9 @@ function cameraMediaEvents(camera: CameraHealth): DisplayMediaDiagnosticEvent[] 
 }
 
 function mediaEventTime(timestampUnixMs: number): string {
-  const iso = new Date(timestampUnixMs).toISOString()
-  return `${iso.slice(11, 23)} UTC`
+  const date = new Date(timestampUnixMs)
+  const pad = (value: number, length = 2) => String(value).padStart(length, '0')
+  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${pad(date.getMilliseconds(), 3)}`
 }
 
 function mediaEventClass(severity: string): string {
@@ -400,6 +437,27 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
+      <div v-if="snapshot.server.audioIntelligence" class="card mb-3">
+        <div class="card-header d-flex justify-content-between">
+          <span>Audio intelligence</span>
+          <span class="badge" :class="snapshot.server.audioIntelligence.workerLoaded ? 'bg-success' : 'bg-secondary'">
+            {{ snapshot.server.audioIntelligence.workerLoaded ? 'Model ready' : 'Unavailable' }}
+          </span>
+        </div>
+        <div class="card-body py-2 small d-flex flex-wrap gap-4">
+          <span><strong>{{ snapshot.server.audioIntelligence.clipsProcessed.toLocaleString() }}</strong> clips analysed</span>
+          <span><strong>{{ snapshot.server.audioIntelligence.eventsProduced.toLocaleString() }}</strong> events</span>
+          <span><strong>{{ snapshot.server.audioIntelligence.meanInferenceMs.toFixed(1) }} ms</strong> mean inference</span>
+          <span><strong>{{ snapshot.server.audioIntelligence.lastInferenceMs.toFixed(1) }} ms</strong> last inference</span>
+          <span :class="snapshot.server.audioIntelligence.decodeFailures ? 'text-warning' : ''">
+            {{ snapshot.server.audioIntelligence.decodeFailures }} decode failures
+          </span>
+          <span :class="snapshot.server.audioIntelligence.inferenceFailures ? 'text-danger' : ''">
+            {{ snapshot.server.audioIntelligence.inferenceFailures }} inference failures
+          </span>
+        </div>
+      </div>
+
       <div class="card mb-3">
         <div class="card-header d-flex flex-wrap justify-content-between gap-2">
           <span>Server cameras</span>
@@ -517,11 +575,11 @@ onBeforeUnmount(() => {
         </div>
         <div v-else class="table-responsive">
           <table class="table table-dark table-sm table-hover mb-0 health-table client-table">
-            <thead><tr><th>Camera</th><th>Stream</th><th>Playback lag</th><th>Buffer state</th><th>Frames</th><th>Dropped</th><th>Corrupt</th><th>Restarts / stalls / errors</th></tr></thead>
+            <thead><tr><th>Camera</th><th>Stream</th><th>Playback lag</th><th>Buffer state</th><th>Transport / buffer detail</th><th>Frames</th><th>Dropped</th><th>Corrupt</th><th>Restarts / stalls / errors</th></tr></thead>
             <tbody>
               <template v-for="session in clientSessions" :key="session.sessionId">
                 <tr class="session-row">
-                  <td colspan="8">
+                  <td colspan="9">
                     <span class="session-path">{{ session.path }}</span>
                     <span class="badge ms-2" :class="session.visibilityState === 'visible' ? 'bg-success' : 'bg-secondary'">{{ session.visibilityState }}</span>
                     <span class="health-secondary ms-2">Build {{ session.buildHash }} · sampled {{ new Date(session.sampledAtUtc).toLocaleTimeString() }}<span v-if="session.playersTruncated"> · truncated</span></span>
@@ -529,9 +587,9 @@ onBeforeUnmount(() => {
                 </tr>
                 <tr v-for="player in session.players" :key="`${session.sessionId}-${player.id}`">
                   <td>{{ playerLabel(player.id) }}</td><td>{{ streamTierLabel(player.selectedStream ?? 'unknown') }}</td><td>{{ formatMs(player.latencyMs) }}</td>
-                  <td>{{ readyStateLabel(player.readyState) }}</td><td>{{ formatCount(player.totalVideoFrames) }}</td>
+                  <td>{{ readyStateLabel(player.readyState) }}</td><td class="health-secondary">{{ playerBufferClue(player) }}</td><td>{{ formatCount(player.totalVideoFrames) }}</td>
                   <td>{{ formatCount(player.droppedVideoFrames) }}</td><td>{{ formatCount(player.corruptedVideoFrames) }}</td>
-                  <td>{{ player.restartCount ?? 0 }} / {{ player.stallCount ?? 0 }} / {{ player.errorCount ?? 0 }}</td>
+                  <td>{{ player.restartCount ?? 0 }} / {{ player.stallCount ?? 0 }} / {{ player.errorCount ?? 0 }}<span class="health-secondary">{{ playerRestartClue(player) }}</span></td>
                 </tr>
               </template>
             </tbody>

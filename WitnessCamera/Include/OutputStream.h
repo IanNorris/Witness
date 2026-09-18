@@ -94,6 +94,8 @@ private:
 	bool m_HasAudioStream;
 	int m_AudioInputStreamIndex;
 	int64_t m_InitialTimestampUs;
+	bool m_AudioTimestampOffsetEstablished;
+	int64_t m_AudioTimestampOffsetUs;
 	bool m_TimestampNormalizationAllowed;
 	int64_t m_LastRawVideoDTS;
 	int64_t m_LastNormalizedVideoDuration;

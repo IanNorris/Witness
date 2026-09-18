@@ -631,7 +631,7 @@ bool ReolinkClient::Reboot()
 		auto& resp = json[0];
 		if (resp.has("value") && resp["value"].has("rspCode"))
 		{
-			int code = resp["value"]["rspCode"].i();
+			int code = static_cast<int>( resp["value"]["rspCode"].i() );
 			if (code == 200)
 			{
 				LOG_INFO("ReolinkClient: Reboot accepted by %s", m_Host.c_str());

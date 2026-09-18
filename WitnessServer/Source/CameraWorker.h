@@ -38,6 +38,8 @@ struct VideoSettings
 	, FaceRecognitionConfidence( 0.6 )
 	, FaceRecognitionMinVerified( 2 )
 	, FaceRecognitionAutoAssign( false )
+	, AudioIntelligenceModelPath()
+	, AudioIntelligenceClassMapPath()
 	{}
 
 	std::string	DataPath;
@@ -65,6 +67,9 @@ struct VideoSettings
 	double		FaceRecognitionConfidence;
 	int			FaceRecognitionMinVerified;
 	bool		FaceRecognitionAutoAssign;
+
+	std::string AudioIntelligenceModelPath;
+	std::string AudioIntelligenceClassMapPath;
 };
 
 struct CameraSettings

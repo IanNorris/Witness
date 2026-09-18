@@ -223,6 +223,20 @@ namespace Database
 		);
 		CREATE INDEX IF NOT EXISTS idx_trail_camera_time ON Trail(CameraID, StartTime, EndTime);
 
+		CREATE TABLE IF NOT EXISTS AudioEvent(
+			AudioEventUID	INTEGER PRIMARY KEY AUTOINCREMENT,
+			ClipUID			INTEGER NOT NULL,
+			CameraID		INTEGER NOT NULL,
+			GroupName		TEXT NOT NULL,
+			StartTime		REAL NOT NULL,
+			EndTime			REAL NOT NULL,
+			PeakScore		REAL NOT NULL,
+			ModelVersion	TEXT NOT NULL,
+			FOREIGN KEY(ClipUID) REFERENCES Clip(ClipUID) ON DELETE CASCADE
+		);
+		CREATE INDEX IF NOT EXISTS idx_audioevent_clip ON AudioEvent(ClipUID);
+		CREATE INDEX IF NOT EXISTS idx_audioevent_camera_time ON AudioEvent(CameraID, StartTime DESC);
+
 	)RAW";
 
 	std::string GetSetting = R"RAW(
@@ -432,7 +446,9 @@ namespace Database
 			PtzUsername = @PtzUsername,
 			PtzPassword = @PtzPassword,
 			LinkedCameraId = @LinkedCameraId,
-			MotionSourceCameraId = @MotionSourceCameraId
+			MotionSourceCameraId = @MotionSourceCameraId,
+			AudioIntelligenceEnabled = @AudioIntelligenceEnabled,
+			AudioConfidence = @AudioConfidence
 		WHERE CameraUID = @CameraId;
 	)RAW";
 
@@ -1235,6 +1251,36 @@ namespace Database
 			AND fc.Timestamp <= @TimestampTo;
 	)RAW";
 
+	std::string SelectClipForAudioIntelligence = R"RAW(
+		SELECT c.ClipUID, c.Timestamp, c.Camera, c.RecordMode,
+			COALESCE(cam.AudioConfidence, 0.5)
+		FROM Clip c
+		INNER JOIN Camera cam ON cam.CameraUID = c.Camera
+		WHERE cam.AudioIntelligenceEnabled = 1
+			AND c.Duration > 0
+			AND (c.AudioDetectionVersion < @AudioDetectionVersion OR c.AudioDetectionVersion IS NULL)
+		ORDER BY c.Timestamp DESC
+		LIMIT 1;
+	)RAW";
+
+	std::string MarkClipAudioProcessed = R"RAW(
+		UPDATE Clip SET AudioDetectionVersion = @AudioDetectionVersion WHERE ClipUID = @ClipUID;
+	)RAW";
+
+	std::string DeleteAudioEventsForClip = R"RAW(
+		DELETE FROM AudioEvent WHERE ClipUID = @ClipUID;
+	)RAW";
+
+	std::string InsertAudioEvent = R"RAW(
+		INSERT INTO AudioEvent(ClipUID, CameraID, GroupName, StartTime, EndTime, PeakScore, ModelVersion)
+		VALUES(@ClipUID, @CameraID, @GroupName, @StartTime, @EndTime, @PeakScore, @ModelVersion);
+	)RAW";
+
+	std::string SelectAudioEventsForClip = R"RAW(
+		SELECT GroupName, StartTime, EndTime, PeakScore, ModelVersion
+		FROM AudioEvent WHERE ClipUID = @ClipUID ORDER BY StartTime ASC;
+	)RAW";
+
 	std::string DeleteFaceEmbedding = R"RAW(
 		DELETE FROM FaceEmbedding WHERE EmbeddingUID = @EmbeddingUID;
 	)RAW";
@@ -1290,6 +1336,16 @@ namespace Database
 
 		// Motion source camera: when set, this camera's motion events come from another camera
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN MotionSourceCameraId INTEGER DEFAULT 0;", nullptr, nullptr, nullptr );
+
+		// Optional post-clip audio intelligence. Disabled by default and stores
+		// event metadata only; decoded waveforms are never persisted.
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN AudioIntelligenceEnabled INTEGER DEFAULT 0;", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN AudioConfidence REAL DEFAULT 0.5;", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Clip ADD COLUMN AudioDetectionVersion INTEGER DEFAULT 0;", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "CREATE TABLE IF NOT EXISTS AudioEvent(AudioEventUID INTEGER PRIMARY KEY AUTOINCREMENT, ClipUID INTEGER NOT NULL, CameraID INTEGER NOT NULL, GroupName TEXT NOT NULL, StartTime REAL NOT NULL, EndTime REAL NOT NULL, PeakScore REAL NOT NULL, ModelVersion TEXT NOT NULL, FOREIGN KEY(ClipUID) REFERENCES Clip(ClipUID) ON DELETE CASCADE);", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "CREATE INDEX IF NOT EXISTS idx_audioevent_clip ON AudioEvent(ClipUID);", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "CREATE INDEX IF NOT EXISTS idx_audioevent_camera_time ON AudioEvent(CameraID, StartTime DESC);", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "CREATE INDEX IF NOT EXISTS idx_clip_audiodetversion_ts ON Clip(AudioDetectionVersion, Timestamp DESC);", nullptr, nullptr, nullptr );
 
 		// Trail table migration (new table, CREATE IF NOT EXISTS handles it)
 		sqlite3_exec( DB->GetDatabase(), "CREATE TABLE IF NOT EXISTS Trail(TrailUID INTEGER PRIMARY KEY AUTOINCREMENT, ClipUID INTEGER NOT NULL, CameraID INTEGER NOT NULL, ClassName TEXT NOT NULL, FaceName TEXT, StartTime REAL NOT NULL, EndTime REAL NOT NULL, PointData TEXT NOT NULL, FOREIGN KEY(ClipUID) REFERENCES Clip(ClipUID) ON DELETE CASCADE);", nullptr, nullptr, nullptr );
@@ -1506,6 +1562,11 @@ namespace Database
 		CREATE_QUERY( SelectRecognizedFacesForClip );
 		CREATE_QUERY( DeleteFaceEmbedding );
 		CREATE_QUERY( SelectFaceSightings );
+		CREATE_QUERY( SelectClipForAudioIntelligence );
+		CREATE_QUERY( MarkClipAudioProcessed );
+		CREATE_QUERY( DeleteAudioEventsForClip );
+		CREATE_QUERY( InsertAudioEvent );
+		CREATE_QUERY( SelectAudioEventsForClip );
 
 		return DB;
 	}
