@@ -76,9 +76,22 @@ if(WITNESS_MANAGED_DEPENDENCIES)
         message(FATAL_ERROR "Managed dependencies require VCPKG_TARGET_TRIPLET.")
     endif()
 
-    file(SHA256 "${CMAKE_SOURCE_DIR}/vcpkg.json" _WITNESS_MANIFEST_SHA)
-    file(SHA256 "${CMAKE_SOURCE_DIR}/vcpkg-configuration.json" _WITNESS_REGISTRY_SHA)
-    file(SHA256 "${CMAKE_SOURCE_DIR}/build-environment.json" _WITNESS_ENVIRONMENT_SHA)
+    # Git may materialize these text files with CRLF in one worktree and LF in
+    # another. Fingerprint their logical contents so an equivalent checkout
+    # cannot spuriously invalidate the immutable dependency environment.
+    function(witness_normalized_text_sha256 output path)
+        file(READ "${path}" _WITNESS_HASH_CONTENT)
+        string(REPLACE "\r\n" "\n" _WITNESS_HASH_CONTENT "${_WITNESS_HASH_CONTENT}")
+        string(REPLACE "\r" "\n" _WITNESS_HASH_CONTENT "${_WITNESS_HASH_CONTENT}")
+        string(SHA256 _WITNESS_HASH "${_WITNESS_HASH_CONTENT}")
+        set(${output} "${_WITNESS_HASH}" PARENT_SCOPE)
+    endfunction()
+    witness_normalized_text_sha256(_WITNESS_MANIFEST_SHA
+        "${CMAKE_SOURCE_DIR}/vcpkg.json")
+    witness_normalized_text_sha256(_WITNESS_REGISTRY_SHA
+        "${CMAKE_SOURCE_DIR}/vcpkg-configuration.json")
+    witness_normalized_text_sha256(_WITNESS_ENVIRONMENT_SHA
+        "${CMAKE_SOURCE_DIR}/build-environment.json")
     file(READ "${CMAKE_SOURCE_DIR}/build-environment.json" _WITNESS_ENVIRONMENT_JSON)
     string(JSON _WITNESS_EXPECTED_VCPKG_COMMIT GET
         "${_WITNESS_ENVIRONMENT_JSON}" vcpkgCommit)
@@ -90,7 +103,8 @@ if(WITNESS_MANAGED_DEPENDENCIES)
         message(FATAL_ERROR
             "Managed dependency triplet not found: ${_WITNESS_TRIPLET_FILE}")
     endif()
-    file(SHA256 "${_WITNESS_TRIPLET_FILE}" _WITNESS_TRIPLET_SHA)
+    witness_normalized_text_sha256(_WITNESS_TRIPLET_SHA
+        "${_WITNESS_TRIPLET_FILE}")
 
     get_filename_component(_WITNESS_VCPKG_BUILDSYSTEM_DIR
         "${CMAKE_TOOLCHAIN_FILE}" DIRECTORY)
