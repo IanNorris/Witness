@@ -68,6 +68,11 @@ feature work.
 The initial Windows console dashboard and the standalone Windows/Linux boundary
 are described in [TERMINAL_DASHBOARD.md](TERMINAL_DASHBOARD.md).
 
+- Add a scoped API-key authentication path for trusted automation and
+  diagnostics. Keys should be revocable, named, auditable, and restricted by
+  source IP/CIDR; local/dev exemptions must not accidentally apply to the
+  production LAN service. Prefer read-only diagnostic scopes first, then add
+  narrowly-scoped write operations only when needed.
 - Build a terminal dashboard showing queue lengths, camera connection health,
   stream latency, processing throughput, and the latest detection details.
   Preserve a conventional log mode for redirection and service operation.
@@ -98,6 +103,13 @@ are described in [TERMINAL_DASHBOARD.md](TERMINAL_DASHBOARD.md).
   thresholds, and whether inference can operate on short buffered windows
   without retaining continuous audio. The staged model and evaluation proposal
   is recorded in [AUDIO_INTELLIGENCE.md](AUDIO_INTELLIGENCE.md).
+- Add an audio timeline to the all-clips dashboard and clip player. Show the
+  classified sound events along the clip duration, including background classes
+  such as wind, so operators can see why a clip has or lacks useful audio.
+  Treat wind/background-only detection as a positive signal for playback
+  ergonomics: allow clips to start muted or suppress audio automatically when
+  no higher-value sound source is present, while still exposing the underlying
+  classification for review and threshold tuning.
 
 ## Dashboard layouts
 
@@ -150,6 +162,21 @@ empty/baseline observation evidence as a prerequisite for reliable persistence.
   continuous clip and use DVR/continuous-recording segments to fill the gaps,
   while preserving the original event metadata and avoiding duplicate or
   non-monotonic audio/video timestamps.
+
+## DVR and historical search
+
+- Rework DVR playback around operator intent rather than starting every stream
+  at once. Let the user first choose the time and cameras of interest, then opt
+  cameras in to playback so resource pressure scales with the investigation
+  rather than the total camera count. The DVR should respond directly to clicks
+  on the UI timeline/timecode and make the file/time mapping unnecessary for
+  normal use.
+- Restore and finish the bisection search workflow for finding when something
+  appeared, moved, or disappeared. The operator should mark samples as
+  **Too Early** or **Too Late**; Witness then moves the corresponding bound and
+  proposes the midpoint of the remaining range. This remains useful even after
+  persistent object tracking because it gives a deterministic manual fallback
+  for ambiguous cases.
 
 ## Streaming diagnostics
 
