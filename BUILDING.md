@@ -89,3 +89,19 @@ compiler timings, and a level-3 C++ Build Insights trace collected by
 directories. Open `build.binlog` in MSBuild Structured Log Viewer and
 `build-timetrace.json` in `edge://tracing`. Use the measured translation units,
 headers, templates, and build fan-out to prioritize ABI/PIMPL work.
+
+The 2026-09-18 clean RelWithDebInfo baseline contained 69 C++ translation units
+and 439 seconds of aggregate compiler front-end work versus 82 seconds in the
+back end. The generated projects did not enable MSVC `/MP`, so the trace saw
+only two compiler processes even when the build was launched with 18-way
+parallelism. Witness now enables `/MP` for C++ compilation; CMake/MSBuild
+parallelism continues to control concurrent projects. A subsequent clean
+RelWithDebInfo build, including the web bundle and link, completed in 136
+seconds on the same 12-logical-CPU development machine.
+
+The next largest measured issue is repeated parsing of the exported camera
+header graph. Typical server translation units spent about five seconds in the
+front end, repeatedly reaching `OutputStream.h`, `Stream.h`, `RecordFilter.h`,
+and `SourceStats.h`. Address that separately with forward declarations, PIMPL,
+and then a measured PCH experiment; do not hide the associated C4251 ABI
+warnings globally.

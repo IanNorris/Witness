@@ -77,6 +77,14 @@ if(WIN32)
     add_compile_definitions(_WIN32_WINNT=0x0A00 WINVER=0x0A00)
 endif()
 
+if(MSVC)
+    # MSBuild's /m only schedules projects concurrently. WitnessServer contains
+    # most translation units in one project, so let cl.exe compile those units
+    # concurrently as well. Without /MP, a measured clean build launched only
+    # two compiler processes and serialized the server's frontend work.
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/MP>)
+endif()
+
 if(WITNESS_MANAGED_DEPENDENCIES)
     if(NOT DEFINED VCPKG_TARGET_TRIPLET OR VCPKG_TARGET_TRIPLET STREQUAL "")
         message(FATAL_ERROR "Managed dependencies require VCPKG_TARGET_TRIPLET.")
