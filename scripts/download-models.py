@@ -6,9 +6,11 @@ Requires: pip install ultralytics (for YOLO), pip install insightface (for face 
 """
 
 import argparse
+import hashlib
 import os
 import shutil
 import sys
+import urllib.request
 import zipfile
 
 MODELS = {
@@ -18,6 +20,64 @@ MODELS = {
     "l": {"filename": "yolo26l.onnx", "pt": "yolo26l.pt", "description": "Large (~80MB, 286ms CPU)"},
     "x": {"filename": "yolo26x.onnx", "pt": "yolo26x.pt", "description": "XLarge (~130MB, 526ms CPU)"},
 }
+
+YAMNET_FILES = {
+    "yamnet.onnx": {
+        "url": "https://huggingface.co/audiomagic/yamnet-onnx/resolve/f25b741c2f0bdc6d7e6db24b5fddda23347dbafd/yamnet.onnx?download=true",
+        "sha256": "d3835ffbbd4a1bb3e777f0ca217b5007907f5171dd5d17c4236b95b2af8f908e",
+    },
+    "yamnet_class_map.csv": {
+        "url": "https://huggingface.co/audiomagic/yamnet-onnx/resolve/f25b741c2f0bdc6d7e6db24b5fddda23347dbafd/yamnet_class_map.csv?download=true",
+        "sha256": "cdf24d193e196d9e95912a2667051ae203e92a2ba09449218ccb40ef787c6df2",
+    },
+}
+
+
+def sha256_file(path):
+    digest = hashlib.sha256()
+    with open(path, "rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def download_yamnet(output_dir):
+    """Download the pinned ONNX conversion and verify both artifacts."""
+    print("[audio] YAMNet ONNX (Google YAMNet v1, unmodified weights)")
+    downloaded = []
+    temporary_paths = []
+    try:
+        for filename, info in YAMNET_FILES.items():
+            destination = os.path.join(output_dir, filename)
+            if os.path.exists(destination) and sha256_file(destination) == info["sha256"]:
+                print(f"  {filename} already exists and is verified, skipping.")
+                continue
+            temporary = destination + ".download"
+            temporary_paths.append(temporary)
+            print(f"  Downloading {filename}...")
+            urllib.request.urlretrieve(info["url"], temporary)
+            actual = sha256_file(temporary)
+            if actual != info["sha256"]:
+                os.remove(temporary)
+                raise RuntimeError(
+                    f"SHA-256 mismatch for {filename}: expected {info['sha256']}, got {actual}")
+            os.replace(temporary, destination)
+            downloaded.append(filename)
+        print("  YAMNet artifacts verified.")
+        return True
+    except Exception as exc:
+        for temporary in temporary_paths:
+            try:
+                os.remove(temporary)
+            except OSError:
+                pass
+        for filename in downloaded:
+            try:
+                os.remove(os.path.join(output_dir, filename))
+            except OSError:
+                pass
+        print(f"  YAMNet download failed: {exc}")
+        return False
 
 
 def export_model(variant, output_dir):
@@ -129,16 +189,22 @@ def download_face_recognition(output_dir):
 
 def main():
     parser = argparse.ArgumentParser(description="Download ONNX models for Witness")
-    parser.add_argument("--variants", nargs="+", choices=list(MODELS.keys()), default=["n"],
+    parser.add_argument("--variants", nargs="+", choices=list(MODELS.keys()), default=None,
                         help="YOLO model variants to download (default: n)")
     parser.add_argument("--all", action="store_true", help="Download all YOLO model variants + face recognition")
     parser.add_argument("--face", action="store_true", help="Download face recognition model (MobileFaceNet)")
+    parser.add_argument("--audio", action="store_true", help="Download the pinned YAMNet audio model and class map")
     parser.add_argument("--output", default=None, help="Output directory (default: models/ at repo root)")
     args = parser.parse_args()
 
     if args.all:
         args.variants = list(MODELS.keys())
         args.face = True
+        args.audio = True
+    elif args.variants is None:
+        # Preserve the historical default only when no explicit model family
+        # was selected. `--audio` and `--face` must not pull YOLO incidentally.
+        args.variants = [] if args.face or args.audio else ["n"]
 
     # Default output: models/ directory at repo root
     if args.output:
@@ -149,10 +215,13 @@ def main():
 
     os.makedirs(output_dir, exist_ok=True)
 
-    print(f"Exporting YOLO26 models to: {output_dir}")
-    print(f"Variants: {', '.join(args.variants)}")
+    print(f"Model output directory: {output_dir}")
+    if args.variants:
+        print(f"YOLO variants: {', '.join(args.variants)}")
     if args.face:
         print(f"Face recognition: MobileFaceNet (w600k_mbf)")
+    if args.audio:
+        print("Audio classification: YAMNet v1 ONNX")
     print()
 
     success = 0
@@ -169,6 +238,13 @@ def main():
     if args.face:
         print("[face] MobileFaceNet w600k_mbf (~13MB, 512-dim, 99.7% LFW)")
         if download_face_recognition(output_dir):
+            success += 1
+        else:
+            failed += 1
+        print()
+
+    if args.audio:
+        if download_yamnet(output_dir):
             success += 1
         else:
             failed += 1
