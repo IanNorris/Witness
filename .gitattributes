@@ -1,0 +1,4 @@
+/vcpkg.json text eol=lf
+/vcpkg-configuration.json text eol=lf
+/build-environment.json text eol=lf
+/triplets/*.cmake text eol=lf
