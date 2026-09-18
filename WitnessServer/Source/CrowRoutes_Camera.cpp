@@ -4,6 +4,8 @@
 #include "Messages.h"
 #include "ReolinkClient.h"
 #include "UrlHelpers.h"
+#include <algorithm>
+#include <cmath>
 void CrowListener::HandlePreview( const crow::request& req, crow::response& res, int cameraId, bool largePreview )
 {
 	int UserUID = CrowAuth::IsCameraAuthenticated( *m_GlobalContext, req, nullptr,
@@ -144,6 +146,8 @@ void CrowListener::HandleCameraEnum( const crow::request& req, crow::response& r
 							}
 							int MotionSourceCameraId = query.GetColumnValueInt( 20 );
 							Camera["motionSourceCameraId"] = MotionSourceCameraId;
+							Camera["audioIntelligenceEnabled"] = query.GetColumnValueInt( 21 );
+							Camera["audioConfidence"] = query.GetColumnValueDouble( 22 );
 						}
 						else
 						{
@@ -629,6 +633,9 @@ void CrowListener::HandleCameraUpdate( const crow::request& req, crow::response&
 	bool PtzPasswordProvided = body.has("ptzPassword") && PtzPassword.length() > 0;
 	int LinkedCameraId = body.has("linkedCameraId") ? (int)body["linkedCameraId"].i() : 0;
 	int MotionSourceCameraId = body.has("motionSourceCameraId") ? (int)body["motionSourceCameraId"].i() : 0;
+	int AudioIntelligenceEnabled = body.has("audioIntelligenceEnabled") ? (int)body["audioIntelligenceEnabled"].i() : 0;
+	double AudioConfidence = body.has("audioConfidence") ? body["audioConfidence"].d() : 0.5;
+	if( !std::isfinite( AudioConfidence ) ) AudioConfidence = 0.5;
 
 	// If no new password was provided, read the existing one from the DB
 	// so we don't wipe it out on every camera edit
@@ -667,6 +674,8 @@ void CrowListener::HandleCameraUpdate( const crow::request& req, crow::response&
 	UpdateCamera->Bind( "@PtzPassword", PtzPassword.empty() ? nullptr : PtzPassword.c_str() );
 	UpdateCamera->Bind( "@LinkedCameraId", LinkedCameraId );
 	UpdateCamera->Bind( "@MotionSourceCameraId", MotionSourceCameraId );
+	UpdateCamera->Bind( "@AudioIntelligenceEnabled", AudioIntelligenceEnabled );
+	UpdateCamera->Bind( "@AudioConfidence", std::clamp( AudioConfidence, 0.05, 0.99 ) );
 
 	if( UpdateCamera->Execute( nullptr ) < 0 )
 	{

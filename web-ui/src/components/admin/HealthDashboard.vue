@@ -102,6 +102,16 @@ interface HealthSnapshot {
       processWorkingSetBytes: number | null
       processPrivateBytes: number | null
     }
+    audioIntelligence?: {
+      workerLoaded: boolean
+      clipsProcessed: number
+      eventsProduced: number
+      decodeFailures: number
+      inferenceFailures: number
+      lastClipUID: number
+      lastInferenceMs: number
+      meanInferenceMs: number
+    }
   }
   cameras: CameraHealth[]
   coverage: Record<string, unknown>
@@ -397,6 +407,27 @@ onBeforeUnmount(() => {
             </div>
             <div class="small">Collected in {{ snapshot.collectionDurationMs }} ms · {{ snapshot.server.collectionMode }}</div>
           </div></div>
+        </div>
+      </div>
+
+      <div v-if="snapshot.server.audioIntelligence" class="card mb-3">
+        <div class="card-header d-flex justify-content-between">
+          <span>Audio intelligence</span>
+          <span class="badge" :class="snapshot.server.audioIntelligence.workerLoaded ? 'bg-success' : 'bg-secondary'">
+            {{ snapshot.server.audioIntelligence.workerLoaded ? 'Model ready' : 'Unavailable' }}
+          </span>
+        </div>
+        <div class="card-body py-2 small d-flex flex-wrap gap-4">
+          <span><strong>{{ snapshot.server.audioIntelligence.clipsProcessed.toLocaleString() }}</strong> clips analysed</span>
+          <span><strong>{{ snapshot.server.audioIntelligence.eventsProduced.toLocaleString() }}</strong> events</span>
+          <span><strong>{{ snapshot.server.audioIntelligence.meanInferenceMs.toFixed(1) }} ms</strong> mean inference</span>
+          <span><strong>{{ snapshot.server.audioIntelligence.lastInferenceMs.toFixed(1) }} ms</strong> last inference</span>
+          <span :class="snapshot.server.audioIntelligence.decodeFailures ? 'text-warning' : ''">
+            {{ snapshot.server.audioIntelligence.decodeFailures }} decode failures
+          </span>
+          <span :class="snapshot.server.audioIntelligence.inferenceFailures ? 'text-danger' : ''">
+            {{ snapshot.server.audioIntelligence.inferenceFailures }} inference failures
+          </span>
         </div>
       </div>
 

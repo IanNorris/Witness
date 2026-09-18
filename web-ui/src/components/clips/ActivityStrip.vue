@@ -79,6 +79,19 @@ function clipTags(clip: Clip) {
   })
 }
 
+const audioIcons: Record<string, string> = {
+  speech: '🗣', dog: '🐕', animal: '🐾', footsteps: '👣', vehicle: '🚗',
+  alarm: '🚨', glass: '◫', door: '🚪', wind: '〰',
+}
+
+function audioGroups(clip: Clip) {
+  const strongest = new Map<string, number>()
+  for (const event of clip.audioEvents ?? []) {
+    strongest.set(event.group, Math.max(strongest.get(event.group) ?? 0, event.peakScore))
+  }
+  return [...strongest].sort((left, right) => right[1] - left[1])
+}
+
 function onClickClip(clip: Clip) {
   emit('play', clip)
   if (!clip.reviewed) {
@@ -95,10 +108,13 @@ onMounted(async () => {
 
   // Listen for clip:new and camera:recording events to refresh
   removeListener = events.onEvent((evt) => {
-    if (evt.event === 'camera:recording') {
+	if (evt.event === 'camera:recording') {
       // Force preview refresh on recording state change
       previewTick.value++
     }
+	else if (evt.event === 'clip:new' || evt.event === 'audio:classified') {
+	  void clipStore.fetchRecent(30)
+	}
   })
 })
 
@@ -151,6 +167,12 @@ onUnmounted(() => {
           <span v-for="name in (clip.recognizedFaces ?? [])" :key="'face-' + name" class="strip-tag strip-face-tag">
             👤
           </span>
+          <span
+            v-for="[group, score] in audioGroups(clip)"
+            :key="'audio-' + group"
+            class="strip-tag strip-audio-tag"
+            :title="`${group} audio · ${Math.round(score * 100)}%`"
+          >{{ audioIcons[group] ?? '🔊' }}</span>
         </div>
         <div class="strip-overlay-bottom">
           <span class="strip-cam-name">{{ cameraName(clip.camera) }}</span>

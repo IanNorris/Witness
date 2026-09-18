@@ -142,3 +142,20 @@ an experimental scheduling hint, never a sole gate: fixed/near-fixed bitrate
 codecs and codec noise floors can make quiet and interesting windows look alike.
 The evaluator exports per-window packet bytes, RMS, grouped scores, and raw top
 classes so this can be measured again on labelled user clips.
+
+## Implemented shadow mode
+
+The first server integration is deliberately observational and opt-in per
+camera. Completed clips are decoded in memory to mono 16 kHz float audio by a
+low-priority worker, only while no camera is actively recording. The YAMNet
+wrapper uses one CPU thread, emits only curated product groups, applies a
+hysteresis release threshold, and coalesces adjacent windows. SQLite stores
+only group, time range, peak confidence, clip/camera identity, and model
+version; decoded samples are discarded after inference.
+
+Camera administration exposes enable and confidence controls. Recent Activity
+shows one badge per detected sound family with the peak score in its tooltip.
+`WitnessServer.exe /test-audio <clip.mp4> [confidence]` exercises the exact
+production decoder and classifier without changing the database. Recording
+triggers, actions, live selective muting, and model fine-tuning remain outside
+this shadow-mode milestone.

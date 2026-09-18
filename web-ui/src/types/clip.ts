@@ -12,6 +12,15 @@ export interface Clip {
   lighting: LightingCondition
   reviewed: boolean
   recognizedFaces?: string[]
+  audioEvents?: AudioEvent[]
+}
+
+export interface AudioEvent {
+  group: string
+  startTime: number
+  endTime: number
+  peakScore: number
+  modelVersion: string
 }
 
 export interface Tag {

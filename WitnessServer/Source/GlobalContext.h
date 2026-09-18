@@ -13,6 +13,7 @@
 #include "SoundManager.h"
 
 #include <shared_mutex>
+#include <atomic>
 
 namespace Witness{ namespace Camera{ class FaceEmbeddingModel; class ReolinkBaichuanClient; } }
 class ReolinkClient;
@@ -95,6 +96,18 @@ public:
 	std::shared_ptr<StreamBroadcaster> Streams;
 
 	std::string BuildHash;
+
+	struct AudioIntelligenceHealth
+	{
+		std::atomic<bool> WorkerLoaded{ false };
+		std::atomic<uint64_t> ClipsProcessed{ 0 };
+		std::atomic<uint64_t> EventsProduced{ 0 };
+		std::atomic<uint64_t> DecodeFailures{ 0 };
+		std::atomic<uint64_t> InferenceFailures{ 0 };
+		std::atomic<uint64_t> LastClipUID{ 0 };
+		std::atomic<uint64_t> LastInferenceUS{ 0 };
+		std::atomic<uint64_t> TotalInferenceUS{ 0 };
+	} AudioIntelligence;
 
 	// Face recognition
 	std::shared_ptr<Witness::Camera::FaceEmbeddingModel> FaceEmbeddingModel;

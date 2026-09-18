@@ -24,6 +24,8 @@ export interface CameraFormData {
   ptzPassword: string
   linkedCameraId: number
   motionSourceCameraId: number
+  audioIntelligenceEnabled: number
+  audioConfidence: number
 }
 
 const props = defineProps<{
@@ -67,6 +69,8 @@ function defaultForm(): CameraFormData {
     ptzPassword: '',
     linkedCameraId: 0,
     motionSourceCameraId: 0,
+    audioIntelligenceEnabled: 0,
+    audioConfidence: 0.5,
   }
 }
 
@@ -175,6 +179,23 @@ function toggleGroup(groupId: number) {
                     </option>
                   </select>
                   <div class="form-text">Pair with another camera: passthrough decode, records when source detects motion</div>
+                </div>
+              </div>
+
+              <!-- Audio Intelligence -->
+              <h6 class="text-muted mb-2 small text-uppercase">Audio Intelligence</h6>
+              <div class="row g-2 mb-3">
+                <div class="col-md-5">
+                  <div class="form-check mt-2">
+                    <input class="form-check-input" type="checkbox" id="cam-audio-intelligence" :checked="!!form.audioIntelligenceEnabled" @change="form.audioIntelligenceEnabled = form.audioIntelligenceEnabled ? 0 : 1" />
+                    <label class="form-check-label small" for="cam-audio-intelligence">Classify recorded clip audio</label>
+                  </div>
+                  <div class="form-text">Local shadow-mode classification; no transcription or decoded audio retention.</div>
+                </div>
+                <div class="col-md-4" v-if="form.audioIntelligenceEnabled">
+                  <label class="form-label small">Minimum confidence</label>
+                  <input v-model.number="form.audioConfidence" type="number" min="0.05" max="0.99" step="0.05" class="form-control form-control-sm" />
+                  <div class="form-text">Higher values reduce false labels.</div>
                 </div>
               </div>
 

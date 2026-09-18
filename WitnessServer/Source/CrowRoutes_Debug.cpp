@@ -430,6 +430,19 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 	Server["uptimeMs"] = std::chrono::duration_cast<std::chrono::milliseconds>(
 		NowSteady - HealthProcessStart ).count();
 	Server["host"] = std::move( Host );
+	crow::json::wvalue Audio;
+	const auto& AudioHealth = m_GlobalContext->AudioIntelligence;
+	const uint64_t AudioClips = AudioHealth.ClipsProcessed.load();
+	Audio["workerLoaded"] = AudioHealth.WorkerLoaded.load();
+	Audio["clipsProcessed"] = AudioClips;
+	Audio["eventsProduced"] = AudioHealth.EventsProduced.load();
+	Audio["decodeFailures"] = AudioHealth.DecodeFailures.load();
+	Audio["inferenceFailures"] = AudioHealth.InferenceFailures.load();
+	Audio["lastClipUID"] = AudioHealth.LastClipUID.load();
+	Audio["lastInferenceMs"] = static_cast<double>( AudioHealth.LastInferenceUS.load() ) / 1000.0;
+	Audio["meanInferenceMs"] = AudioClips ?
+		static_cast<double>( AudioHealth.TotalInferenceUS.load() ) / ( 1000.0 * AudioClips ) : 0.0;
+	Server["audioIntelligence"] = std::move( Audio );
 
 	crow::json::wvalue Coverage;
 	Coverage["hostCpuPercent"] = "notImplemented";
