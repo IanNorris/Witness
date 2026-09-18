@@ -4,6 +4,17 @@ export interface ClientPlayerHealth {
   latencyMs?: number
   readyState?: number
   mediaSourceState?: string
+  wsReadyState?: number | null
+  wsOpenAgeMs?: number | null
+  reconnectPendingMs?: number | null
+  lastFragAge?: number | null
+  appendQueueLength?: number
+  sourceBufferGeneration?: number
+  sourceBufferUpdating?: boolean | null
+  sourceBufferOperation?: string
+  waitingForKeyframe?: boolean
+  hasInitialBuffer?: boolean
+  awaitingInit?: boolean
   totalVideoFrames?: number
   droppedVideoFrames?: number
   corruptedVideoFrames?: number
@@ -56,7 +67,7 @@ export interface ClientHealthCollection {
 const CHANNEL_NAME = 'witness-client-health-v1'
 const MAX_SESSIONS = 32
 const MAX_PLAYERS_PER_SESSION = 64
-const MAX_EVENTS_PER_PLAYER = 12
+const MAX_EVENTS_PER_PLAYER = 40
 const TAB_ID = typeof crypto.randomUUID === 'function'
   ? crypto.randomUUID()
   : `${Date.now()}-${Math.random().toString(16).slice(2)}`
@@ -133,6 +144,17 @@ function validateSession(value: unknown): ClientHealthSession | null {
       latencyMs: optionalFinite(player.latencyMs),
       readyState: optionalFinite(player.readyState),
       mediaSourceState: optionalBoundedText(player.mediaSourceState, 32),
+      wsReadyState: optionalFinite(player.wsReadyState) ?? null,
+      wsOpenAgeMs: optionalFinite(player.wsOpenAgeMs) ?? null,
+      reconnectPendingMs: optionalFinite(player.reconnectPendingMs) ?? null,
+      lastFragAge: optionalFinite(player.lastFragAge) ?? null,
+      appendQueueLength: optionalFinite(player.appendQueueLength),
+      sourceBufferGeneration: optionalFinite(player.sourceBufferGeneration),
+      sourceBufferUpdating: typeof player.sourceBufferUpdating === 'boolean' ? player.sourceBufferUpdating : null,
+      sourceBufferOperation: optionalBoundedText(player.sourceBufferOperation, 64),
+      waitingForKeyframe: player.waitingForKeyframe === true,
+      hasInitialBuffer: player.hasInitialBuffer === true,
+      awaitingInit: player.awaitingInit === true,
       totalVideoFrames: optionalFinite(player.totalVideoFrames),
       droppedVideoFrames: optionalFinite(player.droppedVideoFrames),
       corruptedVideoFrames: optionalFinite(player.corruptedVideoFrames),
@@ -202,6 +224,17 @@ export function collectLocalClientHealth(): ClientHealthSession {
         latencyMs: optionalFinite(data.liveState?.latencyMs),
         readyState: optionalFinite(data.currentState?.readyState),
         mediaSourceState: optionalBoundedText(data.liveState?.mediaSourceState, 32),
+        wsReadyState: optionalFinite(data.liveState?.wsReadyState) ?? null,
+        wsOpenAgeMs: optionalFinite(data.liveState?.wsOpenAgeMs) ?? null,
+        reconnectPendingMs: optionalFinite(data.liveState?.reconnectPendingMs) ?? null,
+        lastFragAge: optionalFinite(data.liveState?.lastFragAge) ?? null,
+        appendQueueLength: optionalFinite(data.liveState?.appendQueueLength),
+        sourceBufferGeneration: optionalFinite(data.liveState?.sourceBufferGeneration),
+        sourceBufferUpdating: typeof data.liveState?.sourceBufferUpdating === 'boolean' ? data.liveState.sourceBufferUpdating : null,
+        sourceBufferOperation: optionalBoundedText(data.liveState?.sourceBufferOperation, 64),
+        waitingForKeyframe: data.liveState?.waitingForKeyframe === true,
+        hasInitialBuffer: data.liveState?.hasInitialBuffer === true,
+        awaitingInit: data.liveState?.awaitingInit === true,
         totalVideoFrames: optionalFinite(quality?.totalVideoFrames),
         droppedVideoFrames: optionalFinite(quality?.droppedVideoFrames),
         corruptedVideoFrames: optionalFinite(quality?.corruptedVideoFrames),
