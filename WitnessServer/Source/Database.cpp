@@ -225,6 +225,23 @@ namespace Database
 		CREATE INDEX IF NOT EXISTS idx_facecrop_frame_track ON FaceCrop(FrameUID, TrackingID);
 		CREATE INDEX IF NOT EXISTS idx_facecrop_filepath ON FaceCrop(FilePath);
 
+		-- A bounded retention scan resumes after restarts. File removal is queued
+		-- in the same transaction as row deletion, then retried independently.
+		CREATE TABLE IF NOT EXISTS DetectionCleanupProgress(
+			CameraID INTEGER NOT NULL,
+			Kind INTEGER NOT NULL,
+			CursorTimestamp REAL NOT NULL,
+			CursorUID INTEGER NOT NULL,
+			PRIMARY KEY(CameraID, Kind)
+		);
+		CREATE TABLE IF NOT EXISTS DetectionAssetDeletePending(
+			Path TEXT PRIMARY KEY NOT NULL,
+			CameraID INTEGER NOT NULL,
+			RetryAfter REAL NOT NULL DEFAULT 0
+		);
+		CREATE INDEX IF NOT EXISTS idx_detframe_framepath ON DetectionFrame(FramePath) WHERE FramePath IS NOT NULL;
+		CREATE INDEX IF NOT EXISTS idx_detbox_croppath ON DetectionBox(CropPath) WHERE CropPath IS NOT NULL;
+
 		CREATE TABLE IF NOT EXISTS KnownFace(
 			KnownFaceUID	INTEGER PRIMARY KEY AUTOINCREMENT,
 			Name			TEXT					NOT NULL,
@@ -970,159 +987,6 @@ namespace Database
 		ORDER BY f.Timestamp ASC, b.BoxUID ASC;
 	)RAW";
 
-	// Expired detection data is only collectible once no retained clip or DVR
-	// segment covers its timestamp. Verified face crops are training data, so
-	// detach them from an expiring frame instead of deleting them.
-	std::string DeleteDetectionFramesBefore = R"RAW(
-		UPDATE FaceCrop SET FrameUID = NULL
-		WHERE CameraID = @CameraID AND Timestamp < @Timestamp
-			AND EXISTS (SELECT 1 FROM FaceEmbedding fe WHERE fe.FaceCropUID = FaceCrop.CropUID AND fe.Verified = 1)
-			AND NOT EXISTS (
-				SELECT 1 FROM Clip c WHERE c.Camera = @CameraID
-					AND FaceCrop.Timestamp >= c.Timestamp
-					AND FaceCrop.Timestamp <= c.Timestamp + CASE WHEN COALESCE(c.Duration, 0) > 0 THEN c.Duration ELSE 1 END
-			)
-			AND NOT EXISTS (
-				SELECT 1 FROM ContinuousSegment s WHERE s.CameraUID = @CameraID
-					AND FaceCrop.Timestamp >= s.StartTimestamp AND FaceCrop.Timestamp <= s.EndTimestamp
-			);
-		DELETE FROM FaceEmbedding WHERE FaceCropUID IN (
-			SELECT fc.CropUID FROM FaceCrop fc
-			WHERE fc.CameraID = @CameraID AND fc.Timestamp < @Timestamp
-				AND NOT EXISTS (SELECT 1 FROM FaceEmbedding verified WHERE verified.FaceCropUID = fc.CropUID AND verified.Verified = 1)
-				AND NOT EXISTS (
-					SELECT 1 FROM Clip c WHERE c.Camera = @CameraID
-						AND fc.Timestamp >= c.Timestamp
-						AND fc.Timestamp <= c.Timestamp + CASE WHEN COALESCE(c.Duration, 0) > 0 THEN c.Duration ELSE 1 END
-				)
-				AND NOT EXISTS (
-					SELECT 1 FROM ContinuousSegment s WHERE s.CameraUID = @CameraID
-						AND fc.Timestamp >= s.StartTimestamp AND fc.Timestamp <= s.EndTimestamp
-				)
-		);
-		DELETE FROM FaceCrop
-		WHERE CameraID = @CameraID AND Timestamp < @Timestamp
-			AND NOT EXISTS (SELECT 1 FROM FaceEmbedding fe WHERE fe.FaceCropUID = FaceCrop.CropUID AND fe.Verified = 1)
-			AND NOT EXISTS (
-				SELECT 1 FROM Clip c WHERE c.Camera = @CameraID
-					AND FaceCrop.Timestamp >= c.Timestamp
-					AND FaceCrop.Timestamp <= c.Timestamp + CASE WHEN COALESCE(c.Duration, 0) > 0 THEN c.Duration ELSE 1 END
-			)
-			AND NOT EXISTS (
-				SELECT 1 FROM ContinuousSegment s WHERE s.CameraUID = @CameraID
-					AND FaceCrop.Timestamp >= s.StartTimestamp AND FaceCrop.Timestamp <= s.EndTimestamp
-			);
-		DELETE FROM DetectionBox WHERE FrameUID IN (
-			SELECT f.FrameUID FROM DetectionFrame f
-			WHERE f.CameraID = @CameraID AND f.Timestamp < @Timestamp
-				AND NOT EXISTS (
-					SELECT 1 FROM Clip c WHERE c.Camera = @CameraID
-						AND f.Timestamp >= c.Timestamp
-						AND f.Timestamp <= c.Timestamp + CASE WHEN COALESCE(c.Duration, 0) > 0 THEN c.Duration ELSE 1 END
-				)
-				AND NOT EXISTS (
-					SELECT 1 FROM ContinuousSegment s WHERE s.CameraUID = @CameraID
-						AND f.Timestamp >= s.StartTimestamp AND f.Timestamp <= s.EndTimestamp
-				)
-		);
-		DELETE FROM DetectionFrame
-		WHERE CameraID = @CameraID AND Timestamp < @Timestamp
-			AND NOT EXISTS (
-				SELECT 1 FROM Clip c WHERE c.Camera = @CameraID
-					AND DetectionFrame.Timestamp >= c.Timestamp
-					AND DetectionFrame.Timestamp <= c.Timestamp + CASE WHEN COALESCE(c.Duration, 0) > 0 THEN c.Duration ELSE 1 END
-			)
-			AND NOT EXISTS (
-				SELECT 1 FROM ContinuousSegment s WHERE s.CameraUID = @CameraID
-					AND DetectionFrame.Timestamp >= s.StartTimestamp AND DetectionFrame.Timestamp <= s.EndTimestamp
-			);
-	)RAW";
-
-	std::string SelectDetectionAssetCameraIDsBefore = R"RAW(
-		SELECT DISTINCT CameraID FROM DetectionFrame WHERE Timestamp < @Timestamp
-		UNION
-		SELECT DISTINCT CameraID FROM FaceCrop WHERE Timestamp < @Timestamp;
-	)RAW";
-
-	// Find a bounded eligible prefix before doing the (more expensive) asset
-	// enumeration and multi-table delete. The two selectors let one retention
-	// pass advance through old frames and orphaned/non-verified face crops without
-	// letting a large backlog monopolize the shared SQLite connection.
-	std::string SelectExpiredDetectionFrameTimes = R"RAW(
-		SELECT f.Timestamp FROM DetectionFrame f
-		WHERE f.CameraID = @CameraID AND f.Timestamp < @Timestamp
-			AND NOT EXISTS (
-				SELECT 1 FROM Clip c WHERE c.Camera = @CameraID
-					AND f.Timestamp >= c.Timestamp
-					AND f.Timestamp <= c.Timestamp + CASE WHEN COALESCE(c.Duration, 0) > 0 THEN c.Duration ELSE 1 END
-			)
-			AND NOT EXISTS (
-				SELECT 1 FROM ContinuousSegment s WHERE s.CameraUID = @CameraID
-					AND f.Timestamp >= s.StartTimestamp AND f.Timestamp <= s.EndTimestamp
-			)
-		ORDER BY f.Timestamp LIMIT @BatchSize;
-	)RAW";
-
-	std::string SelectExpiredFaceCropTimes = R"RAW(
-		SELECT fc.Timestamp FROM FaceCrop fc
-		WHERE fc.CameraID = @CameraID AND fc.Timestamp < @Timestamp
-			AND NOT EXISTS (SELECT 1 FROM FaceEmbedding fe WHERE fe.FaceCropUID = fc.CropUID AND fe.Verified = 1)
-			AND NOT EXISTS (
-				SELECT 1 FROM Clip c WHERE c.Camera = @CameraID
-					AND fc.Timestamp >= c.Timestamp
-					AND fc.Timestamp <= c.Timestamp + CASE WHEN COALESCE(c.Duration, 0) > 0 THEN c.Duration ELSE 1 END
-			)
-			AND NOT EXISTS (
-				SELECT 1 FROM ContinuousSegment s WHERE s.CameraUID = @CameraID
-					AND fc.Timestamp >= s.StartTimestamp AND fc.Timestamp <= s.EndTimestamp
-			)
-		ORDER BY fc.Timestamp LIMIT @BatchSize;
-	)RAW";
-
-	std::string SelectDetectionAssetPathsBefore = R"RAW(
-		SELECT f.FramePath FROM DetectionFrame f
-		WHERE f.CameraID = @CameraID AND f.Timestamp < @Timestamp AND f.FramePath IS NOT NULL
-			AND NOT EXISTS (
-				SELECT 1 FROM Clip c WHERE c.Camera = @CameraID
-					AND f.Timestamp >= c.Timestamp
-					AND f.Timestamp <= c.Timestamp + CASE WHEN COALESCE(c.Duration, 0) > 0 THEN c.Duration ELSE 1 END
-			)
-			AND NOT EXISTS (
-				SELECT 1 FROM ContinuousSegment s WHERE s.CameraUID = @CameraID
-					AND f.Timestamp >= s.StartTimestamp AND f.Timestamp <= s.EndTimestamp
-			)
-		UNION ALL
-		SELECT b.CropPath FROM DetectionBox b
-		JOIN DetectionFrame f ON f.FrameUID = b.FrameUID
-		WHERE f.CameraID = @CameraID AND f.Timestamp < @Timestamp AND b.CropPath IS NOT NULL
-			AND NOT EXISTS (
-				SELECT 1 FROM Clip c WHERE c.Camera = @CameraID
-					AND f.Timestamp >= c.Timestamp
-					AND f.Timestamp <= c.Timestamp + CASE WHEN COALESCE(c.Duration, 0) > 0 THEN c.Duration ELSE 1 END
-			)
-			AND NOT EXISTS (
-				SELECT 1 FROM ContinuousSegment s WHERE s.CameraUID = @CameraID
-					AND f.Timestamp >= s.StartTimestamp AND f.Timestamp <= s.EndTimestamp
-			)
-		UNION ALL
-		SELECT fc.FilePath FROM FaceCrop fc
-		WHERE fc.CameraID = @CameraID AND fc.Timestamp < @Timestamp AND fc.FilePath IS NOT NULL
-			AND NOT EXISTS (
-				SELECT 1 FROM FaceCrop protected
-				JOIN FaceEmbedding fe ON fe.FaceCropUID = protected.CropUID
-				WHERE protected.FilePath = fc.FilePath AND fe.Verified = 1
-			)
-			AND NOT EXISTS (
-				SELECT 1 FROM Clip c WHERE c.Camera = @CameraID
-					AND fc.Timestamp >= c.Timestamp
-					AND fc.Timestamp <= c.Timestamp + CASE WHEN COALESCE(c.Duration, 0) > 0 THEN c.Duration ELSE 1 END
-			)
-			AND NOT EXISTS (
-				SELECT 1 FROM ContinuousSegment s WHERE s.CameraUID = @CameraID
-					AND fc.Timestamp >= s.StartTimestamp AND fc.Timestamp <= s.EndTimestamp
-			);
-	)RAW";
-
 	std::string SelectDetectionAssetPathsInRange = R"RAW(
 		SELECT f.FramePath FROM DetectionFrame f
 		WHERE f.CameraID = @CameraID AND f.Timestamp >= @TimestampFrom AND f.Timestamp <= @TimestampTo
@@ -1396,8 +1260,15 @@ namespace Database
 				LOG_ERROR( "%s", Message.c_str() );
 			}
 		);
+		// The retention worker reads through a separate connection. WAL lets it
+		// coexist with the request connection instead of taking a database-wide
+		// reader lock on installations still using rollback-journal mode.
+		if( sqlite3_exec( DB->GetDatabase(), "PRAGMA journal_mode=WAL;", nullptr, nullptr, nullptr ) != SQLITE_OK )
+			LOG_WARNING( "Could not enable SQLite WAL mode; detection retention will remain disabled." );
 
 		// Schema migrations for existing databases (errors ignored if column already exists)
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE DetectionAssetDeletePending ADD COLUMN RetryAfter REAL NOT NULL DEFAULT 0;", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "CREATE INDEX IF NOT EXISTS idx_detection_pending_retry ON DetectionAssetDeletePending(RetryAfter, Path);", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Clip ADD COLUMN DetectionVersion INT DEFAULT 0;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Clip ADD COLUMN Lighting INT DEFAULT 0;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Clip ADD COLUMN Reviewed INT DEFAULT 0;", nullptr, nullptr, nullptr );
@@ -1622,11 +1493,6 @@ namespace Database
 		CREATE_QUERY( InsertDetectionFrame );
 		CREATE_QUERY( InsertDetectionBox );
 		CREATE_QUERY( SelectDetectionFramesWithBoxes );
-		CREATE_QUERY( DeleteDetectionFramesBefore );
-		CREATE_QUERY( SelectExpiredDetectionFrameTimes );
-		CREATE_QUERY( SelectExpiredFaceCropTimes );
-		CREATE_QUERY( SelectDetectionAssetCameraIDsBefore );
-		CREATE_QUERY( SelectDetectionAssetPathsBefore );
 		CREATE_QUERY( SelectDetectionAssetPathsInRange );
 		CREATE_QUERY( DeleteAllDetectionFrames );
 		CREATE_QUERY( DeleteDetectionFramesInRange );
