@@ -87,7 +87,8 @@ public:
 
 	void Initialise( const std::unordered_map< std::string, std::string >& Settings );
 
-	void Start();
+	bool Start();
+	bool IsReady() const { return m_Ready.load( std::memory_order_acquire ); }
 
 	void Stop();
 
@@ -231,6 +232,7 @@ private:
 
 	WitnessApp m_App;
 	std::thread m_ServerThread;
+	std::atomic<bool> m_Ready{ false };
 
 	std::shared_ptr<GlobalContext> m_GlobalContext;
 	DebugConsole* m_DebugConsole;

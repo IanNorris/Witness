@@ -455,7 +455,7 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 
 	try
 	{
-		Server->Start();
+		if( !Server->Start() ) return false;
 	}
 	catch( std::exception& Exception)
 	{

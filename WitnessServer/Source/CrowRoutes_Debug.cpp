@@ -1592,6 +1592,7 @@ bool CrowListener::ReloadTLS()
 
 		// Validated successfully -- now do a graceful server restart
 		LOG_INFO( "TLS: Certificate validated, restarting server..." );
+		m_Ready.store( false, std::memory_order_release );
 		m_App.stop();
 		if( m_ServerThread.joinable() )
 			m_ServerThread.join();
@@ -1613,7 +1614,15 @@ bool CrowListener::ReloadTLS()
 			{
 				LOG_ERROR( "Server error after TLS reload: %s", e.what() );
 			}
+			m_Ready.store( false, std::memory_order_release );
 		});
+		if( m_App.wait_for_server_start( std::chrono::seconds( 10 ) ) !=
+			std::cv_status::no_timeout || !m_App.is_bound() )
+		{
+			LOG_ERROR( "TLS reload did not restore the Crow listener within 10 seconds." );
+			return false;
+		}
+		m_Ready.store( true, std::memory_order_release );
 
 		// Update tracked modification time
 		std::error_code ec;
@@ -1663,12 +1672,13 @@ void CrowListener::CertMonitorLoop()
 #endif
 }
 
-void CrowListener::Start()
+bool CrowListener::Start()
 {
+	m_Ready.store( false, std::memory_order_release );
 	if( !ConfigureSSL() )
 	{
 		LOG_ERROR( "Server failed to start due to TLS configuration error." );
-		return;
+		return false;
 	}
 
 	std::string bindAddr = ResolveBindAddress( m_Hostname );
@@ -1692,15 +1702,28 @@ void CrowListener::Start()
 			{
 				LOG_ERROR( "Server error: %s", e.what() );
 			}
+			m_Ready.store( false, std::memory_order_release );
 		});
 	}
 	catch( const std::exception& e )
 	{
 		LOG_ERROR( "Failed to start server on %s:%d -- %s", bindAddr.c_str(), m_Port, e.what() );
-		return;
+		return false;
 	}
+	// Crow's run() is launched on another thread. Its start notification follows
+	// bind, listen, worker setup, and the first accept, so the dashboard must not
+	// advertise a ready listener before this point.
+	const bool Ready = m_App.wait_for_server_start( std::chrono::seconds( 10 ) ) ==
+		std::cv_status::no_timeout && m_App.is_bound();
+	if( !Ready )
+	{
+		LOG_ERROR( "Crow server did not become ready on %s:%d within 10 seconds.",
+			bindAddr.c_str(), m_Port );
+		return false;
+	}
+	m_Ready.store( true, std::memory_order_release );
 
-	LOG_INFO( "Crow server started on %s:%d (%s)", m_Hostname.c_str(), m_Port, m_Secure ? "HTTPS" : "HTTP" );
+	LOG_INFO( "Crow server ready on %s:%d (%s)", m_Hostname.c_str(), m_Port, m_Secure ? "HTTPS" : "HTTP" );
 
 	// Start cert file monitor if TLS is active
 	if( m_Secure && !m_CertPath.empty() )
@@ -1708,10 +1731,12 @@ void CrowListener::Start()
 		m_CertMonitorRunning = true;
 		m_CertMonitorThread = std::thread( &CrowListener::CertMonitorLoop, this );
 	}
+	return true;
 }
 
 void CrowListener::Stop()
 {
+	m_Ready.store( false, std::memory_order_release );
 	// Stop cert monitor
 	m_CertMonitorRunning = false;
 	if( m_CertMonitorThread.joinable() )

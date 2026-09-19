@@ -32,6 +32,7 @@ struct OperationalStatus
 {
 	std::string BuildHash;
 	uint16_t Port = 0;
+	bool WebReady = false;
 	double HostCpuPercent = -1.0;
 	uint64_t HostTotalMemoryBytes = 0;
 	uint64_t HostAvailableMemoryBytes = 0;
