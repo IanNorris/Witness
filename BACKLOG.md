@@ -2,9 +2,9 @@
 
 This file tracks work still to do. Implemented work is described in the
 feature documents and Git history rather than retained as checked-off tasks.
-Current priorities are scoped automation, reliable DVR investigation, and
-measured build/header/ABI cleanup. Audio and activity investigations have
-already produced working first implementations.
+Current priorities are production validation of the retention-stall fix,
+reliable DVR playback, and measured build/header/ABI cleanup. Audio, activity,
+scoped automation, and DVR investigations have working first implementations.
 
 ## Build and inference
 
@@ -30,10 +30,10 @@ already produced working first implementations.
   operator kernels and GPU providers from CPU deployments, and investigate a
   supported prebuilt package so routine toolchain changes do not require a
   multi-hour dependency rebuild.
-- Use the existing build profiler to compare incremental and clean builds
-  after `/MP`, then reduce repeated parsing of exported camera headers.
-  Measure forward declarations, PIMPL and a PCH experiment against the
-  baseline in [BUILDING.md](BUILDING.md); check rebuild fan-out too.
+- Extend the existing build profiler beyond the initial Crow PCH and header
+  isolation pass (measured in [BUILDING.md](BUILDING.md)). Compare clean and
+  incremental rebuild fan-out, then pursue narrower PIMPL boundaries where
+  they reduce both compile time and DLL ABI warnings.
 - Clean up the native DLL ABI boundaries currently producing MSVC C4251
   warnings. Inventory exported classes that expose STL containers, strings,
   callbacks, mutexes, smart pointers, or chrono types; move implementation
@@ -47,11 +47,6 @@ already produced working first implementations.
 The initial Windows console dashboard and the standalone Windows/Linux boundary
 are described in [TERMINAL_DASHBOARD.md](TERMINAL_DASHBOARD.md).
 
-- Add a scoped API-key authentication path for trusted automation and
-  diagnostics. Keys should be revocable, named, auditable, and restricted by
-  source IP/CIDR; local/dev exemptions must not accidentally apply to the
-  production LAN service. Prefer read-only diagnostic scopes first, then add
-  narrowly-scoped write operations only when needed.
 - Build the standalone Windows named-pipe TUI client described in
   [TERMINAL_DASHBOARD.md](TERMINAL_DASHBOARD.md); the in-process console UI and
   plain-log mode already exist. Add stream freshness, throughput, reconnect-age
@@ -131,18 +126,12 @@ empty/baseline observation evidence as a prerequisite for reliable persistence.
 
 ## DVR and historical search
 
-- Rework DVR playback around operator intent rather than starting every stream
-  at once. Let the user first choose the time and cameras of interest, then opt
-  cameras in to playback so resource pressure scales with the investigation
-  rather than the total camera count. The DVR should respond directly to clicks
-  on the UI timeline/timecode and make the file/time mapping unnecessary for
-  normal use.
-- Restore and finish the bisection search workflow for finding when something
-  appeared, moved, or disappeared. The operator should mark samples as
-  **Too Early** or **Too Late**; Witness then moves the corresponding bound and
-  proposes the midpoint of the remaining range. This remains useful even after
-  persistent object tracking because it gives a deterministic manual fallback
-  for ambiguous cases.
+- Validate the new opt-in DVR page with real recordings, especially missing
+  segments, concurrent cameras, browser media errors, and the manual bisection
+  flow. Synchronize selected cameras to one viewed wall-clock position during
+  continuous playback; currently they are aligned on explicit seek but may
+  drift independently. Move thumbnail decoding and remaining slow DVR/database
+  operations off Crow request threads after measuring handler latency.
 
 ## Streaming diagnostics
 
