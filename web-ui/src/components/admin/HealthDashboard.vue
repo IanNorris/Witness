@@ -208,10 +208,18 @@ function playerBufferClue(player: ClientPlayerHealth): string {
   if (player.reconnectPendingMs != null) parts.push(`reconnect ${formatMs(player.reconnectPendingMs)}`)
   if (player.wsOpenAgeMs != null) parts.push(`open ${formatMs(player.wsOpenAgeMs)}`)
   if (player.lastFragAge != null) parts.push(`last frag ${formatMs(player.lastFragAge)}`)
+  if (player.lastAppendAgeMs != null) parts.push(`last append ${formatMs(player.lastAppendAgeMs)}`)
   if (player.awaitingInit) parts.push('awaiting init')
   if (player.waitingForKeyframe) parts.push('waiting keyframe')
-  if (player.appendQueueLength != null && player.appendQueueLength > 0) parts.push(`append q ${player.appendQueueLength}`)
-  if (player.sourceBufferUpdating) parts.push(`appending ${player.sourceBufferOperation ?? ''}`.trim())
+  if (player.appendQueueLength != null && player.appendQueueLength > 0) {
+    const bytes = player.appendQueueBytes != null ? ` / ${formatBytes(player.appendQueueBytes)}` : ''
+    const age = player.appendQueueOldestAgeMs != null ? ` / ${formatMs(player.appendQueueOldestAgeMs)}` : ''
+    parts.push(`append q ${player.appendQueueLength}${bytes}${age}`)
+  }
+  if (player.sourceBufferUpdating) {
+    const age = player.sourceBufferOperationAgeMs != null ? ` ${formatMs(player.sourceBufferOperationAgeMs)}` : ''
+    parts.push(`appending ${player.sourceBufferOperation ?? ''}${age}`.trim())
+  }
   if (player.hasInitialBuffer === false) parts.push('no initial buffer')
   return parts.join(' · ')
 }
