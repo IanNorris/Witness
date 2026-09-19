@@ -3,6 +3,7 @@
 #include "GlobalContext.h"
 #include "ObservingMotionFilter.h"
 #include "Witness.h"
+#include "TagHelpers.h"
 
 #include <functional>
 #include <chrono>
@@ -77,6 +78,17 @@ void WitnessServer::MessageLoop( bool& ContinueRunning )
 				    uint64_t Timestamp = GetUnixTimestamp();
 
 					StartCameraRecording( Worker, Timestamp, Data.Camera, true, ClassificationResult() );
+					if( !Data.Tags.empty() )
+					{
+						SQLiteDatabaseQueryInstance SelectClip( Context->Database, "SelectClip" );
+						SelectClip->Bind( "@CameraID", Data.Camera );
+						SelectClip->Bind( "@Timestamp", (int64_t)Timestamp );
+						SelectClip->Execute( [&]( const SQLiteDatabaseQuery& Row )
+						{
+							TagHelpers::AddExternalTags( Context->Database, Row.GetColumnValueInt64( 0 ), Data.Tags );
+							return true;
+						} );
+					}
 				}
 				else
 				{

@@ -137,6 +137,15 @@ private:
 	void HandleAuthSetUserGroups( const crow::request& req, crow::response& res );
 	void HandleAuthClearSessions( const crow::request& req, crow::response& res );
 
+	// Key-authenticated automation is intentionally confined to /api/v1 routes.
+	bool AuthorizeApiKey( const crow::request& req, int scope, int& ownerUserUID );
+	void HandleApiKeyCreate( const crow::request& req, crow::response& res );
+	void HandleApiKeyList( const crow::request& req, crow::response& res );
+	void HandleApiKeyRevoke( const crow::request& req, crow::response& res );
+	void HandleApiKeyAudit( const crow::request& req, crow::response& res );
+	void HandleApiClipSearch( const crow::request& req, crow::response& res );
+	void HandleApiCameraRecord( const crow::request& req, crow::response& res, int cameraId );
+
 	// Clips
 	void HandleClipThumbnail( const crow::request& req, crow::response& res, int cameraId, const std::string& clipId, bool video );
 	void HandleClipEnum( const crow::request& req, crow::response& res, int cameraId, int maxCount, const std::string& startDate, const std::string& rangePeriod, int pageOffset );

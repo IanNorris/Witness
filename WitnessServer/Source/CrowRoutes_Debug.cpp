@@ -186,9 +186,13 @@ void CrowListener::HandleDebugReloadTLS( const crow::request& req, crow::respons
 
 void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& res )
 {
-	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, nullptr,
-		CrowAuth::Action::Read, CrowAuth::Privilege::Administrator );
-	if( UserUID < 0 )
+	int OwnerUserUID = -1;
+	const bool KeyRoute = req.url == "/api/v1/diagnostics/health";
+	const bool Authorized = KeyRoute
+		? AuthorizeApiKey( req, 1, OwnerUserUID )
+		: CrowAuth::IsAuthenticated( *m_GlobalContext, req, nullptr,
+			CrowAuth::Action::Read, CrowAuth::Privilege::Administrator ) >= 0;
+	if( !Authorized )
 	{
 		res.code = 403;
 		res.end();
