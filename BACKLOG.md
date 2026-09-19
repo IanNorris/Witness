@@ -175,6 +175,11 @@ empty/baseline observation evidence as a prerequisite for reliable persistence.
 
 ## DVR and historical search
 
+- [x] Fix clip pages that contain far fewer than the requested count because
+  group membership and “Hide short clips” were applied after server pagination.
+  Apply those filters before `LIMIT/OFFSET`, count distinct clips across group
+  joins, and use stable ordering. Implemented in `codex/clip-pagination-consistency`.
+
 - Rework DVR playback around operator intent rather than starting every stream
   at once. Let the user first choose the time and cameras of interest, then opt
   cameras in to playback so resource pressure scales with the investigation

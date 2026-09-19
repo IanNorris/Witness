@@ -4,6 +4,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <sstream>
 #include <unordered_map>
 
@@ -116,7 +117,8 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 	const int MaxClipsPerQuery = 100;
 	uint64_t StartDateInt = std::stoull( startDate );
 	uint64_t RangePeriodInt = std::stoull( rangePeriod );
-	maxCount = std::min( maxCount, MaxClipsPerQuery );
+	maxCount = std::clamp( maxCount, 1, MaxClipsPerQuery );
+	pageOffset = std::max( 0, pageOffset );
 
 	int UserUID = 0;
 	if( cameraId == -1 )
@@ -149,8 +151,38 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 	const char* pLighting = req.url_params.get( "lighting" );
 	const char* pMinDuration = req.url_params.get( "minDuration" );
 	const char* pTags = req.url_params.get( "tags" );
+	const char* pGroup = req.url_params.get( "group" );
 
-	bool hasFilters = pReviewed || pSaved || pMode || pLighting || pMinDuration || pTags;
+	bool hasFilters = pReviewed || pSaved || pMode || pLighting || pMinDuration || pTags || pGroup;
+	// These values are interpolated into the filtered query below. Reject anything
+	// other than a bounded decimal integer before constructing SQL.
+	auto parseFilterInteger = []( const char* Value, int Minimum, int Maximum ) -> std::optional<int>
+	{
+		if( !Value || !*Value ) return std::nullopt;
+		int Result = 0;
+		for( const char* Cursor = Value; *Cursor; ++Cursor )
+		{
+			if( *Cursor < '0' || *Cursor > '9' ) return std::nullopt;
+			const int Digit = *Cursor - '0';
+			if( Result > (Maximum - Digit) / 10 ) return std::nullopt;
+			Result = Result * 10 + Digit;
+		}
+		return Result >= Minimum && Result <= Maximum ? std::optional<int>{ Result } : std::nullopt;
+	};
+	const auto Reviewed = pReviewed ? parseFilterInteger( pReviewed, 0, 1 ) : std::optional<int>{};
+	const auto Saved = pSaved ? parseFilterInteger( pSaved, 0, 1 ) : std::optional<int>{};
+	const auto Mode = pMode ? parseFilterInteger( pMode, 0, 1 ) : std::optional<int>{};
+	const auto Lighting = pLighting ? parseFilterInteger( pLighting, 0, 2 ) : std::optional<int>{};
+	const auto MinDuration = pMinDuration ? parseFilterInteger( pMinDuration, 0, 86400 ) : std::optional<int>{};
+	const auto Group = pGroup ? parseFilterInteger( pGroup, 1, 1000000000 ) : std::optional<int>{};
+	if( (pReviewed && !Reviewed) || (pSaved && !Saved) || (pMode && !Mode) ||
+		(pLighting && !Lighting) || (pMinDuration && !MinDuration) ||
+		(pGroup && (!Group || cameraId != -1)) )
+	{
+		res.code = 400;
+		res.end();
+		return;
+	}
 
 	int Count = 0;
 	std::vector<crow::json::wvalue> Array;
@@ -164,16 +196,11 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 		// Build dynamic SQL with filters
 		std::string extraWhere;
 
-		if( pReviewed )
-			extraWhere += " AND Clip.Reviewed = " + std::string( pReviewed );
-		if( pSaved )
-			extraWhere += " AND Clip.Save = " + std::string( pSaved );
-		if( pMode )
-			extraWhere += " AND Clip.RecordMode = " + std::string( pMode );
-		if( pLighting )
-			extraWhere += " AND Clip.Lighting = " + std::string( pLighting );
-		if( pMinDuration )
-			extraWhere += " AND Clip.Duration >= " + std::string( pMinDuration );
+		if( Reviewed ) extraWhere += " AND Clip.Reviewed = " + std::to_string( *Reviewed );
+		if( Saved ) extraWhere += " AND Clip.Save = " + std::to_string( *Saved );
+		if( Mode ) extraWhere += " AND Clip.RecordMode = " + std::to_string( *Mode );
+		if( Lighting ) extraWhere += " AND Clip.Lighting = " + std::to_string( *Lighting );
+		if( MinDuration ) extraWhere += " AND Clip.Duration >= " + std::to_string( *MinDuration );
 
 		// Parse and validate tag names
 		std::vector<std::string> tagNames;
@@ -225,15 +252,17 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 				" INNER JOIN CameraGroupMapping CGM ON CGM.Camera = C.CameraUID"
 				" INNER JOIN UserGroupMapping UGM ON UGM.`Group` = CGM.`Group`"
 				" WHERE Clip.Timestamp >= " + tsFrom + " AND Clip.Timestamp <= " + tsTo +
-				" AND UGM.UserUID = " + std::to_string( UserUID ) + extraWhere;
+				" AND UGM.UserUID = " + std::to_string( UserUID ) +
+				( Group ? " AND CGM.`Group` = " + std::to_string( *Group ) : "" ) + extraWhere;
 
 			selectSQL = "SELECT DISTINCT Clip.* FROM Clip"
 				" INNER JOIN Camera C ON C.CameraUID = Clip.Camera"
 				" INNER JOIN CameraGroupMapping CGM ON CGM.Camera = C.CameraUID"
 				" INNER JOIN UserGroupMapping UGM ON UGM.`Group` = CGM.`Group`"
 				" WHERE Clip.Timestamp >= " + tsFrom + " AND Clip.Timestamp <= " + tsTo +
-				" AND UGM.UserUID = " + std::to_string( UserUID ) + extraWhere +
-				" ORDER BY Clip.Timestamp DESC LIMIT " + std::to_string( maxCount ) + " OFFSET " + std::to_string( pageOffset );
+				" AND UGM.UserUID = " + std::to_string( UserUID ) +
+				( Group ? " AND CGM.`Group` = " + std::to_string( *Group ) : "" ) + extraWhere +
+				" ORDER BY Clip.Timestamp DESC, Clip.ClipUID DESC LIMIT " + std::to_string( maxCount ) + " OFFSET " + std::to_string( pageOffset );
 		}
 		else
 		{
@@ -244,7 +273,7 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 			selectSQL = "SELECT Clip.* FROM Clip"
 				" WHERE Clip.Camera = " + std::to_string( cameraId ) +
 				" AND Clip.Timestamp >= " + tsFrom + " AND Clip.Timestamp <= " + tsTo + extraWhere +
-				" ORDER BY Clip.Timestamp DESC LIMIT " + std::to_string( maxCount ) + " OFFSET " + std::to_string( pageOffset );
+				" ORDER BY Clip.Timestamp DESC, Clip.ClipUID DESC LIMIT " + std::to_string( maxCount ) + " OFFSET " + std::to_string( pageOffset );
 		}
 
 		// Execute count query

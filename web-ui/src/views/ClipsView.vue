@@ -44,10 +44,6 @@ const groupCameras = computed(() => {
   return groupStore.camerasInGroup(groupId.value)
 })
 
-const groupCameraIds = computed(() =>
-  new Set(groupCameras.value.map(c => c.id))
-)
-
 const title = computed(() => {
   if (isGroupMode.value && groupId.value) {
     const group = groupStore.getGroupById(groupId.value)
@@ -75,9 +71,9 @@ async function loadClips() {
   if (cameraStore.cameras.length === 0) {
     await cameraStore.fetchCameras()
   }
-  // For group mode, fetch all clips (we'll filter client-side by group cameras)
+  // The server applies group and duration filters before LIMIT/OFFSET.
   const camId = isGroupMode.value ? null : cameraId.value
-  await clipStore.fetchClips(camId, 0)
+  await clipStore.fetchClips(camId, 0, false, groupId.value)
 }
 
 // If navigated with ?t= query param (e.g. from trails view), set time range around that timestamp
@@ -95,6 +91,7 @@ watch(cameraId, () => loadClips())
 watch(groupId, () => { trailFilterClipIds.value = null; loadClips() })
 watch(() => filterStore.filterQueryString, () => loadClips())
 watch(() => filterStore.timeRange, () => loadClips())
+watch(() => settings.hideShortClips, () => loadClips())
 onMounted(async () => {
   applyTimestampQuery()
   if (route.query.trails === '1') {
@@ -135,13 +132,6 @@ const TRIVIAL_DURATION = 2
 
 const displayedClips = computed(() => {
   let clips = clipStore.clips
-  // Filter by group cameras
-  if (isGroupMode.value && groupCameraIds.value.size > 0) {
-    clips = clips.filter(c => groupCameraIds.value.has(c.camera))
-  }
-  if (settings.hideShortClips) {
-    clips = clips.filter(c => c.duration >= TRIVIAL_DURATION)
-  }
   if (trailFilterClipIds.value) {
     const ids = new Set(trailFilterClipIds.value)
     clips = clips.filter(c => ids.has(c.uid))
@@ -159,7 +149,7 @@ function changePageSize(event: Event) {
   const val = Number((event.target as HTMLSelectElement).value)
   settings.clipsPerPage = val
   const camId = isGroupMode.value ? null : cameraId.value
-  clipStore.fetchClips(camId, 0)
+  clipStore.fetchClips(camId, 0, false, groupId.value)
 }
 
 function handleTagClick(_tag: string) {
