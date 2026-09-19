@@ -3,6 +3,8 @@ import { ref, onMounted, computed } from 'vue'
 import type { Clip } from '../../types/clip'
 import { useClipStore } from '../../stores/clips'
 import { useDetectionPlayback } from '../../composables/useDetectionOverlay'
+import AudioEventTimeline from './AudioEventTimeline.vue'
+import { useSettingsStore } from '../../stores/settings'
 
 const props = defineProps<{
   clip: Clip
@@ -11,9 +13,22 @@ const props = defineProps<{
 const emit = defineEmits<{ close: [] }>()
 
 const clipStore = useClipStore()
+const settings = useSettingsStore()
 const videoSrc = ref(clipStore.videoUrl(props.clip.camera, props.clip.timestamp))
 const videoRef = ref<HTMLVideoElement | null>(null)
 const canvasRef = ref<HTMLCanvasElement | null>(null)
+const playbackTime = ref(0)
+const backgroundOnly = computed(() => {
+  const events = props.clip.audioEvents ?? []
+  return events.length > 0 && events.every(event => event.group.toLowerCase() === 'wind')
+})
+
+function toggleBackgroundMute() {
+  settings.muteBackgroundOnlyClips = !settings.muteBackgroundOnlyClips
+  if (backgroundOnly.value && videoRef.value) {
+    videoRef.value.muted = settings.muteBackgroundOnlyClips
+  }
+}
 
 const { enabled: overlayEnabled, toggle: toggleOverlay, loadDetections, frames: detectionFrames } = useDetectionPlayback(
   props.clip.camera,
@@ -53,6 +68,12 @@ function nudgeDetection(direction: 'next' | 'prev') {
   }
 }
 
+function seekToAudioEvent(offsetSeconds: number) {
+  const video = videoRef.value
+  if (!video) return
+  video.currentTime = Math.max(0, Math.min(offsetSeconds, Number.isFinite(video.duration) ? video.duration : offsetSeconds))
+}
+
 function handleKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape') emit('close')
   if (e.key === 'n') { e.preventDefault(); nudgeDetection('next') }
@@ -79,6 +100,11 @@ onMounted(async () => {
         <div class="clip-modal-header">
           <span>Clip {{ clip.uid }}</span>
           <div class="d-flex gap-2 align-items-center">
+            <button class="btn btn-sm" :class="settings.muteBackgroundOnlyClips ? 'btn-info' : 'btn-outline-secondary'"
+              :title="'Start wind-only clips muted (you can always unmute in the player)'"
+              :aria-pressed="settings.muteBackgroundOnlyClips" @click="toggleBackgroundMute">
+              Wind-only mute
+            </button>
             <button
               class="btn btn-sm"
               :class="overlayEnabled ? 'btn-success' : 'btn-outline-secondary'"
@@ -97,9 +123,13 @@ onMounted(async () => {
         </div>
         <div class="clip-modal-body">
           <div class="clip-video-wrap">
-            <video ref="videoRef" :src="videoSrc" controls autoplay class="clip-video" />
+            <video ref="videoRef" :src="videoSrc" controls autoplay class="clip-video"
+              :muted="backgroundOnly && settings.muteBackgroundOnlyClips"
+              @timeupdate="playbackTime = videoRef?.currentTime ?? 0" />
             <canvas ref="canvasRef" class="detection-overlay" v-show="overlayEnabled" />
           </div>
+          <AudioEventTimeline :clip="clip" :playback-time="playbackTime" @seek="seekToAudioEvent" />
+          <div v-if="backgroundOnly && settings.muteBackgroundOnlyClips" class="audio-mute-hint">Only wind was classified; playback starts muted. Use the video controls to listen.</div>
         </div>
       </div>
     </div>
@@ -144,6 +174,7 @@ onMounted(async () => {
   max-height: 80vh;
   display: block;
 }
+.audio-mute-hint { padding: 0 1rem 0.65rem; color: #a9b5c5; font-size: 0.72rem; }
 .detection-overlay {
   position: absolute;
   top: 0;
