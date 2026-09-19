@@ -44,6 +44,8 @@ interface MediaDiagnosticEvent {
   activityId: number
   packetSequence: number
   timestampUnixMs: number
+  lastTimestampUnixMs?: number
+  count?: number
   elapsedMs: number
   generation: number
   segmentIndex: number
@@ -53,6 +55,7 @@ interface MediaDiagnosticEvent {
   phase: string
   component: string
   message: string
+  lastMessage?: string
   disposition?: string
   audio: boolean
   keyframe: boolean
@@ -335,7 +338,8 @@ function dropReasonSummary(stream: StreamHealth): string {
 function cameraMediaEvents(camera: CameraHealth): DisplayMediaDiagnosticEvent[] {
   return camera.streams
     .flatMap(stream => (stream.recentMediaEvents ?? []).map(event => ({ ...event, tier: stream.tier })))
-    .sort((left, right) => right.timestampUnixMs - left.timestampUnixMs || right.sequence - left.sequence)
+    .sort((left, right) => (right.lastTimestampUnixMs ?? right.timestampUnixMs) -
+      (left.lastTimestampUnixMs ?? left.timestampUnixMs) || right.sequence - left.sequence)
 }
 
 function mediaEventTime(timestampUnixMs: number): string {
@@ -687,12 +691,14 @@ onBeforeUnmount(() => {
                       :class="mediaEventClass(event.severity)"
                     >
                       <div class="event-meta">
-                        <span class="event-time">{{ mediaEventTime(event.timestampUnixMs) }}</span>
+                        <span class="event-time">{{ mediaEventTime(event.timestampUnixMs) }}<template v-if="(event.count ?? 1) > 1">–{{ mediaEventTime(event.lastTimestampUnixMs ?? event.timestampUnixMs) }}</template></span>
                         <span class="badge bg-secondary">{{ streamTierLabel(event.tier) }}</span>
                         <span class="badge" :class="event.severity === 'error' ? 'bg-danger' : event.severity === 'warning' ? 'bg-warning text-dark' : 'bg-info text-dark'">{{ event.severity }}</span>
                         <span>{{ event.category }} · {{ event.phase }} · {{ event.component }}</span>
+                        <span v-if="(event.count ?? 1) > 1" class="badge bg-secondary">{{ event.count }} occurrences</span>
                       </div>
                       <code class="event-message">{{ event.message }}</code>
+                      <code v-if="event.lastMessage && event.lastMessage !== event.message" class="event-message health-secondary">Latest: {{ event.lastMessage }}</code>
                       <div class="event-correlation health-secondary">
                         Activity #{{ event.activityId || '—' }} · packet #{{ event.packetSequence || '—' }} · generation {{ event.generation }} · segment {{ event.segmentIndex }}.{{ event.partialIndex }}
                         <template v-if="event.disposition"> · {{ event.disposition }}</template>

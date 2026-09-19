@@ -101,8 +101,9 @@ are described in [TERMINAL_DASHBOARD.md](TERMINAL_DASHBOARD.md).
   health using connection stability, stream freshness, decode errors, latency,
   and sustained queue pressure, with rate limiting and recovery notification so
   intermittent cameras do not continuously interrupt the operator.
-- Rate-limit repeated FFmpeg errors without losing their first occurrence,
-  total count, camera/codec context, or the timestamps of an error cluster.
+- [x] Rate-limit repeated FFmpeg errors without losing the first and latest
+  message, cluster count, camera/stream context, or first/last timestamps.
+  Implemented in `codex/ffmpeg-error-clusters`.
 
 ## Audio intelligence
 
