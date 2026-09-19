@@ -547,7 +547,7 @@ namespace Database
 	)RAW";
 
 	std::string CountClipsWithinRange = R"RAW(
-		SELECT COUNT(Timestamp) FROM Clip
+		SELECT COUNT(*) FROM Clip
 		WHERE
 				Camera == @CameraID
 			AND	Timestamp >= @TimestampFrom
@@ -556,7 +556,7 @@ namespace Database
 	)RAW";
 
 	std::string CountClipsWithinRangeAll = R"RAW(
-		SELECT COUNT(Timestamp) FROM Clip
+		SELECT COUNT(DISTINCT Clip.ClipUID) FROM Clip
 			INNER JOIN Camera C ON C.CameraUID = Clip.Camera
 			INNER JOIN CameraGroupMapping CGM ON CGM.Camera = C.CameraUID
 			INNER JOIN UserGroupMapping UGM ON UGM.`Group` = CGM.`Group`
@@ -572,7 +572,7 @@ namespace Database
 				Camera == @CameraID
 			AND	Timestamp >= @TimestampFrom
 			AND Timestamp <= @TimestampTo
-		ORDER BY Timestamp DESC
+		ORDER BY Timestamp DESC, ClipUID DESC
 		LIMIT @MaxCount OFFSET @PageOffset
 		;
 	)RAW";
@@ -586,7 +586,7 @@ namespace Database
 				Timestamp >= @TimestampFrom
 			AND Timestamp <= @TimestampTo
 			AND UGM.UserUID == @UserUID
-		ORDER BY Timestamp DESC
+		ORDER BY Timestamp DESC, Clip.ClipUID DESC
 		LIMIT @MaxCount OFFSET @PageOffset
 		;
 	)RAW";
