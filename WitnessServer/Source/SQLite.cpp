@@ -1,8 +1,152 @@
 #include "SQLite.h"
 #include "Common.h"
 
+#include <Log.h>
+#include <atomic>
+#include <deque>
+#include <thread>
+
 #define AssertQuery( condition, message, ... ) if( !(condition) ) { m_database->ThrowError( "[" + m_queryName + "] " + StringPrintfA( message, __VA_ARGS__ ) ); }
 #define AssertDB( condition, message, ... ) if( !(condition) ) { ThrowError( StringPrintfA( message, __VA_ARGS__ ) ); }
+
+namespace
+{
+	constexpr uint64_t SQLiteContentionThresholdUS = 1000;
+	constexpr uint64_t SQLiteTraceWaitThresholdUS = 25000;
+	constexpr uint64_t SQLiteTraceScopeThresholdUS = 100000;
+	constexpr uint64_t SQLiteWarningThresholdUS = 500000;
+	constexpr size_t MaxRecentSQLiteEvents = 64;
+
+	struct SQLiteDiagnosticsState
+	{
+		std::atomic<uint64_t> Sequence{ 0 };
+		std::atomic<uint64_t> Queries{ 0 };
+		std::atomic<uint64_t> ContendedQueries{ 0 };
+		std::atomic<uint64_t> SlowQueries{ 0 };
+		std::atomic<uint64_t> TotalWaitUS{ 0 };
+		std::atomic<uint64_t> MaxWaitUS{ 0 };
+		std::atomic<uint64_t> TotalScopeUS{ 0 };
+		std::atomic<uint64_t> MaxScopeUS{ 0 };
+		std::atomic<uint64_t> TotalExecuteUS{ 0 };
+		std::atomic<uint64_t> MaxExecuteUS{ 0 };
+		std::mutex RecentMutex;
+		std::deque<SQLiteQueryTimingEvent> Recent;
+	};
+
+	SQLiteDiagnosticsState& GetSQLiteDiagnosticsState()
+	{
+		static SQLiteDiagnosticsState State;
+		return State;
+	}
+
+	void UpdateMaximum( std::atomic<uint64_t>& Target, uint64_t Value )
+	{
+		uint64_t Current = Target.load( std::memory_order_relaxed );
+		while( Current < Value && !Target.compare_exchange_weak(
+			Current, Value, std::memory_order_relaxed ) ) {}
+	}
+
+	void RecordSQLiteQueryTiming( const std::string& Query,
+		std::chrono::system_clock::time_point Started, uint64_t WaitUS, uint64_t ScopeUS,
+		uint64_t ExecuteUS )
+	{
+		auto& Diagnostics = GetSQLiteDiagnosticsState();
+		++Diagnostics.Queries;
+		Diagnostics.TotalWaitUS.fetch_add( WaitUS, std::memory_order_relaxed );
+		Diagnostics.TotalScopeUS.fetch_add( ScopeUS, std::memory_order_relaxed );
+		Diagnostics.TotalExecuteUS.fetch_add( ExecuteUS, std::memory_order_relaxed );
+		UpdateMaximum( Diagnostics.MaxWaitUS, WaitUS );
+		UpdateMaximum( Diagnostics.MaxScopeUS, ScopeUS );
+		UpdateMaximum( Diagnostics.MaxExecuteUS, ExecuteUS );
+		if( WaitUS >= SQLiteContentionThresholdUS ) ++Diagnostics.ContendedQueries;
+
+		const bool Trace = WaitUS >= SQLiteTraceWaitThresholdUS ||
+			ScopeUS >= SQLiteTraceScopeThresholdUS;
+		if( !Trace ) return;
+		++Diagnostics.SlowQueries;
+		SQLiteQueryTimingEvent Event;
+		Event.Sequence = ++Diagnostics.Sequence;
+		Event.StartedUnixMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+			Started.time_since_epoch() ).count();
+		Event.Query = Query;
+		Event.Thread = static_cast<uint64_t>(
+			std::hash<std::thread::id>{}( std::this_thread::get_id() ) );
+		Event.MutexWaitMs = static_cast<double>( WaitUS ) / 1000.0;
+		Event.ScopeMs = static_cast<double>( ScopeUS ) / 1000.0;
+		Event.ExecuteMs = static_cast<double>( ExecuteUS ) / 1000.0;
+		{
+			std::lock_guard Lock( Diagnostics.RecentMutex );
+			Diagnostics.Recent.push_back( Event );
+			if( Diagnostics.Recent.size() > MaxRecentSQLiteEvents )
+				Diagnostics.Recent.pop_front();
+		}
+		if( WaitUS >= SQLiteWarningThresholdUS || ScopeUS >= SQLiteWarningThresholdUS )
+		{
+			LOG_WARNING( "[SQLite] Slow query scope %s: mutex wait %.1fms, execute %.1fms, scope %.1fms",
+				Query.c_str(), Event.MutexWaitMs, Event.ExecuteMs, Event.ScopeMs );
+		}
+	}
+}
+
+SQLiteDatabaseQueryInstance::SQLiteDatabaseQueryInstance(
+	const std::shared_ptr<SQLiteDatabase>& DB, const char* QueryName )
+:	m_Query( DB->GetQuery( QueryName ) )
+,	m_Lock( m_Query->PrepareQueryMutex(), std::defer_lock )
+,	m_WaitStarted( std::chrono::steady_clock::now() )
+,	m_StartedSystem( std::chrono::system_clock::now() )
+{
+	m_Lock.lock();
+	m_LockAcquired = std::chrono::steady_clock::now();
+	m_Query->ResetInstanceExecuteTime();
+	m_MutexWaitUS = static_cast<uint64_t>( std::chrono::duration_cast<std::chrono::microseconds>(
+		m_LockAcquired - m_WaitStarted ).count() );
+}
+
+SQLiteDatabaseQueryInstance::~SQLiteDatabaseQueryInstance() noexcept
+{
+	const uint64_t ScopeUS = static_cast<uint64_t>( std::chrono::duration_cast<std::chrono::microseconds>(
+		std::chrono::steady_clock::now() - m_LockAcquired ).count() );
+	const std::string& QueryName = m_Query->GetQueryName();
+	const uint64_t ExecuteUS = m_Query->GetInstanceExecuteTimeUS();
+	if( m_Lock.owns_lock() ) m_Lock.unlock();
+	try
+	{
+		RecordSQLiteQueryTiming( QueryName, m_StartedSystem, m_MutexWaitUS, ScopeUS, ExecuteUS );
+	}
+	catch( ... )
+	{
+		// Diagnostics must never turn normal query teardown into process termination.
+	}
+}
+
+SQLiteDiagnosticsSnapshot GetSQLiteDiagnosticsSnapshot()
+{
+	auto& Diagnostics = GetSQLiteDiagnosticsState();
+	SQLiteDiagnosticsSnapshot Result;
+	Result.Queries = Diagnostics.Queries.load( std::memory_order_relaxed );
+	Result.ContendedQueries = Diagnostics.ContendedQueries.load( std::memory_order_relaxed );
+	Result.SlowQueries = Diagnostics.SlowQueries.load( std::memory_order_relaxed );
+	const uint64_t TotalWaitUS = Diagnostics.TotalWaitUS.load( std::memory_order_relaxed );
+	const uint64_t TotalScopeUS = Diagnostics.TotalScopeUS.load( std::memory_order_relaxed );
+	const uint64_t TotalExecuteUS = Diagnostics.TotalExecuteUS.load( std::memory_order_relaxed );
+	Result.MeanMutexWaitMs = Result.Queries ?
+		static_cast<double>( TotalWaitUS ) / (1000.0 * Result.Queries) : 0.0;
+	Result.MaxMutexWaitMs = static_cast<double>(
+		Diagnostics.MaxWaitUS.load( std::memory_order_relaxed ) ) / 1000.0;
+	Result.MeanScopeMs = Result.Queries ?
+		static_cast<double>( TotalScopeUS ) / (1000.0 * Result.Queries) : 0.0;
+	Result.MaxScopeMs = static_cast<double>(
+		Diagnostics.MaxScopeUS.load( std::memory_order_relaxed ) ) / 1000.0;
+	Result.MeanExecuteMs = Result.Queries ?
+		static_cast<double>( TotalExecuteUS ) / (1000.0 * Result.Queries) : 0.0;
+	Result.MaxExecuteMs = static_cast<double>(
+		Diagnostics.MaxExecuteUS.load( std::memory_order_relaxed ) ) / 1000.0;
+	{
+		std::lock_guard Lock( Diagnostics.RecentMutex );
+		Result.RecentSlowQueries.assign( Diagnostics.Recent.rbegin(), Diagnostics.Recent.rend() );
+	}
+	return Result;
+}
 
 SQLiteDatabaseQuery::SQLiteDatabaseQuery(std::shared_ptr<SQLiteDatabase> database )
 : m_database( database )	
@@ -123,6 +267,15 @@ void SQLiteDatabaseQuery::Reset()
 
 int SQLiteDatabaseQuery::Execute( const std::function< bool(const SQLiteDatabaseQuery&) >& callback )
 {
+	auto Step = [this]( sqlite3_stmt* Statement )
+	{
+		const auto Started = std::chrono::steady_clock::now();
+		const int Result = sqlite3_step( Statement );
+		m_instanceExecuteUS += static_cast<uint64_t>( std::chrono::duration_cast<std::chrono::microseconds>(
+			std::chrono::steady_clock::now() - Started ).count() );
+		return Result;
+	};
+
 	m_reset = false;
 
 	int count = 0;
@@ -131,7 +284,7 @@ int SQLiteDatabaseQuery::Execute( const std::function< bool(const SQLiteDatabase
 	{
 		int result;
 		bool earlyBreak = false;
-		while( (result = sqlite3_step( statement )) == SQLITE_ROW )
+		while( (result = Step( statement )) == SQLITE_ROW )
 		{
 			count++;
 

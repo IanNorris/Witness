@@ -67,26 +67,29 @@ void CrowListener::HandleClipThumbnail( const crow::request& req, crow::response
 		}
 	}
 
-	// Look up from database
-	SQLiteDatabaseQueryInstance SelectClip( m_GlobalContext->Database, "SelectClip" );
-	SelectClip->Bind( "@CameraID", cameraId );
-	SelectClip->Bind( "@Timestamp", (int64_t)TargetCameraTimestamp );
-
 	std::string ClipFilename;
 	bool Success = false;
+	{
+		// Query instances own a shared prepared-statement mutex. Release it before
+		// filesystem access and Crow's synchronous response write so a slow client
+		// cannot block unrelated clip requests behind this lookup.
+		SQLiteDatabaseQueryInstance SelectClip( m_GlobalContext->Database, "SelectClip" );
+		SelectClip->Bind( "@CameraID", cameraId );
+		SelectClip->Bind( "@Timestamp", (int64_t)TargetCameraTimestamp );
+		SelectClip->Execute(
+			[&]( const SQLiteDatabaseQuery& query )
+			{
+				int64_t Timestamp = query.GetColumnValueInt64( 1 );
+				int CameraID = query.GetColumnValueInt( 2 );
+				int RecordMode = query.GetColumnValueInt( 6 );
 
-	SelectClip->Execute(
-		[&]( const SQLiteDatabaseQuery& query )
-		{
-			int64_t Timestamp = query.GetColumnValueInt64( 1 );
-			int CameraID = query.GetColumnValueInt( 2 );
-			int RecordMode = query.GetColumnValueInt( 6 );
-
-			ClipFilename = GetClipName( *m_GlobalContext, CameraID, Timestamp, RecordMode == 0, video );
-			Success = true;
-			return true;
-		}
-	);
+				ClipFilename = GetClipName( *m_GlobalContext, CameraID, Timestamp,
+					RecordMode == 0, video );
+				Success = true;
+				return true;
+			}
+		);
+	}
 
 	if( Success && fs::exists( ClipFilename ) )
 	{

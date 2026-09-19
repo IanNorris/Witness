@@ -150,17 +150,19 @@ void AudioIntelligenceWorker::WorkerMain()
 	int Camera = 0;
 	int RecordMode = 0;
 	float Threshold = 0.5f;
-	SQLiteDatabaseQueryInstance Query( Database, "SelectClipForAudioIntelligence" );
-	Query->Bind( "@AudioDetectionVersion", AudioDetectionVersion );
-	Query->Execute( [&]( const SQLiteDatabaseQuery& Row )
 	{
-		ClipUID = Row.GetColumnValueInt64( 0 );
-		Timestamp = Row.GetColumnValueInt64( 1 );
-		Camera = Row.GetColumnValueInt( 2 );
-		RecordMode = Row.GetColumnValueInt( 3 );
-		Threshold = static_cast<float>( Row.GetColumnValueDouble( 4 ) );
-		return false;
-	} );
+		SQLiteDatabaseQueryInstance Query( Database, "SelectClipForAudioIntelligence" );
+		Query->Bind( "@AudioDetectionVersion", AudioDetectionVersion );
+		Query->Execute( [&]( const SQLiteDatabaseQuery& Row )
+		{
+			ClipUID = Row.GetColumnValueInt64( 0 );
+			Timestamp = Row.GetColumnValueInt64( 1 );
+			Camera = Row.GetColumnValueInt( 2 );
+			RecordMode = Row.GetColumnValueInt( 3 );
+			Threshold = static_cast<float>( Row.GetColumnValueDouble( 4 ) );
+			return false;
+		} );
+	}
 	if( ClipUID == 0 )
 	{
 		UpdateLastTimedAction( "Audio queue idle" );

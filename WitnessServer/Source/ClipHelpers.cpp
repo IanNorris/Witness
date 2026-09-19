@@ -509,26 +509,30 @@ void CleanupOldDetectionFrames( const GlobalContext& Context, int retentionDays 
 	);
 
 	std::vector<int> cameraIds;
-	SQLiteDatabaseQueryInstance cameras( Context.Database, "SelectDetectionAssetCameraIDsBefore" );
-	cameras->Bind( "@Timestamp", cutoffEpoch );
-	cameras->Execute( [&]( const SQLiteDatabaseQuery& query )
 	{
-		cameraIds.push_back( query.GetColumnValueInt( 0 ) );
-		return true;
-	} );
+		SQLiteDatabaseQueryInstance cameras( Context.Database, "SelectDetectionAssetCameraIDsBefore" );
+		cameras->Bind( "@Timestamp", cutoffEpoch );
+		cameras->Execute( [&]( const SQLiteDatabaseQuery& query )
+		{
+			cameraIds.push_back( query.GetColumnValueInt( 0 ) );
+			return true;
+		} );
+	}
 
 	for( int cameraId : cameraIds )
 	{
 		std::vector<std::string> assetPaths;
-		SQLiteDatabaseQueryInstance assets( Context.Database, "SelectDetectionAssetPathsBefore" );
-		assets->Bind( "@CameraID", cameraId );
-		assets->Bind( "@Timestamp", cutoffEpoch );
-		assets->Execute( [&]( const SQLiteDatabaseQuery& query )
 		{
-			const char* path = query.GetColumnValueText( 0 );
-			if( path && *path ) assetPaths.emplace_back( path );
-			return true;
-		} );
+			SQLiteDatabaseQueryInstance assets( Context.Database, "SelectDetectionAssetPathsBefore" );
+			assets->Bind( "@CameraID", cameraId );
+			assets->Bind( "@Timestamp", cutoffEpoch );
+			assets->Execute( [&]( const SQLiteDatabaseQuery& query )
+			{
+				const char* path = query.GetColumnValueText( 0 );
+				if( path && *path ) assetPaths.emplace_back( path );
+				return true;
+			} );
+		}
 
 		if( !DeleteManagedDetectionAssets( Context.CachePath, cameraId, assetPaths ) )
 		{

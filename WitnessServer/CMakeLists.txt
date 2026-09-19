@@ -31,6 +31,7 @@ set(SERVER_SOURCES
     Source/Database.cpp
     Source/FaceRecognitionCache.cpp
     Source/ImageProcessorWorker.cpp
+    Source/HttpServerDiagnostics.cpp
     Source/Init.cpp
     Source/JsonHelpers.cpp
     Source/Main.cpp
@@ -70,6 +71,7 @@ set(SERVER_HEADERS
     Source/FaceRecognitionCache.h
     Source/GlobalContext.h
     Source/ImageProcessorWorker.h
+    Source/HttpServerDiagnostics.h
     Source/LongPoll.h
     Source/Message.h
     Source/MessageBus.h
