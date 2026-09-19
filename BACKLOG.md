@@ -76,10 +76,10 @@ are described in [TERMINAL_DASHBOARD.md](TERMINAL_DASHBOARD.md).
 - Build a terminal dashboard showing queue lengths, camera connection health,
   stream latency, processing throughput, and the latest detection details.
   Preserve a conventional log mode for redirection and service operation.
-- During startup, the terminal dashboard should show an explicit **Loading** or
-  **Starting web server/websocket** state until the HTTP server and websocket
-  endpoints are actually bound and ready to accept clients, rather than
-  implying the service is already interactive.
+- [x] During startup, the terminal dashboard shows **Loading** until Crow has
+  bound the HTTP listener, started its workers, and entered its accept loop;
+  initialization fails if readiness is not reached. Implemented in
+  `codex/tui-listener-readiness`.
 - Build a unified performance and health dashboard with colour-coded warnings
   for host CPU capacity, queue depths, processing and stream latency, and other
   resource constraints. Include an exportable/copyable per-camera table with

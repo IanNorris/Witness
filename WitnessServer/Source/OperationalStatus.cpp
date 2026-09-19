@@ -1,4 +1,5 @@
 #include "Witness.h"
+#include "CrowListener.h"
 #include "GlobalContext.h"
 
 #include <algorithm>
@@ -51,6 +52,7 @@ OperationalStatus WitnessServer::GetOperationalStatus() const
 	OperationalStatus Result;
 	if( !Context )
 		return Result;
+	Result.WebReady = Server && Server->IsReady();
 
 #ifdef _WIN32
 	Result.HostCpuPercent = SampleHostCpu();
