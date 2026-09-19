@@ -124,6 +124,15 @@ namespace TagHelpers
 
 		// Parse and insert new ones
 		auto tags = ParseTagString( tagString );
+		{
+			SQLiteDatabaseQueryInstance External( DB, "SelectClipExternalTags" );
+			External->Bind( "@ClipUID", clipUID );
+			External->Execute( [&]( const SQLiteDatabaseQuery& Row )
+			{
+				if( const char* Name = Row.GetColumnValueText( 0 ) ) tags.emplace_back( Name );
+				return true;
+			} );
+		}
 		for( const auto& tag : tags )
 		{
 			int tagUID = FindOrCreateTag( DB, tag );
@@ -133,6 +142,26 @@ namespace TagHelpers
 				q->Bind( "@ClipUID", clipUID );
 				q->Bind( "@TagUID", tagUID );
 				q->Execute( nullptr );
+			}
+		}
+	}
+
+	void AddExternalTags( const std::shared_ptr<SQLiteDatabase>& DB, int64_t clipUID, const std::vector<std::string>& tags )
+	{
+		if( clipUID <= 0 || tags.empty() ) return;
+		for( const auto& Tag : tags )
+		{
+			SQLiteDatabaseQueryInstance Insert( DB, "InsertClipExternalTag" );
+			Insert->Bind( "@ClipUID", clipUID );
+			Insert->Bind( "@Name", Tag.c_str() );
+			Insert->Execute( nullptr );
+			const int TagUID = FindOrCreateTag( DB, Tag );
+			if( TagUID > 0 )
+			{
+				SQLiteDatabaseQueryInstance Link( DB, "InsertClipTag" );
+				Link->Bind( "@ClipUID", clipUID );
+				Link->Bind( "@TagUID", TagUID );
+				Link->Execute( nullptr );
 			}
 		}
 	}

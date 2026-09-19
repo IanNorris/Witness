@@ -14,6 +14,7 @@ set(SERVER_SOURCES
     Source/CrowAuth.cpp
     Source/CrowListener.cpp
     Source/CrowRoutes_Auth.cpp
+    Source/CrowRoutes_Api.cpp
     Source/CrowRoutes_Camera.cpp
     Source/CrowRoutes_Clip.cpp
     Source/CrowRoutes_Debug.cpp

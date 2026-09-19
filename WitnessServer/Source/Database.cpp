@@ -33,6 +33,36 @@ namespace Database
 
 		CREATE UNIQUE INDEX IF NOT EXISTS SessionIndex ON Session (SessionToken);
 
+		CREATE TABLE IF NOT EXISTS ApiKey(
+			KeyUID INTEGER PRIMARY KEY AUTOINCREMENT,
+			Name TEXT NOT NULL,
+			KeyHash TEXT NOT NULL UNIQUE,
+			OwnerUserUID INTEGER NOT NULL,
+			ScopeMask INTEGER NOT NULL,
+			AllowedCIDRs TEXT NOT NULL,
+			CreatedAt INTEGER NOT NULL,
+			LastUsedAt INTEGER,
+			LastSourceIP TEXT,
+			UseCount INTEGER NOT NULL DEFAULT 0,
+			RevokedAt INTEGER,
+			FOREIGN KEY(OwnerUserUID) REFERENCES User(UserUID)
+		);
+
+		CREATE TABLE IF NOT EXISTS ApiKeyAudit(
+			AuditUID INTEGER PRIMARY KEY AUTOINCREMENT,
+			KeyUID INTEGER NOT NULL,
+			Timestamp INTEGER NOT NULL,
+			Scope INTEGER NOT NULL,
+			SourceIP TEXT NOT NULL,
+			Path TEXT NOT NULL
+		);
+		CREATE INDEX IF NOT EXISTS ApiKeyAuditByKey ON ApiKeyAudit(KeyUID, Timestamp DESC);
+		CREATE TRIGGER IF NOT EXISTS ApiKeyAuditRetention AFTER INSERT ON ApiKeyAudit
+		WHEN NEW.AuditUID % 100 = 0
+		BEGIN
+			DELETE FROM ApiKeyAudit WHERE AuditUID <= NEW.AuditUID - 50000;
+		END;
+
 		CREATE TABLE IF NOT EXISTS Camera(
 			CameraUID		INTEGER PRIMARY KEY	AUTOINCREMENT,
 			CameraName		CHAR(64)							NOT NULL,
@@ -103,6 +133,14 @@ namespace Database
 		);
 
 		CREATE INDEX IF NOT EXISTS ClipTagByTag ON ClipTag (TagUID);
+
+		-- Tags supplied by external recording triggers must survive detector retagging.
+		CREATE TABLE IF NOT EXISTS ClipExternalTag(
+			ClipUID INTEGER NOT NULL,
+			Name TEXT NOT NULL,
+			PRIMARY KEY(ClipUID, Name),
+			FOREIGN KEY(ClipUID) REFERENCES Clip(ClipUID) ON DELETE CASCADE
+		);
 
 		CREATE TABLE IF NOT EXISTS CameraTagExclusion(
 			CameraID		INTEGER					NOT NULL,
@@ -1567,6 +1605,25 @@ namespace Database
 		CREATE_QUERY( DeleteAudioEventsForClip );
 		CREATE_QUERY( InsertAudioEvent );
 		CREATE_QUERY( SelectAudioEventsForClip );
+
+		DB->CreateQuery( "CreateApiKey", "INSERT INTO ApiKey(Name,KeyHash,OwnerUserUID,ScopeMask,AllowedCIDRs,CreatedAt) VALUES(@Name,@KeyHash,@Owner,@Scopes,@CIDRs,@Now);" );
+		DB->CreateQuery( "ListApiKeys", "SELECT KeyUID,Name,OwnerUserUID,ScopeMask,AllowedCIDRs,CreatedAt,LastUsedAt,LastSourceIP,UseCount,RevokedAt FROM ApiKey ORDER BY KeyUID DESC;" );
+		DB->CreateQuery( "FindApiKey", "SELECT k.KeyUID,k.OwnerUserUID,k.ScopeMask,k.AllowedCIDRs FROM ApiKey k JOIN User u ON u.UserUID=k.OwnerUserUID WHERE k.KeyHash=@Hash AND k.RevokedAt IS NULL AND u.Enabled=1 AND u.Admin=1;" );
+		DB->CreateQuery( "RevokeApiKey", "UPDATE ApiKey SET RevokedAt=@Now WHERE KeyUID=@KeyUID AND RevokedAt IS NULL;" );
+		DB->CreateQuery( "TouchApiKey", "UPDATE ApiKey SET LastUsedAt=@Now,LastSourceIP=@IP,UseCount=UseCount+1 WHERE KeyUID=@KeyUID AND RevokedAt IS NULL;" );
+		DB->CreateQuery( "AuditApiKey", "INSERT INTO ApiKeyAudit(KeyUID,Timestamp,Scope,SourceIP,Path) VALUES(@KeyUID,@Now,@Scope,@IP,@Path);" );
+		DB->CreateQuery( "ListApiKeyAudit", "SELECT KeyUID,Timestamp,Scope,SourceIP,Path FROM ApiKeyAudit ORDER BY AuditUID DESC LIMIT 200;" );
+		DB->CreateQuery( "SelectApiClips", R"SQL(
+			SELECT c.ClipUID,c.Timestamp,c.Camera,c.Duration,c.ActiveDuration,c.RecordMode,c.MaxMotion,c.Save,c.Description,
+				(SELECT group_concat(t.Name, ',') FROM ClipTag ct JOIN Tag t ON t.TagUID=ct.TagUID WHERE ct.ClipUID=c.ClipUID)
+			FROM Clip c WHERE c.Timestamp>=@From AND c.Timestamp<=@To
+				AND (@Camera=-1 OR c.Camera=@Camera) AND c.Duration>=@MinDuration
+				AND (@Tag='' OR EXISTS(SELECT 1 FROM ClipTag ct JOIN Tag t ON t.TagUID=ct.TagUID WHERE ct.ClipUID=c.ClipUID AND t.Name=@Tag))
+				AND EXISTS(SELECT 1 FROM CameraGroupMapping cgm JOIN UserGroupMapping ugm ON ugm.`Group`=cgm.`Group` WHERE cgm.Camera=c.Camera AND ugm.UserUID=@User)
+			ORDER BY c.Timestamp DESC,c.ClipUID DESC LIMIT @Limit OFFSET @Offset;
+		)SQL" );
+		DB->CreateQuery( "InsertClipExternalTag", "INSERT OR IGNORE INTO ClipExternalTag(ClipUID,Name) VALUES(@ClipUID,@Name);" );
+		DB->CreateQuery( "SelectClipExternalTags", "SELECT Name FROM ClipExternalTag WHERE ClipUID=@ClipUID;" );
 
 		return DB;
 	}
