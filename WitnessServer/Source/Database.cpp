@@ -873,6 +873,10 @@ namespace Database
 		ORDER BY StartTimestamp ASC;
 	)RAW";
 
+	std::string SelectContinuousSegmentByUID = R"RAW(
+		SELECT CameraUID, FilePath FROM ContinuousSegment WHERE SegmentUID = @SegmentUID LIMIT 1;
+	)RAW";
+
 	std::string SelectContinuousSegmentsToDelete = R"RAW(
 		SELECT SegmentUID, FilePath FROM ContinuousSegment
 		WHERE EndTimestamp < @Timestamp
@@ -916,6 +920,19 @@ namespace Database
 			AND StartTimestamp <= @TimestampTo
 			AND EndTimestamp >= @TimestampFrom
 		ORDER BY StartTimestamp ASC;
+	)RAW";
+
+	std::string SelectDvrActivity = R"RAW(
+		SELECT ClipUID, Timestamp, Duration FROM Clip
+		WHERE Camera = @CameraUID AND Timestamp <= @TimestampTo
+			AND Timestamp + MAX(Duration, 1) >= @TimestampFrom
+		ORDER BY Timestamp ASC LIMIT 501;
+	)RAW";
+
+	std::string SelectDvrAudio = R"RAW(
+		SELECT GroupName, StartTime, EndTime, PeakScore FROM AudioEvent
+		WHERE CameraID = @CameraUID AND StartTime <= @TimestampTo AND EndTime >= @TimestampFrom
+		ORDER BY StartTime ASC LIMIT 501;
 	)RAW";
 
 	std::string SelectContinuousSegmentAtTimestamp = R"RAW(
@@ -1588,6 +1605,7 @@ namespace Database
 
 		CREATE_QUERY( CreateContinuousSegment );
 		CREATE_QUERY( SelectContinuousSegments );
+		CREATE_QUERY( SelectContinuousSegmentByUID );
 		CREATE_QUERY( SelectContinuousSegmentsToDelete );
 		CREATE_QUERY( DeleteContinuousSegment );
 		CREATE_QUERY( SelectContinuousTotalSize );
@@ -1597,6 +1615,8 @@ namespace Database
 		CREATE_QUERY( SelectContinuousSegmentByFilePath );
 		CREATE_QUERY( SelectOldestContinuousSegment );
 		CREATE_QUERY( SelectContinuousCoverage );
+		CREATE_QUERY( SelectDvrActivity );
+		CREATE_QUERY( SelectDvrAudio );
 		CREATE_QUERY( SelectContinuousSegmentAtTimestamp );
 
 		CREATE_QUERY( InsertDetectionFrame );

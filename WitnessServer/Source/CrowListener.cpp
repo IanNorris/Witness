@@ -866,6 +866,12 @@ void CrowListener::RegisterRoutes()
 		HandleDvrCoverage( req, res, cameraId, from, to );
 	});
 
+	CROW_ROUTE( m_App, "/dvr/events/<int>/<string>/<string>" )
+	([this]( const crow::request& req, crow::response& res, int cameraId, const std::string& from, const std::string& to )
+	{
+		HandleDvrEvents( req, res, cameraId, from, to );
+	});
+
 	CROW_ROUTE( m_App, "/dvr/segment/<int>" )
 	([this]( const crow::request& req, crow::response& res, int segmentId )
 	{
