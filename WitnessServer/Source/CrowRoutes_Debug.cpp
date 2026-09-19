@@ -332,6 +332,8 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 			Item["packetSequence"] = Event.PacketSequence;
 			Item["timestampUnixMs"] = Event.TimestampUnixMs;
 			Item["elapsedMs"] = Event.ElapsedMs;
+			Item["lastTimestampUnixMs"] = Event.LastTimestampUnixMs ? Event.LastTimestampUnixMs : Event.TimestampUnixMs;
+			Item["count"] = Event.Count;
 			Item["generation"] = Event.Generation;
 			Item["segmentIndex"] = Event.SegmentIndex;
 			Item["partialIndex"] = Event.PartialIndex;
@@ -340,6 +342,7 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 			Item["phase"] = Event.Phase;
 			Item["component"] = Event.Component;
 			Item["message"] = Event.Message;
+			if( !Event.LastMessage.empty() ) Item["lastMessage"] = Event.LastMessage;
 			Item["disposition"] = Event.Disposition;
 			Item["audio"] = Event.Audio;
 			Item["keyframe"] = Event.Keyframe;
@@ -937,6 +940,8 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 						Item["packetSequence"] = Event.PacketSequence;
 						Item["timestampUnixMs"] = Event.TimestampUnixMs;
 						Item["elapsedMs"] = Event.ElapsedMs;
+						Item["lastTimestampUnixMs"] = Event.LastTimestampUnixMs ? Event.LastTimestampUnixMs : Event.TimestampUnixMs;
+						Item["count"] = Event.Count;
 						Item["generation"] = Event.Generation;
 						Item["segmentIndex"] = Event.SegmentIndex;
 						Item["partialIndex"] = Event.PartialIndex;
@@ -945,6 +950,7 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 						Item["phase"] = Event.Phase;
 						Item["component"] = Event.Component;
 						Item["message"] = Event.Message;
+						if( !Event.LastMessage.empty() ) Item["lastMessage"] = Event.LastMessage;
 						Item["disposition"] = Event.Disposition;
 						Item["audio"] = Event.Audio;
 						Item["keyframe"] = Event.Keyframe;

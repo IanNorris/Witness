@@ -166,21 +166,32 @@ void Stream::LogCallback( void* AVData, int Level, const char* Format, va_list A
 
 	std::snprintf( MessageBuf.data(), MessageBuf.size(), OutputFormat, AVClassData ? AVClassData->item_name(AVData) : "Unknown", OriginalMessageBuf.data());
 
-	OutputDebugStringA( MessageBuf.data() );
-
+	uint64_t ClusterCount = 1;
 	if( FFmpegDiagnosticStream )
 	{
-		FFmpegDiagnosticStream->RecordFFmpegLog( Level, FFmpegLogPhase,
+		ClusterCount = FFmpegDiagnosticStream->RecordFFmpegLog( Level, FFmpegLogPhase,
 			AVClassData ? AVClassData->item_name( AVData ) : "unknown",
 			OriginalMessageBuf.data(), FFmpegDiagnosticActivityID );
 	}
+	const bool EmitLog = ClusterCount == 1 || ClusterCount == 10 ||
+		(ClusterCount >= 100 && ClusterCount % 100 == 0);
+	if( EmitLog ) OutputDebugStringA( MessageBuf.data() );
 
 	if( Level <= AV_LOG_ERROR )
 	{
 		++FFmpegLogErrorCount;
-		LOG_ERROR( "[FFmpeg] Camera %d %s (%s): %s", FFmpegLogSourceID,
-			FFmpegLogPhase, AVClassData ? AVClassData->item_name(AVData) : "unknown",
-			OriginalMessageBuf.data() );
+		if( EmitLog )
+		{
+			if( ClusterCount == 1 )
+				LOG_ERROR( "[FFmpeg] Camera %d %s (%s): %s", FFmpegLogSourceID,
+					FFmpegLogPhase, AVClassData ? AVClassData->item_name(AVData) : "unknown",
+					OriginalMessageBuf.data() );
+			else
+				LOG_ERROR( "[FFmpeg] Camera %d %s (%s): %llu occurrences in cluster; latest: %s",
+					FFmpegLogSourceID, FFmpegLogPhase,
+					AVClassData ? AVClassData->item_name(AVData) : "unknown",
+					static_cast<unsigned long long>( ClusterCount ), OriginalMessageBuf.data() );
+		}
 	}
 }
 

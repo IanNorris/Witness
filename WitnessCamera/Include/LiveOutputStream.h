@@ -342,6 +342,9 @@ public:
 		uint64_t PacketSequence = 0;
 		int64_t TimestampUnixMs = 0;
 		int64_t ElapsedMs = 0;
+		int64_t LastTimestampUnixMs = 0;
+		int64_t LastElapsedMs = 0;
+		uint64_t Count = 1;
 		int Generation = 0;
 		int SegmentIndex = 0;
 		int PartialIndex = 0;
@@ -350,6 +353,8 @@ public:
 		std::string Phase;
 		std::string Component;
 		std::string Message;
+		std::string LastMessage;
+		std::string ClusterSignature; // internal grouping key; never exported
 		std::string Disposition;
 		bool Audio = false;
 		bool Keyframe = false;
@@ -446,7 +451,7 @@ public:
 	StreamingDiagnostics GetStreamingDiagnostics( bool IncludeHistory = true ) const;
 	void CaptureDiagnosticAnomaly(const std::string& Reason);
 	uint64_t BeginDiagnosticActivity();
-	void RecordFFmpegLog( int Level, const char* Phase, const char* Component,
+	uint64_t RecordFFmpegLog( int Level, const char* Phase, const char* Component,
 		const char* Message, uint64_t ActivityID );
 
 private:
