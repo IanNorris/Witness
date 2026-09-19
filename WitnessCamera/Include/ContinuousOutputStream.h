@@ -17,6 +17,7 @@ namespace Witness{
 namespace Camera{
 
 class InputStream;
+struct ContinuousOutputStreamData;
 
 // Callback invoked when a segment file is finalized.
 // Parameters: cameraUID, startTimestamp, endTimestamp, duration (seconds), filePath
@@ -27,6 +28,8 @@ class CAMERA_API ContinuousOutputStream
 public:
 	ContinuousOutputStream(const std::string& basePath, int cameraUID, InputStream* inputStream);
 	~ContinuousOutputStream();
+	ContinuousOutputStream( const ContinuousOutputStream& ) = delete;
+	ContinuousOutputStream& operator=( const ContinuousOutputStream& ) = delete;
 
 	// Set callback for when a segment is finalized
 	void SetSegmentCompleteCallback(SegmentCompleteCallback callback);
@@ -52,7 +55,7 @@ private:
 	CameraStreamError FinalizeCurrentSegment();
 	bool NormalizeVideoTimestamp(AVPacket* packet, AVRational inputTimebase);
 
-	std::string m_BasePath;		// Directory: CachePath/continuous/{CameraID}/
+	ContinuousOutputStreamData* m_Data;
 	int m_CameraUID;
 	InputStream* m_InputStream;
 
@@ -83,8 +86,6 @@ private:
 
 	int m_TargetSegmentDuration;		// Target duration before looking for next keyframe
 	bool m_WaitingForKeyframe;			// Set when duration exceeded, waiting for next keyframe to split
-
-	SegmentCompleteCallback m_OnSegmentComplete;
 
 	char m_ErrorMessage[256];
 };
