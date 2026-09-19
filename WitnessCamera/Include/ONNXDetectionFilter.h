@@ -19,7 +19,7 @@ enum class CAMERA_API LightingCondition
 	Night = 2
 };
 
-struct CAMERA_API DetectionResult
+struct DetectionResult
 {
 	int ClassId;
 	float Confidence;

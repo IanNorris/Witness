@@ -24,7 +24,7 @@ struct FilterData;
 class StreamManager;
 class IRecordFilter;
 
-class CAMERA_API FilterFrameContext
+class FilterFrameContext
 {
 public:
 
@@ -36,7 +36,7 @@ public:
 	SwsContext* ConversionContext;
 };
 
-class CAMERA_API FilterFrame
+class FilterFrame
 {
 public:
 
@@ -57,8 +57,8 @@ public:
 	, FrameContext( FrameContextIn )
 	{}
 
-	cv::Mat& GetOrDecodeFrame();
-	cv::Mat& GetOrDecodeGrayscaleInputFrame();
+	CAMERA_API cv::Mat& GetOrDecodeFrame();
+	CAMERA_API cv::Mat& GetOrDecodeGrayscaleInputFrame();
 
 	FilterFrameStats& Stats;
 

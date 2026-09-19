@@ -2,6 +2,7 @@
 
 #include "Stream.h"
 #include "InputStream.h"
+#include "SegmentBuffer.h"
 #include <mutex>
 #include <chrono>
 #include <string>
@@ -18,8 +19,6 @@ struct AVIOContext;
 namespace Witness{
 namespace Camera{
 
-typedef std::shared_ptr<std::vector<uint8_t>> SegmentBuffer;
-
 struct LiveStreamInitSnapshot
 {
 	SegmentBuffer Data;
@@ -28,7 +27,9 @@ struct LiveStreamInitSnapshot
 };
 
 // Notification events emitted by LiveOutputStream for MSE WebSocket streaming
-struct CAMERA_API LiveStreamEvent
+// Header-defined value type; the producer and consumer exchange it through
+// exported methods/callbacks, but the type itself has no out-of-line symbols.
+struct LiveStreamEvent
 {
 	enum Type
 	{
