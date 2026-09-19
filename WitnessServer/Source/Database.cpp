@@ -223,6 +223,7 @@ namespace Database
 
 		CREATE INDEX IF NOT EXISTS idx_facecrop_camera_time ON FaceCrop(CameraID, Timestamp);
 		CREATE INDEX IF NOT EXISTS idx_facecrop_frame_track ON FaceCrop(FrameUID, TrackingID);
+		CREATE INDEX IF NOT EXISTS idx_facecrop_filepath ON FaceCrop(FilePath);
 
 		CREATE TABLE IF NOT EXISTS KnownFace(
 			KnownFaceUID	INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1026,6 +1027,41 @@ namespace Database
 		SELECT DISTINCT CameraID FROM FaceCrop WHERE Timestamp < @Timestamp;
 	)RAW";
 
+	// Find a bounded eligible prefix before doing the (more expensive) asset
+	// enumeration and multi-table delete. The two selectors let one retention
+	// pass advance through old frames and orphaned/non-verified face crops without
+	// letting a large backlog monopolize the shared SQLite connection.
+	std::string SelectExpiredDetectionFrameTimes = R"RAW(
+		SELECT f.Timestamp FROM DetectionFrame f
+		WHERE f.CameraID = @CameraID AND f.Timestamp < @Timestamp
+			AND NOT EXISTS (
+				SELECT 1 FROM Clip c WHERE c.Camera = @CameraID
+					AND f.Timestamp >= c.Timestamp
+					AND f.Timestamp <= c.Timestamp + CASE WHEN COALESCE(c.Duration, 0) > 0 THEN c.Duration ELSE 1 END
+			)
+			AND NOT EXISTS (
+				SELECT 1 FROM ContinuousSegment s WHERE s.CameraUID = @CameraID
+					AND f.Timestamp >= s.StartTimestamp AND f.Timestamp <= s.EndTimestamp
+			)
+		ORDER BY f.Timestamp LIMIT @BatchSize;
+	)RAW";
+
+	std::string SelectExpiredFaceCropTimes = R"RAW(
+		SELECT fc.Timestamp FROM FaceCrop fc
+		WHERE fc.CameraID = @CameraID AND fc.Timestamp < @Timestamp
+			AND NOT EXISTS (SELECT 1 FROM FaceEmbedding fe WHERE fe.FaceCropUID = fc.CropUID AND fe.Verified = 1)
+			AND NOT EXISTS (
+				SELECT 1 FROM Clip c WHERE c.Camera = @CameraID
+					AND fc.Timestamp >= c.Timestamp
+					AND fc.Timestamp <= c.Timestamp + CASE WHEN COALESCE(c.Duration, 0) > 0 THEN c.Duration ELSE 1 END
+			)
+			AND NOT EXISTS (
+				SELECT 1 FROM ContinuousSegment s WHERE s.CameraUID = @CameraID
+					AND fc.Timestamp >= s.StartTimestamp AND fc.Timestamp <= s.EndTimestamp
+			)
+		ORDER BY fc.Timestamp LIMIT @BatchSize;
+	)RAW";
+
 	std::string SelectDetectionAssetPathsBefore = R"RAW(
 		SELECT f.FramePath FROM DetectionFrame f
 		WHERE f.CameraID = @CameraID AND f.Timestamp < @Timestamp AND f.FramePath IS NOT NULL
@@ -1446,6 +1482,7 @@ namespace Database
 		sqlite3_exec( DB->GetDatabase(), "CREATE INDEX IF NOT EXISTS idx_clip_reviewed_ts ON Clip(Reviewed, Timestamp DESC);", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "CREATE INDEX IF NOT EXISTS idx_clip_camera_ts ON Clip(Camera, Timestamp DESC);", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "CREATE INDEX IF NOT EXISTS idx_detbox_frame ON DetectionBox(FrameUID);", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "CREATE INDEX IF NOT EXISTS idx_facecrop_filepath ON FaceCrop(FilePath);", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "CREATE INDEX IF NOT EXISTS idx_trail_clip ON Trail(ClipUID);", nullptr, nullptr, nullptr );
 
 		// Run ANALYZE to update query planner statistics after adding indexes
@@ -1566,6 +1603,8 @@ namespace Database
 		CREATE_QUERY( InsertDetectionBox );
 		CREATE_QUERY( SelectDetectionFramesWithBoxes );
 		CREATE_QUERY( DeleteDetectionFramesBefore );
+		CREATE_QUERY( SelectExpiredDetectionFrameTimes );
+		CREATE_QUERY( SelectExpiredFaceCropTimes );
 		CREATE_QUERY( SelectDetectionAssetCameraIDsBefore );
 		CREATE_QUERY( SelectDetectionAssetPathsBefore );
 		CREATE_QUERY( SelectDetectionAssetPathsInRange );
