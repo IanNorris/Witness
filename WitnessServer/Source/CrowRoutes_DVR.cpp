@@ -5,22 +5,38 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <charconv>
+#include <limits>
 
 namespace fs = std::filesystem;
 
+namespace
+{
+	bool ParseDvrTime( const std::string& value, int64_t& result )
+	{
+		const auto parsed = std::from_chars( value.data(), value.data() + value.size(), result );
+		return !value.empty() && parsed.ec == std::errc{} && parsed.ptr == value.data() + value.size();
+	}
+
+	bool ParseDvrWindow( const std::string& fromStr, const std::string& toStr, int64_t& from, int64_t& to, int64_t maxSeconds = 7 * 24 * 60 * 60 )
+	{
+		return ParseDvrTime( fromStr, from ) && ParseDvrTime( toStr, to ) &&
+			from >= 0 && to > from && to - from <= maxSeconds;
+	}
+}
+
 void CrowListener::HandleDvrCoverage( const crow::request& req, crow::response& res, int cameraId, const std::string& fromStr, const std::string& toStr )
 {
-	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, nullptr,
-		CrowAuth::Action::Read, CrowAuth::Privilege::Normal );
-	if( UserUID < 0 )
+	if( CrowAuth::IsCameraAuthenticated( *m_GlobalContext, req, nullptr,
+		CrowAuth::Action::Read, CrowAuth::Privilege::Normal, cameraId ) <= 0 )
 	{
-		res.code = 401;
+		res.code = 403;
 		res.end();
 		return;
 	}
 
-	int64_t from = std::stoll( fromStr );
-	int64_t to = std::stoll( toStr );
+	int64_t from = 0, to = 0;
+	if( !ParseDvrWindow( fromStr, toStr, from, to, 366LL * 24 * 60 * 60 ) ) { res.code = 400; res.end(); return; }
 
 	SQLiteDatabaseQueryInstance query( m_GlobalContext->Database, "SelectContinuousCoverage" );
 	query->Bind( "@CameraUID", cameraId );
@@ -75,119 +91,143 @@ void CrowListener::HandleDvrCoverage( const crow::request& req, crow::response& 
 
 void CrowListener::HandleDvrSegment( const crow::request& req, crow::response& res, int segmentId )
 {
-	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, nullptr,
-		CrowAuth::Action::Read, CrowAuth::Privilege::Normal );
-	if( UserUID < 0 )
-	{
-		res.code = 401;
-		res.end();
-		return;
-	}
-
-	// Look up segment file path
+	int cameraId = 0;
 	std::string filePath;
-
-	SQLiteDatabaseQueryInstance query( m_GlobalContext->Database, "SelectContinuousSegments" );
-	// We need a query by SegmentUID -- reuse SelectContinuousSegments isn't ideal,
-	// so let's look up by UID directly. We'll query with a broad range and filter.
-	// Actually, let's just find the file path for this segment UID.
-	// For now, do a simple lookup.
-
-	// We need a dedicated query -- let's use a direct approach
-	std::string sql = "SELECT FilePath FROM ContinuousSegment WHERE SegmentUID = " + std::to_string( segmentId );
-	sqlite3_stmt* stmt = nullptr;
-	int rc = sqlite3_prepare_v2( m_GlobalContext->Database->GetDatabase(), sql.c_str(), -1, &stmt, nullptr );
-	if( rc == SQLITE_OK )
 	{
-		if( sqlite3_step( stmt ) == SQLITE_ROW )
-		{
-			const char* path = (const char*)sqlite3_column_text( stmt, 0 );
+		SQLiteDatabaseQueryInstance query( m_GlobalContext->Database, "SelectContinuousSegmentByUID" );
+		query->Bind( "@SegmentUID", segmentId );
+		query->Execute( [&]( const SQLiteDatabaseQuery& q ) {
+			cameraId = q.GetColumnValueInt( 0 );
+			const char* path = q.GetColumnValueText( 1 );
 			if( path ) filePath = path;
-		}
-		sqlite3_finalize( stmt );
+			return false;
+		} );
 	}
+	if( cameraId <= 0 || filePath.empty() ) { res.code = 404; res.end(); return; }
+	if( CrowAuth::IsCameraAuthenticated( *m_GlobalContext, req, nullptr,
+		CrowAuth::Action::Read, CrowAuth::Privilege::Normal, cameraId ) <= 0 )
+	{ res.code = 403; res.end(); return; }
 
-	if( filePath.empty() || !fs::exists( filePath ) )
+	std::error_code ec;
+	const uint64_t fileSize = fs::file_size( filePath, ec );
+	if( ec || fileSize == 0 || fileSize > static_cast<uint64_t>( std::numeric_limits<int64_t>::max() ) )
+	{ res.code = 404; res.end(); return; }
+
+	const std::string range = req.get_header_value( "Range" );
+	if( range.empty() )
 	{
-		LOG_WARNING("[DVR] Segment 404: uid=%d path=%s", segmentId, filePath.empty() ? "(not found)" : filePath.c_str());
-		res.code = 404;
+		// Crow sends the file in chunks instead of materialising the whole recording.
+		res.set_static_file_info_unsafe( filePath, "video/mp4" );
+		res.set_header( "Accept-Ranges", "bytes" );
 		res.end();
 		return;
 	}
 
-	// Get file size
-	auto fileSize = fs::file_size( filePath );
-
-	// Check for Range header
-	std::string rangeHeader;
-	auto it = req.headers.find( "Range" );
-	if( it != req.headers.end() )
+	const size_t dash = range.find( '-', 6 );
+	int64_t start = 0, end = static_cast<int64_t>( fileSize ) - 1;
+	bool valid = range.starts_with( "bytes=" ) && dash != std::string::npos &&
+		range.find( ',', dash ) == std::string::npos;
+	if( valid )
 	{
-		rangeHeader = it->second;
-	}
-
-	if( !rangeHeader.empty() && rangeHeader.substr( 0, 6 ) == "bytes=" )
-	{
-		// Parse range: bytes=start-end or bytes=start-
-		std::string rangeSpec = rangeHeader.substr( 6 );
-		size_t dashPos = rangeSpec.find( '-' );
-		int64_t rangeStart = 0;
-		int64_t rangeEnd = (int64_t)fileSize - 1;
-
-		if( dashPos != std::string::npos )
+		const std::string first = range.substr( 6, dash - 6 );
+		const std::string last = range.substr( dash + 1 );
+		if( first.empty() )
 		{
-			std::string startStr = rangeSpec.substr( 0, dashPos );
-			std::string endStr = rangeSpec.substr( dashPos + 1 );
-
-			if( !startStr.empty() ) rangeStart = std::stoll( startStr );
-			if( !endStr.empty() ) rangeEnd = std::stoll( endStr );
+			int64_t suffix = 0;
+			valid = ParseDvrTime( last, suffix ) && suffix > 0;
+			if( valid ) start = std::max<int64_t>( 0, static_cast<int64_t>( fileSize ) - suffix );
 		}
-
-		// Clamp
-		if( rangeStart < 0 ) rangeStart = 0;
-		if( rangeEnd >= (int64_t)fileSize ) rangeEnd = (int64_t)fileSize - 1;
-		int64_t contentLength = rangeEnd - rangeStart + 1;
-
-		std::ifstream file( filePath, std::ios::binary );
-		file.seekg( rangeStart );
-		std::string body( contentLength, '\0' );
-		file.read( &body[0], contentLength );
-
-		res.set_header( "Content-Type", "video/mp4" );
-		res.set_header( "Accept-Ranges", "bytes" );
-		res.set_header( "Content-Range", "bytes " + std::to_string( rangeStart ) + "-" + std::to_string( rangeEnd ) + "/" + std::to_string( fileSize ) );
-		res.body = std::move( body );
-		res.code = 206;
-		res.end();
+		else
+		{
+			valid = ParseDvrTime( first, start ) && start >= 0;
+			if( valid && !last.empty() ) valid = ParseDvrTime( last, end );
+		}
 	}
-	else
+	if( !valid || start >= static_cast<int64_t>( fileSize ) || end < start )
 	{
-		// Full file
-		std::ifstream file( filePath, std::ios::binary );
-		std::string body( (std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>() );
-
-		res.set_header( "Content-Type", "video/mp4" );
-		res.set_header( "Accept-Ranges", "bytes" );
-		res.set_header( "Content-Length", std::to_string( fileSize ) );
-		res.body = std::move( body );
-		res.code = 200;
+		res.code = 416;
+		res.set_header( "Content-Range", "bytes */" + std::to_string( fileSize ) );
 		res.end();
+		return;
 	}
+	end = std::min<int64_t>( end, static_cast<int64_t>( fileSize ) - 1 );
+	end = std::min<int64_t>( end, start + 2 * 1024 * 1024 - 1 );
+	const size_t length = static_cast<size_t>( end - start + 1 );
+	std::ifstream file( filePath, std::ios::binary );
+	if( !file.seekg( start ) ) { res.code = 404; res.end(); return; }
+	std::string body( length, '\0' );
+	file.read( body.data(), static_cast<std::streamsize>( length ) );
+	if( static_cast<size_t>( file.gcount() ) != length ) { res.code = 404; res.end(); return; }
+	res.set_header( "Content-Type", "video/mp4" );
+	res.set_header( "Accept-Ranges", "bytes" );
+	res.set_header( "Content-Range", "bytes " + std::to_string( start ) + "-" + std::to_string( end ) + "/" + std::to_string( fileSize ) );
+	res.body = std::move( body );
+	res.code = 206;
+	res.end();
+}
+
+void CrowListener::HandleDvrEvents( const crow::request& req, crow::response& res, int cameraId, const std::string& fromStr, const std::string& toStr )
+{
+	if( CrowAuth::IsCameraAuthenticated( *m_GlobalContext, req, nullptr,
+		CrowAuth::Action::Read, CrowAuth::Privilege::Normal, cameraId ) <= 0 )
+	{ res.code = 403; res.end(); return; }
+	int64_t from = 0, to = 0;
+	if( !ParseDvrWindow( fromStr, toStr, from, to ) ) { res.code = 400; res.end(); return; }
+
+	std::vector<crow::json::wvalue> clips;
+	{
+		SQLiteDatabaseQueryInstance clipQuery( m_GlobalContext->Database, "SelectDvrActivity" );
+		clipQuery->Bind( "@CameraUID", cameraId );
+		clipQuery->Bind( "@TimestampFrom", from );
+		clipQuery->Bind( "@TimestampTo", to );
+		clipQuery->Execute( [&]( const SQLiteDatabaseQuery& q ) {
+			crow::json::wvalue item;
+			item["id"] = q.GetColumnValueInt64( 0 );
+			item["from"] = q.GetColumnValueInt64( 1 );
+			item["to"] = q.GetColumnValueInt64( 1 ) + std::max( q.GetColumnValueInt( 2 ), 1 );
+			clips.push_back( std::move( item ) );
+			return true;
+		} );
+	}
+	std::vector<crow::json::wvalue> audio;
+	SQLiteDatabaseQueryInstance audioQuery( m_GlobalContext->Database, "SelectDvrAudio" );
+	audioQuery->Bind( "@CameraUID", cameraId );
+	audioQuery->Bind( "@TimestampFrom", from );
+	audioQuery->Bind( "@TimestampTo", to );
+	audioQuery->Execute( [&]( const SQLiteDatabaseQuery& q ) {
+		crow::json::wvalue item;
+		const char* group = q.GetColumnValueText( 0 );
+		item["group"] = group ? group : "";
+		item["from"] = q.GetColumnValueDouble( 1 );
+		item["to"] = q.GetColumnValueDouble( 2 );
+		item["score"] = q.GetColumnValueDouble( 3 );
+		audio.push_back( std::move( item ) );
+		return true;
+	} );
+	crow::json::wvalue result;
+	result["clipsTruncated"] = clips.size() > 500;
+	result["audioTruncated"] = audio.size() > 500;
+	if( clips.size() > 500 ) clips.pop_back();
+	if( audio.size() > 500 ) audio.pop_back();
+	result["clips"] = std::move( clips );
+	result["audio"] = std::move( audio );
+	res.set_header( "Content-Type", "application/json" );
+	res.body = result.dump();
+	res.end();
 }
 
 void CrowListener::HandleDvrSegments( const crow::request& req, crow::response& res, int cameraId, const std::string& fromStr, const std::string& toStr )
 {
-	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, nullptr,
-		CrowAuth::Action::Read, CrowAuth::Privilege::Normal );
-	if( UserUID < 0 )
+	if( CrowAuth::IsCameraAuthenticated( *m_GlobalContext, req, nullptr,
+		CrowAuth::Action::Read, CrowAuth::Privilege::Normal, cameraId ) <= 0 )
 	{
-		res.code = 401;
+		res.code = 403;
 		res.end();
 		return;
 	}
 
-	int64_t from = std::stoll( fromStr );
-	int64_t to = std::stoll( toStr );
+	int64_t from = 0, to = 0;
+	if( !ParseDvrWindow( fromStr, toStr, from, to ) ) { res.code = 400; res.end(); return; }
 
 	SQLiteDatabaseQueryInstance query( m_GlobalContext->Database, "SelectContinuousSegments" );
 	query->Bind( "@CameraUID", cameraId );
@@ -220,17 +260,16 @@ void CrowListener::HandleDvrSegments( const crow::request& req, crow::response& 
 
 void CrowListener::HandleDvrPlaylist( const crow::request& req, crow::response& res, int cameraId, const std::string& fromStr, const std::string& toStr )
 {
-	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, nullptr,
-		CrowAuth::Action::Read, CrowAuth::Privilege::Normal );
-	if( UserUID < 0 )
+	if( CrowAuth::IsCameraAuthenticated( *m_GlobalContext, req, nullptr,
+		CrowAuth::Action::Read, CrowAuth::Privilege::Normal, cameraId ) <= 0 )
 	{
-		res.code = 401;
+		res.code = 403;
 		res.end();
 		return;
 	}
 
-	int64_t from = std::stoll( fromStr );
-	int64_t to = std::stoll( toStr );
+	int64_t from = 0, to = 0;
+	if( !ParseDvrWindow( fromStr, toStr, from, to ) ) { res.code = 400; res.end(); return; }
 
 	SQLiteDatabaseQueryInstance query( m_GlobalContext->Database, "SelectContinuousSegments" );
 	query->Bind( "@CameraUID", cameraId );
@@ -349,18 +388,16 @@ namespace
 
 void CrowListener::HandleDvrThumbnail( const crow::request& req, crow::response& res, int cameraId, const std::string& timestampStr )
 {
-	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, nullptr,
-		CrowAuth::Action::Read, CrowAuth::Privilege::Normal );
-	if( UserUID < 0 )
+	if( CrowAuth::IsCameraAuthenticated( *m_GlobalContext, req, nullptr,
+		CrowAuth::Action::Read, CrowAuth::Privilege::Normal, cameraId ) <= 0 )
 	{
-		res.code = 401;
+		res.code = 403;
 		res.end();
 		return;
 	}
 
 	int64_t timestamp = 0;
-	try { timestamp = std::stoll( timestampStr ); }
-	catch( ... )
+	if( !ParseDvrTime( timestampStr, timestamp ) || timestamp < 0 )
 	{
 		res.code = 400;
 		res.end();
