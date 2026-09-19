@@ -1,9 +1,9 @@
 #pragma once
 
 #include "Message.h"
+#include "MessageBus.h"
 #include "SQLite.h"
 #include "CameraState.h"
-#include "CameraWorker.h"
 #include "SettingsMap.h"
 #include "LongPoll.h"
 #include "EventBroadcaster.h"
@@ -16,6 +16,8 @@
 #include <atomic>
 
 namespace Witness{ namespace Camera{ class FaceEmbeddingModel; class ReolinkBaichuanClient; } }
+namespace Witness{ namespace Camera{ class ImageProcessingJobQueue; } }
+class CameraWorker;
 class ReolinkClient;
 
 struct CameraStateToggleRecordMessage : public Message

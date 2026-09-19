@@ -14,7 +14,7 @@
 #include "crow.h"
 #include "crow/json.h"
 #include <Log.h>
-#include <LiveOutputStream.h>
+#include <SegmentBuffer.h>
 
 // Per-camera WebSocket broadcaster for MSE streaming.
 // Each camera can have multiple WebSocket clients subscribed.

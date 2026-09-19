@@ -96,6 +96,13 @@ set(SERVER_HEADERS
 
 add_executable(WitnessServer ${SERVER_SOURCES} ${SERVER_HEADERS})
 
+# Crow/Asio is the dominant common parse cost across the HTTP translation
+# units. A project-local PCH avoids repeatedly rebuilding that template graph;
+# it does not include camera implementation headers or alter their ABI.
+if(MSVC)
+    target_precompile_headers(WitnessServer PRIVATE <crow.h>)
+endif()
+
 target_include_directories(WitnessServer PRIVATE
     Source
     ${CMAKE_SOURCE_DIR}/WitnessCamera/Include

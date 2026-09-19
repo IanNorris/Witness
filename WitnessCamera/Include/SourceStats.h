@@ -28,7 +28,7 @@ enum FilterStat
 	FilterStat_Max
 };
 
-struct CAMERA_API FilterFrameStats
+struct FilterFrameStats
 {
 	FilterFrameStats()
 	{

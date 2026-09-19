@@ -1,6 +1,7 @@
 #include "CrowListener.h"
 #include "CrowAuth.h"
 #include "GlobalContext.h"
+#include "CameraWorker.h"
 
 #include <Log.h>
 #include <format>
