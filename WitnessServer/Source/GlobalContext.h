@@ -16,7 +16,7 @@
 #include <atomic>
 
 namespace Witness{ namespace Camera{ class FaceEmbeddingModel; class ReolinkBaichuanClient; } }
-namespace Witness{ namespace Camera{ class ImageProcessingJobQueue; } }
+namespace Witness{ namespace Camera{ struct ImageProcessingJobQueue; } }
 class CameraWorker;
 class ReolinkClient;
 

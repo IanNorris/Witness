@@ -11,6 +11,8 @@ struct AVRational;
 namespace Witness{
 namespace Camera{
 
+struct InputStreamData;
+
 typedef uint64_t (*UTCTimestampCallbackType)(void);
 
 struct InputStreamSetup
@@ -64,6 +66,8 @@ public:
 
 	InputStream( const InputStreamSetup& Setup, int SourceID, ImageProcessingJobQueue* JobQueue, const std::string& StreamURL, int StreamIndex = 0 );
 	virtual ~InputStream();
+	InputStream( const InputStream& ) = delete;
+	InputStream& operator=( const InputStream& ) = delete;
 
 	virtual CameraStreamError Initialize() override;
 	virtual CameraStreamError ProcessFrame( const std::shared_ptr<IRecordFilter>& Filter, Stream* TargetStream, Stream* LiveStream ) override;
@@ -79,7 +83,7 @@ public:
 	// Optional callback invoked for every video packet (before unref).
 	// Used by ContinuousOutputStream to receive packets without modifying the Stream interface.
 	using PacketCallback = std::function<void(const AVPacket*)>;
-	void SetPacketCallback(PacketCallback callback) { m_PacketCallback = std::move(callback); }
+	void SetPacketCallback(PacketCallback callback);
 
 	StreamStats GetStats() const;
 
@@ -97,9 +101,7 @@ private:
 
 	static int InterruptCallback( void* Opaque );
 
-	InputStreamSetup StreamSetup;
-	StreamStats Stats;
-	mutable std::mutex StatsMutex;
+	InputStreamData* m_InputData;
 
 	ImageProcessingJobQueue* CommonJobQueue;
 
@@ -111,7 +113,6 @@ private:
 	int64_t TimeStarted;
 	int64_t ActiveTimeoutSeconds; // 0 = no timeout active
 
-	PacketCallback m_PacketCallback;
 };
 
 }}

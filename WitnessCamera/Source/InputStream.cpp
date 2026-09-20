@@ -8,30 +8,53 @@
 #include <Log.h>
 #include <vector>
 #include <chrono>
+#include <memory>
 
 namespace Witness{
 namespace Camera{
 
+// Keep STL state owned and destroyed inside WitnessCamera rather than exposing
+// its layout through the exported InputStream class.
+struct InputStreamData
+{
+	explicit InputStreamData( const InputStreamSetup& setup ) : StreamSetup( setup ) {}
+	InputStreamSetup StreamSetup;
+	InputStream::StreamStats Stats;
+	mutable std::mutex StatsMutex;
+	InputStream::PacketCallback PacketCallback;
+};
+
 InputStream::InputStream( const InputStreamSetup& Setup, int SourceID, ImageProcessingJobQueue* JobQueue, const std::string& StreamURL, int StreamIndex )
 : Stream()
-, StreamSetup( Setup )
+, m_InputData( nullptr )
 , CommonJobQueue( JobQueue )
-, m_StreamManager( new StreamManager() )
+, m_StreamManager( nullptr )
 , UniqueSourceID( SourceID )
 , FrameIndex(0)
 , NeedsAnalysisFrame(true)
 , TimeStarted( 0 )
 , ActiveTimeoutSeconds( 0 )
 {
+	auto inputData = std::make_unique<InputStreamData>( Setup );
+	auto streamManager = std::make_unique<StreamManager>();
 	m_InternalData->Path = StreamURL;
 	m_InternalData->StreamIndex = StreamIndex;
 	m_InternalData->KeyframeStates.push_back(KeyframeInfo());
+	m_InputData = inputData.release();
+	m_StreamManager = streamManager.release();
 }
 
 InputStream::~InputStream()
 {
 	delete m_StreamManager;
 	m_StreamManager = nullptr;
+	delete m_InputData;
+	m_InputData = nullptr;
+}
+
+void InputStream::SetPacketCallback( PacketCallback callback )
+{
+	m_InputData->PacketCallback = std::move( callback );
 }
 
 CameraStreamError InputStream::Initialize()
@@ -42,7 +65,7 @@ CameraStreamError InputStream::Initialize()
 		return CameraStreamError::Success;
 	}
 
-	if( !StreamSetup.Validate() )
+	if( !m_InputData->StreamSetup.Validate() )
 	{
  		STREAM_ERROR( InvalidSetup, 0 );
 	}
@@ -128,11 +151,11 @@ CameraStreamError InputStream::Initialize()
 	ID.CodecContext = avcodec_alloc_context3(OutputCodec);
 	avcodec_parameters_to_context( ID.CodecContext, ID.FormatContext->streams[ ID.ChosenStreamIndex ]->codecpar );
 	
-	if (!StreamSetup.PassthroughOnly)
+	if (!m_InputData->StreamSetup.PassthroughOnly)
 	{
 		//Export motion vectors for use by our motion detection algorithm
 		AVDictionary* CodecOptions = nullptr;
-		if( StreamSetup.ExportMotionVectors )
+		if( m_InputData->StreamSetup.ExportMotionVectors )
 		{
 			av_dict_set( &CodecOptions, "flags2", "+export_mvs", 0 );
 		}
@@ -146,19 +169,19 @@ CameraStreamError InputStream::Initialize()
 		// Auto-scale MotionFilterFrameSkip for high-resolution streams.
 		// At 4K (3840×2160), motion detection only needs ~2-5fps.
 		// Scale factor: (pixels / 1080p_pixels). For 4K this gives ~4x, so skip=6 becomes reasonable.
-		if (StreamSetup.MotionFilterFrameSkip > 1)
+		if (m_InputData->StreamSetup.MotionFilterFrameSkip > 1)
 		{
 			int streamHeight = ID.CodecContext->height;
 			if (streamHeight > 1080)
 			{
 				double scaleFactor = (double)(ID.CodecContext->width * streamHeight) / (1920.0 * 1080.0);
-				unsigned int autoSkip = (unsigned int)(StreamSetup.MotionFilterFrameSkip * scaleFactor);
-				if (autoSkip > StreamSetup.MotionFilterFrameSkip)
+				unsigned int autoSkip = (unsigned int)(m_InputData->StreamSetup.MotionFilterFrameSkip * scaleFactor);
+				if (autoSkip > m_InputData->StreamSetup.MotionFilterFrameSkip)
 				{
 					LOG_INFO("Camera %d: auto-scaling MotionFilterFrameSkip %u -> %u for %dx%d stream",
-						UniqueSourceID, StreamSetup.MotionFilterFrameSkip, autoSkip,
+						UniqueSourceID, m_InputData->StreamSetup.MotionFilterFrameSkip, autoSkip,
 						ID.CodecContext->width, streamHeight);
-					StreamSetup.MotionFilterFrameSkip = autoSkip;
+					m_InputData->StreamSetup.MotionFilterFrameSkip = autoSkip;
 				}
 			}
 		}
@@ -222,7 +245,7 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 		STREAM_ERROR( FrameError, Result );
 	}
 
-	uint64_t CurrentTime = StreamSetup.GetTimestamp();
+	uint64_t CurrentTime = m_InputData->StreamSetup.GetTimestamp();
 
 	uint64_t OutputStart = 0;
 	uint64_t OutputEnd = 0;
@@ -240,7 +263,7 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 
 		if( ID.Packet.flags & AV_PKT_FLAG_KEY )
 		{
-			ID.DeleteOldestKeyframe( CurrentTime, StreamSetup.HistoricalPacketBufferSeconds );
+			ID.DeleteOldestKeyframe( CurrentTime, m_InputData->StreamSetup.HistoricalPacketBufferSeconds );
 		}
 
 		if( Output && !ID.KeyframeStates.empty() )
@@ -312,10 +335,10 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 		}
 
 		// Invoke packet callback (used by ContinuousOutputStream)
-		if (m_PacketCallback)
+			if (m_InputData->PacketCallback)
 		{
 			FFmpegLogContextScope ContinuousMuxLogContext( UniqueSourceID, "continuous-mux" );
-			m_PacketCallback(&ID.Packet);
+				m_InputData->PacketCallback(&ID.Packet);
 		}
 
 		{
@@ -349,10 +372,10 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 		OutputEnd = std::chrono::high_resolution_clock::now().time_since_epoch().count();
 
 		// In passthrough mode, skip decoding entirely — just forward packets
-		if (!StreamSetup.PassthroughOnly)
+		if (!m_InputData->StreamSetup.PassthroughOnly)
 		{
 			bool isKeyframe = (ID.Packet.flags & AV_PKT_FLAG_KEY) != 0;
-			bool wantAnalysis = (FrameIndex % StreamSetup.MotionFilterFrameSkip) == 0;
+			bool wantAnalysis = (FrameIndex % m_InputData->StreamSetup.MotionFilterFrameSkip) == 0;
 
 			// Latch analysis request until a keyframe arrives
 			if (wantAnalysis)
@@ -363,7 +386,7 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 			// When MotionFilterFrameSkip > 1, only decode at keyframes when analysis is due.
 			// This avoids decoding every frame just to discard it, saving 80-95% of decode CPU.
 			// When MotionFilterFrameSkip == 1, decode every frame for backward compatibility.
-			bool shouldDecode = (StreamSetup.MotionFilterFrameSkip == 1)
+			bool shouldDecode = (m_InputData->StreamSetup.MotionFilterFrameSkip == 1)
 				|| (NeedsAnalysisFrame && isKeyframe);
 
 			if (shouldDecode)
@@ -373,7 +396,7 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 				auto* LiveOutput = dynamic_cast<LiveOutputStream*>( LiveStream );
 				// When doing keyframe-only decode, flush the decoder first so it doesn't
 				// expect reference frames from packets we skipped
-				if (StreamSetup.MotionFilterFrameSkip > 1 && isKeyframe)
+				if (m_InputData->StreamSetup.MotionFilterFrameSkip > 1 && isKeyframe)
 				{
 					avcodec_flush_buffers(m_InternalData->CodecContext);
 				}
@@ -432,7 +455,7 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 					ID.Input.reset();
 
 					Job->Frame.SourceID = UniqueSourceID;
-					Job->Frame.TargetHeight = StreamSetup.MotionDetectFrameHeight;
+					Job->Frame.TargetHeight = m_InputData->StreamSetup.MotionDetectFrameHeight;
 					Job->Frame.Timestamp = CurrentTime;
 
 					Job->Origin = Filter;
@@ -496,10 +519,10 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 			}
 		}
 
-		if( m_PacketCallback )
+		if( m_InputData->PacketCallback )
 		{
 			FFmpegLogContextScope ContinuousMuxLogContext( UniqueSourceID, "continuous-mux" );
-			m_PacketCallback( &ID.Packet );
+			m_InputData->PacketCallback( &ID.Packet );
 		}
 
 		// Keep audio in the same keyframe-bounded history as video so event
@@ -531,11 +554,11 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 	uint64_t OutputDiff = OutputEnd - OutputStart;
 
 	{
-		std::lock_guard<std::mutex> Lock( StatsMutex );
-		Stats.FrameCount++;
-		Stats.DecoderTimeTotal += (ProcessingEnd - ProcessingStart) - ReadDiff - OutputDiff;
-		Stats.OutputTimeTotal += OutputDiff;
-		Stats.ReadTimeTotal += ReadDiff;
+		std::lock_guard<std::mutex> Lock( m_InputData->StatsMutex );
+		m_InputData->Stats.FrameCount++;
+		m_InputData->Stats.DecoderTimeTotal += (ProcessingEnd - ProcessingStart) - ReadDiff - OutputDiff;
+		m_InputData->Stats.OutputTimeTotal += OutputDiff;
+		m_InputData->Stats.ReadTimeTotal += ReadDiff;
 	}
 
 	//Sleep(10);
@@ -545,8 +568,8 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 
 InputStream::StreamStats InputStream::GetStats() const
 {
-	std::lock_guard<std::mutex> Lock( StatsMutex );
-	return Stats;
+	std::lock_guard<std::mutex> Lock( m_InputData->StatsMutex );
+	return m_InputData->Stats;
 }
 
 void InputStream::Shutdown()

@@ -16,6 +16,7 @@ struct ReolinkUnofficialFilterData
 	// Detection staleness threshold — if no fresh detection data arrives within
 	// this window, we consider the camera has no active detections.
 	static constexpr int DETECTION_STALE_MS = 2000;
+	std::shared_ptr<ReolinkBaichuanClient> Client;
 };
 
 PIMPL_CONSTRUCT(ReolinkUnofficialFilterData)
@@ -28,23 +29,28 @@ ReolinkUnofficialFilter::ReolinkUnofficialFilter(
 	const std::string& password)
 	: RecordFilterBase<ReolinkUnofficialFilterData>(Chain)
 {
-	m_Client = std::make_shared<ReolinkBaichuanClient>(host, port, username, password);
-	m_Client->Start();
+	GetData().Client = std::make_shared<ReolinkBaichuanClient>(host, port, username, password);
+	GetData().Client->Start();
 
 	LOG_INFO("ReolinkUnofficialFilter: connecting to %s:%d (user=%s)", host.c_str(), port, username.c_str());
 }
 
 ReolinkUnofficialFilter::~ReolinkUnofficialFilter()
 {
-	if (m_Client)
+	if (GetData().Client)
 	{
-		m_Client->Stop();
+		GetData().Client->Stop();
 	}
+}
+
+std::shared_ptr<ReolinkBaichuanClient> ReolinkUnofficialFilter::GetClient() const
+{
+	return m_InternalData->Client;
 }
 
 bool ReolinkUnofficialFilter::ProcessFrame(SharedClassificationTask TaskData)
 {
-	auto state = m_Client->GetDetections();
+	auto state = GetData().Client->GetDetections();
 
 	if (!state.HasData)
 	{
@@ -122,7 +128,7 @@ void ReolinkUnofficialFilter::ClearStateThis()
 
 bool ReolinkUnofficialFilter::IsConnected() const
 {
-	return m_Client && m_Client->IsConnected();
+	return m_InternalData->Client && m_InternalData->Client->IsConnected();
 }
 
 }}

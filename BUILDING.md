@@ -115,10 +115,15 @@ seconds on the same machine (about 29% less than the latter baseline); it
 does not include camera headers or change the native dependency ABI. The
 precompiled-header experiment is enabled for MSVC only.
 
-The server still emits 296 warnings on that clean project rebuild, mostly
-MSVC C4251 from exported camera implementation classes; the camera library
-also emits C4251. Header-defined value types no longer export a class DLL
-interface unnecessarily, but `InputStream`, `LiveOutputStream`,
-`ContinuousOutputStream`, `OutputStream`, and several filters still need a
-measured PIMPL/ABI migration. Do not replace this remaining work with a global
-warning disable.
+On a fresh VS2026 RelWithDebInfo project rebuild on 2026-09-19, the Camera
+DLL emitted 88 warnings and the server 296. A scoped ABI pass moved STL and
+callback state from `InputStream`, `ContinuousOutputStream`, and the existing
+`ReolinkUnofficialFilter` PIMPL behind DLL-owned pointers. It also made the
+`ImageProcessingJobQueue` forward declaration agree with its `struct`
+definition, eliminating C4099. Rebuilding both projects with the same command
+and `/t:Rebuild` produced 61 Camera warnings and 193 server warnings (130
+fewer in total), with no errors. The remaining compiler warnings are C4251,
+concentrated in `LiveOutputStream` and `ReolinkBaichuanClient`. Those classes
+own substantially more active streaming/network state and need their own
+reviewed PIMPL migration and cross-DLL lifetime tests; do not suppress C4251
+globally.

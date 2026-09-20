@@ -8,6 +8,7 @@
 #include <cstring>
 #include <algorithm>
 #include <climits>
+#include <memory>
 
 extern "C" {
 #include <libavformat/avformat.h>
@@ -20,8 +21,15 @@ namespace fs = std::filesystem;
 namespace Witness{
 namespace Camera{
 
+struct ContinuousOutputStreamData
+{
+	explicit ContinuousOutputStreamData( const std::string& basePath ) : BasePath( basePath ) {}
+	std::string BasePath;
+	SegmentCompleteCallback OnSegmentComplete;
+};
+
 ContinuousOutputStream::ContinuousOutputStream(const std::string& basePath, int cameraUID, InputStream* inputStream)
-	: m_BasePath(basePath)
+	: m_Data( nullptr )
 	, m_CameraUID(cameraUID)
 	, m_InputStream(inputStream)
 	, m_FormatContext(nullptr)
@@ -49,27 +57,30 @@ ContinuousOutputStream::ContinuousOutputStream(const std::string& basePath, int 
 	, m_SegmentDuration(0.0)
 	, m_TargetSegmentDuration(300) // 5 minutes
 	, m_WaitingForKeyframe(false)
-	, m_OnSegmentComplete(nullptr)
 {
+	auto data = std::make_unique<ContinuousOutputStreamData>( basePath );
 	std::memset(m_ErrorMessage, 0, sizeof(m_ErrorMessage));
 
 	// Ensure output directory exists
 	std::error_code ec;
-	fs::create_directories(m_BasePath, ec);
+	fs::create_directories(data->BasePath, ec);
 	if (ec)
 	{
-		LOG_ERROR("ContinuousOutputStream: Failed to create directory %s: %s", m_BasePath.c_str(), ec.message().c_str());
+		LOG_ERROR("ContinuousOutputStream: Failed to create directory %s: %s", data->BasePath.c_str(), ec.message().c_str());
 	}
+	m_Data = data.release();
 }
 
 ContinuousOutputStream::~ContinuousOutputStream()
 {
 	Finalize();
+	delete m_Data;
+	m_Data = nullptr;
 }
 
 void ContinuousOutputStream::SetSegmentCompleteCallback(SegmentCompleteCallback callback)
 {
-	m_OnSegmentComplete = std::move(callback);
+	m_Data->OnSegmentComplete = std::move(callback);
 }
 
 void ContinuousOutputStream::SetTargetSegmentDuration(int seconds)
@@ -95,7 +106,7 @@ CameraStreamError ContinuousOutputStream::StartNewSegment()
 	m_SegmentStartTimestamp = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
 
 	std::string filename = std::to_string(m_SegmentStartTimestamp) + ".mp4";
-	std::string filepath = (fs::path(m_BasePath) / filename).string();
+	std::string filepath = (fs::path(m_Data->BasePath) / filename).string();
 
 	int result = avformat_alloc_output_context2(&m_FormatContext, nullptr, nullptr, filepath.c_str());
 	if (result < 0 || !m_FormatContext)
@@ -228,9 +239,9 @@ CameraStreamError ContinuousOutputStream::FinalizeCurrentSegment()
 	int64_t endTimestamp = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
 
 	// Only register segments with meaningful duration
-	if (duration > 0 && m_OnSegmentComplete)
+	if (duration > 0 && m_Data->OnSegmentComplete)
 	{
-		m_OnSegmentComplete(m_CameraUID, m_SegmentStartTimestamp, endTimestamp, duration, filepath);
+		m_Data->OnSegmentComplete(m_CameraUID, m_SegmentStartTimestamp, endTimestamp, duration, filepath);
 	}
 	else if (duration <= 0 && !filepath.empty())
 	{
