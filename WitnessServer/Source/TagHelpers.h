@@ -27,6 +27,7 @@ namespace TagHelpers
 
 	// Write ClipTag entries for a clip, given a semicolon/comma-delimited tag string
 	void SyncClipTags( const std::shared_ptr<SQLiteDatabase>& DB, int64_t clipUID, const std::string& tagString );
+	void AddExternalTags( const std::shared_ptr<SQLiteDatabase>& DB, int64_t clipUID, const std::vector<std::string>& tags );
 
 	// Parse a tag string into individual trimmed tag names
 	std::vector<std::string> ParseTagString( const std::string& tags );

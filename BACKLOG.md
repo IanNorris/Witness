@@ -1,33 +1,19 @@
 # Witness Backlog
 
-This file tracks worthwhile product and engineering work that is not part of the
-current implementation branch. Items are intentionally outcome-focused; design
-details should be refined when an item is scheduled.
-
-Current priority after the terminal-dashboard review is: complete the audio-
-intelligence investigation, complete the activity-intelligence investigation,
-then concentrate on build health (dependency stability, reproducibility,
-compile-time profiling, and native ABI warning cleanup) before resuming broader
-feature work.
+This file tracks work still to do. Implemented work is described in the
+feature documents and Git history rather than retained as checked-off tasks.
+Current priorities are production validation of the retention-stall fix,
+reliable DVR playback, and measured build/header/ABI cleanup. Audio, activity,
+scoped automation, and DVR investigations have working first implementations.
 
 ## Build and inference
 
-- Immediately after the audio-intelligence investigation, stop automatic
-  dependency churn during ordinary configure/builds. Add a checked-in Witness
-  triplet with compiler tracking disabled so compatible VS Insiders servicing
-  updates do not invalidate every native dependency; introduce it as a planned
-  one-time dependency rebuild and retain an explicit clean-rebuild escape hatch
-  for genuine compiler ABI changes. Treat the
-  vcpkg tool revision, registry baseline, triplet, compiler toolset, CMake
-  version, feature set, and dependency ABI as one explicitly versioned build
-  environment. Routine CMake generation must fail with a clear diagnostic
-  rather than remove/rebuild installed packages. Add an explicit dependency
-  update/bootstrap command, use a shared local/CI binary cache, publish a
-  reusable release-only dependency artifact, and keep old environments usable
-  until the replacement has completed successfully. Record why an ABI changed
-  before accepting a rebuild, and investigate a checked-in custom release-only
-  triplet so local RelWithDebInfo work does not also compile every dependency's
-  Debug variant.
+- Roll out the checked-in stable VS2026/vcpkg environment to CI and production,
+  publish a reusable release-only dependency artifact, and verify a clean
+  bootstrap on another machine. The triplet, fingerprint guard, explicit
+  bootstrap command, local binary cache, and old-build coexistence are in
+  [BUILDING.md](BUILDING.md). Add a CI check that routine configure cannot
+  install packages; retain the legacy tree until the new one is proven.
 - Re-evaluate the CMake and vcpkg foundations rather than assuming they remain
   the long-term build/package solution. Compare at least: a native/generated
   Visual Studio build with an explicit Linux build path; Meson; Conan-backed
@@ -44,13 +30,10 @@ feature work.
   operator kernels and GPU providers from CPU deployments, and investigate a
   supported prebuilt package so routine toolchain changes do not require a
   multi-hour dependency rebuild.
-- Profile slow native builds with the Visual C++ and MSBuild profiling tools
-  before changing the project structure. Capture clean and incremental
-  baselines, an MSBuild binary log, compiler frontend/backend timings (`/Bt+`
-  and `/d1reportTime`), and include/template/PCH diagnostics. Use the results to
-  identify slow translation units, expensive shared headers, serialized custom
-  steps, and unnecessary rebuild fan-out, then target the largest measured
-  costs.
+- Extend the existing build profiler beyond the initial Crow PCH and header
+  isolation pass (measured in [BUILDING.md](BUILDING.md)). Compare clean and
+  incremental rebuild fan-out, then pursue narrower PIMPL boundaries where
+  they reduce both compile time and DLL ABI warnings.
 - Clean up the native DLL ABI boundaries currently producing MSVC C4251
   warnings. Inventory exported classes that expose STL containers, strings,
   callbacks, mutexes, smart pointers, or chrono types; move implementation
@@ -58,39 +41,23 @@ feature work.
   and keep deliberately header-defined value types explicit rather than merely
   suppressing the warning globally. Add a small cross-DLL construction and
   destruction test so allocator/runtime mismatches are caught.
-- Define and document Witness's minimum supported Windows version through one
-  shared `_WIN32_WINNT`/`WINVER` build setting. Remove the current implicit
-  Boost fallback to Windows 7 and verify that the selected SDK target is used
-  consistently by the server and native libraries.
 
 ## Operational UI and logging
 
 The initial Windows console dashboard and the standalone Windows/Linux boundary
 are described in [TERMINAL_DASHBOARD.md](TERMINAL_DASHBOARD.md).
 
-- Add a scoped API-key authentication path for trusted automation and
-  diagnostics. Keys should be revocable, named, auditable, and restricted by
-  source IP/CIDR; local/dev exemptions must not accidentally apply to the
-  production LAN service. Prefer read-only diagnostic scopes first, then add
-  narrowly-scoped write operations only when needed.
-- Build a terminal dashboard showing queue lengths, camera connection health,
-  stream latency, processing throughput, and the latest detection details.
-  Preserve a conventional log mode for redirection and service operation.
-- During startup, the terminal dashboard should show an explicit **Loading** or
-  **Starting web server/websocket** state until the HTTP server and websocket
-  endpoints are actually bound and ready to accept clients, rather than
-  implying the service is already interactive.
-- Build a unified performance and health dashboard with colour-coded warnings
-  for host CPU capacity, queue depths, processing and stream latency, and other
-  resource constraints. Include an exportable/copyable per-camera table with
-  detailed counters and rates: per-activation and all-frame averages, activation
-  counts versus total frames, scaling/JPEG work that should only occur for
-  clips, and enough context to identify unexpected processing.
-- Correlate the server dashboard with client-side playback/decode statistics,
-  including hardware decoder/encoder usage and known used/available session or
-  throughput limits. The combined view should contain the information normally
-  needed to diagnose a performance or streaming incident without collecting
-  several separate reports.
+- Build the standalone Windows named-pipe TUI client described in
+  [TERMINAL_DASHBOARD.md](TERMINAL_DASHBOARD.md); the in-process console UI and
+  plain-log mode already exist. Add stream freshness, throughput, reconnect-age
+  and recent detection details to the shared operational snapshot.
+- Extend the existing health dashboard with host CPU *availability*,
+  colour-coded queue/latency thresholds, per-camera throughput and
+  per-activation versus all-frame processing costs. Include scaling/JPEG work
+  and activation counts in its copy/export table.
+- Add reliable hardware decoder/encoder capacity and fallback information to
+  the combined server/browser health view; avoid treating vendor-specific
+  session limits as universal.
 - Persist a bounded history of browser/client health reports server-side,
   keyed by logged-in username plus a stable locally stored browser/session
   identifier. A health export from any browser should include recent telemetry
@@ -101,25 +68,15 @@ are described in [TERMINAL_DASHBOARD.md](TERMINAL_DASHBOARD.md).
   health using connection stability, stream freshness, decode errors, latency,
   and sustained queue pressure, with rate limiting and recovery notification so
   intermittent cameras do not continuously interrupt the operator.
-- Rate-limit repeated FFmpeg errors without losing their first occurrence,
-  total count, camera/codec context, or the timestamps of an error cluster.
 
 ## Audio intelligence
 
-- Investigate low-cost sound-event classification for opt-in detection,
-  flagging, recording, and automation triggers. Initial classes should include
-  a vehicle starting, footsteps, dog barking, and human speech. Evaluate model
-  accuracy, compute cost, microphone variability, privacy controls, confidence
-  thresholds, and whether inference can operate on short buffered windows
-  without retaining continuous audio. The staged model and evaluation proposal
-  is recorded in [AUDIO_INTELLIGENCE.md](AUDIO_INTELLIGENCE.md).
-- Add an audio timeline to the all-clips dashboard and clip player. Show the
-  classified sound events along the clip duration, including background classes
-  such as wind, so operators can see why a clip has or lacks useful audio.
-  Treat wind/background-only detection as a positive signal for playback
-  ergonomics: allow clips to start muted or suppress audio automatically when
-  no higher-value sound source is present, while still exposing the underlying
-  classification for review and threshold tuning.
+- Evaluate and tune the opt-in, post-clip sound classifier against labelled
+  real-camera recordings, especially vehicle starts, footsteps, barking,
+  speech and wind across different microphones. Add confidence/false-positive
+  controls and, only after measurement, consider short-window live audio
+  triggers without retaining continuous audio. See
+  [AUDIO_INTELLIGENCE.md](AUDIO_INTELLIGENCE.md).
 
 ## Dashboard layouts
 
@@ -154,16 +111,10 @@ empty/baseline observation evidence as a prerequisite for reliable persistence.
 - Remove clips from recent activity when post-processing finds no object or
   event worth retaining. Keep the underlying retention/audit policy separate so
   hiding low-value activity does not silently delete evidence unless configured.
-- Prototype inexpensive visual-similarity grouping for adjacent clips so
-  repeated grass movement, cobwebs, lighting changes, and other nearly
-  identical events do not dominate recent activity. Compare perceptual hashes
-  and small background-difference descriptors, using time and camera identity
-  as strong grouping constraints.
-- Preserve meaningful changes within a group: choose a useful representative
-  frame, expose the event count/time span, and make expansion to the original
-  clips straightforward. Measure false grouping on people, vehicles, animals,
-  night vision transitions, and mostly static scenes before enabling it by
-  default.
+- Measure and tune the existing visual-similarity grouping on people,
+  vehicles, animals, night-vision transitions and static scenes. Expose why a
+  group formed and make false groups easy to split or mark uninteresting;
+  retain the current representative/time-span/expansion behavior.
 
 ## Clip generation
 
@@ -175,18 +126,12 @@ empty/baseline observation evidence as a prerequisite for reliable persistence.
 
 ## DVR and historical search
 
-- Rework DVR playback around operator intent rather than starting every stream
-  at once. Let the user first choose the time and cameras of interest, then opt
-  cameras in to playback so resource pressure scales with the investigation
-  rather than the total camera count. The DVR should respond directly to clicks
-  on the UI timeline/timecode and make the file/time mapping unnecessary for
-  normal use.
-- Restore and finish the bisection search workflow for finding when something
-  appeared, moved, or disappeared. The operator should mark samples as
-  **Too Early** or **Too Late**; Witness then moves the corresponding bound and
-  proposes the midpoint of the remaining range. This remains useful even after
-  persistent object tracking because it gives a deterministic manual fallback
-  for ambiguous cases.
+- Validate the new opt-in DVR page with real recordings, especially missing
+  segments, concurrent cameras, browser media errors, and the manual bisection
+  flow. Synchronize selected cameras to one viewed wall-clock position during
+  continuous playback; currently they are aligned on explicit seek but may
+  drift independently. Move thumbnail decoding and remaining slow DVR/database
+  operations off Crow request threads after measuring handler latency.
 
 ## Streaming diagnostics
 

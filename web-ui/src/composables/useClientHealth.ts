@@ -9,9 +9,14 @@ export interface ClientPlayerHealth {
   reconnectPendingMs?: number | null
   lastFragAge?: number | null
   appendQueueLength?: number
+  appendQueueBytes?: number
+  appendQueueOldestAgeMs?: number
   sourceBufferGeneration?: number
   sourceBufferUpdating?: boolean | null
   sourceBufferOperation?: string
+  sourceBufferOperationAgeMs?: number
+  pipelineAgeMs?: number
+  lastAppendAgeMs?: number | null
   waitingForKeyframe?: boolean
   hasInitialBuffer?: boolean
   awaitingInit?: boolean
@@ -149,9 +154,14 @@ function validateSession(value: unknown): ClientHealthSession | null {
       reconnectPendingMs: optionalFinite(player.reconnectPendingMs) ?? null,
       lastFragAge: optionalFinite(player.lastFragAge) ?? null,
       appendQueueLength: optionalFinite(player.appendQueueLength),
+      appendQueueBytes: optionalFinite(player.appendQueueBytes),
+      appendQueueOldestAgeMs: optionalFinite(player.appendQueueOldestAgeMs),
       sourceBufferGeneration: optionalFinite(player.sourceBufferGeneration),
       sourceBufferUpdating: typeof player.sourceBufferUpdating === 'boolean' ? player.sourceBufferUpdating : null,
       sourceBufferOperation: optionalBoundedText(player.sourceBufferOperation, 64),
+      sourceBufferOperationAgeMs: optionalFinite(player.sourceBufferOperationAgeMs),
+      pipelineAgeMs: optionalFinite(player.pipelineAgeMs),
+      lastAppendAgeMs: optionalFinite(player.lastAppendAgeMs) ?? null,
       waitingForKeyframe: player.waitingForKeyframe === true,
       hasInitialBuffer: player.hasInitialBuffer === true,
       awaitingInit: player.awaitingInit === true,
@@ -229,9 +239,14 @@ export function collectLocalClientHealth(): ClientHealthSession {
         reconnectPendingMs: optionalFinite(data.liveState?.reconnectPendingMs) ?? null,
         lastFragAge: optionalFinite(data.liveState?.lastFragAge) ?? null,
         appendQueueLength: optionalFinite(data.liveState?.appendQueueLength),
+        appendQueueBytes: optionalFinite(data.liveState?.appendQueueBytes),
+        appendQueueOldestAgeMs: optionalFinite(data.liveState?.appendQueueOldestAgeMs),
         sourceBufferGeneration: optionalFinite(data.liveState?.sourceBufferGeneration),
         sourceBufferUpdating: typeof data.liveState?.sourceBufferUpdating === 'boolean' ? data.liveState.sourceBufferUpdating : null,
         sourceBufferOperation: optionalBoundedText(data.liveState?.sourceBufferOperation, 64),
+        sourceBufferOperationAgeMs: optionalFinite(data.liveState?.sourceBufferOperationAgeMs),
+        pipelineAgeMs: optionalFinite(data.liveState?.pipelineAgeMs),
+        lastAppendAgeMs: optionalFinite(data.liveState?.lastAppendAgeMs) ?? null,
         waitingForKeyframe: data.liveState?.waitingForKeyframe === true,
         hasInitialBuffer: data.liveState?.hasInitialBuffer === true,
         awaitingInit: data.liveState?.awaitingInit === true,

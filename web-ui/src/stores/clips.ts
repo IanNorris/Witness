@@ -21,6 +21,7 @@ export const useClipStore = defineStore('clips', () => {
   const loading = ref(false)
   const pageOffset = ref(0)
   const currentCameraId = ref<number | null>(null)
+  const currentGroupId = ref<number | null>(null)
   const reprocessStatus = ref<Map<number, ReprocessProgress>>(new Map())
 
   const settings = useSettingsStore()
@@ -29,6 +30,7 @@ export const useClipStore = defineStore('clips', () => {
   const currentPage = computed(() => Math.floor(pageOffset.value / pageSize.value))
   const totalPages = computed(() => Math.ceil(totalCount.value / pageSize.value))
   let audioRefreshTimer: ReturnType<typeof setTimeout> | null = null
+  let latestFetchId = 0
 
   // Listen for reprocess progress events
   const events = useEventStream()
@@ -41,7 +43,7 @@ export const useClipStore = defineStore('clips', () => {
       if (audioRefreshTimer) clearTimeout(audioRefreshTimer)
       audioRefreshTimer = setTimeout(() => {
         audioRefreshTimer = null
-        void fetchClips(currentCameraId.value, pageOffset.value)
+        void fetchClips(currentCameraId.value, pageOffset.value, false, currentGroupId.value)
       }, 350)
       return
     }
@@ -76,9 +78,11 @@ export const useClipStore = defineStore('clips', () => {
     reprocessStatus.value = updated
   })
 
-  async function fetchClips(cameraId: number | null, offset = 0, retryingClampedPage = false) {
+  async function fetchClips(cameraId: number | null, offset = 0, retryingClampedPage = false, groupId: number | null = null) {
+    const fetchId = ++latestFetchId
     loading.value = true
     currentCameraId.value = cameraId
+    currentGroupId.value = groupId
     pageOffset.value = offset
 
     const camParam = cameraId ?? -1
@@ -95,24 +99,32 @@ export const useClipStore = defineStore('clips', () => {
     }
 
     try {
+      const query = new URLSearchParams(filterStore.filterQueryString.slice(1))
+      if (settings.hideShortClips) {
+        query.set('minDuration', String(Math.max(2, Number(query.get('minDuration') ?? 0))))
+      }
+      if (groupId !== null) query.set('group', String(groupId))
+      const queryString = query.size ? `?${query.toString()}` : ''
       const data = await api<{ count: number; clips: Record<string, unknown>[] }>(
-        `/clip/enum/${camParam}/${pageSize.value}/${startDate}/${rangePeriod}/${offset}${filterStore.filterQueryString}`
+        `/clip/enum/${camParam}/${pageSize.value}/${startDate}/${rangePeriod}/${offset}${queryString}`
       )
+      if (fetchId !== latestFetchId) return
       totalCount.value = data.count ?? 0
       const rawClips = data.clips ?? []
       if (!retryingClampedPage && rawClips.length === 0 && totalCount.value > 0 && offset > 0) {
         const lastPageOffset = Math.max(0, Math.floor((totalCount.value - 1) / pageSize.value) * pageSize.value)
         if (lastPageOffset !== offset) {
-          await fetchClips(cameraId, lastPageOffset, true)
+          await fetchClips(cameraId, lastPageOffset, true, groupId)
           return
         }
       }
       clips.value = rawClips.map(mapClip)
     } catch {
+      if (fetchId !== latestFetchId) return
       clips.value = []
       totalCount.value = 0
     } finally {
-      loading.value = false
+      if (fetchId === latestFetchId) loading.value = false
     }
   }
 
@@ -178,18 +190,18 @@ export const useClipStore = defineStore('clips', () => {
 
   function nextPage() {
     if (currentPage.value < totalPages.value - 1) {
-      fetchClips(currentCameraId.value, pageOffset.value + pageSize.value)
+      fetchClips(currentCameraId.value, pageOffset.value + pageSize.value, false, currentGroupId.value)
     }
   }
 
   function prevPage() {
     if (pageOffset.value > 0) {
-      fetchClips(currentCameraId.value, Math.max(0, pageOffset.value - pageSize.value))
+      fetchClips(currentCameraId.value, Math.max(0, pageOffset.value - pageSize.value), false, currentGroupId.value)
     }
   }
 
   function goToPage(page: number) {
-    fetchClips(currentCameraId.value, page * pageSize.value)
+    fetchClips(currentCameraId.value, page * pageSize.value, false, currentGroupId.value)
   }
 
   function thumbnailUrl(cameraId: number, timestamp: number) {

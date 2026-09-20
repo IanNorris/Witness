@@ -259,13 +259,14 @@ void TerminalDashboard::Run() noexcept
 		const double PrivateMemoryGiB = (double)Snapshot.ProcessPrivateBytes /
 			( 1024.0 * 1024.0 * 1024.0 );
 		std::vector<std::string> Lines;
-		Lines.push_back( std::format( "Witness  build {}  up {}  cameras {}/{}  CPU {}  RAM {:.1f}/{:.1f}G  proc {:.1f}G  port {}",
+		Lines.push_back( std::format( "Witness  build {}  up {}  cameras {}/{}  CPU {}  RAM {:.1f}/{:.1f}G  proc {:.1f}G  web {}  port {}",
 			Snapshot.BuildHash.empty() ? "starting" : Snapshot.BuildHash,
 			CompactDuration( std::chrono::duration_cast<std::chrono::seconds>(
 				std::chrono::steady_clock::now() - DashboardStarted ) ), Connected,
 			Snapshot.Cameras.size(), Snapshot.HostCpuPercent < 0.0 ? "--" :
 				std::format( "{:.0f}%", Snapshot.HostCpuPercent ), UsedMemoryGiB,
-			TotalMemoryGiB, PrivateMemoryGiB, Snapshot.Port ) );
+			TotalMemoryGiB, PrivateMemoryGiB, Snapshot.WebReady ? "Ready" : "Loading",
+			Snapshot.Port ? std::to_string( Snapshot.Port ) : "--" ) );
 		Lines.push_back( std::format( "Queues  essential {} (oldest {:.0f}ms)  AI {} (oldest {:.0f}ms)    Up/Down select  A all logs  Ctrl+C stop",
 			Essential, OldestEssential, AI, OldestAI ) );
 		Lines.push_back( std::string( Width, '-' ) );

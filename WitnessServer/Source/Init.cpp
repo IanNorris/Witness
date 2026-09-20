@@ -345,6 +345,7 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 	const int DaysToDelete = 10;
 	std::function<void()> ClipCleanupCallback;
 	std::function<void()> StorageCleanupCallback;
+	std::function<void()> DetectionCleanupCallback;
 
 	// Clip cleanup -- disabled by default until verified safe
 	std::string clipCleanupEnabled;
@@ -401,7 +402,7 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 		}
 		LOG_INFO( "Detection data cleanup: retention %d days.", detRetentionDays );
 
-		StorageCleanupCallback = [this, contRetentionDays, quotaBytes, detRetentionDays, FirstRun = true]() mutable {
+		StorageCleanupCallback = [this, contRetentionDays, quotaBytes, FirstRun = true]() mutable {
 			if( FirstRun )
 			{
 				LOG_INFO( "Background startup maintenance started." );
@@ -412,7 +413,6 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 			DeleteOldContinuousSegments( *Context, contRetentionDays );
 			if( quotaBytes > 0 ) EnforceQuotaContinuousSegments( *Context, quotaBytes );
 			CheckDiskSpaceSafety( *Context );
-			CleanupOldDetectionFrames( *Context, detRetentionDays );
 
 			if( FirstRun )
 			{
@@ -432,6 +432,9 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 				if( ErrorMessage ) sqlite3_free( ErrorMessage );
 				FirstRun = false;
 			}
+		};
+		DetectionCleanupCallback = [this, detRetentionDays]() {
+			CleanupOldDetectionFrames( *Context, detRetentionDays );
 		};
 		LOG_INFO( "Storage and detection cleanup will start in the background after camera startup." );
 	}
@@ -455,7 +458,7 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 
 	try
 	{
-		Server->Start();
+		if( !Server->Start() ) return false;
 	}
 	catch( std::exception& Exception)
 	{
@@ -473,6 +476,8 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 		Timer->AddTimer( std::move( ClipCleanupCallback ), 5 * 60 );
 	if( StorageCleanupCallback )
 		Timer->AddTimer( std::move( StorageCleanupCallback ), 5 * 60 );
+	if( DetectionCleanupCallback )
+		Timer->AddTimer( std::move( DetectionCleanupCallback ), 30 );
 
 	// Start clip reprocessor if detection is enabled
 	if( Video.DetectionEnabled )

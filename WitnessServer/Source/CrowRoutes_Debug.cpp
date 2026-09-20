@@ -1,6 +1,7 @@
 #include "CrowListener.h"
 #include "CrowAuth.h"
 #include "GlobalContext.h"
+#include "CameraWorker.h"
 #include "SQLite.h"
 #include "ClipReprocessWorker.h"
 
@@ -186,9 +187,13 @@ void CrowListener::HandleDebugReloadTLS( const crow::request& req, crow::respons
 
 void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& res )
 {
-	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, nullptr,
-		CrowAuth::Action::Read, CrowAuth::Privilege::Administrator );
-	if( UserUID < 0 )
+	int OwnerUserUID = -1;
+	const bool KeyRoute = req.url == "/api/v1/diagnostics/health";
+	const bool Authorized = KeyRoute
+		? AuthorizeApiKey( req, 1, OwnerUserUID )
+		: CrowAuth::IsAuthenticated( *m_GlobalContext, req, nullptr,
+			CrowAuth::Action::Read, CrowAuth::Privilege::Administrator ) >= 0;
+	if( !Authorized )
 	{
 		res.code = 403;
 		res.end();
@@ -332,6 +337,8 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 			Item["packetSequence"] = Event.PacketSequence;
 			Item["timestampUnixMs"] = Event.TimestampUnixMs;
 			Item["elapsedMs"] = Event.ElapsedMs;
+			Item["lastTimestampUnixMs"] = Event.LastTimestampUnixMs ? Event.LastTimestampUnixMs : Event.TimestampUnixMs;
+			Item["count"] = Event.Count;
 			Item["generation"] = Event.Generation;
 			Item["segmentIndex"] = Event.SegmentIndex;
 			Item["partialIndex"] = Event.PartialIndex;
@@ -340,6 +347,7 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 			Item["phase"] = Event.Phase;
 			Item["component"] = Event.Component;
 			Item["message"] = Event.Message;
+			if( !Event.LastMessage.empty() ) Item["lastMessage"] = Event.LastMessage;
 			Item["disposition"] = Event.Disposition;
 			Item["audio"] = Event.Audio;
 			Item["keyframe"] = Event.Keyframe;
@@ -444,6 +452,114 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 		static_cast<double>( AudioHealth.TotalInferenceUS.load() ) / ( 1000.0 * AudioClips ) : 0.0;
 	Server["audioIntelligence"] = std::move( Audio );
 
+	const auto CurrentHttpRequest = m_App.get_context<HttpTracingMiddleware>( req ).Token;
+	const auto HttpSnapshot = Witness::HttpDiagnostics::GetSnapshot( CurrentHttpRequest.Id );
+	crow::json::wvalue Http;
+	Http["started"] = HttpSnapshot.Started;
+	Http["completed"] = HttpSnapshot.Completed;
+	Http["errors"] = HttpSnapshot.Errors;
+	Http["slowRequests"] = HttpSnapshot.Slow;
+	Http["inFlight"] = HttpSnapshot.InFlight;
+	Http["maxInFlight"] = HttpSnapshot.MaxInFlight;
+	Http["observedWorkers"] = HttpSnapshot.ObservedWorkers;
+	auto DurationJson = []( const Witness::HttpDiagnostics::DurationSummary& Summary )
+	{
+		crow::json::wvalue Value;
+		Value["p50Ms"] = Summary.P50Ms;
+		Value["p95Ms"] = Summary.P95Ms;
+		Value["p99Ms"] = Summary.P99Ms;
+		Value["maxMs"] = Summary.MaxMs;
+		return Value;
+	};
+	Http["handlerDuration"] = DurationJson( HttpSnapshot.Handler );
+	Http["eventLoopOccupancy"] = DurationJson( HttpSnapshot.EventLoop );
+	std::vector<crow::json::wvalue> HttpRoutes;
+	HttpRoutes.reserve( HttpSnapshot.Routes.size() );
+	for( const auto& Route : HttpSnapshot.Routes )
+	{
+		crow::json::wvalue Value;
+		Value["route"] = Route.Route;
+		Value["started"] = Route.Started;
+		Value["completed"] = Route.Completed;
+		Value["errors"] = Route.Errors;
+		Value["slowRequests"] = Route.Slow;
+		Value["meanHandlerMs"] = Route.MeanHandlerMs;
+		Value["maxHandlerMs"] = Route.MaxHandlerMs;
+		Value["meanEventLoopMs"] = Route.MeanEventLoopMs;
+		Value["maxEventLoopMs"] = Route.MaxEventLoopMs;
+		HttpRoutes.push_back( std::move( Value ) );
+	}
+	Http["routes"] = std::move( HttpRoutes );
+	std::vector<crow::json::wvalue> SlowRequests;
+	SlowRequests.reserve( HttpSnapshot.RecentSlowRequests.size() );
+	for( const auto& Request : HttpSnapshot.RecentSlowRequests )
+	{
+		crow::json::wvalue Value;
+		Value["sequence"] = Request.Sequence;
+		Value["startedUnixMs"] = Request.StartedUnixMs;
+		Value["method"] = Request.Method;
+		Value["route"] = Request.Route;
+		Value["path"] = Request.Path;
+		Value["worker"] = Request.Worker;
+		Value["thread"] = Request.Thread;
+		Value["status"] = Request.Status;
+		Value["requestBytes"] = Request.RequestBytes;
+		Value["responseBytes"] = Request.ResponseBytes;
+		Value["handlerMs"] = Request.HandlerMs;
+		Value["eventLoopMs"] = Request.EventLoopMs;
+		Value["postHandlerDelayMs"] = Request.PostHandlerDelayMs;
+		Value["asyncCompletion"] = Request.AsyncCompletion;
+		SlowRequests.push_back( std::move( Value ) );
+	}
+	Http["recentSlowRequests"] = std::move( SlowRequests );
+	std::vector<crow::json::wvalue> ActiveRequests;
+	ActiveRequests.reserve( HttpSnapshot.ActiveRequests.size() );
+	for( const auto& Request : HttpSnapshot.ActiveRequests )
+	{
+		crow::json::wvalue Value;
+		Value["sequence"] = Request.Sequence;
+		Value["startedUnixMs"] = Request.StartedUnixMs;
+		Value["method"] = Request.Method;
+		Value["route"] = Request.Route;
+		Value["path"] = Request.Path;
+		Value["worker"] = Request.Worker;
+		Value["thread"] = Request.Thread;
+		Value["elapsedMs"] = Request.ElapsedMs;
+		Value["handlerComplete"] = Request.HandlerComplete;
+		Value["waitingForEventLoop"] = Request.WaitingForEventLoop;
+		ActiveRequests.push_back( std::move( Value ) );
+	}
+	Http["activeRequests"] = std::move( ActiveRequests );
+	Server["http"] = std::move( Http );
+
+	const auto SQLiteSnapshot = GetSQLiteDiagnosticsSnapshot();
+	crow::json::wvalue SQLite;
+	SQLite["queries"] = SQLiteSnapshot.Queries;
+	SQLite["contendedQueries"] = SQLiteSnapshot.ContendedQueries;
+	SQLite["slowQueries"] = SQLiteSnapshot.SlowQueries;
+	SQLite["meanMutexWaitMs"] = SQLiteSnapshot.MeanMutexWaitMs;
+	SQLite["maxMutexWaitMs"] = SQLiteSnapshot.MaxMutexWaitMs;
+	SQLite["meanScopeMs"] = SQLiteSnapshot.MeanScopeMs;
+	SQLite["maxScopeMs"] = SQLiteSnapshot.MaxScopeMs;
+	SQLite["meanExecuteMs"] = SQLiteSnapshot.MeanExecuteMs;
+	SQLite["maxExecuteMs"] = SQLiteSnapshot.MaxExecuteMs;
+	std::vector<crow::json::wvalue> SlowQueries;
+	SlowQueries.reserve( SQLiteSnapshot.RecentSlowQueries.size() );
+	for( const auto& Query : SQLiteSnapshot.RecentSlowQueries )
+	{
+		crow::json::wvalue Value;
+		Value["sequence"] = Query.Sequence;
+		Value["startedUnixMs"] = Query.StartedUnixMs;
+		Value["query"] = Query.Query;
+		Value["thread"] = Query.Thread;
+		Value["mutexWaitMs"] = Query.MutexWaitMs;
+		Value["scopeMs"] = Query.ScopeMs;
+		Value["executeMs"] = Query.ExecuteMs;
+		SlowQueries.push_back( std::move( Value ) );
+	}
+	SQLite["recentSlowQueries"] = std::move( SlowQueries );
+	Server["database"] = std::move( SQLite );
+
 	crow::json::wvalue Coverage;
 	Coverage["hostCpuPercent"] = "notImplemented";
 	Coverage["rtpSequenceCounters"] = "notExposedByDemuxer";
@@ -452,10 +568,14 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 	Coverage["rateCalculationSupported"] = false;
 	Coverage["rateCalculationReason"] = "worker and processing counter epochs are not yet exposed";
 	Coverage["mediaEventFeed"] = "last 48 warning, error, packet disposition, and recovery events per stream";
+	Coverage["httpTracing"] =
+		"handler time ends before Crow's synchronous response write; event-loop release delay includes that write and queued callbacks; percentiles use the latest 1024 finalized requests";
+	Coverage["databaseTracing"] =
+		"prepared-query mutex wait >=25ms or query scope >=100ms retained in the last 64 events; execute timing measures sqlite3_step calls only";
 
 	const auto CollectionEnd = std::chrono::steady_clock::now();
 	crow::json::wvalue Data;
-	Data["schemaVersion"] = 3;
+	Data["schemaVersion"] = 4;
 	Data["sampledAtUtc"] = std::format( "{:%Y-%m-%dT%H:%M:%S}Z",
 		std::chrono::system_clock::now() );
 	Data["collectionStartedMonotonicMs"] =
@@ -825,6 +945,8 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 						Item["packetSequence"] = Event.PacketSequence;
 						Item["timestampUnixMs"] = Event.TimestampUnixMs;
 						Item["elapsedMs"] = Event.ElapsedMs;
+						Item["lastTimestampUnixMs"] = Event.LastTimestampUnixMs ? Event.LastTimestampUnixMs : Event.TimestampUnixMs;
+						Item["count"] = Event.Count;
 						Item["generation"] = Event.Generation;
 						Item["segmentIndex"] = Event.SegmentIndex;
 						Item["partialIndex"] = Event.PartialIndex;
@@ -833,6 +955,7 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 						Item["phase"] = Event.Phase;
 						Item["component"] = Event.Component;
 						Item["message"] = Event.Message;
+						if( !Event.LastMessage.empty() ) Item["lastMessage"] = Event.LastMessage;
 						Item["disposition"] = Event.Disposition;
 						Item["audio"] = Event.Audio;
 						Item["keyframe"] = Event.Keyframe;
@@ -1480,6 +1603,7 @@ bool CrowListener::ReloadTLS()
 
 		// Validated successfully -- now do a graceful server restart
 		LOG_INFO( "TLS: Certificate validated, restarting server..." );
+		m_Ready.store( false, std::memory_order_release );
 		m_App.stop();
 		if( m_ServerThread.joinable() )
 			m_ServerThread.join();
@@ -1489,6 +1613,7 @@ bool CrowListener::ReloadTLS()
 		std::string bindAddr = ResolveBindAddress( m_Hostname );
 
 		m_App.bindaddr( bindAddr ).port( m_Port );
+		Witness::HttpDiagnostics::ClearActiveRequests();
 		m_ServerThread = std::thread( [this]()
 		{
 			try
@@ -1500,7 +1625,15 @@ bool CrowListener::ReloadTLS()
 			{
 				LOG_ERROR( "Server error after TLS reload: %s", e.what() );
 			}
+			m_Ready.store( false, std::memory_order_release );
 		});
+		if( m_App.wait_for_server_start( std::chrono::seconds( 10 ) ) !=
+			std::cv_status::no_timeout || !m_App.is_bound() )
+		{
+			LOG_ERROR( "TLS reload did not restore the Crow listener within 10 seconds." );
+			return false;
+		}
+		m_Ready.store( true, std::memory_order_release );
 
 		// Update tracked modification time
 		std::error_code ec;
@@ -1550,12 +1683,13 @@ void CrowListener::CertMonitorLoop()
 #endif
 }
 
-void CrowListener::Start()
+bool CrowListener::Start()
 {
+	m_Ready.store( false, std::memory_order_release );
 	if( !ConfigureSSL() )
 	{
 		LOG_ERROR( "Server failed to start due to TLS configuration error." );
-		return;
+		return false;
 	}
 
 	std::string bindAddr = ResolveBindAddress( m_Hostname );
@@ -1566,6 +1700,7 @@ void CrowListener::Start()
 	try
 	{
 		m_App.bindaddr( bindAddr ).port( m_Port );
+		Witness::HttpDiagnostics::ClearActiveRequests();
 
 		m_ServerThread = std::thread( [this]()
 		{
@@ -1578,15 +1713,28 @@ void CrowListener::Start()
 			{
 				LOG_ERROR( "Server error: %s", e.what() );
 			}
+			m_Ready.store( false, std::memory_order_release );
 		});
 	}
 	catch( const std::exception& e )
 	{
 		LOG_ERROR( "Failed to start server on %s:%d -- %s", bindAddr.c_str(), m_Port, e.what() );
-		return;
+		return false;
 	}
+	// Crow's run() is launched on another thread. Its start notification follows
+	// bind, listen, worker setup, and the first accept, so the dashboard must not
+	// advertise a ready listener before this point.
+	const bool Ready = m_App.wait_for_server_start( std::chrono::seconds( 10 ) ) ==
+		std::cv_status::no_timeout && m_App.is_bound();
+	if( !Ready )
+	{
+		LOG_ERROR( "Crow server did not become ready on %s:%d within 10 seconds.",
+			bindAddr.c_str(), m_Port );
+		return false;
+	}
+	m_Ready.store( true, std::memory_order_release );
 
-	LOG_INFO( "Crow server started on %s:%d (%s)", m_Hostname.c_str(), m_Port, m_Secure ? "HTTPS" : "HTTP" );
+	LOG_INFO( "Crow server ready on %s:%d (%s)", m_Hostname.c_str(), m_Port, m_Secure ? "HTTPS" : "HTTP" );
 
 	// Start cert file monitor if TLS is active
 	if( m_Secure && !m_CertPath.empty() )
@@ -1594,10 +1742,12 @@ void CrowListener::Start()
 		m_CertMonitorRunning = true;
 		m_CertMonitorThread = std::thread( &CrowListener::CertMonitorLoop, this );
 	}
+	return true;
 }
 
 void CrowListener::Stop()
 {
+	m_Ready.store( false, std::memory_order_release );
 	// Stop cert monitor
 	m_CertMonitorRunning = false;
 	if( m_CertMonitorThread.joinable() )

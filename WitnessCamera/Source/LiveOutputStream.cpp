@@ -69,6 +69,34 @@ std::string RedactUrlCredentials( const char* Message )
 	return Result;
 }
 
+std::string FFmpegMessageSignature( const std::string& Message )
+{
+	std::string Result;
+	Result.reserve( Message.size() );
+	bool InNumber = false;
+	bool PreserveNumber = false;
+	for( size_t Index = 0; Index < Message.size(); ++Index )
+	{
+		const char Character = Message[Index];
+		const bool Digit = Character >= '0' && Character <= '9';
+		if( Digit )
+		{
+			// FFmpeg's "stream 0"/"stream 1" identifies video versus audio.
+			// Preserve that identifier while collapsing changing PTS/DTS values.
+			if( !InNumber ) PreserveNumber = Index >= 7 &&
+				Message.compare( Index - 7, 7, "stream " ) == 0;
+			if( PreserveNumber ) Result += Character;
+			else if( !InNumber ) Result += '#';
+		}
+		else
+		{
+			Result += Character;
+		}
+		InNumber = Digit;
+	}
+	return Result;
+}
+
 struct PacketStructure
 {
 	int Packetization = 0;
@@ -338,7 +366,7 @@ uint64_t LiveOutputStream::BeginDiagnosticActivity()
 	return _CurrentDiagnosticActivity;
 }
 
-void LiveOutputStream::RecordFFmpegLog( int Level, const char* Phase,
+uint64_t LiveOutputStream::RecordFFmpegLog( int Level, const char* Phase,
 	const char* Component, const char* Message, uint64_t ActivityID )
 {
 	MediaDiagnosticEvent Event;
@@ -346,14 +374,37 @@ void LiveOutputStream::RecordFFmpegLog( int Level, const char* Phase,
 		std::chrono::system_clock::now().time_since_epoch()).count();
 	Event.ElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
 		std::chrono::steady_clock::now() - _PacketDiagEpoch).count();
+	Event.LastTimestampUnixMs = Event.TimestampUnixMs;
+	Event.LastElapsedMs = Event.ElapsedMs;
 	Event.ActivityID = ActivityID;
 	Event.Category = "ffmpeg";
 	Event.Severity = Level <= AV_LOG_ERROR ? "error" : "warning";
 	Event.Phase = Phase ? std::string( Phase ).substr( 0, 64 ) : "unknown";
 	Event.Component = Component ? std::string( Component ).substr( 0, 128 ) : "unknown";
 	Event.Message = RedactUrlCredentials( Message ).substr( 0, 1024 );
+	Event.ClusterSignature = FFmpegMessageSignature( Event.Message );
 
 	const std::lock_guard<std::mutex> Guard( *_SegmentsMutex );
+	// Keep repeated numeric variants of one FFmpeg warning in a single bounded
+	// event, preserving its first message and the latest sample. Other media
+	// events can no longer be displaced by hundreds of identical AAC warnings.
+	for( int Offset = 0; Offset < _MediaEventRingCount; ++Offset )
+	{
+		auto& Previous = _MediaEventRing[(_MediaEventRingPos - 1 - Offset) % MEDIA_EVENT_RING_SIZE];
+		if( Previous.Category != "ffmpeg" || Previous.Severity != Event.Severity ||
+			Previous.Phase != Event.Phase || Previous.Component != Event.Component ||
+			Previous.Generation != _InitGeneration ||
+			Previous.ClusterSignature != Event.ClusterSignature ) continue;
+		const int64_t SinceLast = Event.ElapsedMs - Previous.LastElapsedMs;
+		const int64_t ClusterAge = Event.ElapsedMs - Previous.ElapsedMs;
+		if( SinceLast < 0 || SinceLast > 60000 || ClusterAge < 0 || ClusterAge > 300000 )
+			continue;
+		++Previous.Count;
+		Previous.LastTimestampUnixMs = Event.TimestampUnixMs;
+		Previous.LastElapsedMs = Event.ElapsedMs;
+		Previous.LastMessage = Event.Message;
+		return Previous.Count;
+	}
 	Event.Sequence = ++_MediaEventSequence;
 	Event.PacketSequence = _PacketDiagSequence;
 	Event.Generation = _InitGeneration;
@@ -363,6 +414,7 @@ void LiveOutputStream::RecordFFmpegLog( int Level, const char* Phase,
 	++_MediaEventRingPos;
 	if( _MediaEventRingCount < MEDIA_EVENT_RING_SIZE )
 		++_MediaEventRingCount;
+	return 1;
 }
 
 void LiveOutputStream::Shutdown()
@@ -1910,14 +1962,24 @@ LiveOutputStream::StreamingDiagnostics LiveOutputStream::GetStreamingDiagnostics
 	if( count > 0 )
 		Diag.TimestampNormalizationActive =
 			_DiagRing[(_DiagRingPos - 1) % DIAG_RING_SIZE].TimestampNormalizationActive;
-	const int MediaEventCount = (std::min)(_MediaEventRingCount, 48);
-	const int MediaEventStart = _MediaEventRingPos - MediaEventCount;
-	Diag.RecentMediaEvents.reserve( MediaEventCount );
-	for( int Index = 0; Index < MediaEventCount; ++Index )
+	// A repeated FFmpeg cluster keeps its original ring slot. Rank by its last
+	// occurrence so a still-active cluster remains visible in the health export.
+	std::vector<const MediaDiagnosticEvent*> RecentMediaEvents;
+	RecentMediaEvents.reserve( _MediaEventRingCount );
+	const int MediaEventStart = _MediaEventRingPos - _MediaEventRingCount;
+	for( int Index = 0; Index < _MediaEventRingCount; ++Index )
+		RecentMediaEvents.push_back( &_MediaEventRing[(MediaEventStart + Index) % MEDIA_EVENT_RING_SIZE] );
+	auto EventTime = []( const MediaDiagnosticEvent* Event )
 	{
-		Diag.RecentMediaEvents.push_back(
-			_MediaEventRing[(MediaEventStart + Index) % MEDIA_EVENT_RING_SIZE] );
-	}
+		return Event->LastElapsedMs ? Event->LastElapsedMs : Event->ElapsedMs;
+	};
+	std::sort( RecentMediaEvents.begin(), RecentMediaEvents.end(), [&]( const auto* Left, const auto* Right )
+	{
+		return EventTime( Left ) > EventTime( Right );
+	} );
+	if( RecentMediaEvents.size() > 48 ) RecentMediaEvents.resize( 48 );
+	Diag.RecentMediaEvents.reserve( RecentMediaEvents.size() );
+	for( const auto* Event : RecentMediaEvents ) Diag.RecentMediaEvents.push_back( *Event );
 
 	if( !IncludeHistory )
 		return Diag;

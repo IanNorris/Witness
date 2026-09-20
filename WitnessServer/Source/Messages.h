@@ -2,6 +2,7 @@
 
 #include "GlobalContext.h"
 #include "Message.h"
+#include <RecordFilter.h>
 #include <vector>
 #include <stdint.h>
 
@@ -39,7 +40,7 @@ struct CameraBeginMotionMessage : public Message
 	CameraBeginMotionMessage( int CamIndex ) : MotionPercentage( 0.0 ), Camera( CamIndex ) {}
 
 	ClipStatistics ClipStats;
-	ClassificationResult Result;
+	Witness::Camera::ClassificationResult Result;
 
 	double MotionPercentage;
 	int Camera;
@@ -52,7 +53,7 @@ struct CameraUpdateMotionMessage : public Message
 	CameraUpdateMotionMessage( int CamIndex ) : Camera( CamIndex ) {}
 
 	ClipStatistics ClipStats;
-	ClassificationResult Result;
+	Witness::Camera::ClassificationResult Result;
 	
 	int Camera;
 
@@ -64,7 +65,7 @@ struct CameraEndMotionMessage : public Message
 	CameraEndMotionMessage( int CamIndex ) : Camera( CamIndex ) {}
 
 	ClipStatistics ClipStats;
-	ClassificationResult Result;
+	Witness::Camera::ClassificationResult Result;
 
 	int Camera;
 };
@@ -97,7 +98,7 @@ struct CameraClipFinishedMessage : public Message
 	CameraClipFinishedMessage( int CamIndex, bool ManualStop ) : Camera( CamIndex ), ManualStop( ManualStop )  {}
 
 	ClipStatistics ClipStats;
-	ClassificationResult Result;
+	Witness::Camera::ClassificationResult Result;
 
 	int Camera;
 	bool ManualStop;

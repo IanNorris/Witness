@@ -8,6 +8,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const darkMode = useLocalStorage('darkMode', false)
   const clipsPerPage = useLocalStorage('clipsPerPage', 24)
   const hideShortClips = useLocalStorage('hideShortClips', false)
+  const muteBackgroundOnlyClips = useLocalStorage('muteBackgroundOnlyClips', false)
   const detectionMinConfidence = useLocalStorage('detectionMinConfidence', 45)
   const trailEnabled = useLocalStorage('trailEnabled', true)
   const trailAnchor = useLocalStorage<'bottom-center' | 'center' | 'top-center'>('trailAnchor', 'bottom-center')
@@ -41,6 +42,7 @@ export const useSettingsStore = defineStore('settings', () => {
     darkMode,
     clipsPerPage,
     hideShortClips,
+    muteBackgroundOnlyClips,
     detectionMinConfidence,
     trailEnabled,
     trailAnchor,

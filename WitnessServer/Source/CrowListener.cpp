@@ -482,6 +482,21 @@ void CrowListener::RegisterRoutes()
 		HandleAuthClearSessions( req, res );
 	});
 
+	CROW_ROUTE( m_App, "/api/keys" )
+	([this]( const crow::request& req, crow::response& res ) { HandleApiKeyList( req, res ); });
+	CROW_ROUTE( m_App, "/api/keys/create" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res ) { HandleApiKeyCreate( req, res ); });
+	CROW_ROUTE( m_App, "/api/keys/revoke" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res ) { HandleApiKeyRevoke( req, res ); });
+	CROW_ROUTE( m_App, "/api/keys/audit" )
+	([this]( const crow::request& req, crow::response& res ) { HandleApiKeyAudit( req, res ); });
+	CROW_ROUTE( m_App, "/api/v1/diagnostics/health" )
+	([this]( const crow::request& req, crow::response& res ) { HandleDebugHealth( req, res ); });
+	CROW_ROUTE( m_App, "/api/v1/clips/search" )
+	([this]( const crow::request& req, crow::response& res ) { HandleApiClipSearch( req, res ); });
+	CROW_ROUTE( m_App, "/api/v1/cameras/<int>/record" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res, int cameraId ) { HandleApiCameraRecord( req, res, cameraId ); });
+
 	// Clips
 	CROW_ROUTE( m_App, "/clip/thumb/<int>/<string>" )
 	([this]( const crow::request& req, crow::response& res, int cameraId, const std::string& clipId )
@@ -849,6 +864,12 @@ void CrowListener::RegisterRoutes()
 	([this]( const crow::request& req, crow::response& res, int cameraId, const std::string& from, const std::string& to )
 	{
 		HandleDvrCoverage( req, res, cameraId, from, to );
+	});
+
+	CROW_ROUTE( m_App, "/dvr/events/<int>/<string>/<string>" )
+	([this]( const crow::request& req, crow::response& res, int cameraId, const std::string& from, const std::string& to )
+	{
+		HandleDvrEvents( req, res, cameraId, from, to );
 	});
 
 	CROW_ROUTE( m_App, "/dvr/segment/<int>" )

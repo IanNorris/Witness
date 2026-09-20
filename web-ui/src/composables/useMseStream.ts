@@ -4,6 +4,11 @@ import { ref, onUnmounted, type Ref } from 'vue'
 const MSE_WATCHDOG_INTERVAL_MS = 250
 const MSE_WATCHDOG_SCHEDULING_GRACE_MS = 1000
 const MSE_INITIAL_TIMEOUT_MS = 10000
+const MSE_APPEND_TIMEOUT_MS = 10000
+const MSE_MAX_APPEND_QUEUE_ITEMS = 128
+const MSE_MAX_APPEND_QUEUE_BYTES = 32 * 1024 * 1024
+const MSE_SOCKET_CLOSE_TIMEOUT_MS = 3000
+const MSE_HEALTHY_PLAYBACK_RESET_MS = 5000
 const MSE_BACK_BUFFER_SECONDS = 5
 const MSE_TARGET_HEADROOM_SECONDS = 1.25
 const MSE_CATCH_UP_START_SECONDS = 1.75
@@ -230,6 +235,7 @@ interface BinaryIntegrityMetadata {
 interface AppendQueueItem {
   data: ArrayBuffer
   partial?: PartialAppendMetadata
+  queuedAt: number
 }
 
 type SourceBufferOperation =
@@ -239,6 +245,7 @@ type SourceBufferOperation =
       startTime: number | null
       buffer: SourceBuffer
       generation: number
+      startedAt: number
       failed: boolean
     }
   | {
@@ -246,6 +253,7 @@ type SourceBufferOperation =
       removeTo: number
       buffer: SourceBuffer
       generation: number
+      startedAt: number
       failed: boolean
     }
 
@@ -275,12 +283,16 @@ export function useMseStream(
   let mediaSource: MediaSource | null = null
   let sourceBuffer: SourceBuffer | null = null
   let appendQueue: AppendQueueItem[] = []
+  let appendQueueBytes = 0
   let sourceBufferOperation: SourceBufferOperation | null = null
   let sourceBufferGeneration = 0
   let lastTrimmedTo = 0
   let lastFragTime = 0
   let streamStartTime = Date.now()
   let wsOpenedAt = 0
+  let pipelineStartedAt = streamStartTime
+  let lastAppendCompletedAt = 0
+  let healthyPlaybackSince = 0
   let lastWatchdogTick = Date.now()
   let watchdog: ReturnType<typeof setInterval> | null = null
   let restartBackoffMs = 3000
@@ -293,6 +305,9 @@ export function useMseStream(
   let destroyed = false
   let intentionalClose = false
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+  let reconnectAt = 0
+  let closeFallbackTimer: ReturnType<typeof setTimeout> | null = null
+  let pendingRestartDelayMs: number | null = null
   let initGeneration = -1
 	let awaitingInit = true
   let expectingBinary: 'init' | 'partial' | null = null
@@ -380,6 +395,23 @@ export function useMseStream(
 		return undefined
 	}
 
+  function clearAppendQueue() {
+    appendQueue = []
+    appendQueueBytes = 0
+  }
+
+  function scheduleReconnect(delayMs: number) {
+    if (destroyed) return 0
+    const jitteredDelay = Math.max(250, Math.round(delayMs * (0.85 + Math.random() * 0.3)))
+    reconnectAt = Date.now() + jitteredDelay
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null
+      reconnectAt = 0
+      connectWebSocket()
+    }, jitteredDelay)
+    return jitteredDelay
+  }
+
   function processAppendQueue() {
     if (
       !sourceBuffer ||
@@ -390,6 +422,7 @@ export function useMseStream(
     const buffer = sourceBuffer
     const generation = sourceBufferGeneration
     const item = appendQueue.shift()!
+    appendQueueBytes = Math.max(0, appendQueueBytes - item.data.byteLength)
     let startTime: number | null = null
     if (item.partial && buffer.buffered.length > 0) {
       startTime = buffer.buffered.end(buffer.buffered.length - 1)
@@ -400,6 +433,7 @@ export function useMseStream(
       startTime,
       buffer,
       generation,
+      startedAt: Date.now(),
       failed: false,
     }
     try {
@@ -411,13 +445,14 @@ export function useMseStream(
         trimBuffer(true)
         // Re-queue and retry
         appendQueue.unshift(item)
+        appendQueueBytes += item.data.byteLength
         setTimeout(() => processAppendQueue(), 100)
       } else {
         diag.stats.errorCount++
         consecutiveAppendErrors++
 			if (item.partial?.releaseRendering) {
 				waitingForKeyframe = true
-				appendQueue = []
+				clearAppendQueue()
 			}
         const videoError = videoRef.value?.error
         diag.log('appendError', {
@@ -444,7 +479,18 @@ export function useMseStream(
 
   function appendData(data: ArrayBuffer, partial?: PartialAppendMetadata): boolean {
     const generation = sourceBufferGeneration
-    appendQueue.push({ data, partial })
+    const nextBytes = appendQueueBytes + data.byteLength
+    if (appendQueue.length >= MSE_MAX_APPEND_QUEUE_ITEMS || nextBytes > MSE_MAX_APPEND_QUEUE_BYTES) {
+      diag.log('appendQueueLimit', {
+        items: appendQueue.length,
+        bytes: appendQueueBytes,
+        incomingBytes: data.byteLength,
+      })
+      restartStream('appendQueueLimit')
+      return false
+    }
+    appendQueue.push({ data, partial, queuedAt: Date.now() })
+    appendQueueBytes = nextBytes
     processAppendQueue()
     return sourceBufferGeneration === generation && sourceBuffer !== null
   }
@@ -464,6 +510,7 @@ export function useMseStream(
         removeTo: trimTo,
         buffer,
         generation: sourceBufferGeneration,
+        startedAt: Date.now(),
         failed: false,
       }
       try {
@@ -477,10 +524,12 @@ export function useMseStream(
   }
 
   function setupMediaSource(element: HTMLVideoElement) {
-    mediaSource = new MediaSource()
-    element.src = URL.createObjectURL(mediaSource)
+    const instance = new MediaSource()
+    mediaSource = instance
+    element.src = URL.createObjectURL(instance)
 
-    mediaSource.addEventListener('sourceopen', () => {
+    instance.addEventListener('sourceopen', () => {
+      if (destroyed || mediaSource !== instance) return
       diag.log('sourceOpen')
       // If we received an init segment before sourceopen, process it now
       if (pendingInitData) {
@@ -496,11 +545,13 @@ export function useMseStream(
       }
     })
 
-    mediaSource.addEventListener('sourceended', () => {
+    instance.addEventListener('sourceended', () => {
+      if (destroyed || mediaSource !== instance) return
       diag.log('sourceEnded')
     })
 
-    mediaSource.addEventListener('sourceclose', () => {
+    instance.addEventListener('sourceclose', () => {
+      if (destroyed || mediaSource !== instance) return
       diag.log('sourceClose')
     })
   }
@@ -542,13 +593,14 @@ export function useMseStream(
         if (operation.failed) {
 			if (operation.item.partial?.releaseRendering) {
 				waitingForKeyframe = true
-				appendQueue = []
+				clearAppendQueue()
 			}
           processAppendQueue()
           return
         }
 
         consecutiveAppendErrors = 0  // Reset only after a successful append
+        lastAppendCompletedAt = Date.now()
 
         // `independent` is carried alongside the binary partial through the
         // append queue. Record its actual position in the sequence timeline
@@ -909,7 +961,7 @@ export function useMseStream(
     }
     sourceBufferGeneration++
     sourceBuffer = null
-    appendQueue = []
+    clearAppendQueue()
     sourceBufferOperation = null
     lastTrimmedTo = 0
 
@@ -931,7 +983,10 @@ export function useMseStream(
     consecutiveAppendErrors = 0
     lastFragTime = 0  // Reset so watchdog correctly detects stale connections
     streamStartTime = Date.now()
-    wsOpenedAt = 0
+    pipelineStartedAt = streamStartTime
+    lastAppendCompletedAt = 0
+    healthyPlaybackSince = 0
+    latencyMs.value = 0
     lastCurrentTime = -1
     currentTimeStalledSince = 0
     lowReadyStateSince = 0
@@ -946,11 +1001,11 @@ export function useMseStream(
     const element = videoRef.value
     if (!element) return
 
-    // Prevent leaked WebSocket: close any existing connection before opening a new one
+    // A replacement must not overlap the socket it supersedes. Overlapping
+    // retry sockets amplify a congested server/client transport path.
     if (ws) {
-      intentionalClose = true
-      ws.close()
-      ws = null
+      diag.log('connectSuppressed', { reason: 'socketStillPresent', readyState: ws.readyState })
+      return
     }
 
     if (!mediaSource) {
@@ -964,23 +1019,24 @@ export function useMseStream(
 	awaitingInit = true
 	intentionalClose = false
     wsOpenedAt = 0
+	pipelineStartedAt = Date.now()
 	const socket = new WebSocket(url)
 	ws = socket
 		hasReceivedStreamSelection = false
 	socket.binaryType = 'arraybuffer'
 
 	socket.onopen = () => {
-	  if (ws !== socket) return
+	  if (ws !== socket || intentionalClose || socket.readyState !== WebSocket.OPEN) return
       diag.log('wsOpen')
       streamStartTime = Date.now()
       wsOpenedAt = streamStartTime
-      restartBackoffMs = 3000
+	  pipelineStartedAt = streamStartTime
 		const viewport = adaptiveStream && !useSubStream ? viewportSize() : null
 		if (viewport) updateViewport(viewport.width, viewport.height)
     }
 
 	socket.onmessage = (event: MessageEvent) => {
-	  if (ws !== socket) return
+	  if (ws !== socket || intentionalClose || socket.readyState !== WebSocket.OPEN) return
       if (typeof event.data === 'string') {
         handleControlMessage(event.data)
       } else if (event.data instanceof ArrayBuffer) {
@@ -998,10 +1054,14 @@ export function useMseStream(
 	  if (ws !== socket) return
       diag.log('wsClose', { code: event.code, reason: event.reason })
       ws = null
+      if (closeFallbackTimer) {
+        clearTimeout(closeFallbackTimer)
+        closeFallbackTimer = null
+      }
       isActive.value = false
       clearRenderSuppression()
 
-      if (!destroyed && !intentionalClose) {
+      if (!destroyed) {
         // Full teardown — stale MediaSource/SourceBuffer can't be reused reliably
         if (sourceBuffer && mediaSource && mediaSource.readyState === 'open') {
           try {
@@ -1010,7 +1070,7 @@ export function useMseStream(
         }
         sourceBufferGeneration++
         sourceBuffer = null
-        appendQueue = []
+        clearAppendQueue()
         sourceBufferOperation = null
         lastTrimmedTo = 0
 
@@ -1025,6 +1085,10 @@ export function useMseStream(
         lastFragTime = 0
         streamStartTime = Date.now()
         wsOpenedAt = 0
+		pipelineStartedAt = streamStartTime
+		lastAppendCompletedAt = 0
+		healthyPlaybackSince = 0
+		latencyMs.value = 0
         expectingBinary = null
 		awaitingInit = true
         waitingForKeyframe = true
@@ -1041,13 +1105,12 @@ export function useMseStream(
         keyframeTimes = []
         lastKeyframeSeekTarget = -1
 
-        diag.stats.restartCount++
-        diag.log('reconnect', { backoffMs: restartBackoffMs })
-        reconnectTimer = setTimeout(() => {
-          reconnectTimer = null
-          connectWebSocket()
-        }, restartBackoffMs)
-        restartBackoffMs = Math.min(restartBackoffMs * 1.5, 30000)
+        const delayMs = pendingRestartDelayMs ?? restartBackoffMs
+        pendingRestartDelayMs = null
+        if (!intentionalClose) diag.stats.restartCount++
+        const scheduledDelayMs = scheduleReconnect(delayMs)
+        diag.log('reconnect', { backoffMs: scheduledDelayMs, afterClose: true })
+        if (!intentionalClose) restartBackoffMs = Math.min(restartBackoffMs * 1.5, 30000)
       }
       intentionalClose = false
     }
@@ -1064,12 +1127,20 @@ export function useMseStream(
     if (reconnectTimer) {
       clearTimeout(reconnectTimer)
       reconnectTimer = null
+      reconnectAt = 0
     }
+    if (closeFallbackTimer) {
+      clearTimeout(closeFallbackTimer)
+      closeFallbackTimer = null
+    }
+    pendingRestartDelayMs = null
 
-    // Tear down everything
+    // Tear down the media pipeline immediately, but do not overlap WebSockets.
+    // Reconnect from onclose; use a bounded fallback only if the browser never
+    // reports closure.
+    const closingSocket = ws
     intentionalClose = true
-    ws?.close()
-    ws = null
+    pendingRestartDelayMs = restartBackoffMs
 
     if (sourceBuffer && mediaSource && mediaSource.readyState === 'open') {
       try {
@@ -1078,7 +1149,7 @@ export function useMseStream(
     }
     sourceBufferGeneration++
     sourceBuffer = null
-    appendQueue = []
+    clearAppendQueue()
     sourceBufferOperation = null
     lastTrimmedTo = 0
 
@@ -1093,6 +1164,10 @@ export function useMseStream(
     lastFragTime = 0
     streamStartTime = Date.now()
     wsOpenedAt = 0
+	pipelineStartedAt = streamStartTime
+	lastAppendCompletedAt = 0
+	healthyPlaybackSince = 0
+	latencyMs.value = 0
     expectingBinary = null
 	awaitingInit = true
     waitingForKeyframe = true
@@ -1109,16 +1184,30 @@ export function useMseStream(
     keyframeTimes = []
     lastKeyframeSeekTarget = -1
 
-    const delayMs = reason === 'initialTimeout' ? 1000 : restartBackoffMs
-
-    // Reconnect
-    reconnectTimer = setTimeout(() => {
-      reconnectTimer = null
-      connectWebSocket()
-    }, delayMs)
-    if (reason !== 'initialTimeout') {
-      restartBackoffMs = Math.min(restartBackoffMs * 1.5, 30000)
+    restartBackoffMs = Math.min(restartBackoffMs * 1.5, 30000)
+    if (!closingSocket || closingSocket.readyState === WebSocket.CLOSED) {
+      ws = null
+      intentionalClose = false
+      const delayMs = pendingRestartDelayMs
+      pendingRestartDelayMs = null
+      scheduleReconnect(delayMs ?? 0)
+      return
     }
+    try {
+      closingSocket.close()
+    } catch (error) {
+      diag.log('wsCloseFailed', { message: error instanceof Error ? error.message : String(error) })
+    }
+    closeFallbackTimer = setTimeout(() => {
+      closeFallbackTimer = null
+      if (ws !== closingSocket || destroyed) return
+      diag.log('wsCloseTimeout', { readyState: closingSocket.readyState })
+      ws = null
+      intentionalClose = false
+      const delayMs = pendingRestartDelayMs
+      pendingRestartDelayMs = null
+      scheduleReconnect(delayMs ?? 0)
+    }, MSE_SOCKET_CLOSE_TIMEOUT_MS)
   }
 
   // ── Watchdog ──────────────────────────────────────────────────────
@@ -1138,6 +1227,17 @@ export function useMseStream(
         const suspendedMs = schedulingDelay - MSE_WATCHDOG_INTERVAL_MS
         if (lastFragTime > 0 && lastFragTime <= previousWatchdogTick) lastFragTime += suspendedMs
         if (streamStartTime <= previousWatchdogTick) streamStartTime += suspendedMs
+        if (wsOpenedAt > 0 && wsOpenedAt <= previousWatchdogTick) wsOpenedAt += suspendedMs
+        if (pipelineStartedAt <= previousWatchdogTick) pipelineStartedAt += suspendedMs
+        if (lastAppendCompletedAt > 0 && lastAppendCompletedAt <= previousWatchdogTick)
+          lastAppendCompletedAt += suspendedMs
+        if (healthyPlaybackSince > 0 && healthyPlaybackSince <= previousWatchdogTick)
+          healthyPlaybackSince += suspendedMs
+        if (sourceBufferOperation && sourceBufferOperation.startedAt <= previousWatchdogTick)
+          sourceBufferOperation.startedAt += suspendedMs
+        for (const item of appendQueue) {
+          if (item.queuedAt <= previousWatchdogTick) item.queuedAt += suspendedMs
+        }
         if (lowReadyStateSince > 0 && lowReadyStateSince <= previousWatchdogTick)
           lowReadyStateSince += suspendedMs
         if (currentTimeStalledSince > 0 && currentTimeStalledSince <= previousWatchdogTick)
@@ -1149,19 +1249,49 @@ export function useMseStream(
       const hasFrags = lastFragTime > 0
       const startupReference = wsOpenedAt || streamStartTime
       const fragAge = hasFrags ? now - lastFragTime : now - startupReference
+      const pipelineAge = now - pipelineStartedAt
+      const appendOperationAge = sourceBufferOperation
+        ? now - sourceBufferOperation.startedAt
+        : 0
+      const oldestQueuedAge = appendQueue.length > 0 ? now - appendQueue[0]!.queuedAt : 0
 
       // Spinner: show during initial connect only, not during playback
-      // (fragments flowing = stream is healthy, readyState dips are normal near live edge)
-      showSpinner.value = !hasFrags && fragAge < MSE_INITIAL_TIMEOUT_MS
+      showSpinner.value = !hasInitialBuffer && pipelineAge < MSE_INITIAL_TIMEOUT_MS
 
       // Connection lost: no fragments for extended period
       connectionLost.value = !reconnectTimer && fragAge > MSE_INITIAL_TIMEOUT_MS
 
-      // Initial timeout — never received first fragment
-      if (!hasFrags && !reconnectTimer && ws && ws.readyState === WebSocket.OPEN &&
-          wsOpenedAt > 0 && now - wsOpenedAt > MSE_INITIAL_TIMEOUT_MS) {
-        diag.log('initialTimeout', { waitedMs: now - wsOpenedAt })
+      if (!reconnectTimer && ws && ws.readyState === WebSocket.CONNECTING &&
+          pipelineAge > MSE_INITIAL_TIMEOUT_MS) {
+        diag.log('connectTimeout', { waitedMs: pipelineAge })
+        restartStream('connectTimeout')
+        return
+      }
+
+      // A received fragment is not progress until MSE has completed appending
+      // enough media to start playback. This also catches a SourceBuffer stuck
+      // updating while the element remains intentionally paused at startup.
+      if (!hasInitialBuffer && !reconnectTimer && ws && ws.readyState === WebSocket.OPEN &&
+          pipelineAge > MSE_INITIAL_TIMEOUT_MS) {
+        diag.log('initialTimeout', {
+          waitedMs: pipelineAge,
+          hasFrags,
+          appendOperationAge,
+          appendQueueLength: appendQueue.length,
+          appendQueueBytes,
+        })
         restartStream('initialTimeout')
+        return
+      }
+
+      if (appendOperationAge > MSE_APPEND_TIMEOUT_MS || oldestQueuedAge > MSE_APPEND_TIMEOUT_MS) {
+        diag.log('appendProgressTimeout', {
+          appendOperationAge,
+          oldestQueuedAge,
+          appendQueueLength: appendQueue.length,
+          appendQueueBytes,
+        })
+        restartStream('appendProgressTimeout')
         return
       }
 
@@ -1184,13 +1314,13 @@ export function useMseStream(
       } else if (video.readyState >= 3) {
         lowReadyStateSince = 0
         stuckBackoffMs = 3000
-        restartBackoffMs = 3000
       }
 
       // Frozen-frame detection: currentTime not advancing while frags are flowing
       // Catches SourceBuffer corruption, silent decode failures, frozen video element
       if (hasFrags && !video.paused && video.readyState >= 1) {
         if (video.currentTime === lastCurrentTime && lastCurrentTime >= 0) {
+          healthyPlaybackSince = 0
           if (currentTimeStalledSince === 0) {
             currentTimeStalledSince = now
           } else if (now - currentTimeStalledSince > 3000 && fragAge < 2000) {
@@ -1204,9 +1334,18 @@ export function useMseStream(
             return
           }
         } else {
+          if (video.readyState >= 3) {
+            if (healthyPlaybackSince === 0) healthyPlaybackSince = now
+            if (now - healthyPlaybackSince >= MSE_HEALTHY_PLAYBACK_RESET_MS)
+              restartBackoffMs = 3000
+          } else {
+            healthyPlaybackSince = 0
+          }
           lastCurrentTime = video.currentTime
           currentTimeStalledSince = 0
         }
+      } else {
+        healthyPlaybackSince = 0
       }
 
       // Live edge tracking. Use one-way catch-up with broad hysteresis: the old
@@ -1318,13 +1457,20 @@ export function useMseStream(
       hasInitialBuffer,
       targetHeadroomSeconds: MSE_TARGET_HEADROOM_SECONDS,
       appendQueueLength: appendQueue.length,
+      appendQueueBytes,
+      appendQueueOldestAgeMs: appendQueue.length > 0 ? Date.now() - appendQueue[0]!.queuedAt : 0,
       sourceBufferGeneration,
       sourceBufferUpdating: sourceBuffer?.updating ?? null,
       sourceBufferOperation: sourceBufferOperation?.kind ?? null,
+      sourceBufferOperationAgeMs: sourceBufferOperation
+        ? Date.now() - sourceBufferOperation.startedAt
+        : 0,
       mediaSourceState: mediaSource?.readyState ?? null,
       wsReadyState: ws?.readyState ?? null,
       wsOpenAgeMs: wsOpenedAt ? Date.now() - wsOpenedAt : null,
-      reconnectPendingMs: reconnectTimer ? Math.max(0, restartBackoffMs) : null,
+      reconnectPendingMs: reconnectTimer ? Math.max(0, reconnectAt - Date.now()) : null,
+      pipelineAgeMs: Date.now() - pipelineStartedAt,
+      lastAppendAgeMs: lastAppendCompletedAt ? Date.now() - lastAppendCompletedAt : null,
       lowReadyStateMs: lowReadyStateSince ? Date.now() - lowReadyStateSince : 0,
       initGeneration,
 		awaitingInit,
@@ -1348,7 +1494,13 @@ export function useMseStream(
     if (reconnectTimer) {
       clearTimeout(reconnectTimer)
       reconnectTimer = null
+      reconnectAt = 0
     }
+    if (closeFallbackTimer) {
+      clearTimeout(closeFallbackTimer)
+      closeFallbackTimer = null
+    }
+    pendingRestartDelayMs = null
 
     ws?.close()
     ws = null
@@ -1376,7 +1528,7 @@ export function useMseStream(
     }
 
     mediaSource = null
-    appendQueue = []
+    clearAppendQueue()
     pendingPartialMetadata = null
     pendingBinaryIntegrity = null
     keyframeTimes = []

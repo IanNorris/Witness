@@ -1,9 +1,9 @@
 #pragma once
 
 #include "Message.h"
+#include "MessageBus.h"
 #include "SQLite.h"
 #include "CameraState.h"
-#include "CameraWorker.h"
 #include "SettingsMap.h"
 #include "LongPoll.h"
 #include "EventBroadcaster.h"
@@ -16,14 +16,18 @@
 #include <atomic>
 
 namespace Witness{ namespace Camera{ class FaceEmbeddingModel; class ReolinkBaichuanClient; } }
+namespace Witness{ namespace Camera{ class ImageProcessingJobQueue; } }
+class CameraWorker;
 class ReolinkClient;
 
 struct CameraStateToggleRecordMessage : public Message
 {
-	CameraStateToggleRecordMessage( int CamIndex, bool RecordIn ) : Camera( CamIndex ), Record( RecordIn ) {}
+	CameraStateToggleRecordMessage( int CamIndex, bool RecordIn, std::vector<std::string> TagsIn = {} )
+		: Camera( CamIndex ), Record( RecordIn ), Tags( std::move( TagsIn ) ) {}
 
 	int Camera;
 	bool Record;
+	std::vector<std::string> Tags;
 };
 
 class GlobalContext

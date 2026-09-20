@@ -13,7 +13,7 @@ namespace Camera{
 
 typedef uint64_t (*UTCTimestampCallbackType)(void);
 
-struct CAMERA_API InputStreamSetup
+struct InputStreamSetup
 {
 	InputStreamSetup()
 		: GetTimestamp(nullptr)
@@ -25,7 +25,7 @@ struct CAMERA_API InputStreamSetup
 		, PassthroughOnly( false )
 	{}
 
-	bool Validate();
+	CAMERA_API bool Validate();
 
 	UTCTimestampCallbackType GetTimestamp;
 
@@ -41,7 +41,7 @@ class CAMERA_API InputStream : public Stream
 {
 public:
 
-	struct CAMERA_API StreamStats
+	struct StreamStats
 	{
 		StreamStats()
 		{

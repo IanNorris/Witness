@@ -44,6 +44,8 @@ interface MediaDiagnosticEvent {
   activityId: number
   packetSequence: number
   timestampUnixMs: number
+  lastTimestampUnixMs?: number
+  count?: number
   elapsedMs: number
   generation: number
   segmentIndex: number
@@ -53,6 +55,7 @@ interface MediaDiagnosticEvent {
   phase: string
   component: string
   message: string
+  lastMessage?: string
   disposition?: string
   audio: boolean
   keyframe: boolean
@@ -86,6 +89,70 @@ interface CameraHealth {
   streams: StreamHealth[]
 }
 
+interface HttpDurationSummary {
+  p50Ms: number
+  p95Ms: number
+  p99Ms: number
+  maxMs: number
+}
+
+interface HttpRequestTrace {
+  sequence: number
+  startedUnixMs: number
+  method: string
+  route: string
+  path: string
+  worker: number
+  thread: number
+  status?: number
+  requestBytes?: number
+  responseBytes?: number
+  handlerMs?: number
+  eventLoopMs?: number
+  postHandlerDelayMs?: number
+  elapsedMs?: number
+  asyncCompletion?: boolean
+  handlerComplete?: boolean
+  waitingForEventLoop?: boolean
+}
+
+interface HttpHealth {
+  started: number
+  completed: number
+  errors: number
+  slowRequests: number
+  inFlight: number
+  maxInFlight: number
+  observedWorkers: number
+  handlerDuration: HttpDurationSummary
+  eventLoopOccupancy: HttpDurationSummary
+  recentSlowRequests: HttpRequestTrace[]
+  activeRequests: HttpRequestTrace[]
+}
+
+interface DatabaseQueryTrace {
+  sequence: number
+  startedUnixMs: number
+  query: string
+  thread: number
+  mutexWaitMs: number
+  scopeMs: number
+  executeMs: number
+}
+
+interface DatabaseHealth {
+  queries: number
+  contendedQueries: number
+  slowQueries: number
+  meanMutexWaitMs: number
+  maxMutexWaitMs: number
+  meanScopeMs: number
+  maxScopeMs: number
+  meanExecuteMs: number
+  maxExecuteMs: number
+  recentSlowQueries: DatabaseQueryTrace[]
+}
+
 interface HealthSnapshot {
   schemaVersion: number
   sampledAtUtc: string
@@ -113,6 +180,8 @@ interface HealthSnapshot {
       lastInferenceMs: number
       meanInferenceMs: number
     }
+    http?: HttpHealth
+    database?: DatabaseHealth
   }
   cameras: CameraHealth[]
   coverage: Record<string, unknown>
@@ -208,10 +277,18 @@ function playerBufferClue(player: ClientPlayerHealth): string {
   if (player.reconnectPendingMs != null) parts.push(`reconnect ${formatMs(player.reconnectPendingMs)}`)
   if (player.wsOpenAgeMs != null) parts.push(`open ${formatMs(player.wsOpenAgeMs)}`)
   if (player.lastFragAge != null) parts.push(`last frag ${formatMs(player.lastFragAge)}`)
+  if (player.lastAppendAgeMs != null) parts.push(`last append ${formatMs(player.lastAppendAgeMs)}`)
   if (player.awaitingInit) parts.push('awaiting init')
   if (player.waitingForKeyframe) parts.push('waiting keyframe')
-  if (player.appendQueueLength != null && player.appendQueueLength > 0) parts.push(`append q ${player.appendQueueLength}`)
-  if (player.sourceBufferUpdating) parts.push(`appending ${player.sourceBufferOperation ?? ''}`.trim())
+  if (player.appendQueueLength != null && player.appendQueueLength > 0) {
+    const bytes = player.appendQueueBytes != null ? ` / ${formatBytes(player.appendQueueBytes)}` : ''
+    const age = player.appendQueueOldestAgeMs != null ? ` / ${formatMs(player.appendQueueOldestAgeMs)}` : ''
+    parts.push(`append q ${player.appendQueueLength}${bytes}${age}`)
+  }
+  if (player.sourceBufferUpdating) {
+    const age = player.sourceBufferOperationAgeMs != null ? ` ${formatMs(player.sourceBufferOperationAgeMs)}` : ''
+    parts.push(`appending ${player.sourceBufferOperation ?? ''}${age}`.trim())
+  }
   if (player.hasInitialBuffer === false) parts.push('no initial buffer')
   return parts.join(' · ')
 }
@@ -261,7 +338,8 @@ function dropReasonSummary(stream: StreamHealth): string {
 function cameraMediaEvents(camera: CameraHealth): DisplayMediaDiagnosticEvent[] {
   return camera.streams
     .flatMap(stream => (stream.recentMediaEvents ?? []).map(event => ({ ...event, tier: stream.tier })))
-    .sort((left, right) => right.timestampUnixMs - left.timestampUnixMs || right.sequence - left.sequence)
+    .sort((left, right) => (right.lastTimestampUnixMs ?? right.timestampUnixMs) -
+      (left.lastTimestampUnixMs ?? left.timestampUnixMs) || right.sequence - left.sequence)
 }
 
 function mediaEventTime(timestampUnixMs: number): string {
@@ -274,6 +352,10 @@ function mediaEventClass(severity: string): string {
   if (severity === 'error') return 'event-error'
   if (severity === 'warning') return 'event-warning'
   return 'event-info'
+}
+
+function httpTraceTime(timestampUnixMs: number): string {
+  return mediaEventTime(timestampUnixMs)
 }
 
 function toggleCameraEvents(cameraId: number) {
@@ -458,6 +540,75 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
+      <div v-if="snapshot.server.http" class="card mb-3">
+        <div class="card-header d-flex flex-wrap justify-content-between gap-2">
+          <span>HTTP server</span>
+          <span class="health-secondary small">
+            {{ snapshot.server.http.observedWorkers }} workers observed ·
+            {{ snapshot.server.http.inFlight }} active now ·
+            {{ snapshot.server.http.slowRequests }} slow
+          </span>
+        </div>
+        <div class="card-body py-2 small">
+          <div class="d-flex flex-wrap gap-4 mb-2">
+            <span>
+              <strong>{{ formatMs(snapshot.server.http.handlerDuration.p95Ms) }}</strong> handler p95
+              <span class="health-secondary"> · p99 {{ formatMs(snapshot.server.http.handlerDuration.p99Ms) }}</span>
+            </span>
+            <span>
+              <strong>{{ formatMs(snapshot.server.http.eventLoopOccupancy.p95Ms) }}</strong> event-loop release p95
+              <span class="health-secondary"> · p99 {{ formatMs(snapshot.server.http.eventLoopOccupancy.p99Ms) }}</span>
+            </span>
+            <span><strong>{{ snapshot.server.http.completed.toLocaleString() }}</strong> completed</span>
+            <span :class="snapshot.server.http.errors ? 'text-danger' : ''">
+              {{ snapshot.server.http.errors.toLocaleString() }} server errors
+            </span>
+          </div>
+          <div class="health-secondary">
+            Handler time covers application work and async waits. Event-loop release delay includes Crow's synchronous response write and callbacks already queued on that worker; percentiles cover the latest 1,024 requests.
+          </div>
+        </div>
+        <div v-if="snapshot.server.http.activeRequests.length || snapshot.server.http.recentSlowRequests.length" class="table-responsive">
+          <table class="table table-dark table-sm table-hover align-middle mb-0 health-table">
+            <thead><tr><th>State</th><th>Time</th><th>Worker</th><th>Request</th><th>Handler</th><th>Event-loop release</th><th>Status</th></tr></thead>
+            <tbody>
+              <tr v-for="request in snapshot.server.http.activeRequests" :key="`active-${request.sequence}`" class="table-warning">
+                <td>{{ request.waitingForEventLoop ? 'Writing response' : 'Handling' }}</td>
+                <td>{{ httpTraceTime(request.startedUnixMs) }}</td>
+                <td>#{{ request.worker }}</td>
+                <td class="font-monospace">{{ request.method }} {{ request.path }}</td>
+                <td>{{ formatMs(request.elapsedMs) }} elapsed</td>
+                <td>—</td><td>—</td>
+              </tr>
+              <tr v-for="request in snapshot.server.http.recentSlowRequests.slice(0, 12)" :key="`slow-${request.sequence}`">
+                <td>{{ request.asyncCompletion ? 'Async' : 'Complete' }}</td>
+                <td>{{ httpTraceTime(request.startedUnixMs) }}</td>
+                <td>#{{ request.worker }}</td>
+                <td class="font-monospace">{{ request.method }} {{ request.path }}</td>
+                <td>{{ formatMs(request.handlerMs) }}</td>
+                <td>
+                  {{ formatMs(request.eventLoopMs) }}
+                  <span v-if="request.postHandlerDelayMs" class="health-secondary"> · after handler {{ formatMs(request.postHandlerDelayMs) }}</span>
+                </td>
+                <td>{{ request.status }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-if="snapshot.server.database" class="card-footer small">
+          <div class="d-flex flex-wrap gap-4">
+            <span><strong>{{ snapshot.server.database.queries.toLocaleString() }}</strong> SQLite query scopes</span>
+            <span><strong>{{ formatMs(snapshot.server.database.meanMutexWaitMs) }}</strong> mean mutex wait <span class="health-secondary">· max {{ formatMs(snapshot.server.database.maxMutexWaitMs) }}</span></span>
+            <span><strong>{{ formatMs(snapshot.server.database.meanScopeMs) }}</strong> mean scope <span class="health-secondary">· max {{ formatMs(snapshot.server.database.maxScopeMs) }}</span></span>
+            <span><strong>{{ formatMs(snapshot.server.database.meanExecuteMs) }}</strong> mean execute <span class="health-secondary">· max {{ formatMs(snapshot.server.database.maxExecuteMs) }}</span></span>
+            <span :class="snapshot.server.database.slowQueries ? 'text-warning' : ''">{{ snapshot.server.database.slowQueries }} slow · {{ snapshot.server.database.contendedQueries }} contended</span>
+          </div>
+          <div v-if="snapshot.server.database.recentSlowQueries.length" class="mt-2 health-secondary">
+            Recent SQLite: {{ snapshot.server.database.recentSlowQueries.slice(0, 5).map(query => `${query.query} (wait ${formatMs(query.mutexWaitMs)}, execute ${formatMs(query.executeMs)}, scope ${formatMs(query.scopeMs)})`).join(' · ') }}
+          </div>
+        </div>
+      </div>
+
       <div class="card mb-3">
         <div class="card-header d-flex flex-wrap justify-content-between gap-2">
           <span>Server cameras</span>
@@ -540,12 +691,14 @@ onBeforeUnmount(() => {
                       :class="mediaEventClass(event.severity)"
                     >
                       <div class="event-meta">
-                        <span class="event-time">{{ mediaEventTime(event.timestampUnixMs) }}</span>
+                        <span class="event-time">{{ mediaEventTime(event.timestampUnixMs) }}<template v-if="(event.count ?? 1) > 1">–{{ mediaEventTime(event.lastTimestampUnixMs ?? event.timestampUnixMs) }}</template></span>
                         <span class="badge bg-secondary">{{ streamTierLabel(event.tier) }}</span>
                         <span class="badge" :class="event.severity === 'error' ? 'bg-danger' : event.severity === 'warning' ? 'bg-warning text-dark' : 'bg-info text-dark'">{{ event.severity }}</span>
                         <span>{{ event.category }} · {{ event.phase }} · {{ event.component }}</span>
+                        <span v-if="(event.count ?? 1) > 1" class="badge bg-secondary">{{ event.count }} occurrences</span>
                       </div>
                       <code class="event-message">{{ event.message }}</code>
+                      <code v-if="event.lastMessage && event.lastMessage !== event.message" class="event-message health-secondary">Latest: {{ event.lastMessage }}</code>
                       <div class="event-correlation health-secondary">
                         Activity #{{ event.activityId || '—' }} · packet #{{ event.packetSequence || '—' }} · generation {{ event.generation }} · segment {{ event.segmentIndex }}.{{ event.partialIndex }}
                         <template v-if="event.disposition"> · {{ event.disposition }}</template>

@@ -13,6 +13,11 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
+    path: '/dvr',
+    component: () => import('../views/DvrView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
     path: '/clips/group/:groupId',
     component: () => import('../views/ClipsView.vue'),
     meta: { requiresAuth: true },

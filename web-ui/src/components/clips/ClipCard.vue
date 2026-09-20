@@ -6,6 +6,7 @@ import { useClipStore } from '../../stores/clips'
 import { useCameraStore } from '../../stores/cameras'
 import { useTagStore } from '../../stores/tags'
 import { format, isToday, isYesterday, differenceInDays } from 'date-fns'
+import AudioEventTimeline from './AudioEventTimeline.vue'
 
 const props = defineProps<{
   clip: Clip
@@ -143,6 +144,8 @@ function audioTitle(event: AudioEvent) {
         </svg>
       </div>
     </div>
+
+    <AudioEventTimeline :clip="clip" compact />
 
     <div class="clip-body">
       <div class="clip-info">

@@ -105,3 +105,20 @@ front end, repeatedly reaching `OutputStream.h`, `Stream.h`, `RecordFilter.h`,
 and `SourceStats.h`. Address that separately with forward declarations, PIMPL,
 and then a measured PCH experiment; do not hide the associated C4251 ABI
 warnings globally.
+
+On 2026-09-19, isolating the shared segment-buffer type and removing the
+`CameraWorker.h` dependency from `GlobalContext.h` let HTTP translation units
+include only the camera implementation headers they use. A server-project
+RelWithDebInfo rebuild then took 89 seconds (92 seconds after the value-type
+export cleanup). A Crow/Asio-only PCH reduced the same project rebuild to 65
+seconds on the same machine (about 29% less than the latter baseline); it
+does not include camera headers or change the native dependency ABI. The
+precompiled-header experiment is enabled for MSVC only.
+
+The server still emits 296 warnings on that clean project rebuild, mostly
+MSVC C4251 from exported camera implementation classes; the camera library
+also emits C4251. Header-defined value types no longer export a class DLL
+interface unnecessarily, but `InputStream`, `LiveOutputStream`,
+`ContinuousOutputStream`, `OutputStream`, and several filters still need a
+measured PIMPL/ABI migration. Do not replace this remaining work with a global
+warning disable.

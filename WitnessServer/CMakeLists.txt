@@ -14,6 +14,7 @@ set(SERVER_SOURCES
     Source/CrowAuth.cpp
     Source/CrowListener.cpp
     Source/CrowRoutes_Auth.cpp
+    Source/CrowRoutes_Api.cpp
     Source/CrowRoutes_Camera.cpp
     Source/CrowRoutes_Clip.cpp
     Source/CrowRoutes_Debug.cpp
@@ -31,6 +32,7 @@ set(SERVER_SOURCES
     Source/Database.cpp
     Source/FaceRecognitionCache.cpp
     Source/ImageProcessorWorker.cpp
+    Source/HttpServerDiagnostics.cpp
     Source/Init.cpp
     Source/JsonHelpers.cpp
     Source/Main.cpp
@@ -70,6 +72,7 @@ set(SERVER_HEADERS
     Source/FaceRecognitionCache.h
     Source/GlobalContext.h
     Source/ImageProcessorWorker.h
+    Source/HttpServerDiagnostics.h
     Source/LongPoll.h
     Source/Message.h
     Source/MessageBus.h
@@ -93,6 +96,13 @@ set(SERVER_HEADERS
 )
 
 add_executable(WitnessServer ${SERVER_SOURCES} ${SERVER_HEADERS})
+
+# Crow/Asio is the dominant common parse cost across the HTTP translation
+# units. A project-local PCH avoids repeatedly rebuilding that template graph;
+# it does not include camera implementation headers or alter their ABI.
+if(MSVC)
+    target_precompile_headers(WitnessServer PRIVATE <crow.h>)
+endif()
 
 target_include_directories(WitnessServer PRIVATE
     Source

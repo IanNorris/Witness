@@ -12,6 +12,40 @@
 #include "Common.h"
 #include "GlobalContext.h"
 #include "DebugBind.h"
+#include "HttpServerDiagnostics.h"
+
+struct HttpTracingMiddleware
+{
+	struct context
+	{
+		Witness::HttpDiagnostics::RequestToken Token;
+	};
+
+	void before_handle( crow::request& req, crow::response&, context& ctx )
+	{
+		// WebSocket upgrades do not run Crow's normal after middleware path.
+		if( req.upgrade ) return;
+		ctx.Token = Witness::HttpDiagnostics::BeginRequest(
+			crow::method_name( req.method ), req.url, req.io_context, req.body.size() );
+		if( req.io_context )
+		{
+			const auto Token = ctx.Token;
+			asio::post( *req.io_context, [Token]()
+			{
+				Witness::HttpDiagnostics::RecordEventLoopRelease( Token );
+			} );
+		}
+		else
+		{
+			Witness::HttpDiagnostics::RecordEventLoopRelease( ctx.Token );
+		}
+	}
+
+	void after_handle( crow::request&, crow::response& res, context& ctx )
+	{
+		Witness::HttpDiagnostics::CompleteRequest( ctx.Token, res.code, res.body.size() );
+	}
+};
 
 struct SecurityHeadersMiddleware
 {
@@ -41,7 +75,7 @@ struct SecurityHeadersMiddleware
 	}
 };
 
-using WitnessApp = crow::App<SecurityHeadersMiddleware>;
+using WitnessApp = crow::App<HttpTracingMiddleware, SecurityHeadersMiddleware>;
 
 class CrowListener
 {
@@ -53,7 +87,8 @@ public:
 
 	void Initialise( const std::unordered_map< std::string, std::string >& Settings );
 
-	void Start();
+	bool Start();
+	bool IsReady() const { return m_Ready.load( std::memory_order_acquire ); }
 
 	void Stop();
 
@@ -101,6 +136,15 @@ private:
 	void HandleAuthSetDisplayName( const crow::request& req, crow::response& res );
 	void HandleAuthSetUserGroups( const crow::request& req, crow::response& res );
 	void HandleAuthClearSessions( const crow::request& req, crow::response& res );
+
+	// Key-authenticated automation is intentionally confined to /api/v1 routes.
+	bool AuthorizeApiKey( const crow::request& req, int scope, int& ownerUserUID );
+	void HandleApiKeyCreate( const crow::request& req, crow::response& res );
+	void HandleApiKeyList( const crow::request& req, crow::response& res );
+	void HandleApiKeyRevoke( const crow::request& req, crow::response& res );
+	void HandleApiKeyAudit( const crow::request& req, crow::response& res );
+	void HandleApiClipSearch( const crow::request& req, crow::response& res );
+	void HandleApiCameraRecord( const crow::request& req, crow::response& res, int cameraId );
 
 	// Clips
 	void HandleClipThumbnail( const crow::request& req, crow::response& res, int cameraId, const std::string& clipId, bool video );
@@ -178,6 +222,7 @@ private:
 
 	// DVR (continuous recording playback)
 	void HandleDvrCoverage( const crow::request& req, crow::response& res, int cameraId, const std::string& fromStr, const std::string& toStr );
+	void HandleDvrEvents( const crow::request& req, crow::response& res, int cameraId, const std::string& fromStr, const std::string& toStr );
 	void HandleDvrSegment( const crow::request& req, crow::response& res, int segmentId );
 	void HandleDvrPlaylist( const crow::request& req, crow::response& res, int cameraId, const std::string& fromStr, const std::string& toStr );
 	void HandleDvrSegments( const crow::request& req, crow::response& res, int cameraId, const std::string& fromStr, const std::string& toStr );
@@ -197,6 +242,7 @@ private:
 
 	WitnessApp m_App;
 	std::thread m_ServerThread;
+	std::atomic<bool> m_Ready{ false };
 
 	std::shared_ptr<GlobalContext> m_GlobalContext;
 	DebugConsole* m_DebugConsole;

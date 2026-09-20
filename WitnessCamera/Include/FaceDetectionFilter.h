@@ -13,7 +13,7 @@ namespace Camera{
 struct FaceDetectionFilterData;
 
 // Result of a single face detection within a person crop
-struct CAMERA_API FaceDetectionResult
+struct FaceDetectionResult
 {
 	// Bounding box in full-frame pixel coordinates
 	float X1, Y1, X2, Y2;

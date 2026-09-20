@@ -33,6 +33,36 @@ namespace Database
 
 		CREATE UNIQUE INDEX IF NOT EXISTS SessionIndex ON Session (SessionToken);
 
+		CREATE TABLE IF NOT EXISTS ApiKey(
+			KeyUID INTEGER PRIMARY KEY AUTOINCREMENT,
+			Name TEXT NOT NULL,
+			KeyHash TEXT NOT NULL UNIQUE,
+			OwnerUserUID INTEGER NOT NULL,
+			ScopeMask INTEGER NOT NULL,
+			AllowedCIDRs TEXT NOT NULL,
+			CreatedAt INTEGER NOT NULL,
+			LastUsedAt INTEGER,
+			LastSourceIP TEXT,
+			UseCount INTEGER NOT NULL DEFAULT 0,
+			RevokedAt INTEGER,
+			FOREIGN KEY(OwnerUserUID) REFERENCES User(UserUID)
+		);
+
+		CREATE TABLE IF NOT EXISTS ApiKeyAudit(
+			AuditUID INTEGER PRIMARY KEY AUTOINCREMENT,
+			KeyUID INTEGER NOT NULL,
+			Timestamp INTEGER NOT NULL,
+			Scope INTEGER NOT NULL,
+			SourceIP TEXT NOT NULL,
+			Path TEXT NOT NULL
+		);
+		CREATE INDEX IF NOT EXISTS ApiKeyAuditByKey ON ApiKeyAudit(KeyUID, Timestamp DESC);
+		CREATE TRIGGER IF NOT EXISTS ApiKeyAuditRetention AFTER INSERT ON ApiKeyAudit
+		WHEN NEW.AuditUID % 100 = 0
+		BEGIN
+			DELETE FROM ApiKeyAudit WHERE AuditUID <= NEW.AuditUID - 50000;
+		END;
+
 		CREATE TABLE IF NOT EXISTS Camera(
 			CameraUID		INTEGER PRIMARY KEY	AUTOINCREMENT,
 			CameraName		CHAR(64)							NOT NULL,
@@ -103,6 +133,14 @@ namespace Database
 		);
 
 		CREATE INDEX IF NOT EXISTS ClipTagByTag ON ClipTag (TagUID);
+
+		-- Tags supplied by external recording triggers must survive detector retagging.
+		CREATE TABLE IF NOT EXISTS ClipExternalTag(
+			ClipUID INTEGER NOT NULL,
+			Name TEXT NOT NULL,
+			PRIMARY KEY(ClipUID, Name),
+			FOREIGN KEY(ClipUID) REFERENCES Clip(ClipUID) ON DELETE CASCADE
+		);
 
 		CREATE TABLE IF NOT EXISTS CameraTagExclusion(
 			CameraID		INTEGER					NOT NULL,
@@ -185,6 +223,7 @@ namespace Database
 
 		CREATE INDEX IF NOT EXISTS idx_facecrop_camera_time ON FaceCrop(CameraID, Timestamp);
 		CREATE INDEX IF NOT EXISTS idx_facecrop_frame_track ON FaceCrop(FrameUID, TrackingID);
+		CREATE INDEX IF NOT EXISTS idx_facecrop_filepath ON FaceCrop(FilePath);
 
 		CREATE TABLE IF NOT EXISTS KnownFace(
 			KnownFaceUID	INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -547,7 +586,7 @@ namespace Database
 	)RAW";
 
 	std::string CountClipsWithinRange = R"RAW(
-		SELECT COUNT(Timestamp) FROM Clip
+		SELECT COUNT(*) FROM Clip
 		WHERE
 				Camera == @CameraID
 			AND	Timestamp >= @TimestampFrom
@@ -556,7 +595,7 @@ namespace Database
 	)RAW";
 
 	std::string CountClipsWithinRangeAll = R"RAW(
-		SELECT COUNT(Timestamp) FROM Clip
+		SELECT COUNT(DISTINCT Clip.ClipUID) FROM Clip
 			INNER JOIN Camera C ON C.CameraUID = Clip.Camera
 			INNER JOIN CameraGroupMapping CGM ON CGM.Camera = C.CameraUID
 			INNER JOIN UserGroupMapping UGM ON UGM.`Group` = CGM.`Group`
@@ -572,7 +611,7 @@ namespace Database
 				Camera == @CameraID
 			AND	Timestamp >= @TimestampFrom
 			AND Timestamp <= @TimestampTo
-		ORDER BY Timestamp DESC
+		ORDER BY Timestamp DESC, ClipUID DESC
 		LIMIT @MaxCount OFFSET @PageOffset
 		;
 	)RAW";
@@ -586,7 +625,7 @@ namespace Database
 				Timestamp >= @TimestampFrom
 			AND Timestamp <= @TimestampTo
 			AND UGM.UserUID == @UserUID
-		ORDER BY Timestamp DESC
+		ORDER BY Timestamp DESC, Clip.ClipUID DESC
 		LIMIT @MaxCount OFFSET @PageOffset
 		;
 	)RAW";
@@ -834,6 +873,10 @@ namespace Database
 		ORDER BY StartTimestamp ASC;
 	)RAW";
 
+	std::string SelectContinuousSegmentByUID = R"RAW(
+		SELECT CameraUID, FilePath FROM ContinuousSegment WHERE SegmentUID = @SegmentUID LIMIT 1;
+	)RAW";
+
 	std::string SelectContinuousSegmentsToDelete = R"RAW(
 		SELECT SegmentUID, FilePath FROM ContinuousSegment
 		WHERE EndTimestamp < @Timestamp
@@ -877,6 +920,19 @@ namespace Database
 			AND StartTimestamp <= @TimestampTo
 			AND EndTimestamp >= @TimestampFrom
 		ORDER BY StartTimestamp ASC;
+	)RAW";
+
+	std::string SelectDvrActivity = R"RAW(
+		SELECT ClipUID, Timestamp, Duration FROM Clip
+		WHERE Camera = @CameraUID AND Timestamp <= @TimestampTo
+			AND Timestamp + MAX(Duration, 1) >= @TimestampFrom
+		ORDER BY Timestamp ASC LIMIT 501;
+	)RAW";
+
+	std::string SelectDvrAudio = R"RAW(
+		SELECT GroupName, StartTime, EndTime, PeakScore FROM AudioEvent
+		WHERE CameraID = @CameraUID AND StartTime <= @TimestampTo AND EndTime >= @TimestampFrom
+		ORDER BY StartTime ASC LIMIT 501;
 	)RAW";
 
 	std::string SelectContinuousSegmentAtTimestamp = R"RAW(
@@ -986,6 +1042,41 @@ namespace Database
 		SELECT DISTINCT CameraID FROM DetectionFrame WHERE Timestamp < @Timestamp
 		UNION
 		SELECT DISTINCT CameraID FROM FaceCrop WHERE Timestamp < @Timestamp;
+	)RAW";
+
+	// Find a bounded eligible prefix before doing the (more expensive) asset
+	// enumeration and multi-table delete. The two selectors let one retention
+	// pass advance through old frames and orphaned/non-verified face crops without
+	// letting a large backlog monopolize the shared SQLite connection.
+	std::string SelectExpiredDetectionFrameTimes = R"RAW(
+		SELECT f.Timestamp FROM DetectionFrame f
+		WHERE f.CameraID = @CameraID AND f.Timestamp < @Timestamp
+			AND NOT EXISTS (
+				SELECT 1 FROM Clip c WHERE c.Camera = @CameraID
+					AND f.Timestamp >= c.Timestamp
+					AND f.Timestamp <= c.Timestamp + CASE WHEN COALESCE(c.Duration, 0) > 0 THEN c.Duration ELSE 1 END
+			)
+			AND NOT EXISTS (
+				SELECT 1 FROM ContinuousSegment s WHERE s.CameraUID = @CameraID
+					AND f.Timestamp >= s.StartTimestamp AND f.Timestamp <= s.EndTimestamp
+			)
+		ORDER BY f.Timestamp LIMIT @BatchSize;
+	)RAW";
+
+	std::string SelectExpiredFaceCropTimes = R"RAW(
+		SELECT fc.Timestamp FROM FaceCrop fc
+		WHERE fc.CameraID = @CameraID AND fc.Timestamp < @Timestamp
+			AND NOT EXISTS (SELECT 1 FROM FaceEmbedding fe WHERE fe.FaceCropUID = fc.CropUID AND fe.Verified = 1)
+			AND NOT EXISTS (
+				SELECT 1 FROM Clip c WHERE c.Camera = @CameraID
+					AND fc.Timestamp >= c.Timestamp
+					AND fc.Timestamp <= c.Timestamp + CASE WHEN COALESCE(c.Duration, 0) > 0 THEN c.Duration ELSE 1 END
+			)
+			AND NOT EXISTS (
+				SELECT 1 FROM ContinuousSegment s WHERE s.CameraUID = @CameraID
+					AND fc.Timestamp >= s.StartTimestamp AND fc.Timestamp <= s.EndTimestamp
+			)
+		ORDER BY fc.Timestamp LIMIT @BatchSize;
 	)RAW";
 
 	std::string SelectDetectionAssetPathsBefore = R"RAW(
@@ -1408,6 +1499,7 @@ namespace Database
 		sqlite3_exec( DB->GetDatabase(), "CREATE INDEX IF NOT EXISTS idx_clip_reviewed_ts ON Clip(Reviewed, Timestamp DESC);", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "CREATE INDEX IF NOT EXISTS idx_clip_camera_ts ON Clip(Camera, Timestamp DESC);", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "CREATE INDEX IF NOT EXISTS idx_detbox_frame ON DetectionBox(FrameUID);", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "CREATE INDEX IF NOT EXISTS idx_facecrop_filepath ON FaceCrop(FilePath);", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "CREATE INDEX IF NOT EXISTS idx_trail_clip ON Trail(ClipUID);", nullptr, nullptr, nullptr );
 
 		// Run ANALYZE to update query planner statistics after adding indexes
@@ -1513,6 +1605,7 @@ namespace Database
 
 		CREATE_QUERY( CreateContinuousSegment );
 		CREATE_QUERY( SelectContinuousSegments );
+		CREATE_QUERY( SelectContinuousSegmentByUID );
 		CREATE_QUERY( SelectContinuousSegmentsToDelete );
 		CREATE_QUERY( DeleteContinuousSegment );
 		CREATE_QUERY( SelectContinuousTotalSize );
@@ -1522,12 +1615,16 @@ namespace Database
 		CREATE_QUERY( SelectContinuousSegmentByFilePath );
 		CREATE_QUERY( SelectOldestContinuousSegment );
 		CREATE_QUERY( SelectContinuousCoverage );
+		CREATE_QUERY( SelectDvrActivity );
+		CREATE_QUERY( SelectDvrAudio );
 		CREATE_QUERY( SelectContinuousSegmentAtTimestamp );
 
 		CREATE_QUERY( InsertDetectionFrame );
 		CREATE_QUERY( InsertDetectionBox );
 		CREATE_QUERY( SelectDetectionFramesWithBoxes );
 		CREATE_QUERY( DeleteDetectionFramesBefore );
+		CREATE_QUERY( SelectExpiredDetectionFrameTimes );
+		CREATE_QUERY( SelectExpiredFaceCropTimes );
 		CREATE_QUERY( SelectDetectionAssetCameraIDsBefore );
 		CREATE_QUERY( SelectDetectionAssetPathsBefore );
 		CREATE_QUERY( SelectDetectionAssetPathsInRange );
@@ -1567,6 +1664,25 @@ namespace Database
 		CREATE_QUERY( DeleteAudioEventsForClip );
 		CREATE_QUERY( InsertAudioEvent );
 		CREATE_QUERY( SelectAudioEventsForClip );
+
+		DB->CreateQuery( "CreateApiKey", "INSERT INTO ApiKey(Name,KeyHash,OwnerUserUID,ScopeMask,AllowedCIDRs,CreatedAt) VALUES(@Name,@KeyHash,@Owner,@Scopes,@CIDRs,@Now);" );
+		DB->CreateQuery( "ListApiKeys", "SELECT KeyUID,Name,OwnerUserUID,ScopeMask,AllowedCIDRs,CreatedAt,LastUsedAt,LastSourceIP,UseCount,RevokedAt FROM ApiKey ORDER BY KeyUID DESC;" );
+		DB->CreateQuery( "FindApiKey", "SELECT k.KeyUID,k.OwnerUserUID,k.ScopeMask,k.AllowedCIDRs FROM ApiKey k JOIN User u ON u.UserUID=k.OwnerUserUID WHERE k.KeyHash=@Hash AND k.RevokedAt IS NULL AND u.Enabled=1 AND u.Admin=1;" );
+		DB->CreateQuery( "RevokeApiKey", "UPDATE ApiKey SET RevokedAt=@Now WHERE KeyUID=@KeyUID AND RevokedAt IS NULL;" );
+		DB->CreateQuery( "TouchApiKey", "UPDATE ApiKey SET LastUsedAt=@Now,LastSourceIP=@IP,UseCount=UseCount+1 WHERE KeyUID=@KeyUID AND RevokedAt IS NULL;" );
+		DB->CreateQuery( "AuditApiKey", "INSERT INTO ApiKeyAudit(KeyUID,Timestamp,Scope,SourceIP,Path) VALUES(@KeyUID,@Now,@Scope,@IP,@Path);" );
+		DB->CreateQuery( "ListApiKeyAudit", "SELECT KeyUID,Timestamp,Scope,SourceIP,Path FROM ApiKeyAudit ORDER BY AuditUID DESC LIMIT 200;" );
+		DB->CreateQuery( "SelectApiClips", R"SQL(
+			SELECT c.ClipUID,c.Timestamp,c.Camera,c.Duration,c.ActiveDuration,c.RecordMode,c.MaxMotion,c.Save,c.Description,
+				(SELECT group_concat(t.Name, ',') FROM ClipTag ct JOIN Tag t ON t.TagUID=ct.TagUID WHERE ct.ClipUID=c.ClipUID)
+			FROM Clip c WHERE c.Timestamp>=@From AND c.Timestamp<=@To
+				AND (@Camera=-1 OR c.Camera=@Camera) AND c.Duration>=@MinDuration
+				AND (@Tag='' OR EXISTS(SELECT 1 FROM ClipTag ct JOIN Tag t ON t.TagUID=ct.TagUID WHERE ct.ClipUID=c.ClipUID AND t.Name=@Tag))
+				AND EXISTS(SELECT 1 FROM CameraGroupMapping cgm JOIN UserGroupMapping ugm ON ugm.`Group`=cgm.`Group` WHERE cgm.Camera=c.Camera AND ugm.UserUID=@User)
+			ORDER BY c.Timestamp DESC,c.ClipUID DESC LIMIT @Limit OFFSET @Offset;
+		)SQL" );
+		DB->CreateQuery( "InsertClipExternalTag", "INSERT OR IGNORE INTO ClipExternalTag(ClipUID,Name) VALUES(@ClipUID,@Name);" );
+		DB->CreateQuery( "SelectClipExternalTags", "SELECT Name FROM ClipExternalTag WHERE ClipUID=@ClipUID;" );
 
 		return DB;
 	}
