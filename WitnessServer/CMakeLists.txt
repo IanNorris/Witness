@@ -10,6 +10,8 @@ set(SERVER_SOURCES
     Source/AsyncWorker.cpp
     Source/AuthHelpers.cpp
     Source/ClipHelpers.cpp
+    Source/DetectionAssetFiles.cpp
+    Source/DetectionCleanup.cpp
     Source/ClipReprocessWorker.cpp
     Source/CrowAuth.cpp
     Source/CrowListener.cpp
@@ -64,6 +66,8 @@ set(SERVER_HEADERS
     Source/CameraState.h
     Source/CameraWorker.h
     Source/ClipHelpers.h
+    Source/DetectionAssetFiles.h
+    Source/DetectionCleanup.h
     Source/ClipReprocessWorker.h
     Source/Common.h
     Source/CrowAuth.h
@@ -137,6 +141,18 @@ target_link_libraries(WitnessServer PRIVATE
     unofficial-sodium::sodium
     unofficial::sqlite3::sqlite3
 )
+
+# Focused retention safety test; built explicitly, not on every server build.
+add_executable(DetectionCleanupTests EXCLUDE_FROM_ALL
+    ../Tools/Tests/DetectionCleanupTests.cpp
+    Source/DetectionCleanup.cpp
+    Source/DetectionAssetFiles.cpp
+)
+target_include_directories(DetectionCleanupTests PRIVATE Source)
+target_link_libraries(DetectionCleanupTests PRIVATE WitnessCommon unofficial::sqlite3::sqlite3)
+if(MSVC)
+    target_compile_options(DetectionCleanupTests PRIVATE /utf-8 /W3)
+endif()
 
 # Copy models directory next to the executable
 add_custom_command(TARGET WitnessServer POST_BUILD

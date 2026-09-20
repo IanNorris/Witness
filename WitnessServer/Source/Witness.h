@@ -13,6 +13,7 @@
 #include <ImageProcessingJob.h>
 #include "OperationalStatus.h"
 #include <mutex>
+#include <thread>
 #include <unordered_map>
 
 class CrowListener;
@@ -73,6 +74,7 @@ private:
 	std::unique_ptr<AsyncWorker> Worker;
 	std::unique_ptr<WatchdogWorker> Watchdog;
 	std::unique_ptr<TimerWorker> Timer;
+	std::jthread DetectionCleanupThread;
 	std::unique_ptr<ClipReprocessWorker> ReprocessWorker;
 	std::unique_ptr<AudioIntelligenceWorker> AudioWorker;
 	std::unique_ptr<CrowListener>	Server;

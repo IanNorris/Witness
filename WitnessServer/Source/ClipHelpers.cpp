@@ -1,10 +1,9 @@
 #include "ClipHelpers.h"
+#include "DetectionAssetFiles.h"
 #include "GlobalContext.h"
 
 #include <Log.h>
 #include <filesystem>
-#include <chrono>
-#include <cmath>
 #include <limits>
 
 #ifdef _WIN32
@@ -137,9 +136,8 @@ void DeleteOldClips( const GlobalContext& Context, int DaysToDelete )
 			moreToDelete = false;
 	}
 
-	// Detection assets may be shared by overlapping clips or DVR segments.
-	// Collect only assets no remaining recording covers.
-	CleanupOldDetectionFrames( Context, DaysToDelete );
+	// Detection retention runs independently on its own SQLite connection.
+	// Its next sweep will reconsider frames made eligible by these clip deletions.
 
 	if( totalDeleted > 0 )
 	{
@@ -426,56 +424,6 @@ void CheckDiskSpaceSafety( const GlobalContext& Context )
 	}
 }
 
-static bool DeleteManagedDetectionAssets( const std::string& CachePath, int CameraID, const std::vector<std::string>& AssetPaths )
-{
-	std::error_code pathError;
-	const fs::path cachePath = fs::absolute( CachePath, pathError ).lexically_normal();
-	if( pathError )
-	{
-		LOG_WARNING( "Could not resolve the cache path for detection cleanup: %s", pathError.message().c_str() );
-		return false;
-	}
-
-	bool filesDeleted = true;
-	for( const auto& assetPath : AssetPaths )
-	{
-		std::error_code absoluteError;
-		const fs::path absolutePath = fs::absolute( assetPath, absoluteError ).lexically_normal();
-		const fs::path relative = absolutePath.lexically_relative( cachePath );
-		if( absoluteError || relative.empty() )
-		{
-			// The database reference is safe to discard even when the file path is
-			// malformed. Never let corrupt metadata create a permanent retry loop.
-			LOG_WARNING( "Skipping removal of unresolved detection asset path %s", assetPath.c_str() );
-			continue;
-		}
-
-		auto component = relative.begin();
-		if( component == relative.end() || *component == ".." ||
-			(*component != "frames" && *component != "crops" && *component != "faces") )
-		{
-			LOG_WARNING( "Skipping removal of unmanaged detection asset path %s", assetPath.c_str() );
-			continue;
-		}
-		++component;
-		if( component == relative.end() || *component != std::to_string( CameraID ) )
-		{
-			LOG_WARNING( "Skipping removal of detection asset outside camera %d: %s", CameraID, assetPath.c_str() );
-			continue;
-		}
-
-		std::error_code ec;
-		fs::remove( absolutePath, ec );
-		if( ec )
-		{
-			LOG_WARNING( "Failed to remove expired detection asset %s: %s", assetPath.c_str(), ec.message().c_str() );
-			filesDeleted = false;
-		}
-	}
-
-	return filesDeleted;
-}
-
 bool DeleteDetectionAssetsInRange( const std::shared_ptr<SQLiteDatabase>& Database, const std::string& CachePath,
 	int CameraID, double TimestampFrom, double TimestampTo )
 {
@@ -500,78 +448,4 @@ bool DeleteDetectionAssetsInRange( const std::shared_ptr<SQLiteDatabase>& Databa
 	query->Bind( "@TimestampTo", TimestampTo );
 	query->Execute( nullptr );
 	return true;
-}
-
-void CleanupOldDetectionFrames( const GlobalContext& Context, int retentionDays )
-{
-	constexpr int BatchSize = 100;
-	auto now = std::chrono::system_clock::now();
-	auto cutoff = now - std::chrono::hours( 24 * retentionDays );
-	double cutoffEpoch = static_cast<double>(
-		std::chrono::duration_cast<std::chrono::seconds>( cutoff.time_since_epoch() ).count()
-	);
-
-	std::vector<int> cameraIds;
-	{
-		SQLiteDatabaseQueryInstance cameras( Context.Database, "SelectDetectionAssetCameraIDsBefore" );
-		cameras->Bind( "@Timestamp", cutoffEpoch );
-		cameras->Execute( [&]( const SQLiteDatabaseQuery& query )
-		{
-			cameraIds.push_back( query.GetColumnValueInt( 0 ) );
-			return true;
-		} );
-	}
-
-	for( int cameraId : cameraIds )
-	{
-		// The former cleanup read and deleted the entire expired history in one
-		// SQLite operation. On a production backlog each query held the shared
-		// connection for 12 seconds and starved HTTP auth and segment inserts.
-		double batchCutoff = cutoffEpoch;
-		bool hasEligible = false;
-		for( const char* queryName : { "SelectExpiredDetectionFrameTimes", "SelectExpiredFaceCropTimes" } )
-		{
-			int count = 0;
-			double lastTimestamp = 0;
-			SQLiteDatabaseQueryInstance candidates( Context.Database, queryName );
-			candidates->Bind( "@CameraID", cameraId );
-			candidates->Bind( "@Timestamp", cutoffEpoch );
-			candidates->Bind( "@BatchSize", BatchSize );
-			candidates->Execute( [&]( const SQLiteDatabaseQuery& row )
-			{
-				lastTimestamp = row.GetColumnValueDouble( 0 );
-				++count;
-				return true;
-			} );
-			if( count > 0 ) hasEligible = true;
-			if( count == BatchSize )
-				batchCutoff = std::min( batchCutoff,
-					std::nextafter( lastTimestamp, std::numeric_limits<double>::infinity() ) );
-		}
-		if( !hasEligible ) continue;
-
-		std::vector<std::string> assetPaths;
-		{
-			SQLiteDatabaseQueryInstance assets( Context.Database, "SelectDetectionAssetPathsBefore" );
-			assets->Bind( "@CameraID", cameraId );
-			assets->Bind( "@Timestamp", batchCutoff );
-			assets->Execute( [&]( const SQLiteDatabaseQuery& query )
-			{
-				const char* path = query.GetColumnValueText( 0 );
-				if( path && *path ) assetPaths.emplace_back( path );
-				return true;
-			} );
-		}
-
-		if( !DeleteManagedDetectionAssets( Context.CachePath, cameraId, assetPaths ) )
-		{
-			LOG_WARNING( "Detection cleanup for camera %d will be retried because one or more files could not be removed.", cameraId );
-			continue;
-		}
-
-		SQLiteDatabaseQueryInstance query( Context.Database, "DeleteDetectionFramesBefore" );
-		query->Bind( "@CameraID", cameraId );
-		query->Bind( "@Timestamp", batchCutoff );
-		query->Execute( nullptr );
-	}
 }

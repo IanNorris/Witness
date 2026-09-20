@@ -4,6 +4,8 @@
 
 void WitnessServer::Shutdown()
 {
+	DetectionCleanupThread.request_stop();
+	if( DetectionCleanupThread.joinable() ) DetectionCleanupThread.join();
 	if( Context && Context->Events )
 		Context->Events->Stop();
 
@@ -27,6 +29,8 @@ void WitnessServer::Shutdown()
 
 void WitnessServer::RequestShutdown()
 {
+	DetectionCleanupThread.request_stop();
+	if( DetectionCleanupThread.joinable() ) DetectionCleanupThread.join();
 	Server->Stop();
 
 	{

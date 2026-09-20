@@ -4,6 +4,7 @@
 #include "SetupServer.h"
 #include "AuthHelpers.h"
 #include "ClipHelpers.h"
+#include "DetectionCleanup.h"
 #include "Database.h"
 #include "TagHelpers.h"
 #include "ReolinkClient.h"
@@ -345,7 +346,7 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 	const int DaysToDelete = 10;
 	std::function<void()> ClipCleanupCallback;
 	std::function<void()> StorageCleanupCallback;
-	std::function<void()> DetectionCleanupCallback;
+	int detectionRetentionDays = 3;
 
 	// Clip cleanup -- disabled by default until verified safe
 	std::string clipCleanupEnabled;
@@ -394,13 +395,12 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 
 		// Detection data retention (separate from continuous recording)
 		std::string detRetentionStr;
-		int detRetentionDays = 3; // default: 3 days (detection overlays are large)
 		if( GetSettingsField( Settings, "detection_retention_days", detRetentionStr, Errors ) && !detRetentionStr.empty() )
 		{
 			int parsed = std::atoi( detRetentionStr.c_str() );
-			if( parsed > 0 ) detRetentionDays = parsed;
+			if( parsed > 0 ) detectionRetentionDays = parsed;
 		}
-		LOG_INFO( "Detection data cleanup: retention %d days.", detRetentionDays );
+		LOG_INFO( "Detection data cleanup: retention %d days.", detectionRetentionDays );
 
 		StorageCleanupCallback = [this, contRetentionDays, quotaBytes, FirstRun = true]() mutable {
 			if( FirstRun )
@@ -432,9 +432,6 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 				if( ErrorMessage ) sqlite3_free( ErrorMessage );
 				FirstRun = false;
 			}
-		};
-		DetectionCleanupCallback = [this, detRetentionDays]() {
-			CleanupOldDetectionFrames( *Context, detRetentionDays );
 		};
 		LOG_INFO( "Storage and detection cleanup will start in the background after camera startup." );
 	}
@@ -469,6 +466,10 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 	LOG_INFO( "Starting camera workers..." );
 
 	StartCameraWorkers();
+	DetectionCleanupThread = std::jthread( [databasePath = DatabaseFile.string(),
+		cachePath = Context->CachePath, detectionRetentionDays]( std::stop_token stop ) {
+		RunDetectionCleanupWorker( stop, databasePath, cachePath, detectionRetentionDays );
+	} );
 
 	// Potentially lengthy maintenance begins only after the web server is
 	// accepting requests and every enabled camera worker has been launched.
@@ -476,8 +477,6 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 		Timer->AddTimer( std::move( ClipCleanupCallback ), 5 * 60 );
 	if( StorageCleanupCallback )
 		Timer->AddTimer( std::move( StorageCleanupCallback ), 5 * 60 );
-	if( DetectionCleanupCallback )
-		Timer->AddTimer( std::move( DetectionCleanupCallback ), 30 );
 
 	// Start clip reprocessor if detection is enabled
 	if( Video.DetectionEnabled )
