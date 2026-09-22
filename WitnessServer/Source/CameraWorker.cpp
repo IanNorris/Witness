@@ -123,6 +123,13 @@ void CameraWorker::CreateInputStream()
 		Setup.PassthroughOnly = true;
 		LOG_INFO("Camera %d using passthrough mode (motion source: camera %d)", Camera.ID, Camera.MotionSourceCameraId);
 	}
+	if (!Setup.PassthroughOnly && std::dynamic_pointer_cast<MotionVectorFilter>(Filter)
+		&& Setup.MotionFilterFrameSkip != 1)
+	{
+		LOG_WARNING("Camera %d: motion-vector analysis requires inter-frame decoding; ignoring deprecated SkipFrames=%u",
+			Camera.ID, Setup.MotionFilterFrameSkip);
+		Setup.MotionFilterFrameSkip = 1;
+	}
 
 	std::string CamPath = Camera.Path;
 

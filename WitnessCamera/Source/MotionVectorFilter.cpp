@@ -23,7 +23,9 @@
 #include <opencv2/imgproc/imgproc_c.h>
 
 #include <string.h>
+#include <algorithm>
 #include <atomic>
+#include <climits>
 #include <map>
 
 #include "FilterData.h"
@@ -38,7 +40,6 @@ int FirstCameraOnly = 0;
 
 int BucketDistanceSquared = 3;
 float MinSummaryPrintout = 1000.0f;
-float MinRatioOfBounds = 0.15f;
 float ClusterBoundaryGrowth = 0.33f;
 float DBScanClusterProximity = 200.0f;
 int DBScanClusterMnpts = 2;
@@ -54,14 +55,8 @@ int DrawStats = false;
 int DrawMask = false;
 int DrawVectors = false;
 int DrawSummaryVectors = false;
-int BucketRefValue = 12;
-int MinBlockMoveDistance = 4;
-int MaxBlockMoveDistance = 128000;
-int MinVectorCount = 2;
-int MinClusterPoints = 2;
 int LostTrackFrames = 8;
 int LostTrackFramesAfterEngagement = 60;
-int MinTrackingFrames = 3;
 
 float KFTranslationScale = 30.0f;
 float KFVelocityScale = 200.0f;
@@ -241,6 +236,7 @@ public:
 
 struct MotionVectorFilterData : public FilterDataBase
 {
+	MotionVectorTuning Tuning;
 	DebugBind<int> DB_BucketDistance;
 	DebugBind<int> DB_DrawTrackedObjects;
 	DebugBind<int> DB_DrawPreTrackedObjects;
@@ -283,17 +279,17 @@ struct MotionVectorFilterData : public FilterDataBase
 	, DB_DrawMask( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Draw Mask", &DrawMask )
 	, DB_DrawVectors( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Draw Vectors", &DrawVectors )
 	, DB_DrawSummaryVectors( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Draw Summary Vectors", &DrawSummaryVectors )
-	, DB_BucketRefValue( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Bucket Ref Value", &BucketRefValue )
+	, DB_BucketRefValue( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Bucket Ref Value", &Tuning.BucketRefValue )
 	, DB_ClusterBoundaryGrowth( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Cluster Boundary Growth", &ClusterBoundaryGrowth )
 	, DB_MinSummaryPrintout( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Min Summary Printout", &MinSummaryPrintout )
-	, DB_MinBlockMoveDistance( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Min Block Move Distance", &MinBlockMoveDistance )
-	, DB_MaxBlockMoveDistance( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Max Block Move Distance", &MaxBlockMoveDistance )
-	, DB_MinVectorCount( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Min Vector Count", &MinVectorCount )
-	, DB_MinRatioOfBounds( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Min Ratio Of Bounds", &MinRatioOfBounds )
-	, DB_MinClusterPoints( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Min Cluster Points", &MinClusterPoints )
+	, DB_MinBlockMoveDistance( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Min Block Move Distance", &Tuning.MinBlockMoveDistance )
+	, DB_MaxBlockMoveDistance( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Max Block Move Distance", &Tuning.MaxBlockMoveDistance )
+	, DB_MinVectorCount( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Min Vector Count", &Tuning.MinVectorCount )
+	, DB_MinRatioOfBounds( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Min Ratio Of Bounds", &Tuning.MinRatioOfBounds )
+	, DB_MinClusterPoints( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Min Cluster Points", &Tuning.MinClusterPoints )
 	, DB_LostTrackFrames( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Lost Track Frames", &LostTrackFrames )
 	, DB_LostTrackFramesAfterEngagement( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Lost Track Frames After Engagement", &LostTrackFramesAfterEngagement )
-	, DB_MinTrackingFrames( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Min Tracking Frames", &MinTrackingFrames )
+	, DB_MinTrackingFrames( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV Min Tracking Frames", &Tuning.MinTrackingFrames )
 	, DB_KFTranslationScale( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV KF Translation Scale", &KFTranslationScale )
 	, DB_KFVelocityScale( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV KF Velocity Scale", &KFVelocityScale )
 	, DB_KFBoundsScale( FirstCameraOnly == 0 ? TargetDebugConsole : nullptr, "MV KF Bounds Scale", &KFBoundsScale )
@@ -410,6 +406,8 @@ float KFNoiseScale = 0.1f;*/
 
 	unsigned int ObjectIDCounter;
 	unsigned int DiagFrameCounter = 0;
+	unsigned int ConsecutiveFramesWithoutVectors = 0;
+	unsigned int DiagFramesWithoutVectors = 0;
 
 	int MVSinceKF;
 	int Frames;
@@ -429,10 +427,12 @@ struct EquivalentPoint {
 	}
 };
 
-MotionVectorFilter::MotionVectorFilter( const MotionChainNode& Chain, const char* BlackoutMaskPath, const char* FocusMaskPath )
+MotionVectorFilter::MotionVectorFilter( const MotionChainNode& Chain, const char* BlackoutMaskPath, const char* FocusMaskPath,
+	const MotionVectorTuning& Tuning )
 	: RecordFilterBase( Chain )
 {
 	auto& ID = GetData();
+	ID.Tuning = Tuning;
 
 	std::string BlackoutMaskPathStr(BlackoutMaskPath ? BlackoutMaskPath : "");
 	std::string FocusMaskPathStr(FocusMaskPath ? FocusMaskPath : "");
@@ -559,18 +559,35 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 
 	if (!SideData)
 	{
-		//No data == key frame, no actual motion, but can't make an assessment
+		// Keyframes normally have no inter-frame vectors, but a long run also
+		// indicates a stream/decoder configuration the MV filter cannot assess.
+		ID.DiagFramesWithoutVectors++;
+		ID.ConsecutiveFramesWithoutVectors++;
+		if (ID.ConsecutiveFramesWithoutVectors == 30 ||
+			(ID.ConsecutiveFramesWithoutVectors > 30 && ID.ConsecutiveFramesWithoutVectors % 150 == 0))
+		{
+			LOG_WARNING("MVFilter src=%d: %u consecutive decoded frames without motion-vector side data",
+				TaskData->Frame.SourceID, ID.ConsecutiveFramesWithoutVectors);
+		}
 
 		//Result.MotionAmount = 0;
 		//Result.ClassificationSuperset |= ClassificationResult::Motion_Motion;
 
 		return true;
 	}
+	ID.ConsecutiveFramesWithoutVectors = 0;
 
 	const  AVMotionVector* MVData = (const AVMotionVector*)SideData->data;
 	const unsigned int MotionVectors = static_cast<unsigned int>( SideData->size / sizeof(*MVData) );
 
 	unsigned int UsableMotionVectors = 0;
+	unsigned int RejectedByDistance = 0;
+	unsigned int RejectedByMask = 0;
+	unsigned int MinMotionScale = UINT_MAX;
+	unsigned int MaxMotionScale = 0;
+	unsigned int MinBlockArea = UINT_MAX;
+	unsigned int MaxBlockArea = 0;
+	const bool CaptureVectorDiagnostics = ID.DiagFrameCounter == 149;
 
 	const unsigned int MotionVectorSkipFactor = 8;
 
@@ -593,10 +610,18 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 		for (unsigned int i = 0; i < MotionVectors; i+=effectiveSkipFactor)
 		{
 			const AVMotionVector& MV = MVData[i];
+			if (CaptureVectorDiagnostics)
+			{
+				MinMotionScale = std::min<unsigned int>(MinMotionScale, MV.motion_scale);
+				MaxMotionScale = std::max<unsigned int>(MaxMotionScale, MV.motion_scale);
+				const unsigned int BlockArea = static_cast<unsigned int>(MV.w) * MV.h;
+				MinBlockArea = std::min(MinBlockArea, BlockArea);
+				MaxBlockArea = std::max(MaxBlockArea, BlockArea);
+			}
 		
 			const int Motion = (MV.motion_x * MV.motion_x) + (MV.motion_y * MV.motion_y);
 		
-			if( Motion >= (float)MinBlockMoveDistance && Motion <= (float)MaxBlockMoveDistance )
+			if( Motion >= (float)ID.Tuning.MinBlockMoveDistance && Motion <= (float)ID.Tuning.MaxBlockMoveDistance )
 			{
 				unsigned int DstBucketX = (unsigned int)MIN( MAX(MV.dst_x,0) / BUCKET_DIMENSION, (int)WidthBucketWidth-1);
 				unsigned int DstBucketY = (unsigned int)MIN( MAX(MV.dst_y,0) / BUCKET_DIMENSION, (int)HeightBucketHeight-1);
@@ -605,6 +630,7 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 
 				if( Ref.Mask == 0.0f )
 				{
+					if (CaptureVectorDiagnostics) RejectedByMask++;
 					continue;
 				}
 
@@ -623,10 +649,14 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 
 			
 			}
+			else
+			{
+				if (CaptureVectorDiagnostics) RejectedByDistance++;
+			}
 		}
 	}
 
-	int RefValue = BucketRefValue * BUCKET_DIMENSION * BUCKET_DIMENSION / MotionVectorSkipFactor;
+	int RefValue = ID.Tuning.BucketRefValue * BUCKET_DIMENSION * BUCKET_DIMENSION / MotionVectorSkipFactor;
 
 	// Scale RefValue for high-resolution streams. The filter was calibrated for 1080p H.264
 	// (60×33 = 1980 buckets, ~100k MVs). At 4K (120×67 = 8040 buckets), motion vectors spread
@@ -679,7 +709,7 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 				if (Ref.c > 0) bucketsWithVectors++;
 				if (Score > maxScore) maxScore = Score;
 
-				bool thresholdReached = Score >= RefValue && Ref.c >= MinVectorCount;
+				bool thresholdReached = Score >= RefValue && Ref.c >= ID.Tuning.MinVectorCount;
 
 				if( thresholdReached )
 				{
@@ -687,7 +717,7 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 					activatedBuckets++;
 				}
 
-				if( WantDebuggingInfo && DrawSummaryVectors && Score > MinSummaryPrintout && Ref.c >= MinVectorCount )
+				if( WantDebuggingInfo && DrawSummaryVectors && Score > MinSummaryPrintout && Ref.c >= ID.Tuning.MinVectorCount )
 				{
 					FilterFrameStatScope Scope( TaskData->Frame.Stats, FilterStat_Debug );
 
@@ -742,12 +772,15 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 		if (ID.DiagFrameCounter >= 150)
 		{
 			ID.DiagFrameCounter = 0;
-			LOG_DEBUG("MVFilter src=%d: %dx%d, MVs=%u usable=%u, buckets=%u/%u active=%d, maxScore=%.0f, refValue=%d, skip=%u",
+			LOG_DEBUG("MVFilter src=%d: %dx%d, MVs=%u usable=%u, rejectDistance=%u rejectMask=%u, scale=%u..%u blockArea=%u..%u, noMV=%u, buckets=%u/%u active=%d, maxScore=%.0f, refValue=%d, skip=%u",
 				TaskData->Frame.SourceID,
 				TaskData->Frame.InputFrame->GetWidth(), TaskData->Frame.InputFrame->GetHeight(),
-				MotionVectors, UsableMotionVectors,
+				MotionVectors, UsableMotionVectors, RejectedByDistance, RejectedByMask,
+				MinMotionScale == UINT_MAX ? 0 : MinMotionScale, MaxMotionScale,
+				MinBlockArea == UINT_MAX ? 0 : MinBlockArea, MaxBlockArea, ID.DiagFramesWithoutVectors,
 				bucketsWithVectors, BucketCount, activatedBuckets,
 				maxScore, RefValue, effectiveSkipFactor);
+			ID.DiagFramesWithoutVectors = 0;
 		}
 		else if (activatedBuckets > 0)
 		{
@@ -821,7 +854,7 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 		for (size_t i = 0; i <= MaxLabel; i++)
 		{
 			const auto& LabelGroup = ID.LabelGroups[i];
-			if( LabelGroup.Points > MinClusterPoints )
+			if( LabelGroup.Points > ID.Tuning.MinClusterPoints )
 			{
 				cv::Rect Bounds( LabelGroup.TopLeft, LabelGroup.BottomRight );
 				cv::Rect UnscaledBounds = Bounds;
@@ -836,7 +869,7 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 				
 				float ClusterArea = (float)(LabelGroup.Points);
 
-				if( ClusterArea > (float)UnscaledBoundsArea * MinRatioOfBounds )
+				if( ClusterArea > (float)UnscaledBoundsArea * ID.Tuning.MinRatioOfBounds )
 				{
 					bool Found = false;
 					for (auto& Object : ID.Objects)
@@ -855,7 +888,7 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 							Object.FramesTracked++;
 							Found = true;
 
-							if (Object.FramesTracked > MinTrackingFrames)
+							if (Object.FramesTracked > ID.Tuning.MinTrackingFrames)
 							{
 								Object.WasEngaged = true;
 
@@ -1064,7 +1097,7 @@ bool MotionVectorFilter::ProcessFrame( SharedClassificationTask TaskData )
 				}
 			}
 
-			if( Iter->FramesTracked > MinTrackingFrames && Iter->FramesSinceLastSeen < LostTrackFrames )
+			if( Iter->FramesTracked > ID.Tuning.MinTrackingFrames && Iter->FramesSinceLastSeen < LostTrackFrames )
 			{
 				if( Iter->FramesSinceLastSeen < LostTrackFrames / 2 )
 				{
