@@ -141,3 +141,11 @@ target_include_directories(PacketCaptureTests PRIVATE Source)
 if(MSVC)
     target_compile_options(PacketCaptureTests PRIVATE /utf-8 /W3)
 endif()
+
+add_executable(TimestampRegressionGuardTests EXCLUDE_FROM_ALL
+    ../Tools/Tests/TimestampRegressionGuardTests.cpp
+)
+target_include_directories(TimestampRegressionGuardTests PRIVATE Source)
+if(MSVC)
+    target_compile_options(TimestampRegressionGuardTests PRIVATE /utf-8 /W3)
+endif()

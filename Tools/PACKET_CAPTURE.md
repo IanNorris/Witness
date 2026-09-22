@@ -8,6 +8,10 @@ useful target for the Tapo failure. The response names a local directory under
 the configured cache path's `packet-captures` directory. The endpoint never
 serves the captured media over HTTP.
 
+This endpoint always requires a valid enabled administrator session and its
+matching CSRF token, including in Debug builds and for loopback requests. The
+loopback exception available to direct live-stream playback does not apply.
+
 From the authenticated administrator dashboard, the browser console can start
 the camera 8 preview capture without restarting the server:
 

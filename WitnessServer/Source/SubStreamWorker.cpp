@@ -82,6 +82,10 @@ void SubStreamWorker::ThreadFunc()
 			m_LiveStream = std::make_shared<LiveOutputStream>(m_CachePath, m_InputStream.get(), 1);
 			m_LiveStream->SetTimestampNormalizationAllowed(
 				DetectCameraProfile(m_SubStreamUrl) == CameraProfile::Reolink);
+			// Generic preview streams retain their source clock unless a stable
+			// no-B-frame cadence is followed by the bounded DTS regression seen
+			// on Tapo RTSP sub-streams.
+			m_LiveStream->SetObservedTimestampRegressionRepairAllowed(true);
 
 			// Wire up MSE WebSocket notifications for sub-stream channel
 			int cameraId = m_CameraId;

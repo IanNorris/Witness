@@ -608,6 +608,9 @@ void CrowListener::HandleDebugPacketCapture( const crow::request& req, crow::res
 		res.end();
 		return;
 	}
+	// Raw camera media is more sensitive than normal Debug loopback stream
+	// access. Deliberately use session authentication directly: localhost and
+	// Debug builds receive no bypass for starting a capture.
 	if (CrowAuth::IsAuthenticated(*m_GlobalContext, req, &body,
 		CrowAuth::Action::ReadWrite, CrowAuth::Privilege::Administrator) < 0)
 	{

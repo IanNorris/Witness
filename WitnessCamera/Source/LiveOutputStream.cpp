@@ -3,6 +3,7 @@
 #include "InputStream.h"
 #include "StreamData.h"
 #include "PacketCapture.h"
+#include "TimestampRegressionGuard.h"
 
 #include <Log.h>
 #include <algorithm>
@@ -308,6 +309,7 @@ LiveOutputStream::LiveOutputStream(const std::string& LiveCachePath, InputStream
 	, _HasBFrames( false )
 	, _HasAudioStream( false )
 	, _AllowTimestampNormalization( false )
+	, _AllowObservedTimestampRegressionRepair( false )
 	, _NormalizeNoBFrameTimestamps( false )
 	, _TimestampNormalizationRejected( false )
 	, _InitialDTS( 0 )
@@ -326,6 +328,8 @@ LiveOutputStream::LiveOutputStream(const std::string& LiveCachePath, InputStream
 	, _TimestampProbeOutliers( 0 )
 	, _TimestampProbeInputTicks( 0 )
 	, _TimestampProbeDurationTicks( 0 )
+	, _TimestampStableCadenceSamples( 0 )
+	, _TimestampStableCadenceTicks( 0 )
 	, _SourceTimestampOffset( 0 )
 	, _TimestampCorrectionRemainder( 0 )
 	, _LastTimestampPhaseError( 0 )
@@ -596,6 +600,8 @@ void LiveOutputStream::ResetForReconnect(InputStream* NewInputStream)
 	_TimestampProbeOutliers = 0;
 	_TimestampProbeInputTicks = 0;
 	_TimestampProbeDurationTicks = 0;
+	_TimestampStableCadenceSamples = 0;
+	_TimestampStableCadenceTicks = 0;
 	_SourceTimestampOffset = 0;
 	_TimestampCorrectionRemainder = 0;
 	_LastTimestampPhaseError = 0;
@@ -908,7 +914,8 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 			// The next raw DTS is useful for generic VFR streams, but it is exactly
 			// the noisy signal the Reolink profile is meant to reject. Keep that
 			// profile's declared/advertised cadence intact for the PLL below.
-			if( !_AllowTimestampNormalization && Delta > 0 && Delta <= MaximumLookahead )
+			if( !_AllowTimestampNormalization && !_NormalizeNoBFrameTimestamps &&
+				Delta > 0 && Delta <= MaximumLookahead )
 				_PendingVideoPacket->duration = Delta;
 		}
 
@@ -1208,8 +1215,68 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 	{
 		if (_LastInputDTS != AV_NOPTS_VALUE && PacketCopy.dts <= _LastInputDTS)
 		{
+			bool PayloadSeenRecently = false;
+			{
+				const std::lock_guard<std::mutex> Guard(*_SegmentsMutex);
+				int WrittenVideoPacketsChecked = 0;
+				for (int Offset = 0; Offset < _PacketDiagRingCount &&
+					WrittenVideoPacketsChecked < 32; ++Offset)
+				{
+					const int Index = (_PacketDiagRingPos - 1 - Offset +
+						PACKET_DIAG_RING_SIZE) % PACKET_DIAG_RING_SIZE;
+					const auto& Previous = _PacketDiagRing[Index];
+					if (Previous.Audio || Previous.Disposition != "written")
+						continue;
+					++WrittenVideoPacketsChecked;
+					if (Previous.PayloadHash == PayloadHash)
+					{
+						PayloadSeenRecently = true;
+						break;
+					}
+				}
+			}
+			if (!_HasBFrames && _AllowObservedTimestampRegressionRepair &&
+				!_TimestampNormalizationRejected && !_NormalizeNoBFrameTimestamps &&
+				(PacketCodec == AV_CODEC_ID_H264 || PacketCodec == AV_CODEC_ID_HEVC))
+			{
+				TimestampRegressionGuard RegressionGuard;
+				RegressionGuard.StableSamples = _TimestampStableCadenceSamples;
+				RegressionGuard.StableDurationTicks = _TimestampStableCadenceTicks;
+				const int64_t MinimumEvidenceTicks = av_rescale_q(
+					AV_TIME_BASE / 4, AV_TIME_BASE_Q, InputTimebase);
+				const int64_t MaximumTimeRegressionTicks = av_rescale_q(
+					AV_TIME_BASE, AV_TIME_BASE_Q, InputTimebase);
+				const int64_t MaximumFrameRegressionTicks =
+					PacketCopy.duration > 0 &&
+					PacketCopy.duration <= (std::numeric_limits<int64_t>::max)() / 20 ?
+					PacketCopy.duration * 20 : MaximumTimeRegressionTicks;
+				const int64_t MaximumRegressionTicks = (std::min)(
+					MaximumTimeRegressionTicks, MaximumFrameRegressionTicks);
+				if (RegressionGuard.CanRepair(PacketCopy.dts, PacketCopy.pts,
+					_LastInputDTS, _LastPacketDuration, PacketCopy.duration,
+					PayloadSeenRecently, MinimumEvidenceTicks,
+					MaximumRegressionTicks))
+				{
+					_NormalizeNoBFrameTimestamps = true;
+					_SourceTimestampOffset = 0;
+					_TimestampProbeSamples = 0;
+					_TimestampProbeOutliers = 0;
+					_TimestampProbeInputTicks = 0;
+					_TimestampProbeDurationTicks = 0;
+					_TimestampStableCadenceSamples = 0;
+					_TimestampStableCadenceTicks = 0;
+					const double RegressionMs =
+						(double)(_LastInputDTS - PacketCopy.dts) *
+						InputTimebase.num * 1000.0 / InputTimebase.den;
+					LOG_INFO(
+						"[HLS] Source %d enabled bounded no-B-frame timestamp repair after %.1fms DTS regression",
+						_InputStream->GetSourceId(), RegressionMs);
+				}
+			}
+
 			const bool CanRepairRegression =
-				!_HasBFrames && _AllowTimestampNormalization &&
+				!_HasBFrames &&
+				(_AllowTimestampNormalization || _AllowObservedTimestampRegressionRepair) &&
 				!_TimestampNormalizationRejected && _NormalizeNoBFrameTimestamps &&
 				_LastWrittenDTS != AV_NOPTS_VALUE && _LastPacketDuration > 0;
 			if (!CanRepairRegression)
@@ -1252,7 +1319,23 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 			}
 		}
 
-		if (!_HasBFrames && _AllowTimestampNormalization && !_TimestampNormalizationRejected &&
+		if (!_NormalizeNoBFrameTimestamps && _AllowObservedTimestampRegressionRepair &&
+			!_TimestampNormalizationRejected && !_HasBFrames &&
+			_LastInputDTS != AV_NOPTS_VALUE && PacketCopy.dts > _LastInputDTS)
+		{
+			TimestampRegressionGuard RegressionGuard;
+			RegressionGuard.StableSamples = _TimestampStableCadenceSamples;
+			RegressionGuard.StableDurationTicks = _TimestampStableCadenceTicks;
+			RegressionGuard.ObserveMonotonic(PacketCopy.dts - _LastInputDTS,
+				_LastPacketDuration, PacketCopy.duration,
+				PacketCopy.pts == PacketCopy.dts);
+			_TimestampStableCadenceSamples = RegressionGuard.StableSamples;
+			_TimestampStableCadenceTicks = RegressionGuard.StableDurationTicks;
+		}
+
+		const bool ProbeTimestampNormalization = _AllowTimestampNormalization ||
+			(_AllowObservedTimestampRegressionRepair && _NormalizeNoBFrameTimestamps);
+		if (!_HasBFrames && ProbeTimestampNormalization && !_TimestampNormalizationRejected &&
 			_LastInputDTS != AV_NOPTS_VALUE && _LastPacketDuration > 0)
 		{
 			const int64_t InputDelta = PacketCopy.dts - _LastInputDTS;

@@ -57,3 +57,22 @@ all unique packets and should be checked for:
 - clean FFmpeg decode of both captured input and remuxed output;
 - no behavior change for camera 8 main, camera 9 main, Reolink, or genuine VFR
   streams.
+
+## Implemented repair
+
+The live preview mux now keeps the existing behavior until it observes at least
+eight consecutive duration-matched packets spanning 250 ms. A backward DTS can
+activate normalization only when all of these conditions hold:
+
+- the stream is H.264 or H.265 without B-frames;
+- PTS equals DTS and the declared duration remains within 10% of the qualified
+  cadence;
+- the regression is strictly backward, no larger than one second or 20 frames;
+- the payload hash does not match any of the last 32 written video packets.
+
+Once qualified, the access unit remains byte-for-byte unchanged and the output
+DTS/PTS advances from the previous output duration. Long-window cadence checks
+remain active and can reject normalization if the source and duration clocks
+subsequently drift by more than 5%. The automatic path is enabled for preview
+streams only; established Reolink main-stream and recording behavior is
+unchanged.

@@ -147,6 +147,13 @@ public:
 		_AllowTimestampNormalization = Allowed;
 	}
 
+	// Preview streams may opt into a stricter automatic path which remains
+	// dormant until a stable no-B-frame cadence precedes a bounded DTS regression.
+	void SetObservedTimestampRegressionRepairAllowed(bool Allowed)
+	{
+		_AllowObservedTimestampRegressionRepair = Allowed;
+	}
+
 	void ResetForReconnect(InputStream* NewInputStream);
 	void NotifyDecodeCorruption(int ErrorFlags);
 	// Administrator-only, bounded diagnostic capture of one live tier. Raw media
@@ -205,6 +212,7 @@ private:
 	bool _HasBFrames;
 	bool _HasAudioStream;
 	bool _AllowTimestampNormalization;
+	bool _AllowObservedTimestampRegressionRepair;
 	bool _NormalizeNoBFrameTimestamps;
 	bool _TimestampNormalizationRejected;
 
@@ -224,6 +232,8 @@ private:
 	int _TimestampProbeOutliers;
 	int64_t _TimestampProbeInputTicks;
 	int64_t _TimestampProbeDurationTicks;
+	int _TimestampStableCadenceSamples;
+	int64_t _TimestampStableCadenceTicks;
 	int64_t _SourceTimestampOffset;
 	int64_t _TimestampCorrectionRemainder;
 	int64_t _LastTimestampPhaseError;
