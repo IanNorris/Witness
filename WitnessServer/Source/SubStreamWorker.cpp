@@ -69,6 +69,7 @@ void SubStreamWorker::ThreadFunc()
 		setup.ExportMotionVectors = false;
 		setup.PassthroughOnly = true;
 
+		auto RetiredInputStream = std::move(m_InputStream);
 		m_InputStream = std::make_shared<InputStream>(setup, m_CameraId, nullptr, m_SubStreamUrl);
 		{
 			std::lock_guard<std::mutex> lock(m_StreamMetadataMutex);
@@ -166,10 +167,9 @@ void SubStreamWorker::ThreadFunc()
 			std::lock_guard<std::mutex> lock(m_StreamMetadataMutex);
 			m_PublishedLiveStream = m_LiveStream;
 		}
-
-		m_Connected = true;
-		m_ReconnectBackoff = 5000; // Reset backoff on successful connection
-		LOG_INFO("[SubStream] Camera %d sub-stream connected", m_CameraId);
+		// ResetForReconnect replaces the live muxer's raw input pointer before
+		// destruction closes the old RTSP connection.
+		RetiredInputStream.reset();
 
 		// Process packets in a loop
 		while (m_Running.load())
@@ -205,6 +205,11 @@ void SubStreamWorker::ThreadFunc()
 					}
 				}
 				break; // Break inner loop to reconnect
+			}
+			if (!m_Connected.exchange(true))
+			{
+				m_ReconnectBackoff = 5000; // Reset only after receiving a packet
+				LOG_INFO("[SubStream] Camera %d sub-stream connected", m_CameraId);
 			}
 			if (m_VideoWidth.load() == 0 || m_VideoHeight.load() == 0)
 			{

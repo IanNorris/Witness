@@ -46,6 +46,10 @@ InputStream::InputStream( const InputStreamSetup& Setup, int SourceID, ImageProc
 
 InputStream::~InputStream()
 {
+	// Stream's base destructor can only call Stream::Shutdown(), which does not
+	// close the RTSP demuxer. Release the connection while this derived object
+	// still exists, including after a failed or partial Initialize().
+	Shutdown();
 	delete m_StreamManager;
 	m_StreamManager = nullptr;
 	delete m_InputData;
@@ -75,6 +79,10 @@ CameraStreamError InputStream::Initialize()
 	FrameIndex = 0;
 	NeedsAnalysisFrame = true;
 
+	// A previous attempt may have failed after opening the RTSP context. The
+	// base initializer only releases Stream state, so close input-specific
+	// resources before creating another demuxer on this instance.
+	Shutdown();
 	CameraStreamError StreamInitResult = Stream::Initialize();
 	if( StreamInitResult != CameraStreamError::Success )
 	{
@@ -103,7 +111,13 @@ CameraStreamError InputStream::Initialize()
  		STREAM_ERROR( ConnectionError, Result );
 	}
 
+	// A camera can accept the RTSP socket but never send usable media. Apply
+	// the same interrupt deadline to probing so startup can retry instead of
+	// remaining in Connecting indefinitely.
+	ActiveTimeoutSeconds = ConnectTimeoutSeconds;
+	TimeStarted = std::chrono::high_resolution_clock::now().time_since_epoch().count();
 	Result = avformat_find_stream_info( ID.FormatContext, nullptr );
+	ActiveTimeoutSeconds = 0;
 	if( Result < 0 )
 	{
 		STREAM_ERROR( NoStreams, Result );
@@ -136,8 +150,6 @@ CameraStreamError InputStream::Initialize()
 			}
 		}
 	}
-	
-	AVFormatContext* OutputFormat = avformat_alloc_context();
 	
 	av_read_play( ID.FormatContext );
 
@@ -585,8 +597,12 @@ void InputStream::Shutdown()
 
 	if( ID.FormatContext )
 	{
+		// RTSP teardown can perform network I/O too. Keep a dead camera from
+		// blocking the reconnect worker while closing the previous session.
+		ActiveTimeoutSeconds = ConnectTimeoutSeconds;
+		TimeStarted = std::chrono::high_resolution_clock::now().time_since_epoch().count();
 		avformat_close_input( &ID.FormatContext );
-		avformat_free_context( ID.FormatContext );
+		ActiveTimeoutSeconds = 0;
 		ID.FormatContext = nullptr;
 	}
 

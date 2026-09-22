@@ -136,7 +136,6 @@ void CameraWorker::CreateInputStream()
 		CameraStream = NewCameraStream;
 		m_VideoCodecName = NewCameraStream->GetCodecName();
 	}
-	RetiredCameraStream.reset();
 	m_VideoWidth = NewCameraStream->GetVideoWidth();
 	m_VideoHeight = NewCameraStream->GetVideoHeight();
 
@@ -282,6 +281,9 @@ void CameraWorker::CreateInputStream()
 	{
 		IsRTSP = true;
 	}
+	// Live and continuous outputs retain raw pointers to the previous input.
+	// Retire it only after both outputs have been rebound to the new stream.
+	RetiredCameraStream.reset();
 }
 
 void CameraWorker::WorkerInit()
