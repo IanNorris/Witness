@@ -688,6 +688,12 @@ void CrowListener::RegisterRoutes()
 		HandleDebugStreamingDiag( req, res );
 	});
 
+	CROW_ROUTE( m_App, "/debug/packet-capture" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleDebugPacketCapture( req, res );
+	});
+
 	CROW_ROUTE( m_App, "/debug/health" )
 	([this]( const crow::request& req, crow::response& res )
 	{

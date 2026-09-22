@@ -244,6 +244,8 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 	{
 		STREAM_ERROR( FrameError, Result );
 	}
+	if( DiagnosticLiveOutput )
+		DiagnosticLiveOutput->CaptureInputPacket( &ID.Packet, DiagnosticActivityID );
 
 	uint64_t CurrentTime = m_InputData->StreamSetup.GetTimestamp();
 

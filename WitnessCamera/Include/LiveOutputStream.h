@@ -19,6 +19,9 @@ struct AVIOContext;
 namespace Witness{
 namespace Camera{
 
+class PacketCapture;
+struct PacketCaptureState;
+
 struct LiveStreamInitSnapshot
 {
 	SegmentBuffer Data;
@@ -146,6 +149,11 @@ public:
 
 	void ResetForReconnect(InputStream* NewInputStream);
 	void NotifyDecodeCorruption(int ErrorFlags);
+	// Administrator-only, bounded diagnostic capture of one live tier. Raw media
+	// stays on the server; callers receive only the local directory path.
+	bool StartPacketCapture(int CameraID, const std::string& Tier, int DurationSeconds,
+		std::string& Directory);
+	void CaptureInputPacket(const AVPacket* Packet, uint64_t ActivityID);
 
 	// Observer for MSE WebSocket streaming — called on camera worker thread
 	void SetEventCallback(LiveStreamEventCallback Callback)
@@ -155,6 +163,8 @@ public:
 	}
 
 private:
+	std::shared_ptr<PacketCapture> ActivePacketCapture() const;
+	PacketCaptureState* _PacketCaptureState = nullptr;
 
 	CameraStreamError InitFormatContext();
 	CameraStreamError WritePacketWithKnownDuration( const AVPacket* Packet,

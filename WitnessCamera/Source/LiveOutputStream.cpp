@@ -2,6 +2,7 @@
 #include "OutputStream.h"
 #include "InputStream.h"
 #include "StreamData.h"
+#include "PacketCapture.h"
 
 #include <Log.h>
 #include <algorithm>
@@ -9,6 +10,9 @@
 #include <chrono>
 #include <cmath>
 #include <climits>
+#include <filesystem>
+#include <format>
+#include <atomic>
 
 namespace Witness{
 namespace Camera{
@@ -16,6 +20,12 @@ namespace Camera{
 static const int AVIOBufferSize = 64 * 1024;
 static const uint64_t Fnv1aOffsetBasis = 14695981039346656037ULL;
 static const uint64_t Fnv1aPrime = 1099511628211ULL;
+
+struct PacketCaptureState
+{
+	std::mutex Mutex;
+	std::shared_ptr<PacketCapture> Current;
+};
 
 static uint64_t HashBytes(const uint8_t* Data, size_t Size, uint64_t Seed = Fnv1aOffsetBasis)
 {
@@ -337,11 +347,14 @@ LiveOutputStream::LiveOutputStream(const std::string& LiveCachePath, InputStream
 	, _SegmentsMutex( new std::mutex )
 {
 	_PendingVideoPacket = av_packet_alloc();
+	_PacketCaptureState = new PacketCaptureState();
 }
 
 LiveOutputStream::~LiveOutputStream()
 {
 	Shutdown();
+	delete _PacketCaptureState;
+	_PacketCaptureState = nullptr;
 
 	delete _StreamBacklog;
 	_StreamBacklog = nullptr;
@@ -364,6 +377,86 @@ uint64_t LiveOutputStream::BeginDiagnosticActivity()
 {
 	_CurrentDiagnosticActivity = ++_DiagnosticActivitySequence;
 	return _CurrentDiagnosticActivity;
+}
+
+std::shared_ptr<PacketCapture> LiveOutputStream::ActivePacketCapture() const
+{
+	std::lock_guard lock(_PacketCaptureState->Mutex);
+	return _PacketCaptureState->Current;
+}
+
+bool LiveOutputStream::StartPacketCapture(int CameraID, const std::string& Tier,
+	int DurationSeconds, std::string& Directory)
+{
+	if ((Tier != "main" && Tier != "preview") ||
+		CameraID <= 0 || DurationSeconds < 1 || DurationSeconds > 30)
+		return false;
+	std::lock_guard captureLock(_PacketCaptureState->Mutex);
+	if (_PacketCaptureState->Current && !_PacketCaptureState->Current->Complete())
+		return false;
+	static std::atomic<uint64_t> NextCapture{ 0 };
+	const auto Timestamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+		std::chrono::system_clock::now().time_since_epoch()).count();
+	const auto Path = std::filesystem::path(_LiveCachePath) / "packet-captures" /
+		std::format("camera-{}-{}-{}-{}", CameraID, Tier,
+			Timestamp, ++NextCapture);
+	auto Capture = std::make_shared<PacketCapture>(Path, DurationSeconds);
+	if (!Capture->Ready()) return false;
+	Capture->AddMetadata(std::format(
+		"{{\"type\":\"capture\",\"schemaVersion\":1,\"cameraId\":{},\"tier\":\"{}\",\"durationSeconds\":{}",
+		CameraID, Tier, DurationSeconds));
+	// Put the current init before any media partial. Starting mid-generation is
+	// expected; consumers should begin replay at the next independent partial.
+	SegmentBuffer Init;
+	int Generation = 0;
+	{
+		std::lock_guard segmentLock(*_SegmentsMutex);
+		Init = _InitSegmentData;
+		Generation = _InitSegmentGeneration;
+	}
+	if (Init && !Init->empty())
+		Capture->AddOutput(std::format(
+			"{{\"type\":\"init\",\"generation\":{}", Generation),
+			Init->data(), Init->size());
+	_PacketCaptureState->Current = std::move(Capture);
+	Directory = Path.string();
+	LOG_INFO("[PacketCapture] Camera %d %s: capturing up to %ds in %s",
+		CameraID, Tier.c_str(), DurationSeconds, Directory.c_str());
+	return true;
+}
+
+void LiveOutputStream::CaptureInputPacket(const AVPacket* Packet, uint64_t ActivityID)
+{
+	auto Capture = ActivePacketCapture();
+	if (!Capture || Capture->Complete() || !Packet || !Packet->data ||
+		Packet->size <= 0 || !_InputStream)
+		return;
+	const auto& Data = _InputStream->GetData();
+	if (Packet->stream_index != Data.ChosenStreamIndex &&
+		Packet->stream_index != Data.ChosenAudioStreamIndex)
+		return;
+	const AVStream* Stream = Data.FormatContext->streams[Packet->stream_index];
+	const bool Audio = Packet->stream_index == Data.ChosenAudioStreamIndex;
+	if (Capture->FirstPacketForStream(Packet->stream_index))
+	{
+		const auto* Parameters = Stream->codecpar;
+		Capture->AddMetadata(std::format(
+			"{{\"type\":\"stream\",\"streamIndex\":{},\"audio\":{},\"codecId\":{},\"timeBaseNum\":{},\"timeBaseDen\":{}",
+			Packet->stream_index, Audio, static_cast<int>(Parameters->codec_id),
+			Stream->time_base.num, Stream->time_base.den));
+		if (Parameters->extradata && Parameters->extradata_size > 0)
+			Capture->AddInput(std::format(
+				"{{\"type\":\"extradata\",\"streamIndex\":{}",
+				Packet->stream_index), Parameters->extradata,
+				static_cast<size_t>(Parameters->extradata_size));
+	}
+	const uint64_t Hash = HashBytes(Packet->data, static_cast<size_t>(Packet->size));
+	Capture->AddInput(std::format(
+		"{{\"type\":\"input\",\"activityId\":{},\"audio\":{},\"streamIndex\":{},\"codecId\":{},\"timeBaseNum\":{},\"timeBaseDen\":{},\"dts\":{},\"pts\":{},\"duration\":{},\"flags\":{},\"hashFnv64\":\"{:016x}\"",
+		ActivityID, Audio, Packet->stream_index,
+		static_cast<int>(Stream->codecpar->codec_id), Stream->time_base.num,
+		Stream->time_base.den, Packet->dts, Packet->pts, Packet->duration,
+		Packet->flags, Hash), Packet->data, static_cast<size_t>(Packet->size));
 }
 
 uint64_t LiveOutputStream::RecordFFmpegLog( int Level, const char* Phase,
@@ -933,6 +1026,15 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 			memcpy(Entry.PayloadPrefix, Packet->data, Entry.PayloadPrefixLength);
 		const std::string DispositionText = Disposition ? Disposition : "unknown";
 		Entry.Disposition = DispositionText;
+		if (auto Capture = ActivePacketCapture())
+			Capture->AddMetadata(std::format(
+				"{{\"type\":\"decision\",\"activityId\":{},\"packetSequence\":{},\"generation\":{},\"segment\":{},\"part\":{},\"audio\":{},\"disposition\":\"{}\",\"hashFnv64\":\"{:016x}\",\"sourceDtsUs\":{},\"sourcePtsUs\":{},\"sourceDurationUs\":{},\"hasOutput\":{},\"outputDtsUs\":{},\"outputPtsUs\":{},\"outputDurationUs\":{},\"normalized\":{},\"timestampRepaired\":{}",
+				_CurrentDiagnosticActivity, PacketSequence, Entry.Generation,
+				Entry.SegmentIndex, Entry.PartialIndex, Entry.Audio, DispositionText,
+				Entry.PayloadHash, Entry.SourceDtsUs, Entry.SourcePtsUs,
+				Entry.SourceDurationUs, HasOutput, Entry.OutputDtsUs,
+				Entry.OutputPtsUs, Entry.OutputDurationUs,
+				Entry.TimestampNormalized, Entry.TimestampRepaired));
 		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
 		if( DispositionText == "waitingForKeyframe" ) ++_DiagWaitingForKeyframePackets;
 		else if( DispositionText == "missingTimestamp" ) ++_DiagMissingTimestampPackets;
@@ -1584,6 +1686,13 @@ bool LiveOutputStream::FlushPartialSegment(bool IsIndependent)
 	// so releaseRendering is captured on this exact independent fragment.
 	if( PublishesRecovery )
 		PublishDecodeRecovery( FragmentDiag.SegmentIndex, FragmentDiag.PartIndex );
+	if (auto Capture = ActivePacketCapture())
+		Capture->AddOutput(std::format(
+			"{{\"type\":\"partial\",\"generation\":{},\"segment\":{},\"part\":{},\"independent\":{},\"hashFnv64\":\"{:016x}\",\"structureValid\":{}",
+			FragmentDiag.Generation, FragmentDiag.SegmentIndex,
+			FragmentDiag.PartIndex, FragmentDiag.Independent,
+			FragmentDiag.Hash, FragmentDiag.StructureValid),
+			PartialData->data(), PartialData->size());
 
 	// Notify MSE subscribers of new partial
 	if (_EventCallback)
@@ -1718,6 +1827,10 @@ CameraStreamError LiveOutputStream::StartNewSegment(const AVPacket* Packet)
 		}
 
 		_InitSegmentCaptured = true;
+		if (auto Capture = ActivePacketCapture())
+			Capture->AddOutput(std::format(
+				"{{\"type\":\"init\",\"generation\":{}", _InitGeneration),
+				_InitSegmentData->data(), _InitSegmentData->size());
 		if (!InitStructure.Valid)
 			CaptureDiagnosticAnomaly("invalidInitStructure");
 

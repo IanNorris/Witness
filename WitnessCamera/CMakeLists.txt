@@ -51,6 +51,7 @@ set(CAMERA_SOURCES
     Source/LiveOutputStream.cpp
     Source/MotionVectorFilter.cpp
     Source/ONNXDetectionFilter.cpp
+    Source/PacketCapture.cpp
     Source/PersonRecognitionFilter.cpp
     Source/ReolinkBaichuanClient.cpp
     Source/ReolinkUnofficialFilter.cpp
@@ -131,3 +132,12 @@ add_custom_command(TARGET WitnessCamera POST_BUILD
         "$<TARGET_FILE_DIR:WitnessCamera>/"
     COMMENT "Copying official CPU-only ONNX Runtime"
 )
+
+add_executable(PacketCaptureTests EXCLUDE_FROM_ALL
+    ../Tools/Tests/PacketCaptureTests.cpp
+    Source/PacketCapture.cpp
+)
+target_include_directories(PacketCaptureTests PRIVATE Source)
+if(MSVC)
+    target_compile_options(PacketCaptureTests PRIVATE /utf-8 /W3)
+endif()

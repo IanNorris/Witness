@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <climits>
 #include <windows.h>
 #include <psapi.h>
 
@@ -594,6 +595,88 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 	res.set_header( "Content-Type", "application/json" );
 	res.set_header( "Cache-Control", "no-store" );
 	res.body = Data.dump();
+	res.code = 200;
+	res.end();
+}
+
+void CrowListener::HandleDebugPacketCapture( const crow::request& req, crow::response& res )
+{
+	auto body = crow::json::load(req.body);
+	if (!body)
+	{
+		res.code = 400;
+		res.end();
+		return;
+	}
+	if (CrowAuth::IsAuthenticated(*m_GlobalContext, req, &body,
+		CrowAuth::Action::ReadWrite, CrowAuth::Privilege::Administrator) < 0)
+	{
+		res.code = 403;
+		res.end();
+		return;
+	}
+	if (!body.has("cameraId") || !body.has("tier") ||
+		body["cameraId"].t() != crow::json::type::Number ||
+		body["tier"].t() != crow::json::type::String ||
+		(body.has("durationSeconds") &&
+			body["durationSeconds"].t() != crow::json::type::Number))
+	{
+		res.code = 400;
+		res.body = "cameraId and tier are required";
+		res.end();
+		return;
+	}
+	const int64_t requestedCameraId = body["cameraId"].i();
+	const std::string tier = body["tier"].s();
+	const int64_t requestedDuration = body.has("durationSeconds") ?
+		body["durationSeconds"].i() : 20;
+	if (requestedCameraId <= 0 || requestedCameraId > INT_MAX ||
+		(tier != "main" && tier != "preview") ||
+		requestedDuration < 1 || requestedDuration > 30)
+	{
+		res.code = 400;
+		res.body = "Invalid camera, tier or duration (1-30 seconds)";
+		res.end();
+		return;
+	}
+	const int cameraId = static_cast<int>(requestedCameraId);
+	const int duration = static_cast<int>(requestedDuration);
+	std::shared_ptr<Witness::Camera::LiveOutputStream> stream;
+	{
+		std::shared_lock<std::shared_mutex> lock(m_GlobalContext->Mutex);
+		const auto& cameras = m_GlobalContext->GetCameraMap();
+		const auto it = cameras.find(cameraId);
+		if (it != cameras.end() && it->second.Worker)
+		{
+			if (tier == "main") stream = it->second.Worker->GetLiveStream();
+			else if (auto sub = it->second.Worker->GetSubStreamWorker())
+				stream = sub->GetLiveStream();
+		}
+	}
+	if (!stream)
+	{
+		res.code = 404;
+		res.body = "Live stream unavailable";
+		res.end();
+		return;
+	}
+	std::string directory;
+	if (!stream->StartPacketCapture(cameraId, tier, duration, directory))
+	{
+		res.code = 409;
+		res.body = "Capture already active or output directory unavailable";
+		res.end();
+		return;
+	}
+	crow::json::wvalue data;
+	data["cameraId"] = cameraId;
+	data["tier"] = tier;
+	data["durationSeconds"] = duration;
+	data["directory"] = directory;
+	data["rawMediaIncluded"] = true;
+	res.set_header("Content-Type", "application/json");
+	res.set_header("Cache-Control", "no-store");
+	res.body = data.dump();
 	res.code = 200;
 	res.end();
 }
