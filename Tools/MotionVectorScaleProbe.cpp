@@ -21,6 +21,7 @@ struct ProbeStats {
     int64_t vectors = 0;
     int64_t moving = 0;
     std::map<int, int64_t> scales;
+    std::map<int, int64_t> blockAreas;
     std::map<int, int64_t> legacyAccepted;
 };
 
@@ -87,6 +88,7 @@ int main(int argc, char** argv) {
                         const AVMotionVector& mv = vectors[i];
                         const int scale = mv.motion_scale;
                         ++stats.scales[scale];
+                        ++stats.blockAreas[int(mv.w) * mv.h];
                         ++stats.vectors;
                         const int64_t squared = int64_t(mv.motion_x) * mv.motion_x + int64_t(mv.motion_y) * mv.motion_y;
                         stats.moving += squared > 0;
@@ -106,6 +108,9 @@ int main(int argc, char** argv) {
     for (const auto& [scale, count] : stats.scales) {
         std::cout << "  scale=" << scale << " vectors=" << count
                   << " legacy_accepted=" << stats.legacyAccepted[scale] << '\n';
+    }
+    for (const auto& [area, count] : stats.blockAreas) {
+        std::cout << "  block_area=" << area << " vectors=" << count << '\n';
     }
     av_frame_free(&frame);
     av_packet_free(&packet);

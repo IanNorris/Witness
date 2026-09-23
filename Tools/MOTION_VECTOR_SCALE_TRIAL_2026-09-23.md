@@ -28,10 +28,10 @@ change behaviour.
 The large count differences are scene/instant dependent and do not establish
 whether these cameras have equivalent motion sensitivity. `motion_scale` alone
 cannot normalize block size, frame rate, vector density, masks or camera scene.
-Before changing the filter, sample the Tapo and Reolink streams with this probe
-and collect labelled quiet/active clips for each provider. Compare decoded
-vector scales and block areas, then replay identical input through old and
-normalized scoring to verify equivalent Hikvision decisions.
+The follow-up Tapo and Reolink sample is documented in
+`Tools/MOTION_VECTOR_PROVIDER_COMPARISON_2026-09-23.md`. The remaining work is
+to collect labelled quiet/active clips per provider and replay identical input
+through old and normalized scoring to verify equivalent Hikvision decisions.
 
 The reproducible sampler is `Tools/MotionVectorScaleProbe.cpp`. Compile it
 against the project's existing vcpkg FFmpeg installation. Pass a camera ID as
