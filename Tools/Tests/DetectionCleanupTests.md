@@ -8,4 +8,5 @@ It advances the clock 30 days, derives a three-day retention cutoff, and verifie
 that only eligible rows strictly before that cutoff are deleted. Coverage includes
 clips, DVR segments, verified face crops, an exact-cutoff row, newer rows,
 cross-camera paths, shared assets, a full page of protected candidates, cursor
-resume after restart, and a recently rewritten file awaiting a later retry.
+resume after restart, a recently rewritten file awaiting a later retry, and
+an already-missing managed file whose pending row must clear without a retry.

@@ -220,6 +220,17 @@ int main()
 		restarted.RunPass( realNow - 3.0 * 86400.0 );
 		Require( !fs::exists( reused ) && Count( raw, "SELECT COUNT(*) FROM DetectionAssetDeletePending" ) == 0,
 			"old pending asset did not drain" );
+
+		// An already-missing managed file is a successful cleanup, including on
+		// Windows where is_directory(path, ec) sets ENOENT for the absent file.
+		const fs::path alreadyMissing = cache.Root / "frames/1/already-gone.jpg";
+		{
+			Insert pending( raw, "INSERT INTO DetectionAssetDeletePending(Path,CameraID) VALUES(?1,1)" );
+			pending.Text( 1, alreadyMissing ); pending.Run();
+		}
+		restarted.RunPass( realNow - 3.0 * 86400.0 );
+		Require( Count( raw, "SELECT COUNT(*) FROM DetectionAssetDeletePending" ) == 0,
+			"missing asset remained in the pending delete queue" );
 		std::cout << "DetectionCleanup future-cutoff safety tests passed\n";
 		return 0;
 	}

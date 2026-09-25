@@ -297,13 +297,18 @@ int SQLiteDatabaseQuery::Execute( const std::function< bool(const SQLiteDatabase
 
 		if( !earlyBreak )
 		{
-			AssertQuery( result == SQLITE_DONE, "Error while reading rows: %s", sqlite3_errmsg( m_database->GetDatabase() ) );
+			AssertQuery( result == SQLITE_DONE, "Error while reading rows (result=%d, extended=%d): %s",
+				result, sqlite3_extended_errcode( m_database->GetDatabase() ),
+				sqlite3_errmsg( m_database->GetDatabase() ) );
 			if (result != SQLITE_DONE)
 			{
 				std::string ErrorString(sqlite3_errmsg( m_database->GetDatabase() ));
 
 
 				m_lastError = std::string( ErrorString.begin(), ErrorString.end() );
+				// A failed prepared statement must not keep a read transaction or
+				// lock alive until the next use of this shared query object.
+				Reset();
 				return -1;
 			}
 		}

@@ -65,6 +65,10 @@ bool DeleteManagedDetectionAssets( const std::string& CachePath, int CameraID,
 			LOG_WARNING( "Skipping removal of detection asset directory %s", assetPath.c_str() );
 			continue;
 		}
+		// On Windows, is_directory(path, ec) reports ENOENT for a missing
+		// file. It is already deleted, so its pending database row can clear.
+		if( ec == std::errc::no_such_file_or_directory )
+			continue;
 		if( ec )
 		{
 			LOG_WARNING( "Failed to inspect detection asset %s: %s", assetPath.c_str(), ec.message().c_str() );
@@ -72,6 +76,9 @@ bool DeleteManagedDetectionAssets( const std::string& CachePath, int CameraID,
 			continue;
 		}
 		fs::remove( absolutePath, ec );
+		// The file may also disappear between inspection and removal.
+		if( ec == std::errc::no_such_file_or_directory )
+			continue;
 		if( ec )
 		{
 			LOG_WARNING( "Failed to remove expired detection asset %s: %s", assetPath.c_str(), ec.message().c_str() );

@@ -3,6 +3,7 @@
 #include "GlobalContext.h"
 
 #include <Log.h>
+#include <algorithm>
 #include <filesystem>
 #include <limits>
 
@@ -173,22 +174,35 @@ void DeleteOldContinuousSegments( const GlobalContext& Context, int DaysToDelete
 		}
 	);
 
+	int deleted = 0;
 	for( auto& Seg : SegmentsToDelete )
 	{
 		std::error_code ec;
 		if( !Seg.FilePath.empty() )
 		{
 			fs::remove( Seg.FilePath, ec );
+			if( ec && ec != std::errc::no_such_file_or_directory )
+			{
+				LOG_WARNING( "Could not remove expired continuous segment %lld: %s",
+					static_cast<long long>( Seg.SegmentUID ), ec.message().c_str() );
+				continue;
+			}
 		}
 
 		SQLiteDatabaseQueryInstance DeleteSeg( Context.Database, "DeleteContinuousSegment" );
 		DeleteSeg->Bind( "@SegmentUID", Seg.SegmentUID );
-		DeleteSeg->Execute( [](const SQLiteDatabaseQuery&) { return true; } );
+		if( DeleteSeg->Execute( nullptr ) < 0 )
+		{
+			LOG_WARNING( "Could not unregister expired continuous segment %lld; retrying next pass",
+				static_cast<long long>( Seg.SegmentUID ) );
+			break;
+		}
+		++deleted;
 	}
 
-	if( SegmentsToDelete.size() )
+	if( deleted > 0 )
 	{
-		LOG_INFO( "Deleted %zu continuous segments older than %d days.", SegmentsToDelete.size(), DaysToDelete );
+		LOG_INFO( "Deleted %d continuous segments older than %d days.", deleted, DaysToDelete );
 	}
 }
 
@@ -324,12 +338,16 @@ void EnforceQuotaContinuousSegments( const GlobalContext& Context, int64_t quota
 		return true;
 	});
 
+	// Keep maintenance bounded even when the quota is far behind. The timer
+	// will resume with the next oldest row on its next pass.
+	constexpr int MaxQuotaDeletionsPerPass = 100;
 	int deleted = 0;
-	while( totalSize > quotaBytes )
+	while( totalSize > quotaBytes && deleted < MaxQuotaDeletionsPerPass )
 	{
 		SQLiteDatabaseQueryInstance oldest( Context.Database, "SelectOldestContinuousSegment" );
 
 		int64_t segUID = 0;
+		int64_t accountedSize = 0;
 		std::string filePath;
 		bool found = false;
 		oldest->Execute( [&]( const SQLiteDatabaseQuery& q )
@@ -337,27 +355,38 @@ void EnforceQuotaContinuousSegments( const GlobalContext& Context, int64_t quota
 			segUID = q.GetColumnValueInt64(0);
 			const char* path = q.GetColumnValueText(1);
 			filePath = path ? path : "";
+			accountedSize = q.GetColumnValueInt64(2);
 			found = true;
 			return true;
 		});
 
 		if( !found ) break;
 
-		// Get file size before deleting (for accurate tracking)
-		int64_t fileSize = 0;
 		std::error_code ec;
 		if( !filePath.empty() )
 		{
-			auto fsize = fs::file_size( filePath, ec );
-			if( !ec ) fileSize = static_cast<int64_t>(fsize);
 			fs::remove( filePath, ec );
+			if( ec && ec != std::errc::no_such_file_or_directory )
+			{
+				LOG_WARNING( "Could not remove quota continuous segment %lld: %s",
+					static_cast<long long>( segUID ), ec.message().c_str() );
+				break;
+			}
 		}
 
 		SQLiteDatabaseQueryInstance del( Context.Database, "DeleteContinuousSegment" );
 		del->Bind( "@SegmentUID", segUID );
-		del->Execute( [](const SQLiteDatabaseQuery&) { return true; } );
+		if( del->Execute( nullptr ) < 0 )
+		{
+			LOG_WARNING( "Could not unregister quota continuous segment %lld; retrying next pass",
+				static_cast<long long>( segUID ) );
+			break;
+		}
 
-		totalSize -= fileSize;
+		// The quota is the SUM of stored FileSize values, not the size of a
+		// file that may already have been removed by an earlier failed pass.
+		if( accountedSize > 0 )
+			totalSize -= std::min( totalSize, accountedSize );
 		deleted++;
 	}
 
@@ -405,11 +434,25 @@ void CheckDiskSpaceSafety( const GlobalContext& Context )
 			if( !found ) break;
 
 			std::error_code rmec;
-			if( !filePath.empty() ) fs::remove( filePath, rmec );
+			if( !filePath.empty() )
+			{
+				fs::remove( filePath, rmec );
+				if( rmec && rmec != std::errc::no_such_file_or_directory )
+				{
+					LOG_WARNING( "Could not remove emergency continuous segment %lld: %s",
+						static_cast<long long>( segUID ), rmec.message().c_str() );
+					break;
+				}
+			}
 
 			SQLiteDatabaseQueryInstance del( Context.Database, "DeleteContinuousSegment" );
 			del->Bind( "@SegmentUID", segUID );
-			del->Execute( [](const SQLiteDatabaseQuery&) { return true; } );
+			if( del->Execute( nullptr ) < 0 )
+			{
+				LOG_WARNING( "Could not unregister emergency continuous segment %lld; retrying next pass",
+					static_cast<long long>( segUID ) );
+				break;
+			}
 			deleted++;
 
 			// Recheck space after batch

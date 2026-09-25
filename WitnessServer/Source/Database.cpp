@@ -926,7 +926,7 @@ namespace Database
 	)RAW";
 
 	std::string SelectOldestContinuousSegment = R"RAW(
-		SELECT SegmentUID, FilePath FROM ContinuousSegment
+		SELECT SegmentUID, FilePath, COALESCE(FileSize, 0) FROM ContinuousSegment
 		ORDER BY StartTimestamp ASC
 		LIMIT 1;
 	)RAW";
