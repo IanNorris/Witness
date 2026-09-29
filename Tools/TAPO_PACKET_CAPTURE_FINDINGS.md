@@ -76,3 +76,45 @@ remain active and can reject normalization if the source and duration clocks
 subsequently drift by more than 5%. The automatic path is enabled for preview
 streams only; established Reolink main-stream and recording behavior is
 unchanged.
+
+## September 30 follow-up: preview repair rejection
+
+The September 29 health export identifies camera 8 preview freezing at
+23:20:11 UTC. Its current epoch contains 301,458 dropped packets and only 111
+timestamp repairs; recent events show repeated `nonMonotonicInput` drops and
+decode holds. Other visible players' error counters are cumulative and do not
+establish a simultaneous failure at this time.
+
+Inspection found that automatic preview repair still uses the damaged source
+clock both for phase steering and for the two-minute cadence validation. A
+failed validation permanently disables repair until input reconnects. The
+export does not retain that rejection log, so this is a code-supported failure
+mechanism, not proof of the exact rejection event in production.
+
+For automatically qualified **video-only** previews, the repair now uses steady
+arrival time as its reference. Packet durations still create the continuous
+output timeline; a bounded 5% correction gently follows arrival cadence rather
+than reproducing source-clock jumps. Two-minute cadence validation still rejects
+sustained rate mismatch, but compares durations to elapsed arrival time. Audio
+streams, Reolink's explicit profile, B-frame streams, and unqualified/VFR inputs
+retain their existing policies. Reconnect resets the reference anchors.
+
+`TimestampRegressionGuardTests` covers repeated source regressions beyond two
+minutes, arrival jitter, sustained rate mismatch, source-clock fallback, and
+reference reset. `LivePreviewProbe` is an opt-in real-input test, not part of
+normal builds or automated tests. Set `WITNESS_PREVIEW_PROBE_URL` privately, then
+run `LivePreviewProbe 150 output.mp4`; it exercises the actual preview mux,
+reports packet dispositions, and writes published fMP4 for independent decoding.
+The URL is deliberately not a command argument. Handle the output as sensitive
+video. Use the built probe beside the normal runtime DLLs.
+
+Local camera 8 verification: a fresh 25-second direct RTSP sample observed 22
+backward video-DTS steps (about 290–420 ms). A subsequent 150-second test through
+the actual patched Witness mux accepted 2,478 packets, repaired 124 regressions,
+and recorded zero non-monotonic input/output drops, zero mux errors, zero
+correction saturation, and no generation change. Normalization remained active
+after the two-minute validation boundary. One other packet was dropped; the
+initial probe did not export its disposition. The saved output contained 2,477
+packets across 149.104 seconds, strictly increasing DTS, and decoded through
+FFmpeg with zero errors. This is bounded local verification, not a production
+soak test or a claim to resolve all genuine source/network corruption.

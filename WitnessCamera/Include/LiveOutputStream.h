@@ -3,6 +3,7 @@
 #include "Stream.h"
 #include "InputStream.h"
 #include "SegmentBuffer.h"
+#include "TimestampCadenceClock.h"
 #include <mutex>
 #include <chrono>
 #include <string>
@@ -232,6 +233,7 @@ private:
 	int _TimestampProbeOutliers;
 	int64_t _TimestampProbeInputTicks;
 	int64_t _TimestampProbeDurationTicks;
+	TimestampCadenceClock _TimestampCadenceClock;
 	int _TimestampStableCadenceSamples;
 	int64_t _TimestampStableCadenceTicks;
 	int64_t _SourceTimestampOffset;

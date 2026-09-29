@@ -145,7 +145,13 @@ endif()
 add_executable(TimestampRegressionGuardTests EXCLUDE_FROM_ALL
     ../Tools/Tests/TimestampRegressionGuardTests.cpp
 )
-target_include_directories(TimestampRegressionGuardTests PRIVATE Source)
+target_include_directories(TimestampRegressionGuardTests PRIVATE Source Include)
 if(MSVC)
     target_compile_options(TimestampRegressionGuardTests PRIVATE /utf-8 /W3)
 endif()
+
+# Manual, opt-in real-camera verification; never run as an unattended test.
+add_executable(LivePreviewProbe EXCLUDE_FROM_ALL ../Tools/Tests/LivePreviewProbe.cpp)
+target_include_directories(LivePreviewProbe PRIVATE Include ${FFMPEG_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
+target_link_directories(LivePreviewProbe PRIVATE ${FFMPEG_LIBRARY_DIRS})
+target_link_libraries(LivePreviewProbe PRIVATE WitnessCamera ${FFMPEG_LIBRARIES})

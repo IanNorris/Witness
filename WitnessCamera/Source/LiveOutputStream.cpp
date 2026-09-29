@@ -600,6 +600,7 @@ void LiveOutputStream::ResetForReconnect(InputStream* NewInputStream)
 	_TimestampProbeOutliers = 0;
 	_TimestampProbeInputTicks = 0;
 	_TimestampProbeDurationTicks = 0;
+	_TimestampCadenceClock.Reset();
 	_TimestampStableCadenceSamples = 0;
 	_TimestampStableCadenceTicks = 0;
 	_SourceTimestampOffset = 0;
@@ -1259,6 +1260,14 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 				{
 					_NormalizeNoBFrameTimestamps = true;
 					_SourceTimestampOffset = 0;
+					// A preview without audio needs no source-clock synchronization.
+					// Its regressing clock must not also be the repair's reference.
+					if (!_AllowTimestampNormalization && !_HasAudioStream)
+					{
+						_TimestampCadenceClock.StartArrival(av_rescale_q(
+							ArrivalMs, AVRational{1, 1000}, InputTimebase),
+							_LastWrittenDTS + _LastOutputPacketDuration);
+					}
 					_TimestampProbeSamples = 0;
 					_TimestampProbeOutliers = 0;
 					_TimestampProbeInputTicks = 0;
@@ -1269,8 +1278,9 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 						(double)(_LastInputDTS - PacketCopy.dts) *
 						InputTimebase.num * 1000.0 / InputTimebase.den;
 					LOG_INFO(
-						"[HLS] Source %d enabled bounded no-B-frame timestamp repair after %.1fms DTS regression",
-						_InputStream->GetSourceId(), RegressionMs);
+						"[HLS] Source %d enabled bounded no-B-frame timestamp repair after %.1fms DTS regression (%s clock)",
+						_InputStream->GetSourceId(), RegressionMs,
+						_TimestampCadenceClock.UseArrival ? "arrival" : "source");
 				}
 			}
 
@@ -1386,11 +1396,13 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 					_TimestampProbeDurationTicks, InputTimebase, AV_TIME_BASE_Q);
 				if (ProbeDurationUs >= 120 * AV_TIME_BASE)
 				{
-					const int64_t SignedError =
-						_TimestampProbeInputTicks - _TimestampProbeDurationTicks;
-					const int64_t AbsoluteError = SignedError < 0 ? -SignedError : SignedError;
+					const int64_t ArrivalTicks = av_rescale_q(
+						ArrivalMs, AVRational{1, 1000}, InputTimebase);
+					const int64_t ReferenceTicks = _TimestampCadenceClock.WindowElapsed(
+						_TimestampProbeInputTicks, ArrivalTicks);
+					const int64_t SignedError = ReferenceTicks - _TimestampProbeDurationTicks;
 					const bool WindowCadenceDrifted =
-						AbsoluteError * 100 > _TimestampProbeDurationTicks * 5;
+						TimestampCadenceClock::CadenceDrifted(ReferenceTicks, _TimestampProbeDurationTicks);
 					const double DriftMs =
 						(double)SignedError * InputTimebase.num * 1000.0 / InputTimebase.den;
 
@@ -1401,15 +1413,16 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 						_SourceTimestampOffset =
 							(_LastWrittenDTS + _LastOutputPacketDuration) - PacketCopy.dts;
 						LOG_WARNING(
-							"[HLS] Source %d stopped timestamp normalization: %.1fms drift over %.1fs (%d samples)",
+							"[HLS] Source %d stopped timestamp normalization: %.1fms drift over %.1fs (%d samples, %s clock)",
 							_InputStream->GetSourceId(), DriftMs, ProbeDurationUs / 1000000.0,
-							_TimestampProbeSamples);
+							_TimestampProbeSamples, _TimestampCadenceClock.UseArrival ? "arrival" : "source");
 					}
 
 					_TimestampProbeSamples = 0;
 					_TimestampProbeOutliers = 0;
 					_TimestampProbeInputTicks = 0;
 					_TimestampProbeDurationTicks = 0;
+					_TimestampCadenceClock.NextWindow(ArrivalTicks);
 				}
 			}
 		}
@@ -1481,7 +1494,8 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 
 	// Once the Reolink source has met the guarded jitter test, build a continuous
 	// output clock from declared durations, then gently steer it towards the raw
-	// source clock shared with audio. A duration-only clock runs at a measurably
+	// source clock shared with audio (or steady arrival time for qualified
+	// video-only previews). A duration-only clock runs at a measurably
 	// different rate on some cameras, eventually placing AAC seconds ahead of
 	// video. The ten-second response window rejects short DTS wander while the 5%
 	// limit keeps every output interval positive and close to the nominal cadence.
@@ -1499,7 +1513,9 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 			// The previous packet advertised this duration, so using it here keeps
 			// FFmpeg's fragment boundary rewrite exactly on the same timeline.
 			const int64_t ExpectedDTS = _LastWrittenDTS + _LastOutputPacketDuration;
-			const int64_t TargetDTS = RawDTS + _SourceTimestampOffset;
+			const int64_t TargetDTS = _TimestampCadenceClock.Target(
+				RawDTS + _SourceTimestampOffset,
+				av_rescale_q(ArrivalMs, AVRational{1, 1000}, InputTimebase));
 			const int64_t PhaseError = TargetDTS - ExpectedDTS;
 			const int64_t ResponseWindowTicks = av_rescale_q(
 				10 * AV_TIME_BASE, AV_TIME_BASE_Q, InputTimebase);
