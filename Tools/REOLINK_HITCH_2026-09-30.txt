@@ -1,0 +1,102 @@
+Reolink live-stream hitch investigation — 30 September 2026
+
+Scope
+Merged the approved DVR/viewer fixes into master and pushed them before starting.
+Fix branch: codex/reolink-audio-mux-timing. Implementation commit: 577e4af.
+No production database, camera settings, authentication or dependency versions
+were changed. Credentials for bounded native probes came from a read-only DB.
+
+Production evidence
+Health export: witness-health-2026-09-30T01-53-47-298Z.json.
+Camera 13's browser player was using preview/sub, with 21 restarts (mostly
+drift), latency up to 18.67 seconds and fresh incoming fragments. Camera 11
+also had drift restarts. All Reolink tiers had many negative audio-duration and
+missing-PTS mux warnings. Current HTTP timings did not suggest saturation.
+Camera 12 main had separate real HEVC reference/corruption errors. Those are
+not explained or fixed by an audio clock change.
+
+Confirmed local defect and fix
+AAC-LC access units from the tested cameras represent 1024 samples at 16 kHz
+(64 ms). Source timestamps jitter around that cadence, sometimes almost zero
+apart. FFmpeg's MP4 writer compares a new fragment DTS against the previous
+sample's END, not only against its starting DTS; an overlap causes duration
+warnings, one-tick samples and missing PTS.
+Reference implementation: FFmpeg n8.0 libavformat/movenc.c, check_pkt:
+https://raw.githubusercontent.com/FFmpeg/FFmpeg/n8.0/libavformat/movenc.c
+
+For explicitly enabled Reolink timestamp normalization only, ordinary two-byte
+AAC-LC ASC with a matching sample-rate timebase now uses a sample-exact clock.
+Supports both 1024- and 960-sample frame flags. Encoded payload is untouched.
+Unknown/extended ASC, other audio codecs, other camera profiles and recording
+output retain their existing paths. Forward gaps beyond 16 access units are
+preserved; distant backward resets are rejected rather than rewritten forever.
+This is deliberately bounded, not a blanket ignore-errors policy.
+
+Measurements
+Camera 13 original 120-second mux capture: 1,833 AAC packets, including 126
+one-tick durations; 1,236 durations differed from 1024 samples.
+Camera 13 repaired 15-minute capture: 14,017 AAC packets, zero one-tick samples,
+only two non-1024 durations (initial mux alignment and a retained discontinuity).
+Camera 11 repaired 15-minute capture: 14,020 AAC packets, zero one-tick samples,
+only the initial alignment duration differed from 1024. Both had strictly
+increasing demuxed audio DTS, with no separate gaps after sample durations.
+
+Both 15-minute live preview tests: no reconnect/generation change, no established
+video packet drops, no mux errors, zero negative audio-duration warnings,
+zero missing-PTS warnings and zero FFmpeg errors. Each had one startup video
+drop/recovery. Camera 13 had two output timestamp safety rejections (audio),
+and ended around 1.06 seconds A/V skew; camera 11 had none and about 137 ms.
+Do not represent these as proof of zero audio loss or zero long-session drift.
+
+Thirty-second delayed input/output audits on each camera: 1,069 input packets
+and decisions, all written, no pre-mux payload changes, hash mismatches or
+writer queue rejections. One unmatched source correlation per capture is the
+pending packet straddling the capture boundary.
+
+Browser validation and an important discarded hypothesis
+The first replay fixture accidentally omitted audio-only moofs, which made
+Firefox stall repeatedly at the same point. Correcting that fixture removed
+the artificial stall. Trials of segments mode and disabling back-buffer removal
+were reverted; the shipped browser player is unchanged.
+The original 90-second capture and repaired three-minute camera-13 capture
+both played in Firefox 156 without stalls/restarts/errors. The repaired
+camera-11 capture also passed three minutes in Chromium (two startup rendering
+drops, no stalls/restarts/errors). Longer and final-build results follow below.
+Replay preserves every moof/mdat, but schedules by video time; it is not a
+reproduction of original network-arrival jitter or exact partial boundaries.
+
+Regressions
+TimestampRegressionGuardTests, PacketCaptureTests, packet_capture_report Python
+test, DVR highlights tests and DVR browser/playback/navigation tests passed.
+Complete VS2026 RelWithDebInfo WitnessServer build succeeded, without rebuilding
+the external dependency stack. Existing C4251 and LNK4075 warnings remain.
+
+Limitations / next production check
+The AAC mux defect is reproduced and repaired. The original multi-camera
+production hitch has NOT yet been reproduced faithfully or proven solved.
+Collect a fresh health export if it recurs, with the affected player's selected
+tier, drift/frozen restart reason, A/V skew, fragment/append age and server
+audio timestamp evidence. Camera 12's real video corruption is separate work.
+Use a test deployment before merging this investigation branch into master.
+
+Final checks and handoff
+Camera 13 repaired preview, ten-minute Firefox 156 replay: zero stalls,
+restarts, errors, integrity failures or rendering drops; 11,974 video frames,
+1.196–1.484 seconds measured headroom/latency and currentTime 598.70 seconds.
+The replay did traverse the later retained audio timestamp discontinuity.
+Final-build camera 13 HEVC main, five-minute live native test: no reconnect,
+established video drops, mux errors or audio warnings; three audio output
+timestamp safety rejections and final A/V skew about 1.07 seconds. These
+remaining clock discontinuities deserve production monitoring.
+Full repaired camera-13 preview and HEVC-main captures decoded in FFmpeg
+without video decoder errors (using the matching 90 kHz output timebase).
+Final native timing/capture and DVR browser regressions passed again.
+
+Deployment folder:
+build-vs2026/deploy/2026-09-30-reolink-aac-577e4af
+Web/TUI bundle identity: c55b5c894fb7 (bundle identity is not a Git revision).
+Package EXE, Witness DLLs and Web/build-hash hashes match the build output.
+Replace all Witness binaries and Web together; preserve the existing database,
+configuration and authentication. There is no database in this package.
+Private packet captures remain under ignored build-vs2026 directories for
+follow-up work; they have not been committed or pushed.

@@ -139,14 +139,14 @@ empty/baseline observation evidence as a prerequisite for reliable persistence.
 
 ## Streaming diagnostics
 
-- Investigate malformed Reolink AAC timestamps in the live MP4 muxer. The
-  17 September health export showed all Reolink main and preview streams
-  continuously emitting negative audio packet-duration and missing-PTS
-  warnings, sometimes including `audio-packet / nonMonotonicOutput`. Capture
-  raw AAC DTS/PTS/duration, attribute stream-1 mux warnings as audio, then
-  validate whether AAC PTS can safely follow DTS and duration can be derived
-  from samples/timebase. Aggregate repeated messages so they cannot evict
-  reconnect and recovery evidence from the diagnostic ring.
+- Production-validate the guarded Reolink live AAC sample clock (30 September
+  investigation, `Tools/REOLINK_HITCH_2026-09-30.txt`). Local captures confirmed
+  timestamp jitter and one-tick muxed audio samples; fixed live tests eliminated
+  negative-duration/missing-PTS warnings. Retain investigation of rare clock
+  resets, long-session A/V drift and the original production hitch; short replay
+  tests alone cannot prove those solved. Other audio codecs/ASC extensions and
+  recording output deliberately retain their existing timing. Aggregate repeated
+  FFmpeg messages so they cannot evict reconnect/recovery evidence.
 
 - Add bounded, opt-in retention of encoded media around an anomaly so the exact
   access units can be replayed through software decoders offline. Redact stream
