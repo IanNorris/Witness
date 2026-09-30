@@ -300,6 +300,7 @@ function handleEnded(source: HTMLVideoElement) {
     } else swapToNext()
   } else if (currentSegIdx.value >= segments.value.length - 1) {
     playing.value = false
+    if (currentSeg.value) emit('gap', currentSeg.value.to)
   }
 }
 
@@ -397,7 +398,7 @@ async function fetchSegments() {
       let found = false
       for (let i = 0; i < segments.value.length; i++) {
         const seg = segments.value[i]!
-        if (props.startAt >= seg.from && props.startAt <= seg.to) {
+        if (props.startAt >= seg.from && props.startAt < seg.to) {
           startIdx = i
           seekOffset = props.startAt - seg.from
           found = true
@@ -445,7 +446,7 @@ function loadSegment(idx: number, seekTo = 0) {
     // Load into back video, swap when ready to avoid flash
     const back = getBack()
     if (!back) return
-    const shouldPlay = !active.paused
+    const shouldPlay = wantsPlayback.value
     swapPending = true
     back.pause()
     back.src = `/dvr/segment/${seg.id}`
@@ -560,7 +561,7 @@ function setRate(rate: number) {
 function seekToTimestamp(ts: number) {
   for (let i = 0; i < segments.value.length; i++) {
     const seg = segments.value[i]!
-    if (ts >= seg.from && ts <= seg.to) {
+    if (ts >= seg.from && ts < seg.to) {
       error.value = null
       const offset = Math.max(0, Math.min(ts - seg.from, seg.duration - 0.1))
       if (i !== currentSegIdx.value) {
