@@ -28,9 +28,13 @@ const routes = [
     meta: { requiresAuth: true },
   },
   {
-    path: '/stream/:cameraId',
+    path: '/live/:cameraId',
     component: () => import('../views/StreamView.vue'),
     meta: { requiresAuth: true },
+  },
+  {
+    path: '/stream/:cameraId',
+    redirect: (to: RouteLocationNormalized) => ({ path: `/live/${to.params.cameraId}`, query: to.query }),
   },
   {
     path: '/trails',

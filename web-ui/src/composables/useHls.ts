@@ -199,7 +199,7 @@ export function useHls(
   const codecUnsupported = ref(false)
 
   const diagId = String(cameraId) + suffix
-  const sourceUrl = `/stream/${cameraId}`
+    const sourceUrl = `/stream/${cameraId}/playlist`
   const diag = new StreamDiagnostics(diagId)
   diagMap[diagId] = diag
 

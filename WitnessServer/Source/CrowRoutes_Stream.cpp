@@ -93,7 +93,7 @@ void CrowListener::HandlePlaylist( const crow::request& req, crow::response& res
 			Playlist << "#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,PART-HOLD-BACK=" << PartHoldBack << "\n";
 		}
 
-		Playlist << "#EXT-X-MAP:URI=\"" << cameraId << "/0/i?g=" << InitGeneration << "\"\n";
+		Playlist << "#EXT-X-MAP:URI=\"/stream/" << cameraId << "/0/i?g=" << InitGeneration << "\"\n";
 		Playlist << "\n";
 
 		Playlist.precision(4);
@@ -108,7 +108,7 @@ void CrowListener::HandlePlaylist( const crow::request& req, crow::response& res
 			if( Seg.Discontinuity )
 			{
 				Playlist << "#EXT-X-DISCONTINUITY\n";
-				Playlist << "#EXT-X-MAP:URI=\"" << cameraId << "/0/i?g=" << InitGeneration << "\"\n";
+				Playlist << "#EXT-X-MAP:URI=\"/stream/" << cameraId << "/0/i?g=" << InitGeneration << "\"\n";
 			}
 
 			std::string dateTimeFormat = std::format( "{:%Y-%m-%dT%H:%M:%S}", Seg.SegmentTime );
@@ -120,7 +120,7 @@ void CrowListener::HandlePlaylist( const crow::request& req, crow::response& res
 				for( auto& Partial : Seg.Partials )
 				{
 					Playlist << "#EXT-X-PART:DURATION=" << Partial.Duration;
-					Playlist << ",URI=\"" << cameraId << "/" << Seg.SegmentIndex << "/" << Partial.PartIndex << "\"";
+					Playlist << ",URI=\"/stream/" << cameraId << "/" << Seg.SegmentIndex << "/" << Partial.PartIndex << "\"";
 					if( Partial.Independent )
 						Playlist << ",INDEPENDENT=YES";
 					Playlist << "\n";
@@ -130,7 +130,7 @@ void CrowListener::HandlePlaylist( const crow::request& req, crow::response& res
 			if( Seg.Ready )
 			{
 				Playlist << "#EXTINF:" << Seg.Duration << ",\n";
-				Playlist << cameraId << "/" << Seg.SegmentIndex << "/f\n";
+				Playlist << "/stream/" << cameraId << "/" << Seg.SegmentIndex << "/f\n";
 			}
 		}
 	}

@@ -332,8 +332,23 @@ bool CrowListener::ScanStaticFiles( size_t& FileCount )
 
 void CrowListener::RegisterRoutes()
 {
-	// HLS playlist: /stream/<cameraId>
+	// Legacy player URL. Redirect only document navigations, never HLS fetches.
 	CROW_ROUTE( m_App, "/stream/<int>" )
+	([this]( const crow::request& req, crow::response& res, int cameraId )
+	{
+		if( req.get_header_value( "Sec-Fetch-Mode" ) == "navigate" )
+		{
+			res.code = 302;
+			res.set_header( "Location", "/live/" + std::to_string( cameraId ) );
+			res.set_header( "Cache-Control", "no-store" );
+			res.end();
+			return;
+		}
+		HandlePlaylist( req, res, cameraId );
+	});
+
+	// Explicit media-only URL, separate from the /live/<cameraId> browser view.
+	CROW_ROUTE( m_App, "/stream/<int>/playlist" )
 	([this]( const crow::request& req, crow::response& res, int cameraId )
 	{
 		HandlePlaylist( req, res, cameraId );

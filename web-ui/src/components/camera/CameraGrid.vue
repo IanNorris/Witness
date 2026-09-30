@@ -159,7 +159,7 @@ function finishPointer() {
 }
 
 function openStream(cameraId: number) {
-  router.push(`/stream/${cameraId}`)
+  router.push(`/live/${cameraId}`)
 }
 
 function openClips(cameraId: number) {
