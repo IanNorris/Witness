@@ -158,3 +158,63 @@ together and reports duplicate-DTS warnings; those are not H.264 decode errors.
 Local captures and the full minute-by-minute report are retained under
 `build-vs2026/tapo-camera-{8,9}-preview-15min-drained.mp4` and
 `build-vs2026/tapo-preview-15min-results.txt` (ignored, sensitive local artifacts).
+
+## Camera 9 qualification fix and verification
+
+A complete 30-second capture (`camera-9-preview-1790727172803-1`) contained
+583 input records and 582 decisions: 370 written, 174 non-monotonic drops,
+37 waiting for the first keyframe, and one missing-DTS startup packet. All
+582 timestamped payloads were unique, declared 4,500-tick/50 ms durations, and
+had PTS equal to DTS. Input decoded cleanly without B-frames; binary hashes
+verified and the capture writer rejected zero records.
+
+Source deltas alternated around 35–45 ms and 70–80 ms. The mux's source-DTS
+lookahead substituted these deltas for duration before qualification. Replaying
+the actual C++ guard reached only two stable samples (eight required), and all
+174 drops had zero qualifying evidence. Thus the guard never activated repair.
+
+The new video-only preview path measures a bounded rolling arrival window
+independently of DTS, requires at least one second of declared-duration
+evidence, and retains the existing no-B-frame, PTS/DTS, unique-payload and
+bounded-regression checks. Declared durations stay anchored to one value (one
+tick of rounding is allowed), preventing a gradual VFR ramp from qualifying.
+Arrival qualification allows 10% short-window variation; the existing 5%
+two-minute drift check and bounded phase steering remain active after repair.
+Generic source timing is unchanged until qualification; audio streams and
+explicit Reolink normalization retain their original paths.
+
+Parallel 900-second runs of the initial implementation (`19951df`) completed:
+
+| Metric | Camera 8 | Camera 9 |
+| --- | ---: | ---: |
+| Accepted packets | 14,958 | 17,465 |
+| Startup drops | 7 | 16 |
+| Established-stream drops | 0 | 0 |
+| Repaired regressions | 760 | 792 |
+| Normalization active at end | Yes | Yes |
+| Mux errors / generation changes | 0 / 0 | 0 / 0 |
+| Saved output duration | 898.452 s | 898.967 s |
+| Independent full-decode errors | 0 | 0 |
+
+Both outputs had strictly increasing DTS. After the first five media seconds,
+camera 8 durations were 59.700–63.000 ms and camera 9 durations 49.922–52.500 ms.
+Camera 9 needed appreciable phase steering (2,531 saturation samples; final
+phase error 369 ms), but did not resume dropping packets or entering presentation
+holds after startup. This is native input/mux verification, not a browser,
+WebSocket, whole-server load or production soak test.
+
+`fdbe924` subsequently tightened the declared-duration check for gradually
+varying declarations, with tests for ramps and rational rounding. Both final
+binaries passed a separate parallel 180-second live confirmation: camera 8
+accepted 2,977 packets and repaired 151 regressions; camera 9 accepted 3,524 and
+repaired 157. Each had one startup drop, zero non-monotonic input/output drops,
+zero established-stream drops, zero mux errors and no generation change.
+Both retained normalization and independently decoded with zero errors and
+strictly increasing DTS (179.298 s and 179.593 s of saved media respectively).
+The final VS2026 server and DLL build completed, and all qualification/clock
+unit tests passed. The complete
+15-minute captures are retained as ignored sensitive artifacts:
+`build-vs2026/tapo-camera-{8,9}-arrival-qualification-fix-15min.mp4`.
+Final confirmation files are
+`build-vs2026/tapo-camera-{8,9}-final-qualification-3min.mp4`; full counters are
+in `build-vs2026/tapo-preview-qualification-fix-results.txt`.
