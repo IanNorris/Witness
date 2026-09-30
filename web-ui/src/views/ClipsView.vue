@@ -247,6 +247,10 @@ async function handleRetagAll() {
     </template>
 
     <!-- Activity Strip -->
+    <section class="view-heading" aria-label="Recording archive">
+      <div><div class="ui-eyebrow">RECORDING ARCHIVE</div><h1>{{ title }}</h1><p>Follow the activity. Filter the noise. Find the moment.</p></div>
+      <span v-if="!clipStore.loading" class="ui-count-pill">{{ clipStore.totalCount }} matching clips</span>
+    </section>
     <ActivityStrip @play="handlePlay" />
 
     <!-- Activity Timeline -->
@@ -296,8 +300,11 @@ async function handleRetagAll() {
         </div>
 
         <!-- Empty state -->
-        <div v-else-if="clipStore.clips.length === 0" class="text-muted-custom text-center py-5">
-          No clips found
+        <div v-else-if="clipStore.clips.length === 0" class="ui-empty-state">
+          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M7 3v18M17 3v18M3 8h4M3 16h4M17 8h4M17 16h4M7 12h10"/></svg>
+          <h2>No clips found</h2>
+          <p>Try another date or adjust your filters to widen the search.</p>
+          <button v-if="filterStore.hasActiveFilters" class="btn btn-sm btn-outline-primary" @click="filterStore.clearFilters()">Clear filters</button>
         </div>
 
         <!-- Clip grid -->

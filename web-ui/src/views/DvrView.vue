@@ -46,6 +46,12 @@ let fetchGeneration = 0
 
 const localInput = ref(format(new Date(targetAt.value * 1000), "yyyy-MM-dd'T'HH:mm:ss"))
 const viewedClock = computed(() => format(new Date(viewedAt.value * 1000), 'dd MMM yyyy HH:mm:ss'))
+const timelineTicks = computed(() => Array.from({ length: 7 }, (_, index) => ({
+  at: windowStart.value + index * 600,
+  label: format(new Date((windowStart.value + index * 600) * 1000), 'HH:mm'),
+})))
+const videoEventCount = computed(() => selected.value.reduce((count, id) => count + (timeline.value[id]?.clips.length ?? 0), 0))
+const audioEventCount = computed(() => selected.value.reduce((count, id) => count + (timeline.value[id]?.audio.length ?? 0), 0))
 const remaining = computed(() => tooEarly.value !== null && tooLate.value !== null
   ? Math.max(0, tooLate.value - tooEarly.value) : null)
 
@@ -251,13 +257,15 @@ onMounted(async () => {
 
 <template>
   <AppLayout>
+  <template #title>Recording workspace</template>
   <main class="dvr-workspace container-fluid py-3">
-    <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+    <div class="dvr-header d-flex flex-wrap align-items-center justify-content-between gap-3 mb-4">
       <div>
+        <div class="ui-eyebrow mb-2">REVIEW / REWIND / DISCOVER</div>
         <h1 class="h4 mb-1">DVR</h1>
-        <p class="text-body-secondary small mb-0">Choose cameras first; opening this page starts no video streams.</p>
+        <p class="text-body-secondary mb-0">Your recordings, on your timeline. Choose cameras to begin.</p>
       </div>
-      <div class="d-flex flex-wrap align-items-end gap-2">
+      <div class="dvr-jump-controls d-flex flex-wrap align-items-end gap-2">
         <label class="small">Go to local time
           <input v-model="localInput" type="datetime-local" step="1" class="form-control form-control-sm" @change="setClock" @keyup.enter="setClock" />
         </label>
@@ -268,10 +276,14 @@ onMounted(async () => {
       </div>
     </div>
 
-    <div class="dvr-panel mb-3">
+    <div class="dvr-panel dvr-playback-panel mb-3">
       <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
-        <strong>{{ viewedClock }}</strong>
-        <div class="d-flex flex-wrap gap-2">
+        <div class="dvr-clock-block" :aria-label="viewedClock">
+          <span class="ui-eyebrow">VIEWED TIME · LOCAL</span>
+          <strong class="dvr-digital-clock">{{ format(new Date(viewedAt * 1000), 'HH:mm:ss') }}</strong>
+          <span class="text-body-secondary small">{{ format(new Date(viewedAt * 1000), 'EEEE, dd MMM yyyy') }}</span>
+        </div>
+        <div class="dvr-transport d-flex flex-wrap align-items-center gap-2">
           <button class="btn btn-sm btn-outline-secondary" @click="shiftWindow(-3600)">Earlier hour</button>
           <button class="btn btn-sm btn-outline-secondary" @click="shiftWindow(3600)">Later hour</button>
           <button class="btn btn-sm btn-outline-primary" :disabled="!selected.length" @click="togglePlayback">{{ playing ? 'Pause' : 'Play' }} selected</button>
@@ -279,30 +291,32 @@ onMounted(async () => {
             <input v-model="highlightsEnabled" type="checkbox" class="form-check-input m-0" :disabled="!highlightsAvailable && !highlightsEnabled" />
             Highlights reel
           </label>
-          <select :value="rate" class="form-select form-select-sm dvr-speed" @change="setPlaybackRate(Number(($event.target as HTMLSelectElement).value))">
+          <select :value="rate" aria-label="Playback speed" class="form-select form-select-sm dvr-speed" @change="setPlaybackRate(Number(($event.target as HTMLSelectElement).value))">
             <option :value="1">1×</option><option :value="2">2×</option><option :value="4">4×</option>
           </select>
         </div>
       </div>
       <p v-if="highlightsEnabled" class="small mt-2 mb-0" role="status">{{ !highlightsAvailable ? 'Highlights paused while activity is unavailable or incomplete. Choose a less dense hour.' : highlightStatus }}</p>
+      <div class="dvr-camera-heading"><span class="ui-eyebrow">CAMERAS</span><span class="small text-body-secondary">{{ selected.length }} of {{ cameraStore.cameras.length }} selected · streams are opt-in</span></div>
       <div class="d-flex flex-wrap gap-2">
-        <button v-for="camera in cameraStore.cameras" :key="camera.id" class="btn btn-sm"
+        <button v-for="camera in cameraStore.cameras" :key="camera.id" class="btn btn-sm dvr-camera-chip"
           :class="selected.includes(camera.id) ? 'btn-primary' : 'btn-outline-secondary'"
-          :aria-pressed="selected.includes(camera.id)" @click="selectCamera(camera.id)">{{ camera.name }}</button>
+          :aria-pressed="selected.includes(camera.id)" @click="selectCamera(camera.id)"><span class="dvr-selection-dot" aria-hidden="true" />{{ camera.name }}</button>
         <button v-if="selected.length" class="btn btn-sm btn-outline-warning" @click="selected = []">All off</button>
       </div>
     </div>
 
     <div class="dvr-panel mb-3">
-      <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
-        <strong>Timeline</strong>
+      <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
+        <div><strong>Timeline</strong><span v-if="selected.length && !loading && !timelineError" class="dvr-event-summary">{{ videoEventCount }} video · {{ audioEventCount }} audio events<span v-if="selected.some(id => timeline[id]?.clipsTruncated || timeline[id]?.audioTruncated)"> · partial results</span></span></div>
         <span class="small text-body-secondary">{{ format(new Date(windowStart * 1000), 'dd MMM HH:mm') }} – {{ format(new Date(windowEnd * 1000), 'HH:mm') }} · click to seek</span>
       </div>
       <p v-if="!selected.length" class="text-body-secondary small mb-0">Select a camera to see its recording coverage, video clips and audio events.</p>
       <p v-else-if="timelineError" class="text-warning small mb-0">{{ timelineError }}</p>
       <p v-else-if="loading" class="text-body-secondary small mb-0">Loading timeline…</p>
+      <div v-if="selected.length" class="dvr-ruler-row" aria-hidden="true"><span /><div class="dvr-time-ruler"><span v-for="tick in timelineTicks" :key="tick.at">{{ tick.label }}</span></div></div>
       <div v-for="id in selected" :key="id" class="dvr-track-row">
-        <span class="small text-truncate">{{ cameraStore.getCameraById(id)?.name ?? `Camera ${id}` }}</span>
+        <span class="small text-truncate" :title="cameraStore.getCameraById(id)?.name ?? `Camera ${id}`">{{ cameraStore.getCameraById(id)?.name ?? `Camera ${id}` }}</span>
         <div class="dvr-track" role="button" tabindex="0" :aria-label="`Seek ${cameraStore.getCameraById(id)?.name ?? id}`" @click="timelineClick" @keydown.left.prevent="move(-5)" @keydown.right.prevent="move(5)">
           <div v-for="(range, i) in timeline[id]?.ranges ?? []" :key="`r${i}`" class="dvr-range dvr-coverage" :style="barStyle(range)" title="Recording available" />
           <div v-for="clip in timeline[id]?.clips ?? []" :key="`c${clip.id}`" class="dvr-range dvr-activity" :style="barStyle(clip)" title="Video activity" />
@@ -318,9 +332,9 @@ onMounted(async () => {
       </div>
     </div>
 
-    <div class="dvr-panel mb-3">
+    <div class="dvr-panel dvr-search-panel mb-3">
       <div class="d-flex flex-wrap align-items-center gap-2">
-        <strong class="me-2">Find when it happened</strong>
+        <div class="dvr-search-heading"><strong>Find when it happened</strong><span class="text-body-secondary small">Narrow the time range, one step at a time.</span></div>
         <button class="btn btn-sm btn-outline-secondary" @click="mark('early')">Too early</button>
         <button class="btn btn-sm btn-outline-secondary" @click="mark('late')">Too late</button>
         <button class="btn btn-sm btn-outline-secondary" :disabled="!history.length" @click="undoMark">Undo</button>
@@ -329,7 +343,11 @@ onMounted(async () => {
       </div>
     </div>
 
-    <p v-if="!selected.length" class="text-body-secondary">No cameras active. Select only the recordings you want to inspect.</p>
+    <div v-if="!selected.length" class="dvr-empty-state">
+      <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 6v6l4 2"/></svg>
+      <h2>Choose your cameras</h2>
+      <p>Start with one camera above, then add others to compare.<br />No streams start until you select them.</p>
+    </div>
     <div v-else class="dvr-player-grid">
       <DvrPlayer v-for="id in selected" :key="id" :ref="el => setPlayer(id, el)" :camera-id="id"
         :camera-name="cameraStore.getCameraById(id)?.name ?? `Camera ${id}`" :from="windowStart" :to="windowEnd"
@@ -340,11 +358,26 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.dvr-workspace { max-width: 1800px; }
-.dvr-panel { padding: 1rem; border: 1px solid #373e47; border-radius: .5rem; background: #1a1d23; color: #e1e4e8; }
+.dvr-workspace { max-width: 1600px; padding-inline: 0; }
+.dvr-header h1 { font-size: 2rem; font-weight: 650; letter-spacing: -.04em; }
+.dvr-jump-controls { max-width: 100%; }
+.dvr-jump-controls input { min-height: 36px; max-width: 100%; }
+.dvr-panel { padding: 1.25rem; border: 1px solid #303d50; border-radius: .85rem; background: #151e2b; color: #e7edf6; box-shadow: 0 6px 20px #00000018; }
+.dvr-playback-panel { background: linear-gradient(115deg, #1b2a3d, #151e2b 65%); border-top: 2px solid #65b9ee; }
+.dvr-clock-block { display: flex; flex-direction: column; gap: .2rem; margin-bottom: .5rem; }
+.dvr-digital-clock { font-size: clamp(2rem, 4vw, 3rem); font-weight: 550; font-variant-numeric: tabular-nums; line-height: 1.15; letter-spacing: -.025em; }
+.dvr-highlights-toggle { border: 1px solid #384a61; border-radius: .5rem; padding: .5rem .65rem; background: #101927; }
+.dvr-highlights-toggle:has(input:checked) { color: #a7d7ff; border-color: #589bc7; }
+.dvr-camera-heading { display: flex; justify-content: space-between; flex-wrap: wrap; gap: .5rem; margin: 1.1rem 0 .65rem; padding-top: 1rem; border-top: 1px solid #34435a; }
+.dvr-camera-chip { display: inline-flex; align-items: center; gap: .5rem; padding: .45rem .75rem; border-radius: .5rem; }
+.dvr-selection-dot { width: 6px; height: 6px; border: 1px solid currentColor; border-radius: 50%; flex-shrink: 0; }
+.dvr-camera-chip[aria-pressed="true"] .dvr-selection-dot { background: currentColor; }
+.dvr-event-summary { margin-left: .75rem; font-size: .75rem; color: #abc2dd; }
 .dvr-speed { width: 5rem; }
-.dvr-track-row { display: grid; grid-template-columns: 10rem 1fr; gap: .6rem; align-items: center; margin: .4rem 0; }
-.dvr-track { height: 2rem; position: relative; cursor: crosshair; border-radius: .25rem; border: 1px solid #56606d; background: #0f1117; overflow: hidden; }
+.dvr-track-row, .dvr-ruler-row { display: grid; grid-template-columns: 10rem minmax(0, 1fr); gap: .8rem; align-items: center; margin: .6rem 0; }
+.dvr-time-ruler { display: flex; justify-content: space-between; font-size: .65rem; font-variant-numeric: tabular-nums; color: #a4b6ce; }
+.dvr-track { height: 2.6rem; position: relative; cursor: crosshair; border-radius: .35rem; border: 1px solid #50617a; background: #0d1521; overflow: hidden; }
+.dvr-track::after { content: ''; position: absolute; inset: 0; background: repeating-linear-gradient(90deg, transparent, transparent calc(16.666% - 1px), #ffffff22 calc(16.666% - 1px), #ffffff22 16.666%); pointer-events: none; }
 .dvr-track:focus-visible { outline: 2px solid #69bfff; outline-offset: 2px; }
 .dvr-range { position: absolute; }
 .dvr-coverage { top: 0; height: 100%; background: #397a9e; }
@@ -354,5 +387,21 @@ onMounted(async () => {
 .dvr-bound { position: absolute; top: 0; bottom: 0; width: 1px; background: #fa5e5e; pointer-events: none; }
 .dvr-key { display: inline-block; width: .8rem; height: .8rem; position: static; vertical-align: middle; }
 .dvr-player-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr)); gap: .7rem; }
-@media (max-width: 600px) { .dvr-track-row { grid-template-columns: 6rem 1fr; } }
+.dvr-search-heading { display: flex; flex-direction: column; gap: .2rem; margin-right: auto; }
+.dvr-empty-state { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 2rem 1rem; border: 1px dashed #35445b; border-radius: .85rem; background: #101824; }
+.dvr-empty-state svg { color: #79b8ec; margin-bottom: .8rem; }
+.dvr-empty-state h2 { font-size: 1.1rem; margin-bottom: .4rem; }
+.dvr-empty-state p { color: #a5b4c8; font-size: .85rem; margin-bottom: 0; }
+@media (max-width: 600px) {
+  .dvr-panel { padding: 1rem; }
+  .dvr-track-row, .dvr-ruler-row { grid-template-columns: 5.5rem minmax(0, 1fr); gap: .5rem; }
+  .dvr-time-ruler span:nth-child(even) { visibility: hidden; }
+  .dvr-search-heading { flex-basis: 100%; margin-bottom: .5rem; }
+  .dvr-jump-controls { width: 100%; }
+  .dvr-jump-controls > label { width: 100%; }
+  .dvr-jump-controls input { width: 100%; }
+  .dvr-jump-controls > button { flex: 1; }
+  .dvr-transport { width: 100%; }
+  .dvr-event-summary { display: block; margin: .25rem 0 0; }
+}
 </style>

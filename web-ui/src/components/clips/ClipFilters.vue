@@ -129,10 +129,10 @@ function toggleGroup(names: string[]) {
 
 <style scoped>
 .filter-panel {
-  background: var(--bs-dark, #1e1e2e);
-  border: 1px solid var(--bs-border-color, #333);
-  border-radius: 0.5rem;
-  padding: 0.75rem;
+  background: #151e2b;
+  border: 1px solid #303d50;
+  border-radius: 0.75rem;
+  padding: 1rem;
   margin-bottom: 0;
 }
 .filter-panel-header {
@@ -148,7 +148,7 @@ function toggleGroup(names: string[]) {
 .filter-clear-btn {
   background: none;
   border: none;
-  color: #ef4444;
+  color: #ff9696;
   font-size: 0.7rem;
   cursor: pointer;
   padding: 0;
@@ -157,7 +157,7 @@ function toggleGroup(names: string[]) {
   text-decoration: underline;
 }
 .filter-section {
-  margin-bottom: 0.5rem;
+  margin-bottom: 0.8rem;
 }
 .filter-section:last-child {
   margin-bottom: 0;
@@ -166,7 +166,7 @@ function toggleGroup(names: string[]) {
   font-size: 0.65rem;
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  color: rgba(255,255,255,0.4);
+  color: #a5b6cc;
   margin-bottom: 0.25rem;
 }
 .filter-options {

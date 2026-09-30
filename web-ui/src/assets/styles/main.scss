@@ -16,6 +16,35 @@ $navbar-dark-color: #e1e4e8;
 // Bootstrap import (after overrides)
 @import "bootstrap/scss/bootstrap";
 
+// Shared review-console palette. Keep media surfaces black and effects static:
+// multiple live decoders already compete for the browser's rendering budget.
+:root {
+  color-scheme: dark;
+  --witness-ink: #edf3fc;
+  --witness-muted: #a5b6cc;
+  --witness-accent: #79beef;
+  --bs-secondary-color: #a5b6cc;
+}
+
+.ui-eyebrow { font-size: .65rem; font-weight: 650; letter-spacing: .14em; color: #9fb6d0; }
+.view-heading {
+  display: flex; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; gap: .75rem; margin-bottom: 1.4rem;
+  h1 { font-size: 1.7rem; font-weight: 650; letter-spacing: -.035em; margin: .3rem 0; }
+  p { color: var(--witness-muted); font-size: .85rem; margin: 0; }
+}
+.ui-count-pill { display: inline-flex; align-items: center; gap: .5rem; font-size: .75rem; padding: .5rem .8rem; border: 1px solid #354960; border-radius: 99px; color: #c7daee; background: #182436; }
+.ui-empty-state { display: flex; flex-direction: column; align-items: center; gap: .65rem; text-align: center; padding: 3rem 1rem; border: 1px dashed #35445b; border-radius: .85rem; background: #101824; }
+.ui-empty-state svg { color: #79b8ec; }
+.ui-empty-state h2 { font-size: 1.1rem; margin: 0; }
+.ui-empty-state p { font-size: .85rem; color: var(--witness-muted); margin: 0; }
+.btn { border-radius: .45rem; }
+.btn-outline-secondary { --bs-btn-color: #b9c8da; --bs-btn-border-color: #46566c; --bs-btn-hover-bg: #293a50; --bs-btn-hover-border-color: #6783a2; --bs-btn-hover-color: #f4f8ff; }
+.btn-outline-primary { --bs-btn-color: #85c8ff; }
+.form-control, .form-select { border-radius: .45rem; }
+.form-control:focus, .form-select:focus { box-shadow: 0 0 0 .18rem #77bded30; border-color: #77bded; }
+a:focus-visible, button:focus-visible { outline: 2px solid #90d0ff; outline-offset: 3px; }
+
 // App layout
 html, body, #app {
   height: 100%;
@@ -119,6 +148,7 @@ html, body, #app {
 }
 
 .app-main {
+  min-width: 0;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -127,7 +157,7 @@ html, body, #app {
 
 .app-topbar {
   height: 52px;
-  background: $dark;
+  background: #111c2b;
   border-bottom: 1px solid $border-color;
   display: flex;
   align-items: center;
@@ -146,9 +176,13 @@ html, body, #app {
     font-size: 1rem;
     font-weight: 500;
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .topbar-actions {
+    min-width: 0;
+    max-width: 80%;
     display: flex;
     align-items: center;
     gap: 0.75rem;
@@ -159,7 +193,15 @@ html, body, #app {
   flex: 1;
   overflow-y: auto;
   padding: 1.25rem;
+  background: #0d1521;
 }
+
+.app-sidebar, .mobile-drawer { background: #111b29; }
+.sidebar-nav .nav-item .nav-link { margin: .15rem .65rem; padding-left: .85rem; border-radius: .5rem; }
+.sidebar-nav .nav-item .nav-link.router-link-active { color: #9dd4ff; background: #223650; border-left-color: #7bc6f6; }
+.sidebar-brand { letter-spacing: -.025em; }
+.sidebar-clock { font-size: .85rem !important; color: #a5b6cc !important; letter-spacing: 0; }
+.camera-card:not(.camera-card-fullscreen), .clip-card { border-radius: .7rem; overflow: hidden; border-color: #354459; }
 
 // Camera grid
 .camera-grid {

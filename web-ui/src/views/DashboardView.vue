@@ -431,6 +431,10 @@ onMounted(async () => {
       </div>
     </template>
 
+    <section v-if="!settings.fullscreenMode" class="view-heading" aria-label="Live overview">
+      <div><div class="ui-eyebrow">LIVE OVERVIEW</div><h1>{{ selectedGroupId === null ? 'Your cameras' : groupStore.getGroupById(selectedGroupId)?.displayName ?? 'Your cameras' }}</h1><p>Keep an eye on what matters. Open a camera for a closer look.</p></div>
+      <span class="ui-count-pill">{{ currentCameras.length }} cameras · {{ currentCameras.filter(camera => camera.status === 'Connected').length }} connected</span>
+    </section>
     <CameraGrid
       :group-camera-ids="groupCameraIds"
       :fullscreen-insets="fullscreenInsets"
