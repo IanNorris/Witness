@@ -1,6 +1,16 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { buildHighlights, nextHighlight } from '../src/utils/dvrHighlights.ts'
+import { buildHighlights, isVideoActivityAt, nextHighlight } from '../src/utils/dvrHighlights.ts'
+
+test('manual seeks stay in highlights only within a real video event', () => {
+  const clips = [{ from: 10, to: 13 }, { from: 40, to: 43 }]
+  for (const at of [10, 12.99, 40, 42.99]) assert.equal(isVideoActivityAt(clips, at), true)
+  for (const at of [8, 9.99, 13, 15, 25, 38, 43, NaN, Infinity])
+    assert.equal(isVideoActivityAt(clips, at), false)
+  assert.equal(isVideoActivityAt([], 10), false)
+  assert.equal(isVideoActivityAt([{ from: NaN, to: 12 }, { from: 10, to: Infinity }], 11), false)
+  assert.equal(isVideoActivityAt([{ from: 12, to: 10 }], 11), false)
+})
 
 test('clips get lead-in/tail, merge overlaps, and stay within the selected hour', () => {
   assert.deepEqual(buildHighlights([{ id: 8, ranges: [{ from: 0, to: 100 }],

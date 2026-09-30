@@ -2,6 +2,12 @@ export interface TimeRange { from: number; to: number }
 export interface Highlight extends TimeRange { cameraId: number }
 export interface HighlightCamera { id: number; clips: TimeRange[]; ranges: TimeRange[] }
 
+// Manual navigation uses actual events, not the reel's padded lead-in/tail.
+export function isVideoActivityAt(clips: TimeRange[], at: number): boolean {
+  return Number.isFinite(at) && clips.some(range => Number.isFinite(range.from)
+    && Number.isFinite(range.to) && range.from <= at && at < range.to)
+}
+
 // Union activity across the selected cameras, but only play intervals for which
 // at least one camera has a recording. Split at coverage boundaries so the
 // clock driver can change without getting stuck in another camera's gap.

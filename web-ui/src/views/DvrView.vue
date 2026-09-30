@@ -4,7 +4,7 @@ import { useRoute } from 'vue-router'
 import { format } from 'date-fns'
 import DvrPlayer from '../components/clips/DvrPlayer.vue'
 import AppLayout from '../components/layout/AppLayout.vue'
-import { buildHighlights, nextHighlight } from '../utils/dvrHighlights'
+import { buildHighlights, isVideoActivityAt, nextHighlight } from '../utils/dvrHighlights'
 import { api } from '../composables/useApi'
 import { useCameraStore } from '../stores/cameras'
 
@@ -50,7 +50,7 @@ const remaining = computed(() => tooEarly.value !== null && tooLate.value !== nu
   ? Math.max(0, tooLate.value - tooEarly.value) : null)
 
 function selectCamera(id: number) {
-  if (!selected.value.includes(id)) seekTo(viewedAt.value)
+  if (!selected.value.includes(id)) seekTo(viewedAt.value, true)
   selected.value = selected.value.includes(id)
     ? selected.value.filter(v => v !== id)
     : [...selected.value, id]
@@ -58,6 +58,13 @@ function selectCamera(id: number) {
 
 function seekTo(ts: number, highlightSeek = false) {
   if (!Number.isFinite(ts) || ts < 0) return
+  // Disable before updating the target: the highlight watcher must not pull a
+  // manual seek in a quiet period straight back into the reel. Internal skips
+  // and camera selection still preserve highlights and its lead-in/tail.
+  if (!highlightSeek && highlightsEnabled.value && (!highlightsAvailable.value
+    || !isVideoActivityAt(selected.value.flatMap(id => timeline.value[id]?.clips ?? []), ts))) {
+    highlightsEnabled.value = false
+  }
   targetAt.value = ts
   viewedAt.value = targetAt.value
   pendingHighlightSeek = null
@@ -223,6 +230,7 @@ watch([highlightsEnabled, highlightsAvailable, playing, targetAt], () => {
     highlightDriver.value = null
     pendingHighlightSeek = null
     highlightStatus.value = ''
+    for (const player of players.values()) player.setPlaying(playing.value)
   } else if (highlightsAvailable.value) {
     advanceHighlights(viewedAt.value)
     for (const player of players.values()) player.setPlaying(playing.value)
