@@ -1,7 +1,7 @@
-import { createRouter, createWebHistory, type RouteLocationNormalized } from 'vue-router'
+import { createRouter, createWebHistory, type RouteLocationNormalized, type RouteRecordRaw } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 
-const routes = [
+const routes: RouteRecordRaw[] = [
   {
     path: '/',
     component: () => import('../views/DashboardView.vue'),
@@ -34,7 +34,7 @@ const routes = [
   },
   {
     path: '/stream/:cameraId',
-    redirect: (to: RouteLocationNormalized) => ({ path: `/live/${to.params.cameraId}`, query: to.query }),
+    redirect: to => ({ path: `/live/${to.params.cameraId}`, query: to.query }),
   },
   {
     path: '/trails',
