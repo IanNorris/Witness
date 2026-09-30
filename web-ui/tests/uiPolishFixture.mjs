@@ -42,7 +42,6 @@ if (process.argv.includes('--verify')) {
   try {
     await mkdir('test-screenshots', { recursive: true })
     const page = await browser.newPage()
-    await page.routeWebSocket('**/ws/**', () => {})
     const errors = []
     page.on('pageerror', e => errors.push(e.message))
     for (const width of [1440, 768, 390, 320]) {
@@ -50,6 +49,7 @@ if (process.argv.includes('--verify')) {
       for (const route of ['dvr', 'dashboard', 'clips']) {
         await page.goto(`${origin}/${route === 'dashboard' ? '' : route}?at=${start + 900}`)
         await page.locator('.app-wrapper').waitFor({ state: 'visible' })
+        await page.getByRole('heading', { name: 'Connection Lost', exact: true }).waitFor({ state: 'hidden' })
         if (route === 'dvr') {
           await page.getByRole('heading', { name: 'DVR', exact: true }).waitFor()
           assert.equal(await page.locator('video').count(), 0, 'Opening DVR must not start streams')
