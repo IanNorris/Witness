@@ -126,6 +126,10 @@ empty/baseline observation evidence as a prerequisite for reliable persistence.
 
 ## DVR and historical search
 
+- Exit Highlights reel mode when the user clicks/seeks outside a video-activity
+  event, so manual timeline navigation is not immediately pulled back into the
+  reel. Preserve ordinary DVR playback at the chosen time.
+
 - Validate the new opt-in DVR page with real recordings, especially missing
   segments, concurrent cameras, browser media errors, and the manual bisection
   flow. Synchronize selected cameras to one viewed wall-clock position during
