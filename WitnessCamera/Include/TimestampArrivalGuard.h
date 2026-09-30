@@ -27,6 +27,12 @@ struct TimestampArrivalGuard
 			(Value > Expected ? Value - Expected : Expected - Value) <=
 			(std::max<int64_t>)(1, Expected / 10);
 	}
+	static bool SameDeclaration(int64_t Value, int64_t Expected)
+	{
+		// Allow one tick of rational-duration rounding, not a variable-rate ramp.
+		return Value > 0 && Expected > 0 &&
+			(Value > Expected ? Value - Expected : Expected - Value) <= 1;
+	}
 	void Observe(int64_t Arrival, int64_t Duration, bool Valid)
 	{
 		if (!Valid || Arrival < 0 || Duration <= 0 || Duration > INT32_MAX)
@@ -34,7 +40,7 @@ struct TimestampArrivalGuard
 			Reset();
 			return;
 		}
-		if (LastArrival < 0 || !Matches(Duration, DeclaredDuration) ||
+		if (LastArrival < 0 || !SameDeclaration(Duration, DeclaredDuration) ||
 			Arrival < LastArrival || Arrival - LastArrival > Duration * Capacity)
 		{
 			Reset();
@@ -54,7 +60,8 @@ struct TimestampArrivalGuard
 		DurationTicks += Durations[Position];
 		Position = (Position + 1) % Capacity;
 		LastArrival = Arrival;
-		DeclaredDuration = Duration;
+		// Keep the declaration anchor fixed for this evidence window. Comparing
+		// only adjacent declarations would let a gradual VFR ramp look stable.
 	}
 	bool Ready(int64_t MinimumEvidenceTicks) const
 	{

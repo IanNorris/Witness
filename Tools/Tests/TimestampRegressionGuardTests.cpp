@@ -140,6 +140,21 @@ int main()
 	for (int Index = 100; Index < 140; ++Index)
 		ArrivalEvidence.Observe(99 * FrameDuration + (Index - 99) * 6000, FrameDuration, true);
 	Require(!ArrivalEvidence.Ready(90000)); // rolling window, not lifetime average
+	TimestampArrivalGuard RampingVfr;
+	int64_t VfrArrival = 0;
+	int64_t PreviousVfrDuration = FrameDuration;
+	for (int Index = 0; Index < 100; ++Index)
+	{
+		const int64_t Duration = FrameDuration + Index * 90;
+		VfrArrival += PreviousVfrDuration;
+		RampingVfr.Observe(VfrArrival, Duration, true);
+		Require(!RampingVfr.Ready(90000));
+		PreviousVfrDuration = Duration;
+	}
+	TimestampArrivalGuard RationalRounding;
+	for (int Index = 0; Index < 100; ++Index)
+		RationalRounding.Observe(Index * FrameDuration, FrameDuration + Index % 2, true);
+	Require(RationalRounding.Ready(90000));
 
 	return 0;
 }
