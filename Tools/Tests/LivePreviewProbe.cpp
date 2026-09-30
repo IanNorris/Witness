@@ -20,16 +20,18 @@ static uint64_t Timestamp()
 int main(int argc, char** argv)
 {
 	const char* url = std::getenv("WITNESS_PREVIEW_PROBE_URL");
-	if (!url || argc != 3) return 2;
+	if (!url || (argc != 3 && argc != 4)) return 2;
 	const int seconds = std::atoi(argv[1]);
-	if (seconds < 10 || seconds > 180) return 2;
+	if (seconds < 10 || seconds > 1800) return 2;
+	const int cameraId = argc == 4 ? std::atoi(argv[3]) : 8;
+	if (cameraId <= 0) return 2;
 	av_log_set_level(AV_LOG_QUIET);
 	InputStreamSetup setup;
 	setup.GetTimestamp = Timestamp;
 	setup.PassthroughOnly = true;
 	setup.ExportMotionVectors = false;
 	setup.HistoricalPacketBufferSeconds = 0;
-	InputStream input(setup, 8, nullptr, url);
+	InputStream input(setup, cameraId, nullptr, url);
 	if (input.Initialize() != CameraStreamError::Success) return 3;
 	LiveOutputStream live("", &input, 1);
 	live.SetObservedTimestampRegressionRepairAllowed(true);
@@ -54,13 +56,11 @@ int main(int argc, char** argv)
 		output.write(reinterpret_cast<const char*>(event.Data->data()), event.Data->size());
 	});
 	const auto start = std::chrono::steady_clock::now();
-	CameraStreamError result = CameraStreamError::Success;
-	while (std::chrono::steady_clock::now() - start < std::chrono::seconds(seconds)) {
-		result = input.ProcessFrame(nullptr, nullptr, &live);
-		if (result != CameraStreamError::Success || changedGeneration) break;
-	}
+	auto report = [&]() {
 	const auto stats = live.GetStreamingDiagnostics(false);
-	std::cout << "accepted=" << stats.AcceptedVideoPackets
+	std::cout << "elapsedSeconds=" << std::chrono::duration_cast<std::chrono::seconds>(
+		std::chrono::steady_clock::now() - start).count()
+		<< " accepted=" << stats.AcceptedVideoPackets
 		<< " dropped=" << stats.DroppedVideoPackets
 		<< " establishedDropped=" << stats.EstablishedDroppedVideoPackets
 		<< " beforeEpoch=" << stats.BeforeVideoEpochPackets
@@ -72,7 +72,21 @@ int main(int argc, char** argv)
 		<< " phaseMs=" << stats.VideoPhaseErrorMs
 		<< " saturated=" << stats.TimestampCorrectionSaturatedPackets
 		<< " muxErrors=" << stats.MuxErrorPackets
-		<< " readResult=" << static_cast<int>(result)
+		<< " corruptionEvents=" << stats.DecodeCorruptionEvents
+		<< " recoveryEvents=" << stats.DecodeRecoveryEvents << std::endl;
+	};
+	auto nextReport = start + std::chrono::seconds(60);
+	CameraStreamError result = CameraStreamError::Success;
+	while (std::chrono::steady_clock::now() - start < std::chrono::seconds(seconds)) {
+		result = input.ProcessFrame(nullptr, nullptr, &live);
+		if (result != CameraStreamError::Success || changedGeneration) break;
+		if (std::chrono::steady_clock::now() >= nextReport) {
+			report();
+			nextReport += std::chrono::seconds(60);
+		}
+	}
+	report();
+	std::cout << "readResult=" << static_cast<int>(result)
 		<< " generationChanged=" << changedGeneration << '\n';
 	return result == CameraStreamError::Success && !changedGeneration && output.good() && started ? 0 : 5;
 }

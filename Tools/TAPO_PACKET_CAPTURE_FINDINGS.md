@@ -118,3 +118,43 @@ initial probe did not export its disposition. The saved output contained 2,477
 packets across 149.104 seconds, strictly increasing DTS, and decoded through
 FFmpeg with zero errors. This is bounded local verification, not a production
 soak test or a claim to resolve all genuine source/network corruption.
+
+## Parallel 15-minute soak: cameras 8 and 9
+
+Both fresh probes completed 900 seconds on September 30 using the same patched
+preview mux. No manual Tapo profile or forced normalization was selected. The
+probe now supports 10–1,800 seconds, minute-by-minute counters, and an optional
+camera ID: `LivePreviewProbe 900 output.mp4 9` (supply that camera's preview URL
+privately through the environment). When wrapping the probe, drain stdout and
+stderr concurrently: an initial wrapper blocked camera 9 on a full stderr pipe;
+those interrupted runs were excluded and both tests restarted with fresh files.
+
+| Metric | Camera 8 | Camera 9 |
+| --- | ---: | ---: |
+| Accepted video packets | 14,974 | 11,599 |
+| Total drops | 1 | 5,851 |
+| Established-stream drops | 0 | 5,812 |
+| Non-monotonic input drops | 0 | 5,850 |
+| Non-monotonic output drops | 0 | 0 |
+| Timestamp repairs | 757 | 0 |
+| Normalization active at end | Yes | No |
+| Correction saturation / mux errors | 0 / 0 | 0 / 0 |
+| Output duration | 899.104 s | 899.840 s |
+| Independent FFmpeg decode errors | 0 | 0 |
+
+Both outputs have strictly increasing packet DTS and neither probe changed
+generation or lost its input connection. Camera 8 passes this bounded soak.
+Camera 9 still rejects about one third of incoming packets and repeatedly
+enters/exits presentation holds (243 corruption notifications, 242 recoveries).
+It never activates the repair, so the next investigation is its qualification
+evidence, not the subsequent arrival-clock validation. A clean independent
+decode does **not** make its missing frames or highly uneven pacing acceptable:
+camera 9 output durations range from 11 microseconds to about 497 ms.
+
+For independent decoding, preserve the demux timebase, e.g.
+`ffmpeg -v error -i output.mp4 -an -fps_mode passthrough -enc_time_base:v demux -f null -`.
+The default null-output timebase rounds camera 9's near-adjacent timestamps
+together and reports duplicate-DTS warnings; those are not H.264 decode errors.
+Local captures and the full minute-by-minute report are retained under
+`build-vs2026/tapo-camera-{8,9}-preview-15min-drained.mp4` and
+`build-vs2026/tapo-preview-15min-results.txt` (ignored, sensitive local artifacts).
