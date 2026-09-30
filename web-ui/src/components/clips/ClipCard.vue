@@ -106,7 +106,7 @@ function audioTitle(event: AudioEvent) {
 
 <template>
   <div class="clip-card" :class="{ 'clip-saved': clip.saved, 'clip-trivial': trivial, 'clip-unreviewed': !clip.reviewed, 'clip-highlighted': highlighted }">
-    <div class="clip-thumb" @click="emit('play', clip)">
+    <div class="clip-thumb" role="button" tabindex="0" :aria-label="`Play clip from ${camera?.name ?? 'camera'}, ${fullDateTime}`" @click="emit('play', clip)" @keydown.enter.prevent="emit('play', clip)" @keydown.space.prevent="emit('play', clip)">
       <img :src="thumbUrl" :alt="`Clip ${clip.uid}`" loading="lazy" />
       <div v-if="reprocessProgress" class="clip-reprocess-overlay">
         <template v-if="reprocessProgress.stage === 'pending'">
@@ -217,7 +217,7 @@ function audioTitle(event: AudioEvent) {
 
 <style scoped>
 .clip-card {
-  background: var(--bs-dark, #1e1e2e);
+  background: #182638;
   border: 1px solid var(--bs-border-color, #333);
   border-radius: 0.5rem;
   overflow: hidden;
@@ -347,21 +347,30 @@ function audioTitle(event: AudioEvent) {
 }
 
 .clip-info {
-  padding: 0.5rem;
+  padding: 0.75rem 0.85rem;
   flex: 1;
 }
 .clip-meta {
   display: flex;
   justify-content: space-between;
   font-size: 0.8rem;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  color: #b4c6df;
 }
+.clip-time { color: #edf3fc; font-weight: 600; font-variant-numeric: tabular-nums; }
+.clip-camera { margin: 0.25rem 0 0.5rem; color: #c2d3e8 !important; }
+.clip-thumb:focus-visible { outline: 2px solid #79beef; outline-offset: -3px; }
+.clip-thumb:focus-visible .clip-play-btn { opacity: 1; }
 .clip-tags {
   display: flex;
   flex-wrap: wrap;
   gap: 0.25rem;
 }
 .clip-tag-chip {
-  font-size: 0.65rem;
+  font-size: 0.7rem;
+  border-radius: 999px;
+  padding: 0.3rem 0.5rem;
   cursor: pointer;
   transition: background-color 0.15s;
 }
@@ -385,7 +394,9 @@ function audioTitle(event: AudioEvent) {
 .clip-actions {
   display: flex;
   gap: 0.25rem;
-  padding: 0 0.5rem 0.5rem;
+  padding: 0.5rem 0.85rem;
+  border-top: 1px solid #29374a;
+  background: #131f2f;
   justify-content: flex-end;
   margin-top: auto;
 }

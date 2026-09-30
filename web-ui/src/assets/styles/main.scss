@@ -607,6 +607,38 @@ html, body, #app {
 }
 
 // Clip cards
+// Camera chrome stays outside the image; overlay actions reveal on keyboard
+// focus and touch as well as hover. Never resize the actual media surface.
+.camera-card {
+  background: #131f2f;
+  .camera-info { gap: 0.75rem; padding: 0.8rem 0.9rem; }
+  .camera-details { min-width: 0; }
+  .camera-info .camera-name { color: #edf3fc; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .camera-info .camera-status { display: flex; align-items: center; gap: 0.4rem; margin-top: 0.3rem; color: #b7c4d6; font-size: 0.7rem; }
+  .camera-status-dot { width: 6px; height: 6px; border-radius: 50%; background: #efad78; flex-shrink: 0; }
+  .is-connected .camera-status-dot { background: #6edbb3; }
+  .camera-info .btn { border-color: #34465d; padding: 0.35rem 0.5rem; }
+  .camera-info > .d-flex { flex-shrink: 0; }
+  .audio-toggle, .motion-audio-toggle, .detection-toggle, .ptz-toggle {
+    width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center;
+    background: #142235; color: #dceafa; border-color: #61758e;
+    &.btn-success { background: #175842; border-color: #6edbb3; color: #d9fff0; }
+    &.btn-info { background: #1c5065; color: #d8f6ff; }
+  }
+  &:focus-within .audio-toggle, &:focus-within .motion-audio-toggle,
+  &:focus-within .detection-toggle, &:focus-within .ptz-toggle { opacity: 1; }
+  .camera-name-overlay { max-width: calc(100% - 100px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  // Leave the name visible while the four controls occupy the bottom-left.
+  &:hover .camera-name-overlay, &:focus-within .camera-name-overlay { bottom: 44px; }
+}
+@media (hover: none) {
+  .camera-card {
+    .audio-toggle, .motion-audio-toggle, .detection-toggle, .ptz-toggle { opacity: 1; }
+    .camera-name-overlay { bottom: 44px; }
+  }
+}
+
+// Clip cards
 .clip-card {
   background: $card-bg;
   border: 1px solid $card-border-color;

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import type { Clip } from '../../types/clip'
 import { useClipStore } from '../../stores/clips'
 import { useDetectionPlayback } from '../../composables/useDetectionOverlay'
@@ -16,6 +16,8 @@ const clipStore = useClipStore()
 const settings = useSettingsStore()
 const videoSrc = ref(clipStore.videoUrl(props.clip.camera, props.clip.timestamp))
 const videoRef = ref<HTMLVideoElement | null>(null)
+const modalRef = ref<HTMLElement | null>(null)
+let previousFocus: HTMLElement | null = null
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 const playbackTime = ref(0)
 const backgroundOnly = computed(() => {
@@ -75,12 +77,22 @@ function seekToAudioEvent(offsetSeconds: number) {
 }
 
 function handleKeydown(e: KeyboardEvent) {
+  e.stopPropagation()
+  if (e.key === 'Tab' && modalRef.value) {
+    const targets = [...modalRef.value.querySelectorAll<HTMLElement>('button:not(:disabled), video[controls], [tabindex="0"]')]
+    const first = targets[0]
+    const last = targets[targets.length - 1]
+    if (e.shiftKey && (document.activeElement === first || document.activeElement === modalRef.value)) { e.preventDefault(); last?.focus() }
+    else if (!e.shiftKey && (document.activeElement === last || document.activeElement === modalRef.value)) { e.preventDefault(); first?.focus() }
+  }
   if (e.key === 'Escape') emit('close')
   if (e.key === 'n') { e.preventDefault(); nudgeDetection('next') }
   if (e.key === 'p') { e.preventDefault(); nudgeDetection('prev') }
 }
 
 onMounted(async () => {
+  previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  modalRef.value?.focus()
   // Pre-load detection data for this clip's time range
   const from = props.clip.timestamp
   const to = from + props.clip.duration
@@ -91,11 +103,12 @@ onMounted(async () => {
     toggleOverlay()
   }
 })
+onUnmounted(() => { if (previousFocus?.isConnected) previousFocus.focus() })
 </script>
 
 <template>
   <Teleport to="body">
-    <div class="clip-modal-overlay" @click.self="emit('close')" @keydown="handleKeydown" tabindex="0">
+    <div ref="modalRef" class="clip-modal-overlay" role="dialog" aria-modal="true" :aria-label="`Clip ${clip.uid}`" @click.self="emit('close')" @keydown="handleKeydown" tabindex="0">
       <div class="clip-modal">
         <div class="clip-modal-header">
           <span>Clip {{ clip.uid }}</span>
@@ -118,7 +131,7 @@ onMounted(async () => {
             </button>
             <button class="btn btn-sm btn-outline-secondary" :disabled="!hasDetections" @click="nudgeDetection('prev')" title="Previous detection">⏮</button>
             <button class="btn btn-sm btn-outline-secondary" :disabled="!hasDetections" @click="nudgeDetection('next')" title="Next detection">⏭</button>
-            <button class="btn btn-sm btn-outline-secondary" @click="emit('close')">✕</button>
+            <button class="btn btn-sm btn-outline-secondary" aria-label="Close clip" @click="emit('close')">✕</button>
           </div>
         </div>
         <div class="clip-modal-body">

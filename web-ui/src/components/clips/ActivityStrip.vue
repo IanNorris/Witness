@@ -210,6 +210,11 @@ onUnmounted(() => {
           class="strip-thumb"
           :class="{ 'strip-unreviewed': !group.representative.reviewed, 'strip-grouped': group.clips.length > 1 }"
           @click.stop="onClickClip(group.representative)"
+          role="button"
+          tabindex="0"
+          :aria-label="`Play activity from ${cameraName(group.representative.camera)}, ${group.representative.duration} seconds`"
+          @keydown.enter.self.prevent="onClickClip(group.representative)"
+          @keydown.space.self.prevent="onClickClip(group.representative)"
         >
           <img :src="thumbUrl(group.representative)" :alt="`Clip ${group.representative.uid}`" loading="lazy" />
           <div class="strip-thumb-tags">
@@ -244,6 +249,11 @@ onUnmounted(() => {
           class="strip-thumb strip-group-member"
           :class="{ 'strip-unreviewed': !clip.reviewed }"
           @click.stop="onClickClip(clip)"
+          role="button"
+          tabindex="0"
+          :aria-label="`Play activity from ${cameraName(clip.camera)}, ${clip.duration} seconds`"
+          @keydown.enter.self.prevent="onClickClip(clip)"
+          @keydown.space.self.prevent="onClickClip(clip)"
         >
           <img :src="thumbUrl(clip)" :alt="`Clip ${clip.uid}`" loading="lazy" />
           <div class="strip-thumb-tags">
@@ -273,21 +283,24 @@ onUnmounted(() => {
 
 <style scoped>
 .activity-strip {
-  background: var(--bs-dark, #1e1e2e);
+  container-type: inline-size;
+  background: #131f2f;
   border: 1px solid var(--bs-border-color, #333);
   border-radius: 0.5rem;
-  padding: 0.5rem;
+  padding: 0.75rem;
   margin-bottom: 1rem;
 }
 .strip-header {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0 0.25rem 0.4rem;
+  flex-wrap: wrap;
+  padding: 0 0.1rem 0.65rem;
   font-size: 0.8rem;
 }
 .strip-title {
   font-weight: 600;
+  color: #edf3fc;
 }
 .strip-count {
   font-size: 0.7rem;
@@ -298,8 +311,8 @@ onUnmounted(() => {
   border-radius: 999px;
   background: transparent;
   color: var(--bs-secondary-color, #999);
-  padding: 0.08rem 0.45rem;
-  font-size: 0.62rem;
+  padding: 0.25rem 0.6rem;
+  font-size: 0.7rem;
   line-height: 1.25;
 }
 .strip-grouping-toggle:hover,
@@ -309,25 +322,25 @@ onUnmounted(() => {
 }
 .strip-items {
   display: flex;
-  gap: 0.4rem;
+  gap: 0.65rem;
   overflow-x: auto;
   overflow-y: hidden;
   padding-bottom: 0.2rem;
 }
 .strip-thumb {
   position: relative;
-  width: 120px;
+  width: 176px;
   aspect-ratio: 16 / 9;
-  border-radius: 4px;
+  border-radius: 7px;
   overflow: hidden;
   cursor: pointer;
   border: 2px solid transparent;
-  transition: border-color 0.15s, transform 0.1s;
+  transition: border-color 0.15s;
   flex-shrink: 0;
 }
-.strip-thumb:hover {
-  transform: scale(1.05);
-  border-color: var(--bs-primary, #7c3aed);
+.strip-thumb:hover, .strip-thumb:focus-visible {
+  border-color: #79beef;
+  outline: none;
 }
 .strip-unreviewed {
   border-color: var(--bs-info, #0dcaf0);
@@ -370,27 +383,29 @@ onUnmounted(() => {
   right: 0;
   background: linear-gradient(to top, rgba(0,0,0,0.75), transparent);
   display: flex;
-  align-items: baseline;
+  flex-direction: column;
   justify-content: space-between;
-  padding: 10px 4px 2px;
+  padding: 20px 7px 5px;
+  gap: 1px;
 }
 .strip-cam-name {
   color: #fff;
-  font-size: 0.55rem;
+  font-size: 0.72rem;
+  max-width: 100%;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .strip-time-badge {
-  color: rgba(255,255,255,0.6);
-  font-size: 0.5rem;
+  color: #c3d2e4;
+  font-size: 0.65rem;
   white-space: nowrap;
   flex-shrink: 0;
 }
 .strip-live-badge {
-  color: #dc3545;
-  font-size: 0.55rem;
+  color: #ff9ca7;
+  font-size: 0.65rem;
   font-weight: 700;
   flex-shrink: 0;
 }
@@ -461,5 +476,14 @@ onUnmounted(() => {
   color: var(--bs-secondary-color, #888);
   font-size: 0.75rem;
   padding: 0.5rem;
+}
+/* A narrow dock needs room for both captions and top-row tag badges. */
+@container (max-width: 150px) {
+  .strip-thumb { min-height: 88px; }
+  .strip-count { display: none; }
+  .strip-grouping-toggle { margin-left: 0; padding: 0.2rem 0.3rem; }
+  .strip-overlay-bottom { padding-inline: 4px; }
+  .strip-cam-name { font-size: 0.65rem; }
+  .strip-time-badge { font-size: 0.6rem; }
 }
 </style>

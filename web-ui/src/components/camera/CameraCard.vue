@@ -290,7 +290,15 @@ onUnmounted(() => {
           :class="audioActive ? 'btn-success' : 'btn-outline-secondary'"
           @click.stop="toggleAudio"
           :title="audioActive ? 'Mute live audio' : 'Play live audio'"
-        >{{ audioActive ? '🔊' : '🔇' }}</button>
+          :aria-label="audioActive ? 'Mute live audio' : 'Play live audio'"
+          :aria-pressed="audioActive"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M11 5 6 9H3v6h3l5 4z" />
+            <path v-if="audioActive" d="M15 8a6 6 0 0 1 0 8m3-11a10 10 0 0 1 0 14" />
+            <path v-else d="m16 9 5 6m0-6-5 6" />
+          </svg>
+        </button>
 
         <button
           v-if="effectiveMode !== 'jpeg' && isConnected"
@@ -298,7 +306,13 @@ onUnmounted(() => {
           :class="audioMode === 'motion' ? (audioActive ? 'btn-success' : 'btn-info') : 'btn-outline-secondary'"
           @click.stop="toggleMotionAudio"
           :title="audioMode === 'motion' ? 'Disable audio on motion' : 'Enable audio while motion is active'"
-        >M</button>
+          :aria-label="audioMode === 'motion' ? 'Disable audio on motion' : 'Enable audio while motion is active'"
+          :aria-pressed="audioMode === 'motion'"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M2 12h4l3-8 6 16 3-8h4" />
+          </svg>
+        </button>
 
         <!-- Detection overlay toggle -->
         <button
@@ -336,9 +350,10 @@ onUnmounted(() => {
 
     <!-- Info bar: hidden in fullscreen -->
     <div v-if="!settings.fullscreenMode" class="camera-info">
-      <div>
+      <div class="camera-details">
         <div class="camera-name">{{ camera.name }}</div>
-        <div class="camera-status">
+        <div class="camera-status" :class="{ 'is-connected': isConnected }">
+          <span class="camera-status-dot" aria-hidden="true" />
           <span>{{ camera.status }}</span>
         </div>
       </div>

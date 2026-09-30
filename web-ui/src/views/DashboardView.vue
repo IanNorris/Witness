@@ -366,7 +366,7 @@ onMounted(async () => {
   <AppLayout>
     <template #title>Dashboard</template>
     <template #actions>
-      <div class="d-flex align-items-center gap-2">
+      <div class="dashboard-toolbar d-flex align-items-center gap-2">
         <!-- Group picker -->
         <div v-if="groupStore.activeGroups.length > 0" class="btn-group btn-group-sm me-2">
           <button
@@ -399,7 +399,7 @@ onMounted(async () => {
           class="btn btn-sm btn-outline-secondary"
           @click="openLayoutEditor"
           title="Arrange this group's fullscreen dashboard"
-        >Layout</button>
+        >Arrange</button>
         <button
           class="btn btn-sm"
           :class="settings.fullscreenMode ? 'btn-primary' : 'btn-outline-secondary'"
@@ -418,15 +418,16 @@ onMounted(async () => {
           class="btn btn-sm"
           :class="settings.streamingMode !== 'jpeg' ? 'btn-outline-primary' : 'btn-outline-secondary'"
           @click="settings.toggleStreamingMode"
-          :title="'Mode: ' + settings.streamingMode.toUpperCase()"
+          :title="'Playback mode: ' + settings.streamingMode.toUpperCase() + ' (click to change)'"
         >
-          {{ settings.streamingMode.toUpperCase() }}
+          {{ settings.streamingMode === 'jpeg' ? 'Snapshots' : 'Video' }} <span class="mode-detail mobile-hide">{{ settings.streamingMode.toUpperCase() }}</span>
         </button>
         <button
           class="btn btn-sm"
           :class="showRecentActivity ? 'btn-outline-primary' : 'btn-outline-secondary'"
           @click="toggleRecentActivity"
           :title="showRecentActivity ? 'Hide recent activity' : 'Show recent activity'"
+          :aria-pressed="showRecentActivity"
         >Activity</button>
       </div>
     </template>
@@ -533,6 +534,9 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+.dashboard-toolbar { padding: 0.25rem 0; }
+.dashboard-toolbar .btn { white-space: nowrap; }
+.mode-detail { margin-left: 0.35rem; font-size: 0.65rem; opacity: 0.75; }
 .dashboard-activity-strip {
   margin-top: 1rem;
   margin-bottom: 0;
@@ -544,7 +548,7 @@ onMounted(async () => {
   margin: 0;
   border-radius: 0;
   border-width: 1px 0 0;
-  background: rgba(15, 15, 20, 0.97);
+  background: #111c2b;
 }
 
 .fullscreen-dashboard-controls {
@@ -569,8 +573,8 @@ onMounted(async () => {
   padding: 6px 10px;
   border: 1px solid rgba(255, 255, 255, 0.3);
   border-radius: 0.375rem;
-  background: rgba(0, 0, 0, 0.6);
-  color: rgba(255, 255, 255, 0.75);
+  background: #142235;
+  color: #dceafa;
   font-size: 0.75rem;
   cursor: pointer;
 }
