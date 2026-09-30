@@ -601,6 +601,7 @@ void LiveOutputStream::ResetForReconnect(InputStream* NewInputStream)
 	_TimestampProbeInputTicks = 0;
 	_TimestampProbeDurationTicks = 0;
 	_TimestampCadenceClock.Reset();
+	_TimestampArrivalGuard.Reset();
 	_TimestampStableCadenceSamples = 0;
 	_TimestampStableCadenceTicks = 0;
 	_SourceTimestampOffset = 0;
@@ -1208,6 +1209,18 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 	// packets are distinct access units in arrival order; discarding one can lose
 	// an HEVC reference picture and visibly corrupt dependent frames.
 	bool RepairedRegressingVideoTimestamp = false;
+	// Keep declared-duration evidence separate from source-DTS lookahead. Sample
+	// every eligible packet, including timestamp drops, so the raw high-water
+	// mark cannot distort the measured arrival cadence.
+	if (IsVideo && _AllowObservedTimestampRegressionRepair && !_AllowTimestampNormalization &&
+		!_HasAudioStream && !_HasBFrames && !_NormalizeNoBFrameTimestamps &&
+		!_TimestampNormalizationRejected &&
+		(PacketCodec == AV_CODEC_ID_H264 || PacketCodec == AV_CODEC_ID_HEVC))
+	{
+		_TimestampArrivalGuard.Observe(av_rescale_q(
+			ArrivalMs, AVRational{1, 1000}, InputTimebase), OriginalSourceDuration,
+			PacketCopy.pts == PacketCopy.dts && (PacketCopy.flags & AV_PKT_FLAG_CORRUPT) == 0);
+	}
 	// Also sample the relationship between source DTS deltas
 	// and declared frame durations. We only replace the source clock when it is
 	// demonstrably jittery but agrees with the durations over the whole window;
@@ -1253,13 +1266,26 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 					PacketCopy.duration * 20 : MaximumTimeRegressionTicks;
 				const int64_t MaximumRegressionTicks = (std::min)(
 					MaximumTimeRegressionTicks, MaximumFrameRegressionTicks);
-				if (RegressionGuard.CanRepair(PacketCopy.dts, PacketCopy.pts,
+				const bool SourceEvidenceQualifies = RegressionGuard.CanRepair(PacketCopy.dts, PacketCopy.pts,
 					_LastInputDTS, _LastPacketDuration, PacketCopy.duration,
 					PayloadSeenRecently, MinimumEvidenceTicks,
-					MaximumRegressionTicks))
+					MaximumRegressionTicks);
+				const int64_t MinimumArrivalEvidenceTicks = av_rescale_q(
+					AV_TIME_BASE, AV_TIME_BASE_Q, InputTimebase);
+				TimestampRegressionGuard ArrivalEvidence;
+				ArrivalEvidence.StableSamples = _TimestampArrivalGuard.SampleCount;
+				ArrivalEvidence.StableDurationTicks = _TimestampArrivalGuard.DurationTicks;
+				const int64_t DeclaredDuration = _TimestampArrivalGuard.DeclaredDuration;
+				const bool ArrivalEvidenceQualifies = _TimestampArrivalGuard.Ready(MinimumArrivalEvidenceTicks) &&
+					ArrivalEvidence.CanRepair(PacketCopy.dts, PacketCopy.pts, _LastInputDTS,
+						DeclaredDuration, OriginalSourceDuration, PayloadSeenRecently,
+						MinimumArrivalEvidenceTicks, (std::min)(MaximumTimeRegressionTicks, DeclaredDuration * 20));
+				if (SourceEvidenceQualifies || ArrivalEvidenceQualifies)
 				{
 					_NormalizeNoBFrameTimestamps = true;
 					_SourceTimestampOffset = 0;
+					if (ArrivalEvidenceQualifies)
+						PacketCopy.duration = OriginalSourceDuration;
 					// A preview without audio needs no source-clock synchronization.
 					// Its regressing clock must not also be the repair's reference.
 					if (!_AllowTimestampNormalization && !_HasAudioStream)
@@ -1278,9 +1304,10 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 						(double)(_LastInputDTS - PacketCopy.dts) *
 						InputTimebase.num * 1000.0 / InputTimebase.den;
 					LOG_INFO(
-						"[HLS] Source %d enabled bounded no-B-frame timestamp repair after %.1fms DTS regression (%s clock)",
+						"[HLS] Source %d enabled bounded no-B-frame timestamp repair after %.1fms DTS regression (%s clock, %s evidence)",
 						_InputStream->GetSourceId(), RegressionMs,
-						_TimestampCadenceClock.UseArrival ? "arrival" : "source");
+						_TimestampCadenceClock.UseArrival ? "arrival" : "source",
+						ArrivalEvidenceQualifies ? "declared/arrival" : "source-DTS");
 				}
 			}
 

@@ -1,10 +1,12 @@
 #include "TimestampRegressionGuard.h"
 #include "TimestampCadenceClock.h"
+#include "TimestampArrivalGuard.h"
 
 #include <stdexcept>
 
 using Witness::Camera::TimestampRegressionGuard;
 using Witness::Camera::TimestampCadenceClock;
+using Witness::Camera::TimestampArrivalGuard;
 
 static void Require(bool Condition)
 {
@@ -91,6 +93,53 @@ int main()
 	Clock.StartArrival(100, 200);
 	Require(Clock.Target(-500, 110) == 210);
 	Require(Clock.WindowElapsed(-500, 110) == 10);
+
+	// Camera 9 capture: stable 4500-tick declarations, but bimodal source
+	// deltas keep resetting the source-derived qualification. Arrival evidence
+	// must stay independent of those deltas and span at least one second.
+	const int64_t RawDeltas[] = {3510, 4320, 7020, 3060, 3780, 3960, 7200, 3420,
+		3600, 3780, 7110, 3510, 3870, 7110, 3150, 3960, 3960, 6930};
+	TimestampRegressionGuard BimodalSource;
+	for (int Index = 1; Index < 18; ++Index)
+		BimodalSource.ObserveMonotonic(RawDeltas[Index - 1], RawDeltas[Index - 1], RawDeltas[Index], true);
+	Require(BimodalSource.StableSamples < TimestampRegressionGuard::RequiredStableSamples);
+	TimestampArrivalGuard ArrivalEvidence;
+	for (int Index = 0; Index <= 24; ++Index)
+	{
+		ArrivalEvidence.Observe(Index * FrameDuration + (Index % 2 ? 900 : 0), FrameDuration, true);
+		if (Index < 20) Require(!ArrivalEvidence.Ready(90000));
+	}
+	Require(ArrivalEvidence.Ready(90000));
+	TimestampRegressionGuard Qualified;
+	Qualified.StableSamples = ArrivalEvidence.SampleCount;
+	Qualified.StableDurationTicks = ArrivalEvidence.DurationTicks;
+	Require(Qualified.CanRepair(54000, 54000, 85500, FrameDuration, FrameDuration, false, 90000, 90000));
+	Require(!Qualified.CanRepair(54000, 54000, 85500, FrameDuration, FrameDuration, true, 90000, 90000));
+	Require(!Qualified.CanRepair(54000, 58500, 85500, FrameDuration, FrameDuration, false, 90000, 90000));
+	Require(!Qualified.CanRepair(-90000, -90000, 85500, FrameDuration, FrameDuration, false, 90000, 90000));
+	Require(!Qualified.CanRepair(85500, 85500, 85500, FrameDuration, FrameDuration, false, 90000, 90000));
+	for (int Kind = 0; Kind < 3; ++Kind)
+	{
+		TimestampArrivalGuard InvalidCadence;
+		for (int Index = 0; Index < 100; ++Index)
+			InvalidCadence.Observe(Kind == 0 ? 0 : Index * 6000,
+				Kind == 2 && Index % 2 ? 9000 : FrameDuration, true);
+		Require(!InvalidCadence.Ready(90000)); // burst, rate mismatch, VFR declarations
+	}
+	ArrivalEvidence.Observe(9000000, FrameDuration, true);
+	Require(!ArrivalEvidence.Ready(90000)); // network outage discards stale evidence
+	ArrivalEvidence.Observe(9004500, FrameDuration, false);
+	Require(ArrivalEvidence.SampleCount == 0);
+	ArrivalEvidence.Observe(9010000, INT64_MAX, true);
+	Require(ArrivalEvidence.SampleCount == 0);
+	ArrivalEvidence.Reset();
+	for (int Index = 0; Index < 100; ++Index)
+		ArrivalEvidence.Observe(Index * FrameDuration, FrameDuration, true);
+	Require(ArrivalEvidence.SampleCount == TimestampArrivalGuard::Capacity);
+	Require(ArrivalEvidence.Ready(90000));
+	for (int Index = 100; Index < 140; ++Index)
+		ArrivalEvidence.Observe(99 * FrameDuration + (Index - 99) * 6000, FrameDuration, true);
+	Require(!ArrivalEvidence.Ready(90000)); // rolling window, not lifetime average
 
 	return 0;
 }

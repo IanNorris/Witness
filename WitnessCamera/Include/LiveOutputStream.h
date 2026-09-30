@@ -4,6 +4,7 @@
 #include "InputStream.h"
 #include "SegmentBuffer.h"
 #include "TimestampCadenceClock.h"
+#include "TimestampArrivalGuard.h"
 #include <mutex>
 #include <chrono>
 #include <string>
@@ -234,6 +235,7 @@ private:
 	int64_t _TimestampProbeInputTicks;
 	int64_t _TimestampProbeDurationTicks;
 	TimestampCadenceClock _TimestampCadenceClock;
+	TimestampArrivalGuard _TimestampArrivalGuard;
 	int _TimestampStableCadenceSamples;
 	int64_t _TimestampStableCadenceTicks;
 	int64_t _SourceTimestampOffset;
