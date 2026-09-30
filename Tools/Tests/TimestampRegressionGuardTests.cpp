@@ -1,6 +1,7 @@
 #include "TimestampRegressionGuard.h"
 #include "TimestampCadenceClock.h"
 #include "TimestampArrivalGuard.h"
+#include "AudioSampleClock.h"
 
 #include <stdexcept>
 
@@ -16,6 +17,34 @@ static void Require(bool Condition)
 
 int main()
 {
+	{
+		Witness::Camera::AudioSampleClock Clock;
+		int64_t Output = 0;
+		Require(Clock.Normalize(2000, 1024, Output) && Output == 2000);
+		Require(Clock.Normalize(2806, 1024, Output) && Output == 3024);
+		Require(Clock.Normalize(2808, 1024, Output) && Output == 4048);
+		Require(Clock.Normalize(5800, 1024, Output) && Output == 5072); // burst jitter is not loss
+		Require(Clock.Normalize(6600, 1024, Output) && Output == 6096);
+		Require(Clock.Normalize(30000, 1024, Output) && Output == 30000); // preserve real gap
+		Require(!Clock.Normalize(2000, 1024, Output)); // distant reset rejected
+		Clock.Reset();
+		Require(Clock.Normalize(2000, 960, Output) && Output == 2000);
+		const uint8_t Lc16k[] = {0x14, 0x08};
+		const uint8_t Lc960[] = {0x14, 0x0c};
+		const uint8_t Unknown[] = {0x2b, 0x92};
+		Require(Witness::Camera::AacLcFrameSamples(Lc16k, 2, 16000) == 1024);
+		Require(Witness::Camera::AacLcFrameSamples(Lc960, 2, 16000) == 960);
+		Require(!Witness::Camera::AacLcFrameSamples(Lc16k, 2, 48000));
+		Require(!Witness::Camera::AacLcFrameSamples(Unknown, 2, 16000));
+		Require(!Witness::Camera::AacLcFrameSamples(Lc16k, 1, 16000));
+		const uint8_t Extended[] = {0x14, 0x08, 0x56, 0xe5};
+		Require(!Witness::Camera::AacLcFrameSamples(Extended, 4, 16000));
+		Require(!Clock.Normalize(-1, 1024, Output));
+		Require(!Clock.Normalize(1, 0, Output));
+		Clock.Reset();
+		Require(Clock.Normalize(INT64_MAX - 1024, 1024, Output));
+		Require(!Clock.Normalize(INT64_MAX - 1, 1024, Output));
+	}
 	constexpr int64_t FrameDuration = 4500; // 20 fps in a 90 kHz timebase
 	TimestampRegressionGuard Guard;
 	for (int Index = 0; Index < 8; ++Index)

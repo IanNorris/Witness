@@ -225,6 +225,8 @@ private:
 	int64_t _LastOutputPacketDuration;
 	int64_t _LastWrittenDTS;
 	int64_t _LastWrittenAudioDTS;
+	int _AacFrameSamples = 0;
+	int64_t _NextAacSample = -1;
 	int _AudioInputStreamIndex;
 	int64_t _SegmentStartDTS;
 	int64_t _OutputSegmentStartDTS;

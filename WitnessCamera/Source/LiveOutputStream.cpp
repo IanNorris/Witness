@@ -4,6 +4,7 @@
 #include "StreamData.h"
 #include "PacketCapture.h"
 #include "TimestampRegressionGuard.h"
+#include "AudioSampleClock.h"
 
 #include <Log.h>
 #include <algorithm>
@@ -594,6 +595,8 @@ void LiveOutputStream::ResetForReconnect(InputStream* NewInputStream)
 	_LastOutputPacketDuration = 0;
 	_LastWrittenDTS = AV_NOPTS_VALUE;
 	_LastWrittenAudioDTS = AV_NOPTS_VALUE;
+	_AacFrameSamples = 0;
+	_NextAacSample = -1;
 	_AudioInputStreamIndex = -1;
 	_OutputSegmentStartDTS = AV_NOPTS_VALUE;
 	_TimestampProbeSamples = 0;
@@ -810,6 +813,11 @@ CameraStreamError LiveOutputStream::InitFormatContext()
 		AudioOutStream->time_base = AudioInStream->time_base;
 		_HasAudioStream = true;
 		_AudioInputStreamIndex = InID.ChosenAudioStreamIndex;
+		if (_AllowTimestampNormalization && AudioInStream->codecpar->codec_id == AV_CODEC_ID_AAC &&
+			AudioInStream->time_base.num == 1 &&
+			AudioInStream->time_base.den == AudioInStream->codecpar->sample_rate)
+			_AacFrameSamples = AacLcFrameSamples(AudioInStream->codecpar->extradata,
+				AudioInStream->codecpar->extradata_size, AudioInStream->codecpar->sample_rate);
 		{
 			const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
 			_DiagAudioCodec = avcodec_get_name(AudioInStream->codecpar->codec_id);
@@ -1580,6 +1588,31 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 
 	PacketCopy.stream_index = IsAudio ? 1 : 0;
 	PacketCopy.pos = -1;
+	if (IsAudio && _AacFrameSamples > 0)
+	{
+		const int SampleRate = _FormatContext->streams[1]->codecpar->sample_rate;
+		const int64_t SourceSample = av_rescale_q(PacketCopy.dts, InputTimebase, AVRational{1, SampleRate});
+		int64_t OutputSample = 0;
+		if (!AudioSampleClock::Normalize(SourceSample, _AacFrameSamples, _NextAacSample, OutputSample))
+		{
+			RecordPacket("nonMonotonicOutput", true,
+				av_rescale_q(_NextAacSample, AVRational{1, SampleRate}, InputTimebase),
+				av_rescale_q(_NextAacSample, AVRational{1, SampleRate}, InputTimebase), _AacFrameSamples);
+			av_packet_unref(&PacketCopy);
+			return CameraStreamError::Success;
+		}
+		// RTSP AAC DTS can alternate ~50ms / ~100ms / near-zero despite each
+		// access unit decoding to 1024 samples (64ms at 16kHz). MP4 compares the
+		// next fragment's DTS with the previous sample's end, not just its DTS.
+		// Use sample-exact timestamps; do not let movenc clamp overlap to one tick.
+		const int64_t EndSample = OutputSample + _AacFrameSamples;
+		PacketCopy.dts = av_rescale_q(OutputSample, AVRational{1, SampleRate}, InputTimebase);
+		PacketCopy.pts = PacketCopy.dts;
+		PacketCopy.duration = av_rescale_q(EndSample, AVRational{1, SampleRate}, InputTimebase) - PacketCopy.dts;
+		PtsSynthesized = true;
+		DurationSynthesized = true;
+		TimestampNormalized = true;
+	}
 
 	// B-frame streams retain their source timing, so keep an output-side
 	// monotonicity check as a final muxer safety net.
