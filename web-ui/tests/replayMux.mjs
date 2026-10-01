@@ -1,6 +1,8 @@
 // Replay a private native mux capture through Witness's actual MSE player.
 // Run from web-ui: node tests/replayMux.mjs ../build-vs2026/capture.mp4 [seconds] [firefox]
 // Replays every moof/mdat, not the original network-arrival jitter or partial boundaries.
+// Optional --inject-lag (Chromium, >=20s) verifies pre-restart drift evidence
+// using an intentional backwards seek, not a claim of production reproduction.
 import { readFile, mkdtemp, copyFile, rm } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { join, resolve, extname, sep } from 'node:path'
@@ -48,6 +50,8 @@ if (fragments[fragments.length - 1].at - fragments[0].at < seconds + 2)
   throw new Error('Capture is too short for the requested replay; avoid mistaking fixture EOF for a playback stall')
 const root = resolve('../WitnessServer/Web')
 const firefoxMode = process.argv[4] === 'firefox'
+const injectLag = process.argv.includes('--inject-lag')
+if (injectLag && (firefoxMode || seconds < 20)) throw new Error('--inject-lag requires Chromium and >=20 seconds')
 const received = []
 const server = createServer(async (req, res) => {
   const path = new URL(req.url, 'http://localhost').pathname
@@ -79,6 +83,19 @@ await new Promise(done => server.listen(0, '127.0.0.1', done))
 let browser
 let firefoxProcess, firefoxProfile
 function verifyPlayback(snapshot) {
+  if (injectLag) {
+    const restart = snapshot.lastDriftRestart
+    if (!restart || restart.drift?.lagMs <= 5000 || !restart.drift?.hasAudio ||
+        restart.drift?.futureSafeKeyframes !== 0 || !restart.driftSamples?.length ||
+        !snapshot.driftSamples?.length || snapshot.stats.stallCount || snapshot.stats.errorCount)
+      throw new Error('Controlled drift did not retain expected healthy-playback evidence')
+    const history = restart.driftSamples
+    if (!history.some(sample => sample.playbackAdvanceMs > 0 && sample.lagChangeMs < 0) ||
+        !snapshot.driftSamples.some(sample => sample.generation !== restart.drift.generation))
+      throw new Error('Drift history did not capture catch-up progress and post-restart generation')
+    console.log('PASS: controlled drift captures lag, progress, muxed audio, no safe seek targets, pre-restart history and recovery generation')
+    return
+  }
   if (snapshot.stats.restartCount || snapshot.stats.stallCount || snapshot.stats.errorCount ||
       snapshot.currentState.error || snapshot.currentState.paused ||
       snapshot.currentState.currentTime < seconds - 8)
@@ -126,6 +143,12 @@ try {
   const page = await browser.newPage()
   const samples = []
   await page.goto(origin)
+  if (injectLag) await page.evaluate(() => {
+    setTimeout(() => {
+      const video = document.querySelector('video')
+      video.currentTime = Math.max(video.buffered.start(0) + .1, video.currentTime - 4.2)
+    }, 10000)
+  })
   for (let elapsed = 0; elapsed < seconds; elapsed += 5) {
     await new Promise(done => setTimeout(done, 5000))
     const snapshot = await page.evaluate(() => {

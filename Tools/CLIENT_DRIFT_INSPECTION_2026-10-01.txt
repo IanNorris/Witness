@@ -1,0 +1,81 @@
+Client/MSE drift investigation — 1 October 2026
+
+Scope
+Instrumentation only. Catch-up speeds, seek safety, restart deadlines, transport,
+authentication and camera settings are unchanged. Branch codex/drift-diagnostics.
+Production evidence: witness-health-2026-10-01T01-24-12-222Z.json.
+
+Confirmed recovery-policy mismatch
+Camera 11 had 8 client restarts and camera 13 had 69; the latest reasons were
+drift, with no reported client stalls/errors. Both selected H.264/AAC substreams.
+The server explicitly disables keyframeSeekSafe when audio is muxed. Their
+four-second GOP is therefore NOT the immediate blocker: there are no eligible
+seek targets at all. Do not simply enable the flag; buffered boundaries are
+not reliable exact video random-access timestamps for multi-track media.
+The client accelerates to 1.08x but restarts after >5 seconds of buffered
+headroom for >3 seconds. It can restart while playback progresses and lag falls.
+Normal 90-second saved camera-13 replays passed Firefox and Chromium. A
+controlled six-second delivery pause produced a stuck restart, not drift.
+A controlled backwards seek of 4.2 seconds produced catchUpStart at about
+5.60 seconds and driftRestart around 5.29 seconds, without stalls or errors.
+This reproduces the recovery decision, NOT the production origin of the lag.
+
+Inspection findings / hypotheses
+1. useMseStream uses SourceBuffer sequence mode for muxed audio/video. The
+   embedded media timing and coded-frame group handling determine actual
+   buffered advancement; partial.duration is metadata, not a client clock.
+   Saved replay preserves all moof/mdat data but changes append boundaries and
+   schedules by video time. It cannot rule out production boundary/jitter
+   effects. Compare buffer advancement, timestamps and audio/video fragments
+   against wall-clock playback before considering a segments-mode change.
+2. Initial reserve uses the first buffered start and last buffered end. With
+   disjoint ranges, this can count a gap as playable reserve. The drift watchdog
+   similarly measures to the last range rather than the range containing the
+   playhead. New range snapshots will show whether these assumptions matter.
+3. Client appends are serialized and byte/count bounded. A zero queue in a
+   recovered snapshot does not rule out a preceding burst; periodic interval
+   counters and retained pre-restart history now cover that missing evidence.
+4. StreamBroadcaster's slow-client guard does not bound asynchronous sends.
+   Its single broadcast thread increments pending immediately before send,
+   and decrements immediately after send returns. Installed Crow websocket.h
+   send_data posts to the connection io_context, which then queues write_buffers
+   and performs async writes. Thus the 128-pending guard cannot observe actual
+   outstanding network messages/bytes. The broadcaster's own outbound queue
+   also has no size/age limit. This is a genuine inspection finding, but NOT
+   proof it caused the selective Reolink drift. Actual transport completion/
+   queue age requires separate work; do not drop arbitrary encoded partials.
+5. Browser suspension resets/adjusts watchdog timers, but does not magically
+   eliminate playback lag. Playback/mute/visibility and scheduling evidence
+   is needed to distinguish this from media timeline growth or delivery bursts.
+
+Added evidence
+One bounded sample per second, last 60 per player. Current time, play rate,
+playback/buffer advancement and lag change, video and SourceBuffer ranges,
+sequence/segments mode, timestampOffset, ready state, pause/seek/mute/volume,
+decoded-frame quality counters, visibility, scheduling delay, fragment/append
+age, queue bytes/count/oldest age, interval maximum fragment gap and append
+duration, incoming fragment count, latest partial coordinates/duration/safety,
+audio presence, eligible keyframe counts, catch-up state and drift deadline age.
+Media waiting/stalled/seeking/seeked/playing/ratechange and visibility events
+retain the same evidence. The most recent drift restart retains up to 20
+preceding samples separately, surviving recovery and recent-event eviction.
+Health exports and same-browser cross-tab collection preserve this information
+through a finite-number/range-bounded allowlist; no URLs or credentials added.
+These are buffer-headroom measurements, not measured camera-to-display delay.
+
+Validation
+New sanitizer/local-export/cross-tab tests pass. Controlled Chromium replay
+asserts drift history, progressing playback, audio/no seek targets and a new
+pipeline generation after recovery. Firefox baseline replay remains healthy.
+DVR tests and four-width dashboard/clip/DVR visual regressions pass.
+VS2026 RelWithDebInfo build succeeds and syncs the updated Web bundle.
+No production streams or database were changed.
+
+Next capture
+Deploy the instrumentation build, refresh the viewing dashboard tab, then
+export health after a drift restart. Inspect lastDriftRestart.drift and its
+driftSamples rather than the recovered player's current latency alone.
+Rising bufferAdvanceMs relative to playbackAdvanceMs indicates where to look:
+arrival/append bursts, timeline advancement exceeding elapsed time, or reduced
+playback progress. Use a native capture with exact partial/arrival boundaries
+if the browser evidence points to timing/fragmentation.

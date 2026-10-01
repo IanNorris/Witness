@@ -1,3 +1,5 @@
+import { sanitizeDriftSample, sanitizeDriftSamples, type DriftSample } from './driftDiagnostics'
+
 export interface ClientPlayerHealth {
   id: string
   selectedStream?: string
@@ -33,6 +35,8 @@ export interface ClientPlayerHealth {
   lastEventType?: string
   lastRestartReason?: string
   recentEvents?: ClientPlayerEvent[]
+  driftSamples?: DriftSample[]
+  lastDriftRestart?: ClientPlayerEvent
 }
 
 export interface ClientPlayerEvent {
@@ -50,6 +54,9 @@ export interface ClientPlayerEvent {
   backoffMs?: number
   consecutive?: number
   mimeType?: string
+  lagMs?: number
+  drift?: DriftSample
+  driftSamples?: DriftSample[]
 }
 
 export interface ClientHealthSession {
@@ -113,6 +120,9 @@ function sanitizeEvent(value: unknown): ClientPlayerEvent | null {
     backoffMs: optionalFinite(source.backoffMs),
     consecutive: optionalFinite(source.consecutive),
     mimeType: optionalBoundedText(source.mimeType, 120),
+    lagMs: optionalFinite(source.lagMs),
+    drift: sanitizeDriftSample(source.drift),
+    driftSamples: sanitizeDriftSamples(source.driftSamples),
   }
 }
 
@@ -178,6 +188,8 @@ function validateSession(value: unknown): ClientHealthSession | null {
       lastEventType: optionalBoundedText(player.lastEventType, 64),
       lastRestartReason: optionalBoundedText(player.lastRestartReason, 64),
       recentEvents: sanitizeEvents(player.recentEvents),
+      driftSamples: sanitizeDriftSamples(player.driftSamples),
+      lastDriftRestart: sanitizeEvent(player.lastDriftRestart) ?? undefined,
     })
   }
   const visibility = source.visibilityState
@@ -263,6 +275,8 @@ export function collectLocalClientHealth(): ClientHealthSession {
         lastEventType: lastEvent?.type,
         lastRestartReason: lastRestart?.reason ?? lastRestart?.type,
         recentEvents,
+        driftSamples: sanitizeDriftSamples(data.driftSamples),
+        lastDriftRestart: sanitizeEvent(data.lastDriftRestart) ?? undefined,
       })
       seen.add(id)
     }

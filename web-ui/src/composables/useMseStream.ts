@@ -1,4 +1,5 @@
 import { ref, onUnmounted, type Ref } from 'vue'
+import type { DriftSample } from './driftDiagnostics'
 
 // ── Constants ─────────────────────────────────────────────────────────
 const MSE_WATCHDOG_INTERVAL_MS = 250
@@ -51,6 +52,8 @@ class MseDiagnostics {
   startTime: number
   events: DiagEvent[] = []
   importantEvents: DiagEvent[] = []
+  driftSamples: DriftSample[] = []
+  lastDriftRestart: DiagEvent | null = null
   stats: MseDiagStats = {
     restartCount: 0,
     stallCount: 0,
@@ -87,6 +90,9 @@ class MseDiagnostics {
       ...extra,
     }
     this.events.push(event)
+    if (type === 'driftRestart') this.lastDriftRestart = {
+      ...event, driftSamples: this.driftSamples.slice(-20),
+    }
     // Routine fragment traffic quickly fills the rolling diagnostic window.
     // Retain lifecycle, error, and recovery events separately so a later dump
     // still contains the cause of an earlier stall or restart.
@@ -134,6 +140,8 @@ class MseDiagnostics {
       startTime: new Date(this.startTime).toISOString(),
       stats: { ...this.stats },
       liveState: this._stateGetter ? this._stateGetter() : null,
+      driftSamples: this.driftSamples.slice(),
+      lastDriftRestart: this.lastDriftRestart,
       currentState: el
         ? {
             readyState: el.readyState,
@@ -326,7 +334,88 @@ export function useMseStream(
 	let activeCodecHint = codecHint
 	let hasReceivedStreamSelection = false
 	let lastViewportWidth = 0
-	let lastViewportHeight = 0
+  let lastViewportHeight = 0
+  let lastDriftSampleAt = 0
+  let previousDriftSample: DriftSample | null = null
+  let maxFragmentGapMs = 0
+  let fragmentsSinceSample = 0
+  let maxAppendDurationMs = 0
+  let lastAppendDurationMs = 0
+  let lastBufferAdvanceMs: number | undefined
+  let lastDiagnosticPartial: PartialAppendMetadata | null = null
+
+  function driftEvidence(now: number): DriftSample {
+    const video = videoRef.value
+    const ranges = (buffered?: TimeRanges) => buffered
+      ? Array.from({ length: Math.min(buffered.length, 8) }, (_, i) => {
+          const index = buffered.length - Math.min(buffered.length, 8) + i
+          return [buffered.start(index), buffered.end(index)]
+        }) : []
+    const buffered = ranges(video?.buffered)
+    const end = buffered[buffered.length - 1]?.[1]
+    const currentTime = video?.currentTime ?? 0
+    const quality = video?.getVideoPlaybackQuality?.()
+    return {
+      t: new Date(now).toISOString(), generation: sourceBufferGeneration,
+      currentTime, bufferedEnd: end, lagMs: end !== undefined ? (end - currentTime) * 1000 : undefined,
+      playbackRate: video?.playbackRate, readyState: video?.readyState,
+      paused: video?.paused, seeking: video?.seeking, buffered,
+      sourceBuffered: ranges(sourceBuffer?.buffered), visibility: document.visibilityState,
+      catchUpActive, hasAudio: Boolean(audioCodec), sourceBufferUpdating: sourceBuffer?.updating,
+      fragmentAgeMs: lastFragTime ? now - lastFragTime : undefined,
+      appendAgeMs: lastAppendCompletedAt ? now - lastAppendCompletedAt : undefined,
+      appendQueueLength: appendQueue.length, appendQueueBytes,
+      appendQueueOldestAgeMs: appendQueue[0] ? now - appendQueue[0].queuedAt : 0,
+      appendOperationAgeMs: sourceBufferOperation ? now - sourceBufferOperation.startedAt : 0,
+      safeKeyframes: keyframeTimes.length,
+      futureSafeKeyframes: keyframeTimes.filter(time => time > currentTime + .05 && end !== undefined && time < end - .01).length,
+      highLatencyMs: highLatencySince ? now - highLatencySince : 0,
+      maxFragmentGapMs, fragmentsSinceSample, maxAppendDurationMs, lastAppendDurationMs,
+      lastBufferAdvanceMs, lastPartialDurationMs: lastDiagnosticPartial ? lastDiagnosticPartial.duration * 1000 : undefined,
+      segmentIndex: lastDiagnosticPartial?.segmentIndex, partIndex: lastDiagnosticPartial?.partIndex,
+      partialIndependent: lastDiagnosticPartial?.independent, partialSeekSafe: lastDiagnosticPartial?.keyframeSeekSafe,
+      muted: video?.muted, volume: video?.volume, sourceBufferMode: sourceBuffer?.mode,
+      timestampOffsetSeconds: sourceBuffer?.timestampOffset,
+      videoFrames: quality?.totalVideoFrames, droppedVideoFrames: quality?.droppedVideoFrames,
+    }
+  }
+
+  function sampleDrift(now: number, schedulingDelayMs: number) {
+    if (now - lastDriftSampleAt < 1000) return
+    const sample = driftEvidence(now)
+    sample.schedulingDelayMs = schedulingDelayMs
+    const previous = previousDriftSample
+    if (previous && previous.generation === sample.generation) {
+      sample.sampleIntervalMs = now - lastDriftSampleAt
+      sample.playbackAdvanceMs = ((sample.currentTime ?? 0) - (previous.currentTime ?? 0)) * 1000
+      if (sample.bufferedEnd !== undefined && previous.bufferedEnd !== undefined)
+        sample.bufferAdvanceMs = (sample.bufferedEnd - previous.bufferedEnd) * 1000
+      if (sample.lagMs !== undefined && previous.lagMs !== undefined)
+        sample.lagChangeMs = sample.lagMs - previous.lagMs
+    }
+    previousDriftSample = sample
+    lastDriftSampleAt = now
+    diag.driftSamples.push(sample)
+    if (diag.driftSamples.length > 60) diag.driftSamples.shift()
+    maxFragmentGapMs = 0
+    fragmentsSinceSample = 0
+    maxAppendDurationMs = 0
+  }
+
+  function resetDriftPipelineEvidence() {
+    previousDriftSample = null
+    maxFragmentGapMs = 0
+    fragmentsSinceSample = 0
+    maxAppendDurationMs = 0
+    lastAppendDurationMs = 0
+    lastBufferAdvanceMs = undefined
+    lastDiagnosticPartial = null
+  }
+
+  const driftMediaEvents = ['waiting', 'stalled', 'seeking', 'seeked', 'playing', 'ratechange'] as const
+  function recordDriftMediaEvent(event: Event) {
+    if (!destroyed) diag.log(`media:${event.type}`, { drift: driftEvidence(Date.now()) })
+  }
 
   function clearRenderSuppression() {
     renderSuppressionToken++
@@ -576,6 +665,7 @@ export function useMseStream(
       sourceBuffer.mode = 'sequence'
       const buffer = sourceBuffer
       const generation = ++sourceBufferGeneration
+      resetDriftPipelineEvidence()
       buffer.addEventListener('updateend', () => {
         // Events from a removed SourceBuffer may arrive after a replacement
         // pipeline has started. They must never consume its operation record.
@@ -601,6 +691,12 @@ export function useMseStream(
 
         consecutiveAppendErrors = 0  // Reset only after a successful append
         lastAppendCompletedAt = Date.now()
+        if (operation.item.partial) {
+          lastAppendDurationMs = lastAppendCompletedAt - operation.startedAt
+          maxAppendDurationMs = Math.max(maxAppendDurationMs, lastAppendDurationMs)
+          const end = buffer.buffered.length > 0 ? buffer.buffered.end(buffer.buffered.length - 1) : undefined
+          lastBufferAdvanceMs = end !== undefined && operation.startTime !== null ? (end - operation.startTime) * 1000 : undefined
+        }
 
         // `independent` is carried alongside the binary partial through the
         // append queue. Record its actual position in the sequence timeline
@@ -931,7 +1027,11 @@ export function useMseStream(
         // appendBuffer can fail synchronously and restart the pipeline. Do not
         // write fresh state into a generation that appendData just tore down.
         if (appendData(data, pendingPartialMetadata ?? undefined)) {
-          lastFragTime = Date.now()
+          const receivedAt = Date.now()
+          if (lastFragTime) maxFragmentGapMs = Math.max(maxFragmentGapMs, receivedAt - lastFragTime)
+          lastFragTime = receivedAt
+          fragmentsSinceSample++
+          lastDiagnosticPartial = pendingPartialMetadata
           diag.stats.totalFragments++
           isActive.value = true
         }
@@ -1219,6 +1319,7 @@ export function useMseStream(
       const now = Date.now()
       const previousWatchdogTick = lastWatchdogTick
       const schedulingDelay = now - previousWatchdogTick
+      sampleDrift(now, schedulingDelay)
       lastWatchdogTick = now
       if (schedulingDelay > MSE_WATCHDOG_SCHEDULING_GRACE_MS) {
         // Browser suspension and long maintenance tasks are not evidence that
@@ -1390,10 +1491,10 @@ export function useMseStream(
 
           if (!catchUpActive && lag > MSE_CATCH_UP_START_SECONDS) {
             catchUpActive = true
-            diag.log('catchUpStart', { lag, lagMs: latencyMs.value })
+            diag.log('catchUpStart', { lag, lagMs: latencyMs.value, drift: driftEvidence(now) })
           } else if (catchUpActive && lag < MSE_TARGET_HEADROOM_SECONDS) {
             catchUpActive = false
-            diag.log('catchUpEnd', { lag, lagMs: latencyMs.value })
+            diag.log('catchUpEnd', { lag, lagMs: latencyMs.value, drift: driftEvidence(now) })
           }
 
           const targetRate = catchUpActive
@@ -1407,7 +1508,7 @@ export function useMseStream(
           if (lag > 5) {
             if (highLatencySince === 0) highLatencySince = now
             if (now - highLatencySince > 3000) {
-              diag.log('driftRestart', { lag, lagMs: latencyMs.value })
+              diag.log('driftRestart', { lag, lagMs: latencyMs.value, drift: driftEvidence(now) })
               restartStream('drift')
               return
             }
@@ -1441,6 +1542,8 @@ export function useMseStream(
     if (!element) return
 
     diag.setRef(element)
+    for (const event of driftMediaEvents) element.addEventListener(event, recordDriftMediaEvent)
+    document.addEventListener('visibilitychange', recordDriftMediaEvent)
     diag.setStateGetter(() => ({
       showSpinner: showSpinner.value,
       connectionLost: connectionLost.value,
@@ -1487,6 +1590,8 @@ export function useMseStream(
 
   function stop() {
     destroyed = true
+    for (const event of driftMediaEvents) videoRef.value?.removeEventListener(event, recordDriftMediaEvent)
+    document.removeEventListener('visibilitychange', recordDriftMediaEvent)
     clearRenderSuppression()
     catchUpActive = false
     highLatencySince = 0
