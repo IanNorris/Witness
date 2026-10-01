@@ -1,4 +1,5 @@
 import { computed, onUnmounted, ref, watch } from 'vue'
+import { blockedAudioCameras, retryCameraAudio } from './playbackGuard'
 
 export type LiveAudioMode = 'off' | 'on' | 'motion'
 
@@ -28,6 +29,11 @@ export function useLiveAudio(cameraId: () => number, motionActive: () => boolean
   }
 
   function toggleAudio() {
+    if (blockedAudioCameras.value.has(cameraId())) {
+      retryCameraAudio(cameraId())
+      savePreference('on')
+      return
+    }
     savePreference(mode.value === 'on' ? 'off' : 'on')
   }
 
@@ -52,7 +58,8 @@ export function useLiveAudio(cameraId: () => number, motionActive: () => boolean
   }, { immediate: true })
 
   const enabled = computed(() =>
-    mode.value === 'on' || (mode.value === 'motion' && motionHeld.value)
+    !blockedAudioCameras.value.has(cameraId()) &&
+    (mode.value === 'on' || (mode.value === 'motion' && motionHeld.value))
   )
 
   onUnmounted(() => {

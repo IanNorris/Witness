@@ -51,6 +51,8 @@ if (fragments[fragments.length - 1].at - fragments[0].at < seconds + 2)
 const root = resolve('../WitnessServer/Web')
 const firefoxMode = process.argv[4] === 'firefox'
 const injectLag = process.argv.includes('--inject-lag')
+const blockAudio = process.argv.includes('--block-audio')
+if (blockAudio && (firefoxMode || injectLag)) throw new Error('--block-audio requires Chromium without --inject-lag')
 if (injectLag && (firefoxMode || seconds < 20)) throw new Error('--inject-lag requires Chromium and >=20 seconds')
 const received = []
 const server = createServer(async (req, res) => {
@@ -141,6 +143,14 @@ try {
   } else {
   browser = await chromium.launch({ headless: true, args: ['--autoplay-policy=no-user-gesture-required'] })
   const page = await browser.newPage()
+  if (blockAudio) await page.addInitScript(() => {
+    localStorage.setItem('witness-live-audio-13', '1')
+    const original = HTMLMediaElement.prototype.play
+    HTMLMediaElement.prototype.play = function () {
+      if (!this.muted) return Promise.reject(new DOMException('Injected autoplay refusal', 'NotAllowedError'))
+      return original.call(this)
+    }
+  })
   const samples = []
   await page.goto(origin)
   if (injectLag) await page.evaluate(() => {
@@ -164,6 +174,20 @@ try {
   console.log('FINAL', JSON.stringify({ file: process.argv[2], stats: last.stats, state: last.currentState,
     events: last.importantEvents?.filter(e => /restart|error|catchUp|initialSeek/i.test(e.type)) }))
   verifyPlayback(last)
+  if (blockAudio) {
+    const events = last.importantEvents ?? []
+    if (!events.some(e => e.type === 'audioBlocked') || !events.some(e => e.type === 'mutedPlaybackResumed'))
+      throw new Error('Autoplay refusal was not diagnosed and recovered')
+    await page.getByRole('status').filter({ hasText: 'browser blocked live audio' }).waitFor()
+    await page.getByRole('button', { name: 'Dismiss audio warning' }).click()
+    await page.locator('button[title="Play live audio"]').click()
+    await new Promise(done => setTimeout(done, 1000))
+    if (await page.getByRole('button', { name: 'Dismiss audio warning' }).count()) throw new Error('Warning repeated on explicit audio retry')
+    const recovered = await page.evaluate(() => ({ paused: document.querySelector('video').paused, muted: document.querySelector('video').muted,
+      saved: localStorage.getItem('witness-live-audio-13') }))
+    if (recovered.paused || !recovered.muted || recovered.saved !== '1') throw new Error('Retry did not preserve muted playback and saved preference')
+    console.log('PASS: injected autoplay refusal resumes muted playback, updates audio control, preserves preference and warns once')
+  }
   }
 } finally {
   for (const timer of timers) clearTimeout(timer)

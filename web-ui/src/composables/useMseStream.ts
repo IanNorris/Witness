@@ -1,5 +1,6 @@
 import { ref, onUnmounted, type Ref } from 'vue'
 import type { DriftSample } from './driftDiagnostics'
+import { createPlaybackGuard, blockedAudioCameras } from './playbackGuard'
 
 // ── Constants ─────────────────────────────────────────────────────────
 const MSE_WATCHDOG_INTERVAL_MS = 250
@@ -211,6 +212,7 @@ if (typeof window !== 'undefined') {
 
 // ── Composable ────────────────────────────────────────────────────────
 export interface MseStreamState {
+  setAudioEnabled: (enabled: boolean) => boolean
   showSpinner: Ref<boolean>
   connectionLost: Ref<boolean>
   isActive: Ref<boolean>
@@ -286,6 +288,7 @@ export function useMseStream(
   const diagId = String(cameraId) + (suffix ? '_' + suffix : '_mse')
   const diag = new MseDiagnostics(diagId)
   diagMap[diagId] = diag
+  const playback = createPlaybackGuard(cameraId, () => destroyed ? null : videoRef.value, (type, data) => diag.log(type, data))
 
   let ws: WebSocket | null = null
   let mediaSource: MediaSource | null = null
@@ -412,7 +415,7 @@ export function useMseStream(
     lastDiagnosticPartial = null
   }
 
-  const driftMediaEvents = ['waiting', 'stalled', 'seeking', 'seeked', 'playing', 'ratechange'] as const
+  const driftMediaEvents = ['waiting', 'stalled', 'seeking', 'seeked', 'playing', 'pause', 'ratechange'] as const
   function recordDriftMediaEvent(event: Event) {
     if (!destroyed) diag.log(`media:${event.type}`, { drift: driftEvidence(Date.now()) })
   }
@@ -737,7 +740,7 @@ export function useMseStream(
             if (reserve >= MSE_TARGET_HEADROOM_SECONDS) {
               hasInitialBuffer = true
               video.currentTime = start
-              video.play().catch(() => {})
+              void playback.play('initialBuffer')
               diag.log('initialSeek', { time: video.currentTime, reserve })
             }
           }
@@ -1398,7 +1401,7 @@ export function useMseStream(
 
       // Auto-resume videos paused by the browser (e.g. background tab suspension)
       if (video.paused && hasFrags && hasInitialBuffer && !destroyed) {
-        video.play().catch(() => {})
+        void playback.play('watchdogResume')
       }
 
       // Stuck detection: readyState low + no recent fragments
@@ -1578,7 +1581,7 @@ export function useMseStream(
       initGeneration,
 		awaitingInit,
     }))
-    element.muted = !audioEnabled()
+    element.muted = !audioEnabled() || blockedAudioCameras.value.has(cameraId)
     // Playback begins explicitly once the initial reserve has accumulated.
     element.autoplay = false
     element.playbackRate = 1.0
@@ -1656,6 +1659,7 @@ export function useMseStream(
   })
 
 	return {
+		setAudioEnabled: playback.setAudioEnabled,
 		showSpinner,
 		connectionLost,
 		isActive,

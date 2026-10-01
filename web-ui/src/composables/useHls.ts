@@ -1,5 +1,6 @@
 import { ref, onUnmounted, type Ref } from 'vue'
 import Hls from 'hls.js'
+import { createPlaybackGuard, blockedAudioCameras } from './playbackGuard'
 
 // ── Constants ─────────────────────────────────────────────────────────
 // Segments arrive every ~2s in bursts of partials. Spinner timeout must
@@ -177,6 +178,7 @@ function createHlsConfig(debug: boolean, lowLatency: boolean): Partial<Hls['conf
 
 // ── Composable ────────────────────────────────────────────────────────
 export interface HlsStreamState {
+  setAudioEnabled: (enabled: boolean) => boolean
   showSpinner: Ref<boolean>
   connectionLost: Ref<boolean>
   isActive: Ref<boolean>
@@ -215,6 +217,7 @@ export function useHls(
   let stuckBackoffMs = 3000
   let restartBackoffMs = 10000
   let destroyed = false
+  const playback = createPlaybackGuard(cameraId, () => destroyed ? null : videoRef.value, (type, data) => diag.log(type, data))
   let lastCurrentTime = 0
   let currentTimeStuckSince = 0
 
@@ -269,10 +272,10 @@ export function useHls(
     })
 
     h.on(Hls.Events.MEDIA_ATTACHED, () => {
-      element.muted = !audioEnabled()
+      element.muted = !audioEnabled() || blockedAudioCameras.value.has(cameraId)
       // Use catch to suppress AbortError when document is hidden/minimized.
       // Autoplay with muted is allowed by browsers without user gesture.
-      element.play().catch(() => {})
+      void playback.play('manifestParsed')
       diag.log('mediaAttached')
       restartInProgress = false
     })
@@ -332,7 +335,7 @@ export function useHls(
 
       // Auto-resume videos paused by the browser (e.g. background tab suspension)
       if (element.paused && lastFragTime > 0 && !destroyed) {
-        element.play().catch(() => {})
+        void playback.play('watchdogResume')
       }
 
       // Reset backoffs when stream is healthy (frags flowing + playback active)
@@ -516,5 +519,5 @@ export function useHls(
 
   onUnmounted(() => clearInterval(checkInterval))
 
-  return { showSpinner, connectionLost, isActive, latencyMs, codecUnsupported }
+  return { showSpinner, connectionLost, isActive, latencyMs, codecUnsupported, setAudioEnabled: playback.setAudioEnabled }
 }

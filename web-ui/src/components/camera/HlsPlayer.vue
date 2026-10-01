@@ -13,7 +13,7 @@ const props = defineProps<{
 
 const videoRef = ref<HTMLVideoElement | null>(null)
 const canvasRef = ref<HTMLCanvasElement | null>(null)
-const { showSpinner, connectionLost, latencyMs, codecUnsupported } = useHls(
+const { showSpinner, connectionLost, latencyMs, codecUnsupported, setAudioEnabled } = useHls(
   props.cameraId,
   videoRef,
   props.suffix ?? '',
@@ -28,14 +28,6 @@ const { enabled: overlayEnabled, toggle: toggleOverlay } = useDetectionOverlay(
   videoRef,
 )
 
-function setAudioEnabled(enabled: boolean) {
-  const video = videoRef.value
-  if (!video) return false
-  video.muted = !enabled
-  if (enabled) video.play().catch(() => {})
-  return !video.muted
-}
-
 function toggleAudio() {
   return setAudioEnabled(videoRef.value?.muted ?? true)
 }
@@ -47,7 +39,7 @@ defineExpose({ latencyMs, overlayEnabled, toggleOverlay, codecUnsupported, toggl
 
 <template>
   <div class="hls-container">
-    <video ref="videoRef" playsinline :muted="!(audioEnabled ?? false)" />
+    <video ref="videoRef" playsinline />
     <canvas ref="canvasRef" class="detection-overlay" v-show="overlayEnabled" />
 
     <!-- Spinner: connecting / buffering -->

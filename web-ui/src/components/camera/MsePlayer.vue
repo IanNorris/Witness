@@ -64,6 +64,7 @@ const {
 	renderSuppressed,
 	selectedStream,
 	updateViewport,
+  setAudioEnabled,
 } = useMseStream(
   props.cameraId,
   videoRef,
@@ -82,14 +83,6 @@ const { enabled: overlayEnabled, toggle: toggleOverlay } = useDetectionOverlay(
   canvasRef,
   videoRef,
 )
-
-function setAudioEnabled(enabled: boolean) {
-  const video = videoRef.value
-  if (!video) return false
-  video.muted = !enabled
-  if (enabled) video.play().catch(() => {})
-  return !video.muted
-}
 
 function toggleAudio() {
   return setAudioEnabled(videoRef.value?.muted ?? true)
@@ -136,7 +129,7 @@ defineExpose({
 
 <template>
   <div ref="containerRef" class="mse-container">
-    <video ref="videoRef" playsinline :muted="!(audioEnabled ?? false)" />
+    <video ref="videoRef" playsinline />
     <canvas ref="freezeCanvasRef" class="render-freeze" v-show="renderSuppressed" />
     <canvas ref="canvasRef" class="detection-overlay" v-show="overlayEnabled" />
 
