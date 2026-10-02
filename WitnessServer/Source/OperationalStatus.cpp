@@ -1,6 +1,7 @@
 #include "Witness.h"
 #include "CrowListener.h"
 #include "GlobalContext.h"
+#include "BuildIdentity.h"
 
 #include <algorithm>
 #include <mutex>
@@ -83,6 +84,10 @@ OperationalStatus WitnessServer::GetOperationalStatus() const
 	{
 		std::shared_lock<std::shared_mutex> lock( Context->Mutex );
 		Result.BuildHash = Context->BuildHash;
+        Result.NativeBuildHash = GetNativeBuildIdentity();
+        Result.CameraBuildHash = Witness::Camera::LiveOutputStream::GetNativeBuildIdentity();
+        Result.NativeBuildMismatch = Result.NativeBuildHash != Result.CameraBuildHash ||
+            std::string(GetNativeBuildConfiguration()) != Witness::Camera::LiveOutputStream::GetNativeBuildConfiguration();
 		Result.Port = Context->Port;
 		Copies.reserve( Context->GetCameraMap().size() );
 		for( const auto& [Id, State] : Context->GetCameraMap() )

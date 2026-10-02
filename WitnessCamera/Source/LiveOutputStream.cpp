@@ -588,6 +588,9 @@ void LiveOutputStream::ResetForReconnect(InputStream* NewInputStream)
 	_HasAudioStream = false;
 	_NormalizeNoBFrameTimestamps = false;
 	_TimestampNormalizationRejected = false;
+    _TimestampRequalification = {};
+    _RequalificationArrivalGuard.Reset();
+    _RequalificationCollecting = false;
 	_InitialDTS = 0;
 	_InitialTimestampUs = AV_NOPTS_VALUE;
 	_LastInputDTS = AV_NOPTS_VALUE;
@@ -641,6 +644,8 @@ void LiveOutputStream::ResetForReconnect(InputStream* NewInputStream)
 		_EstablishedDroppedVideoPacketsBaseline = _DiagDroppedVideoPackets;
 		_EstablishedRepairedVideoTimestampsBaseline = _DiagRepairedVideoTimestamps;
 		_InitGeneration++;
+        _DiagTimestampRejected = false;
+        _DiagTimestampRetryAttempts = 0;
 		_DiagVideoPhaseErrorMs = 0.0;
 		_DiagVideoCorrectionMs = 0.0;
 		_DiagLastVideoOutputUs = 0;
@@ -902,6 +907,51 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 
 	const auto& InputData = _InputStream->GetData();
 	const bool IsVideo = Packet->stream_index == InputData.ChosenStreamIndex;
+
+    if (IsVideo && _AllowObservedTimestampRegressionRepair && !_AllowTimestampNormalization &&
+        !_HasAudioStream && !_HasBFrames && _TimestampNormalizationRejected) {
+        const int64_t NowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - _PacketDiagEpoch).count();
+        if (_TimestampRequalification.Eligible(NowMs)) {
+            if (!_RequalificationCollecting) {
+                _RequalificationArrivalGuard.Reset();
+                _RequalificationCollecting = true;
+            }
+            const AVRational Timebase = InputData.FormatContext->streams[InputData.ChosenStreamIndex]->time_base;
+            const int64_t ArrivalTicks = av_rescale_q(NowMs, AVRational{1,1000}, Timebase);
+            const bool Valid = Packet->dts != AV_NOPTS_VALUE && Packet->pts == Packet->dts &&
+                !(Packet->flags & AV_PKT_FLAG_CORRUPT) &&
+                (!_DecodeCorruptionActive || _DecodeCorruptionActivityID < _CurrentDiagnosticActivity);
+            _RequalificationArrivalGuard.Observe(ArrivalTicks, Packet->duration, Valid);
+            const bool CadenceValid = _RequalificationArrivalGuard.Ready(av_rescale_q(
+                AV_TIME_BASE, AV_TIME_BASE_Q, Timebase)) && !TimestampCadenceClock::CadenceDrifted(
+                _RequalificationArrivalGuard.ArrivalTicks, _RequalificationArrivalGuard.DurationTicks);
+            if (_TimestampRequalification.Observe(NowMs, CadenceValid,
+                Valid && (Packet->flags & AV_PKT_FLAG_KEY))) {
+                auto Retry = _TimestampRequalification;
+                Retry.Recover();
+                // Re-anchor at the new random-access packet, never splice clocks
+                // within a GOP. This retires the pending packet and publishes a
+                // discontinuity/new init without restarting the camera connection.
+                ResetForReconnect(_InputStream);
+                _TimestampRequalification = Retry;
+                {
+                    const std::lock_guard<std::mutex> Guard(*_SegmentsMutex);
+                    _DiagTimestampRetryAttempts = Retry.Attempts;
+                }
+                LOG_INFO("[HLS] Source %d requalifying preview timestamp repair at clean keyframe (attempt %u/%u)",
+                    _InputStream->GetSourceId(), Retry.Attempts, TimestampRequalification::MaxAttempts);
+            }
+        }
+    }
+    if (IsVideo) {
+        const int64_t NowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - _PacketDiagEpoch).count();
+        _TimestampRequalification.Healthy(NowMs, _NormalizeNoBFrameTimestamps &&
+            !_DecodeCorruptionActive && !_LastTimestampCorrectionSaturated);
+        const std::lock_guard<std::mutex> Guard(*_SegmentsMutex);
+        _DiagTimestampRetryAttempts = _TimestampRequalification.Attempts;
+    }
 	if( !IsVideo || !_PendingVideoPacket )
 		return WritePacketWithKnownDuration( Packet, _CurrentDiagnosticActivity );
 
@@ -1445,6 +1495,18 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 					{
 						_NormalizeNoBFrameTimestamps = false;
 						_TimestampNormalizationRejected = true;
+                        _TimestampRequalification.Reject(ArrivalMs);
+                        _RequalificationCollecting = false;
+                        {
+                            const std::lock_guard<std::mutex> Guard(*_SegmentsMutex);
+                            _DiagTimestampRejected = true;
+                            _DiagTimestampRetryAttempts = _TimestampRequalification.Attempts;
+                            _DiagTimestampRejectedUnixMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::system_clock::now().time_since_epoch()).count();
+                            _DiagTimestampDeclaredWindowMs = ProbeDurationUs / 1000.0;
+                            _DiagTimestampReferenceWindowMs = av_q2d(InputTimebase) * ReferenceTicks * 1000.0;
+                            _DiagTimestampRejectionUsesArrival = _TimestampCadenceClock.UseArrival;
+                        }
 						_SourceTimestampOffset =
 							(_LastWrittenDTS + _LastOutputPacketDuration) - PacketCopy.dts;
 						LOG_WARNING(
@@ -2160,6 +2222,13 @@ LiveOutputStream::StreamingDiagnostics LiveOutputStream::GetStreamingDiagnostics
 	Diag.AcceptedVideoPackets = _DiagAcceptedVideoPackets;
 	Diag.AcceptedVideoKeyframes = _DiagAcceptedVideoKeyframes;
 	Diag.RepairedVideoTimestamps = _DiagRepairedVideoTimestamps;
+    Diag.TimestampNormalizationRejected = _DiagTimestampRejected;
+    Diag.TimestampRetryAttempts = _DiagTimestampRetryAttempts;
+    Diag.TimestampRejectedUnixMs = _DiagTimestampRejectedUnixMs;
+    Diag.TimestampDeclaredWindowMs = _DiagTimestampDeclaredWindowMs;
+    Diag.TimestampReferenceWindowMs = _DiagTimestampReferenceWindowMs;
+    Diag.TimestampRejectionClock = _DiagTimestampRejectedUnixMs ?
+        (_DiagTimestampRejectionUsesArrival ? "arrival" : "source") : "";
 	Diag.DroppedVideoPackets = _DiagDroppedVideoPackets;
 	Diag.MissingVideoDtsPackets = _DiagMissingVideoDtsPackets;
 	Diag.CorruptVideoPackets = _DiagCorruptVideoPackets;

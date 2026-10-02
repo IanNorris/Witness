@@ -31,6 +31,9 @@ struct OperationalCameraStatus
 struct OperationalStatus
 {
 	std::string BuildHash;
+    std::string NativeBuildHash;
+    std::string CameraBuildHash;
+    bool NativeBuildMismatch = false;
 	uint16_t Port = 0;
 	bool WebReady = false;
 	double HostCpuPercent = -1.0;

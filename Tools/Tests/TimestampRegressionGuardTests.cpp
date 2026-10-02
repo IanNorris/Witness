@@ -2,6 +2,7 @@
 #include "TimestampCadenceClock.h"
 #include "TimestampArrivalGuard.h"
 #include "AudioSampleClock.h"
+#include "TimestampRequalification.h"
 
 #include <stdexcept>
 
@@ -17,6 +18,35 @@ static void Require(bool Condition)
 
 int main()
 {
+    {
+        Witness::Camera::TimestampRequalification Retry;
+        Retry.Reject(0);
+        Require(!Retry.Observe(59999, true, true));
+        Require(!Retry.Observe(60000, true, true));
+        Require(!Retry.Observe(69000, false, true)); // invalid evidence breaks streak
+        Require(!Retry.Observe(70000, true, true));
+        Require(!Retry.Observe(80000, true, false)); // wait for a clean keyframe
+        Require(Retry.Observe(80001, true, true));
+        Retry.Recover();
+        Require(Retry.Attempts == 1 && !Retry.Eligible(90000));
+        Retry.Healthy(90000, true);
+        Retry.Healthy(680000, false); // elapsed time alone cannot clear budget
+        Retry.Healthy(700000, true);
+        Require(Retry.Attempts == 1);
+        Retry.Healthy(1300000, true);
+        Require(Retry.Attempts == 0);
+        for (unsigned Attempt = 0; Attempt < 3; ++Attempt) {
+            Retry.Reject(2000000);
+            const int64_t CooldownEnd = 2000000 + (60000LL << Attempt);
+            Require(!Retry.Eligible(CooldownEnd - 1));
+            Require(Retry.Eligible(CooldownEnd));
+            Require(!Retry.Observe(CooldownEnd, true, true));
+            Require(Retry.Observe(CooldownEnd + 10000, true, true));
+            Retry.Recover();
+        }
+        Retry.Reject(3000000);
+        Require(!Retry.Observe(9000000, true, true)); // exhausted; no endless churn
+    }
 	{
 		Witness::Camera::AudioSampleClock Clock;
 		int64_t Output = 0;

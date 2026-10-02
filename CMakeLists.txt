@@ -232,6 +232,15 @@ endif()
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 
+add_custom_target(NativeBuildIdentity
+    COMMAND ${CMAKE_COMMAND}
+        "-DSOURCE_ROOT=${CMAKE_SOURCE_DIR}"
+        "-DOUTPUT_HEADER=${CMAKE_BINARY_DIR}/generated/NativeBuildIdentity.h"
+        "-DTOOLCHAIN=${CMAKE_CXX_COMPILER_ID}-${CMAKE_CXX_COMPILER_VERSION}-${CMAKE_GENERATOR}"
+        -P "${CMAKE_SOURCE_DIR}/Tools/WriteNativeBuildIdentity.cmake"
+    BYPRODUCTS "${CMAKE_BINARY_DIR}/generated/NativeBuildIdentity.h"
+    VERBATIM)
+
 add_subdirectory(WitnessCommon)
 add_subdirectory(WitnessCamera)
 add_subdirectory(WitnessServer)

@@ -4,6 +4,7 @@
 #include "CameraWorker.h"
 #include "SQLite.h"
 #include "ClipReprocessWorker.h"
+#include "BuildIdentity.h"
 
 #include <Log.h>
 #include <filesystem>
@@ -316,6 +317,13 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 			crow::json::wvalue( Diag.TimestampNormalizationActive ) : crow::json::wvalue( nullptr );
 		Value["timestampNormalizationProvenance"] =
 			"lastCompletedSegmentMayPrecedeReconnect";
+        Value["timestampNormalizationRejected"] = Diag.TimestampNormalizationRejected;
+        Value["timestampRetryAttempts"] = Diag.TimestampRetryAttempts;
+        Value["timestampRetryExhausted"] = Diag.TimestampNormalizationRejected && Diag.TimestampRetryAttempts >= 3;
+        Value["timestampRejectedUnixMs"] = Diag.TimestampRejectedUnixMs;
+        Value["timestampDeclaredWindowMs"] = Diag.TimestampDeclaredWindowMs;
+        Value["timestampReferenceWindowMs"] = Diag.TimestampReferenceWindowMs;
+        Value["timestampRejectionClock"] = Diag.TimestampRejectionClock;
 		Value["videoPhaseErrorMs"] = Diag.VideoPhaseErrorMs;
 		Value["videoCorrectionMs"] = Diag.VideoCorrectionMs;
 		Value["audioVideoSkewMs"] = Diag.HasAudioVideoSkew ?
@@ -434,6 +442,12 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 		std::chrono::duration_cast<std::chrono::milliseconds>(
 			HealthProcessStart.time_since_epoch() ).count() );
 	Server["webBuildHash"] = BuildHash;
+    Server["nativeBuildHash"] = GetNativeBuildIdentity();
+    Server["nativeBuildConfiguration"] = GetNativeBuildConfiguration();
+    Server["cameraBuildHash"] = Witness::Camera::LiveOutputStream::GetNativeBuildIdentity();
+    Server["cameraBuildConfiguration"] = Witness::Camera::LiveOutputStream::GetNativeBuildConfiguration();
+    Server["nativeBuildMismatch"] = std::string(GetNativeBuildIdentity()) != Witness::Camera::LiveOutputStream::GetNativeBuildIdentity() ||
+        std::string(GetNativeBuildConfiguration()) != Witness::Camera::LiveOutputStream::GetNativeBuildConfiguration();
 	Server["collectionMode"] = "onDemand";
 	Server["requestSequence"] = ++HealthSampleSequence;
 	Server["uptimeMs"] = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -828,6 +842,13 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 					DropReasons["decodeCorruption"] = Diag.DecodeCorruptionEvents;
 					DropReasons["decodeRecovery"] = Diag.DecodeRecoveryEvents;
 					StreamData["packetDispositionCounts"] = std::move( DropReasons );
+                    StreamData["timestampNormalizationRejected"] = Diag.TimestampNormalizationRejected;
+                    StreamData["timestampRetryAttempts"] = Diag.TimestampRetryAttempts;
+                    StreamData["timestampRetryExhausted"] = Diag.TimestampNormalizationRejected && Diag.TimestampRetryAttempts >= 3;
+                    StreamData["timestampRejectedUnixMs"] = Diag.TimestampRejectedUnixMs;
+                    StreamData["timestampDeclaredWindowMs"] = Diag.TimestampDeclaredWindowMs;
+                    StreamData["timestampReferenceWindowMs"] = Diag.TimestampReferenceWindowMs;
+                    StreamData["timestampRejectionClock"] = Diag.TimestampRejectionClock;
 					StreamData["videoPhaseErrorMs"] = Diag.VideoPhaseErrorMs;
 					StreamData["videoCorrectionMs"] = Diag.VideoCorrectionMs;
 					StreamData["audioVideoSkewMs"] = Diag.AudioVideoSkewMs;

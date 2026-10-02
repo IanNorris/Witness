@@ -37,6 +37,13 @@ interface StreamHealth {
   initStructureValid?: boolean | null
   packetDispositionCounts?: Record<string, number>
   recentMediaEvents?: MediaDiagnosticEvent[]
+  timestampNormalizationRejected?: boolean
+  timestampRetryAttempts?: number
+  timestampRetryExhausted?: boolean
+  timestampRejectedUnixMs?: number
+  timestampDeclaredWindowMs?: number
+  timestampReferenceWindowMs?: number
+  timestampRejectionClock?: string
 }
 
 interface MediaDiagnosticEvent {
@@ -160,6 +167,11 @@ interface HealthSnapshot {
   server: {
     instanceId: string
     webBuildHash: string
+    nativeBuildHash?: string
+    cameraBuildHash?: string
+    nativeBuildConfiguration?: string
+    cameraBuildConfiguration?: string
+    nativeBuildMismatch?: boolean
     collectionMode: string
     uptimeMs: number
     host: {
@@ -503,8 +515,12 @@ onBeforeUnmount(() => {
         <div class="col-sm-6 col-xl-3">
           <div class="card h-100"><div class="card-body py-3">
             <div class="health-secondary small">Build identity</div>
-            <div class="fs-6 font-monospace text-break">{{ snapshot.server.webBuildHash || 'Unknown' }}</div>
-            <div class="small">Client {{ clientBuildHash }}</div>
+            <div class="small font-monospace text-break">Native {{ snapshot.server.nativeBuildHash || 'Unknown' }}</div>
+            <div class="small font-monospace text-break">Camera DLL {{ snapshot.server.cameraBuildHash || 'Unknown' }} {{ snapshot.server.cameraBuildConfiguration || '' }}</div>
+            <div class="small font-monospace text-break">Web {{ snapshot.server.webBuildHash || 'Unknown' }}</div>
+            <div class="small font-monospace text-break">Client {{ clientBuildHash }}</div>
+            <div class="health-secondary small">{{ snapshot.server.nativeBuildConfiguration || '' }}</div>
+            <div v-if="snapshot.server.nativeBuildMismatch" class="text-warning small" role="alert">Native binary mismatch — deploy matching EXE and DLLs.</div>
           </div></div>
         </div>
         <div class="col-sm-6 col-xl-3">
@@ -674,6 +690,14 @@ onBeforeUnmount(() => {
                   <div v-for="stream in camera.streams" :key="`${stream.tier}-av`" class="small">
                     <span class="evidence-tier">{{ streamTierLabel(stream.tier) }}</span>
                     A/V skew {{ formatMs(stream.audioVideoSkewMs) }} · maximum segment duration difference {{ formatMs(stream.maxSegmentDriftMs) }}
+                    <div v-if="stream.timestampNormalizationRejected" class="text-warning">
+                      Timestamp repair rejected · {{ stream.timestampRetryAttempts ?? 0 }}/3 retries
+                      <span v-if="stream.timestampRetryExhausted"> · automatic retries exhausted</span>
+                      <div class="health-secondary">
+                        {{ stream.timestampRejectionClock }} clock {{ formatMs(stream.timestampReferenceWindowMs) }} vs declared {{ formatMs(stream.timestampDeclaredWindowMs) }}
+                        <span v-if="stream.timestampRejectedUnixMs"> · {{ mediaEventTime(stream.timestampRejectedUnixMs) }}</span>
+                      </div>
+                    </div>
                   </div>
                 </td>
               </tr>

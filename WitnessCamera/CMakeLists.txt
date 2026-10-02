@@ -41,6 +41,7 @@ set_target_properties(onnxruntime::onnxruntime PROPERTIES
 set(WITNESS_ONNX_CUDA_AVAILABLE 0)
 
 set(CAMERA_SOURCES
+    Source/NativeBuildIdentity.cpp
     Source/AudioClassifier.cpp
     Source/ContinuousOutputStream.cpp
     Source/DebugBind.cpp
@@ -95,6 +96,8 @@ set(CAMERA_HEADERS
 )
 
 add_library(WitnessCamera SHARED ${CAMERA_SOURCES} ${CAMERA_HEADERS})
+add_dependencies(WitnessCamera NativeBuildIdentity)
+target_include_directories(WitnessCamera PRIVATE "${CMAKE_BINARY_DIR}/generated")
 
 target_include_directories(WitnessCamera
     PUBLIC  Include
@@ -103,6 +106,7 @@ target_include_directories(WitnessCamera
 )
 
 target_compile_definitions(WitnessCamera PRIVATE
+    WITNESS_NATIVE_CONFIGURATION="$<CONFIG>"
     WITNESSCAMERA_EXPORTS
     WITNESS_ONNX_CUDA_AVAILABLE=${WITNESS_ONNX_CUDA_AVAILABLE}
 )

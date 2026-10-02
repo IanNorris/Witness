@@ -5,6 +5,7 @@
 #include "SegmentBuffer.h"
 #include "TimestampCadenceClock.h"
 #include "TimestampArrivalGuard.h"
+#include "TimestampRequalification.h"
 #include <mutex>
 #include <chrono>
 #include <string>
@@ -84,6 +85,9 @@ struct LiveStreamSegment
 class CAMERA_API LiveOutputStream : public Stream
 {
 public:
+    static const char* GetNativeBuildIdentity();
+    static const char* GetNativeBuildConfiguration();
+    friend struct LiveTimestampRecoveryTestAccess;
 	LiveOutputStream(const std::string& LiveCachePath, InputStream* InputStream, int KeyframesPerSegment);
 	virtual ~LiveOutputStream();
 
@@ -217,6 +221,15 @@ private:
 	bool _AllowObservedTimestampRegressionRepair;
 	bool _NormalizeNoBFrameTimestamps;
 	bool _TimestampNormalizationRejected;
+    TimestampRequalification _TimestampRequalification;
+    TimestampArrivalGuard _RequalificationArrivalGuard;
+    bool _RequalificationCollecting = false;
+    bool _DiagTimestampRejected = false;
+    unsigned _DiagTimestampRetryAttempts = 0;
+    int64_t _DiagTimestampRejectedUnixMs = 0;
+    double _DiagTimestampDeclaredWindowMs = 0;
+    double _DiagTimestampReferenceWindowMs = 0;
+    bool _DiagTimestampRejectionUsesArrival = false;
 
 	int64_t _InitialDTS;
 	int64_t _InitialTimestampUs;
@@ -404,6 +417,12 @@ public:
 		int BacklogSize = 0;
 		int InitGeneration = 0;
 		bool TimestampNormalizationActive = false;
+        bool TimestampNormalizationRejected = false;
+        unsigned TimestampRetryAttempts = 0;
+        int64_t TimestampRejectedUnixMs = 0;
+        double TimestampDeclaredWindowMs = 0;
+        double TimestampReferenceWindowMs = 0;
+        std::string TimestampRejectionClock;
 		uint64_t AcceptedVideoPackets = 0;
 		uint64_t AcceptedVideoKeyframes = 0;
 		uint64_t RepairedVideoTimestamps = 0;

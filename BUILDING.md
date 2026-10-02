@@ -1,5 +1,21 @@
 # Building Witness
 
+## Deployment identities
+
+Health reports and the console dashboard distinguish the web bundle ID from
+the native source/toolchain fingerprint embedded independently in the server
+EXE and camera DLL. The native fingerprint includes native sources/headers,
+build definitions and dependency manifests, but excludes web assets. It is
+generated on each build and its header changes only when those inputs change;
+a web-only rebuild therefore leaves native binaries untouched. Native build
+configuration is reported separately, and an EXE/camera-DLL fingerprint or
+configuration mismatch produces a warning.
+
+These fingerprints are not binary checksums or proof of the installed external
+dependency contents. Use SHA-256 file hashes for byte-exact deployment audits.
+Deploy the EXE, Witness DLLs and Web folder together; do not identify native
+binaries solely by the web bundle ID or filesystem timestamps.
+
 ## Stable Windows build
 
 The preferred Windows environment deliberately separates dependency changes

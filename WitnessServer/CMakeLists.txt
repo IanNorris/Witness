@@ -6,6 +6,7 @@ find_package(unofficial-sqlite3 CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
 
 set(SERVER_SOURCES
+    Source/BuildIdentity.cpp
     Source/AudioIntelligenceWorker.cpp
     Source/AsyncWorker.cpp
     Source/AuthHelpers.cpp
@@ -100,6 +101,8 @@ set(SERVER_HEADERS
 )
 
 add_executable(WitnessServer ${SERVER_SOURCES} ${SERVER_HEADERS})
+add_dependencies(WitnessServer NativeBuildIdentity)
+target_compile_definitions(WitnessServer PRIVATE WITNESS_NATIVE_CONFIGURATION="$<CONFIG>")
 
 # Crow/Asio is the dominant common parse cost across the HTTP translation
 # units. A project-local PCH avoids repeatedly rebuilding that template graph;
@@ -109,6 +112,7 @@ if(MSVC)
 endif()
 
 target_include_directories(WitnessServer PRIVATE
+    "${CMAKE_BINARY_DIR}/generated"
     Source
     ${CMAKE_SOURCE_DIR}/WitnessCamera/Include
     ${CMAKE_SOURCE_DIR}/ThirdParty/httplib

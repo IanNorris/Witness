@@ -218,3 +218,34 @@ unit tests passed. The complete
 Final confirmation files are
 `build-vs2026/tapo-camera-{8,9}-final-qualification-3min.mp4`; full counters are
 in `build-vs2026/tapo-preview-qualification-fix-results.txt`.
+
+## Long-session rejection and bounded requalification
+
+The October 2 health export showed preview repair counts of 2,042 (camera 8)
+and 1,314 (camera 9), with saturation counts of 7,333 and 10,120. Both had
+normalization disabled. Camera 9 remained at init generation zero. The initial
+reading of zero repairs was from the main streams, not the previews.
+
+Inspection found that the 120-second cadence check permanently rejected
+normalization after drift exceeded +/-5%. Non-monotonic packet drops return
+success, so this condition need not trigger an input reconnect. Main and
+preview feeds use separate workers/channels; the recent AAC change is gated
+to Reolink and does not apply to these audio-less Tapo previews. The exact
+production trigger of the cadence rejection remains unproven.
+
+Rejected previews now have bounded requalification: cooldowns of 60, 120 and
+240 seconds, fresh valid cadence evidence for ten seconds, then a clean
+keyframe. Recovery resets the mux before buffering that packet and emits a
+discontinuity/new init segment. Three attempts are allowed; ten minutes of
+healthy normalized, non-corrupt, non-saturated processing restores the budget.
+Health exports include rejection timing, cadence evidence and retry exhaustion.
+Separate native source/toolchain fingerprints and configuration identifiers
+distinguish the server/Camera DLL from web bundle and browser identities.
+
+Validation: policy and build-identity tests passed, as did twelve web regression
+tests. A paced synthetic integration test forced rejection, requalified the
+actual mux, and verified one discontinuity, a new init generation and continued
+fragments. Both saved generations independently decoded with FFmpeg without
+errors. The VS2026 RelWithDebInfo build completed without rebuilding external
+dependencies. This round did not run a new live-camera soak; production
+confirmation is still required.
