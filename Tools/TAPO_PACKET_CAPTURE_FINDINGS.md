@@ -396,3 +396,43 @@ under `build-vs2026/deploy/tapo-pause-recovery-a50a695dabb9`; copied server/DLL
 SHA-256 hashes match the built binaries. The previous
 `tapo-pause-recovery-86d6d681ff18` staging directory is an earlier candidate
 without the epoch-crossing guard, not the final deployment candidate.
+
+### Input picture-order investigation (4 October)
+
+The reporter can now export exact Annex-B input independently of the mux.
+The pause capture exported 508 access units from activity 3529. Its first 400
+decoded frame MD5s exactly match the independently reconstructed generation-0
+output (zero image/order mismatches); both keyframe-started replays decode
+without errors or non-monotonic output warnings.
+
+FFmpeg `trace_headers` on that **input** shows H.264 `pic_order_cnt_type=2`,
+10-bit frame numbers, one reference picture and allowed frame-number gaps.
+After a clean IDR, the source sequence reaches frame numbers 0,1,2,3,4, then
+returns to 1,2,3,4 without an IDR (access units 240..248 in this replay).
+This unusual elementary-stream transition is upstream of Witness's timestamp
+rewrite. The whole-generation decoder, unlike the independently started slice,
+presents an extra/reordered picture at this point; subsequent frame hashes
+match with an index offset. This explains why increasing encoded DTS alone
+does not prove increasing decoded presentation order. It does not prove the
+camera firmware, network or demuxer is the origin of that transition, nor
+justify dropping every regressing timestamp or mutating encoded slice headers.
+Raw RTP would be the next layer if the upstream transition needs attribution.
+
+The final `a50a695dabb9` binary was then tested for a planned 360 seconds with
+the same controlled 12-second pause at 124 seconds. It recovered once (12,009 ms
+gap), with no additional timestamp drops or cadence-retry attempts. A fresh
+30-second capture contains 574 inputs/573 decisions, all decisions written,
+zero changed hashes, zero binary mismatches and zero capture queue loss.
+Artifacts: `camera-9-preview-1791069652748-1` and
+`tapo9-final-pause-validation-20261004.mp4` plus its generation-1 file.
+Both saved generations decode without errors or non-monotonic null-sink DTS.
+
+**The extended live test nevertheless failed:** an unplanned later delivery
+stall produced a 20.3-second phase error at 305 seconds, then an input
+`FrameError` (`readResult=8`) ended the probe at 318 seconds. There was one
+established dropped/corruption packet during that later episode, no mux errors,
+and no cadence rejection. The bounded capture had already ended and cannot
+attribute this second stall. The standalone probe deliberately terminates on
+read failure; the server's existing worker recreates its input on this error.
+Do not report this run as a six-minute stability pass or conflate the later
+read failure with failure to recover the controlled pause.

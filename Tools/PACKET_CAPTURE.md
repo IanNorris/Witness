@@ -82,3 +82,12 @@ pause production, or bypass authentication. Leave at least five seconds for
 recovery. Each mux generation is written independently. Inspect every output
 generation for both decode errors and presentation timestamp problems; a zero
 process exit alone does not prove clean decoded-frame pacing.
+
+To compare decoder behavior before and after muxing, the reporter also accepts
+`--input-video input.h264` (or `.hevc`). It writes the captured Annex-B parameter
+sets followed by exact video access units from the first captured keyframe,
+without Witness's rewritten timestamps. Audio and pre-keyframe packets are not
+included. It refuses unsupported length-prefixed data, failed hashes, writer
+queue truncation and an existing destination. This is an elementary stream,
+not a replay of original network timing: compare decoded images and slice
+headers, not its player-reported FPS, with the corresponding output generation.

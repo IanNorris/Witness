@@ -14,6 +14,35 @@ SPEC.loader.exec_module(REPORT)
 
 
 class PacketCaptureReportTests(unittest.TestCase):
+    def test_input_replay_preserves_access_units_and_starts_at_keyframe(self):
+        extra, old, key, following = [b"\x00\x00\x01" + bytes([value]) for value in (7, 1, 5, 1)]
+        blob = extra + old + key + following
+        rows = [{"type": "stream", "streamIndex": 0, "audio": False, "codecId": 27},
+                {"type": "extradata", "streamIndex": 0, "offset": 0, "bytes": 4}]
+        rows += [{"type": "input", "audio": False, "streamIndex": 0, "activityId": index,
+                  "offset": index * 4, "bytes": 4, "flags": int(index == 2)}
+                 for index in range(1, 4)]
+        with tempfile.TemporaryDirectory() as temp:
+            destination = Path(temp) / "input.h264"
+            self.assertEqual(REPORT.replay_input_video(rows, blob, destination), (2, 2))
+            self.assertEqual(destination.read_bytes(), extra + key + following)
+            with self.assertRaises(FileExistsError):
+                REPORT.replay_input_video(rows, blob, destination)
+            rows[0]["codecId"] = 173
+            self.assertEqual(REPORT.replay_input_video(rows, blob, Path(temp) / "input.hevc"), (2, 2))
+            rows[1]["offset"] = 1
+            with self.assertRaisesRegex(ValueError, "Annex-B"):
+                REPORT.replay_input_video(rows, blob, Path(temp) / "invalid.h264")
+            self.assertFalse((Path(temp) / "invalid.h264").exists())
+            rows[1]["offset"] = 0
+            for row in rows[2:]:
+                row["flags"] = 0
+            with self.assertRaisesRegex(ValueError, "keyframe"):
+                REPORT.replay_input_video(rows, blob, Path(temp) / "no-key.hevc")
+            rows.append({"type": "stream", "audio": False, "codecId": 27, "streamIndex": 1})
+            with self.assertRaisesRegex(ValueError, "exactly one"):
+                REPORT.replay_input_video(rows, blob, Path(temp) / "ambiguous.h264")
+
     def test_observed_delivery_ignores_regressing_source_dts(self):
         rows = [{"type": "input", "audio": False, "activityId": frame,
                  "observedSteadyUs": 1000000 + frame * 53000,

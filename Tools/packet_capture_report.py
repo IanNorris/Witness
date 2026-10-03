@@ -71,10 +71,36 @@ def delivery_timing(events: list[dict]) -> dict:
     return result
 
 
+def replay_input_video(events: list[dict], blob: bytes, destination: Path) -> tuple[int, int]:
+    """Replay exact Annex-B access units without Witness's output timestamp policy."""
+    streams = [row for row in events if row["type"] == "stream" and
+               not row["audio"] and row["codecId"] in (27, 173)]
+    if len(streams) != 1:
+        raise ValueError("input replay requires exactly one H.264/HEVC video stream")
+    stream = streams[0]["streamIndex"]
+    extra = next((row for row in events if row["type"] == "extradata" and
+                  row["streamIndex"] == stream), None)
+    packets = [row for row in events if row["type"] == "input" and
+               not row["audio"] and row["streamIndex"] == stream]
+    first = next((index for index, row in enumerate(packets) if row["flags"] & 1), None)
+    if extra is None or first is None:
+        raise ValueError("input replay needs captured parameter sets and a keyframe")
+    chunks = [payload(blob, extra)] + [payload(blob, row) for row in packets[first:]]
+    if any(not chunk.startswith((b"\x00\x00\x01", b"\x00\x00\x00\x01")) for chunk in chunks):
+        raise ValueError("input replay supports Annex-B only; refusing length-prefixed data")
+    # Validate before creating anything; never replace another recording.
+    with destination.open("xb") as replay:
+        for chunk in chunks:
+            replay.write(chunk)
+    return packets[first]["activityId"], len(packets) - first
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("capture_dir", type=Path)
     parser.add_argument("--replay", type=Path, help="write a playable output fMP4")
+    parser.add_argument("--input-video", type=Path,
+                        help="write exact Annex-B H.264/HEVC input from the first captured keyframe")
     args = parser.parse_args()
 
     events = [json.loads(line) for line in
@@ -113,6 +139,12 @@ def main() -> None:
     summaries = [event for event in events if event["type"] == "summary"]
     if summaries:
         print(f"Writer queue rejected records: {summaries[-1]['queueRejectedRecords']}")
+
+    if args.input_video:
+        if bad_hashes or (summaries and summaries[-1]["queueRejectedRecords"]):
+            raise ValueError("refusing input replay from a corrupt or queue-truncated capture")
+        activity, count = replay_input_video(events, raw_input, args.input_video)
+        print(f"Input replay: {count} access units starting at activity {activity} to {args.input_video}")
 
     if args.replay:
         inits = {event["generation"]: event for event in outputs if event["type"] == "init"}
