@@ -32,6 +32,11 @@ The capture contains `events.jsonl`, `input.bin`, and `output.bin`:
   `stream` and `extradata` events preserve the codec setup for replay/decoding.
 - `decision` events correlate by `activityId` and payload hash, and include the
   live mux's written/dropped decision and normalized timestamps.
+- New captures also record independent monotonic `observedSteadyUs` on input,
+  plus `muxObservedSteadyUs` and `decisionSteadyUs` on decisions. These identify
+  demux arrival gaps versus time inside Witness; demux-to-mux delay includes
+  the deliberate one-video-packet duration lookahead. The clock has no UTC
+  meaning and is comparable only within the same host/process capture.
 - `init` and `partial` events index the exact fMP4 bytes published by the live
   mux, including generation, segment, part, independent flag, and hash.
 
@@ -52,3 +57,20 @@ demuxed input is already damaged, a separate network-level capture would be the
 next layer to inspect. A byte-for-byte comparison of whole input packets to
 fMP4 chunks is invalid because the muxer adds container framing; correlate
 packet hashes and decode/timestamp decisions, then inspect the replayed output.
+
+The report prints delivery FPS, arrival-gap percentiles and demux-to-mux /
+mux-to-decision percentiles when independent observation timestamps exist.
+Old captures report timing unavailable rather than estimating it from the
+possibly faulty source DTS. A demux observation is still not NIC/RTP ingress.
+
+For local camera testing without starting the server, build
+`Tools/Tests/LivePreviewProbe.cpp` against the matching Camera DLL and run
+`Tools/Tests/run_live_preview_probe.py --help`. The runner reads one preview URL
+from the specified SQLite database in read-only mode, closes the connection,
+passes credentials only in the child's environment and filters arbitrary
+native logs. It refuses existing output names and enforces a hard timeout.
+It does not bypass the authenticated HTTP capture endpoint.
+The probe now continues through mux generation changes, saving each new
+generation in a separate file instead of concatenating incompatible timelines.
+Use `--capture-delay` for an additional bounded 30-second raw packet capture.
+All generated recordings are sensitive local artifacts and are not uploaded.

@@ -4,6 +4,7 @@
 import argparse
 import collections
 import json
+import math
 from pathlib import Path
 
 
@@ -20,6 +21,54 @@ def payload(blob: bytes, event: dict) -> bytes:
     if start < 0 or end > len(blob):
         raise ValueError(f"out-of-range {event['type']} payload at {start}:{end}")
     return blob[start:end]
+
+
+def percentiles_ms(values: list[int]) -> dict:
+    ordered = sorted(values)
+    if not ordered:
+        return {}
+    return {name: ordered[max(0, math.ceil(len(ordered) * fraction) - 1)] / 1000
+            for name, fraction in (("p50Ms", .5), ("p95Ms", .95), ("p99Ms", .99), ("maxMs", 1))}
+
+
+def delivery_timing(events: list[dict]) -> dict:
+    """Use independent monotonic observations, never faulty source DTS, as time."""
+    videos = [event for event in events if event["type"] == "input" and not event["audio"]]
+    timed = [event for event in videos if isinstance(event.get("observedSteadyUs"), int)]
+    result = {"videoPackets": len(videos), "timedVideoPackets": len(timed)}
+    # Do not estimate delivery rate from a partially timestamped old capture.
+    if len(timed) != len(videos) or len(timed) < 2:
+        result["available"] = False
+        return result
+    gaps = [right["observedSteadyUs"] - left["observedSteadyUs"]
+            for left, right in zip(timed, timed[1:])]
+    result["backwardObservationCount"] = sum(gap < 0 for gap in gaps)
+    if result["backwardObservationCount"]:
+        result["available"] = False
+        return result
+    elapsed = timed[-1]["observedSteadyUs"] - timed[0]["observedSteadyUs"]
+    result["available"] = elapsed > 0
+    if elapsed <= 0:
+        return result
+    result["observedSpanMs"] = elapsed / 1000
+    result["deliveredFps"] = (len(timed) - 1) * 1_000_000 / elapsed
+    result["arrivalGaps"] = percentiles_ms(gaps)
+    result["longGapsOver250Ms"] = sum(gap > 250000 for gap in gaps)
+    inputs = {(event["activityId"], event["audio"]): event for event in timed}
+    to_mux, mux_work = [], []
+    for decision in (event for event in events if event["type"] == "decision"):
+        source = inputs.get((decision["activityId"], decision["audio"]))
+        mux = decision.get("muxObservedSteadyUs")
+        done = decision.get("decisionSteadyUs")
+        if source is not None and isinstance(mux, int) and mux >= source["observedSteadyUs"]:
+            to_mux.append(mux - source["observedSteadyUs"])
+        if isinstance(mux, int) and isinstance(done, int) and done >= mux:
+            mux_work.append(done - mux)
+    result["demuxToMuxSamples"] = len(to_mux)
+    result["demuxToMuxIncludingLookahead"] = percentiles_ms(to_mux)
+    result["muxDecisionSamples"] = len(mux_work)
+    result["muxToDecision"] = percentiles_ms(mux_work)
+    return result
 
 
 def main() -> None:
@@ -60,6 +109,7 @@ def main() -> None:
     print(f"Disposition counts: {dict(dispositions)}")
     print(f"Missing source correlation: {len(missing)}, payload changes before mux: {len(changed)}")
     print(f"Binary hash mismatches: {len(bad_hashes)}")
+    print("Delivery timing: " + json.dumps(delivery_timing(events), sort_keys=True))
     summaries = [event for event in events if event["type"] == "summary"]
     if summaries:
         print(f"Writer queue rejected records: {summaries[-1]['queueRejectedRecords']}")

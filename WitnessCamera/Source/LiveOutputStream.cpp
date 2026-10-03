@@ -441,6 +441,8 @@ void LiveOutputStream::CaptureInputPacket(const AVPacket* Packet, uint64_t Activ
 		Packet->stream_index != Data.ChosenAudioStreamIndex)
 		return;
 	const AVStream* Stream = Data.FormatContext->streams[Packet->stream_index];
+	const int64_t ObservedSteadyUs = std::chrono::duration_cast<std::chrono::microseconds>(
+		std::chrono::steady_clock::now().time_since_epoch()).count();
 	const bool Audio = Packet->stream_index == Data.ChosenAudioStreamIndex;
 	if (Capture->FirstPacketForStream(Packet->stream_index))
 	{
@@ -457,11 +459,11 @@ void LiveOutputStream::CaptureInputPacket(const AVPacket* Packet, uint64_t Activ
 	}
 	const uint64_t Hash = HashBytes(Packet->data, static_cast<size_t>(Packet->size));
 	Capture->AddInput(std::format(
-		"{{\"type\":\"input\",\"activityId\":{},\"audio\":{},\"streamIndex\":{},\"codecId\":{},\"timeBaseNum\":{},\"timeBaseDen\":{},\"dts\":{},\"pts\":{},\"duration\":{},\"flags\":{},\"hashFnv64\":\"{:016x}\"",
+		"{{\"type\":\"input\",\"activityId\":{},\"audio\":{},\"streamIndex\":{},\"codecId\":{},\"timeBaseNum\":{},\"timeBaseDen\":{},\"dts\":{},\"pts\":{},\"duration\":{},\"flags\":{},\"hashFnv64\":\"{:016x}\",\"observedSteadyUs\":{}",
 		ActivityID, Audio, Packet->stream_index,
 		static_cast<int>(Stream->codecpar->codec_id), Stream->time_base.num,
 		Stream->time_base.den, Packet->dts, Packet->pts, Packet->duration,
-		Packet->flags, Hash), Packet->data, static_cast<size_t>(Packet->size));
+		Packet->flags, Hash, ObservedSteadyUs), Packet->data, static_cast<size_t>(Packet->size));
 }
 
 uint64_t LiveOutputStream::RecordFFmpegLog( int Level, const char* Phase,
@@ -1041,8 +1043,11 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 		streams[Packet->stream_index]->codecpar->codec_id;
 	const PacketStructure Structure = AnalysePacketStructure(
 		PacketCodec, Packet->data, Packet->size > 0 ? (size_t)Packet->size : 0);
+	const auto MuxObserved = std::chrono::steady_clock::now();
+	const int64_t MuxObservedSteadyUs = std::chrono::duration_cast<std::chrono::microseconds>(
+		MuxObserved.time_since_epoch()).count();
 	const int64_t ArrivalMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-		std::chrono::steady_clock::now() - _PacketDiagEpoch).count();
+		MuxObserved - _PacketDiagEpoch).count();
 	if (IsVideo && _NormalizeNoBFrameTimestamps && _TimestampCadenceClock.UseArrival)
 		_TimestampDeliveryEvidence.Observe(static_cast<double>(ArrivalMs), OriginalSourceDuration,
 			OriginalSourceDuration > 0 ? av_q2d(InputTimebase) * OriginalSourceDuration * 1000.0 : 0,
@@ -1100,13 +1105,15 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 		Entry.Disposition = DispositionText;
 		if (auto Capture = ActivePacketCapture())
 			Capture->AddMetadata(std::format(
-				"{{\"type\":\"decision\",\"activityId\":{},\"packetSequence\":{},\"generation\":{},\"segment\":{},\"part\":{},\"audio\":{},\"disposition\":\"{}\",\"hashFnv64\":\"{:016x}\",\"sourceDtsUs\":{},\"sourcePtsUs\":{},\"sourceDurationUs\":{},\"hasOutput\":{},\"outputDtsUs\":{},\"outputPtsUs\":{},\"outputDurationUs\":{},\"normalized\":{},\"timestampRepaired\":{}",
+				"{{\"type\":\"decision\",\"activityId\":{},\"packetSequence\":{},\"generation\":{},\"segment\":{},\"part\":{},\"audio\":{},\"disposition\":\"{}\",\"hashFnv64\":\"{:016x}\",\"sourceDtsUs\":{},\"sourcePtsUs\":{},\"sourceDurationUs\":{},\"hasOutput\":{},\"outputDtsUs\":{},\"outputPtsUs\":{},\"outputDurationUs\":{},\"normalized\":{},\"timestampRepaired\":{},\"muxObservedSteadyUs\":{},\"decisionSteadyUs\":{}",
 				_CurrentDiagnosticActivity, PacketSequence, Entry.Generation,
 				Entry.SegmentIndex, Entry.PartialIndex, Entry.Audio, DispositionText,
 				Entry.PayloadHash, Entry.SourceDtsUs, Entry.SourcePtsUs,
 				Entry.SourceDurationUs, HasOutput, Entry.OutputDtsUs,
 				Entry.OutputPtsUs, Entry.OutputDurationUs,
-				Entry.TimestampNormalized, Entry.TimestampRepaired));
+				Entry.TimestampNormalized, Entry.TimestampRepaired, MuxObservedSteadyUs,
+				std::chrono::duration_cast<std::chrono::microseconds>(
+					std::chrono::steady_clock::now().time_since_epoch()).count()));
 		const std::lock_guard<std::mutex> guard(*_SegmentsMutex);
 		if( DispositionText == "waitingForKeyframe" ) ++_DiagWaitingForKeyframePackets;
 		else if( DispositionText == "missingTimestamp" ) ++_DiagMissingTimestampPackets;

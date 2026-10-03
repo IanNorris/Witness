@@ -285,3 +285,55 @@ durations, flagged corruption and rational-duration rounding. Seven browser
 playback/drift regression tests passed. The final VS2026 RelWithDebInfo server,
 Camera DLL and web build passed (existing ABI/Sass/linker warnings remain).
 No new live-camera capture has been taken in this round.
+
+## Local validation and buffered-pause reproducer
+
+Subsequent direct-camera tests used native `a515cbca678d` without starting the
+local server or changing authentication. Camera 9 ran for 900 seconds:
+17,344 accepted packets, 792 repairs, 14 startup drops, zero established drops,
+zero mux errors and no normalization rejection/generation change. Its phase
+ended at 734 ms and correction saturation counted 4,144 packets, so delivery
+remains close to the correction limit. Camera 8 ran for 300 seconds: 4,977
+accepted, 251 repairs, one startup drop, zero established drops, zero mux
+errors, zero saturation and no rejection/generation change.
+Both saved outputs independently decoded without FFmpeg errors (898.746 s and
+299.072 s of media). This is not a reproduction of the production failure.
+
+Camera 8's additional 30-second raw capture contains 500 inputs / 500 decisions,
+all written, with no changed payload hashes, binary hash failures or writer
+queue losses. One decision at the capture boundary precedes its matching input
+record because of lookahead. Its reconstructed output also decoded cleanly.
+Artifacts remain ignored under `build-vs2026`, including
+`packet-captures/camera-8-preview-1791066106590-1` and
+`tapo{8,9}-cadence-evidence-20261003.mp4`.
+
+`Tools/Tests/LiveCadencePauseTests.cpp` reproduces a real mux-policy failure
+offline: a steady 20fps/no-B-frame fixture with a Tapo-like backward source
+clock stays normalized; injecting a 15-second buffered pause followed by a
+burst rejects its clock (120,000 ms nominal versus 128,950 ms observed), then
+discards otherwise valid regressing packets. Raw evidence reports a 15,050 ms
+maximum gap and 15,000 ms long-gap excess. Virtual monotonic time exercises the
+actual mux/qualification logic; this is not a simulated network-loss decoder
+test or proof that production has this specific pause.
+
+The raw captures previously lacked independent observation timestamps. Added
+demux, mux-entry and decision monotonic timestamps allow the next capture to
+separate arrival gaps from Witness pipeline delay, including its one-packet
+lookahead. The reporter explicitly refuses timing estimates for older captures.
+The next policy change should address contaminated validation windows and
+clean-keyframe timeline recovery, not merely widen the cadence tolerance.
+
+The observation-timestamp build (`ff757174ded5`) completed successfully.
+A fresh 45-second camera 9 probe, including a 30-second raw capture at
+`build-vs2026/packet-captures/camera-9-preview-1791066906749-1`, validates the
+new timing fields. All 615 captured inputs have monotonic observations, with
+no changed hashes, binary failures or capture queue losses. The capture
+includes initial probing/startup packets, so its 20.56 delivered FPS must not
+be treated as a steady-state camera rate. Arrival gaps have p50 48.32 ms,
+p95 98.71 ms, p99 117.10 ms and maximum 162.08 ms. Demux-to-mux time closely
+matches these gaps because of lookahead; actual mux-to-decision work is p50
+0.006 ms, p99 0.066 ms and maximum 0.1 ms in this unloaded direct probe.
+The reconstructed output decodes without FFmpeg errors. The probe finishes
+normalized with zero established drops/mux errors. Reporter and credential-safe
+runner tests pass. These unloaded local timings do not establish production
+server timing under memory/CPU pressure.

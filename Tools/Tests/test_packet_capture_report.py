@@ -1,4 +1,5 @@
 import json
+import importlib.util
 import subprocess
 import sys
 import tempfile
@@ -7,9 +8,33 @@ from pathlib import Path
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "packet_capture_report.py"
+SPEC = importlib.util.spec_from_file_location("packet_capture_report", SCRIPT)
+REPORT = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(REPORT)
 
 
 class PacketCaptureReportTests(unittest.TestCase):
+    def test_observed_delivery_ignores_regressing_source_dts(self):
+        rows = [{"type": "input", "audio": False, "activityId": frame,
+                 "observedSteadyUs": 1000000 + frame * 53000,
+                 "dts": 90000 if frame % 2 else 0} for frame in range(20)]
+        rows.append({"type": "decision", "audio": False, "activityId": 5,
+                     "muxObservedSteadyUs": 1000000 + 6 * 53000,
+                     "decisionSteadyUs": 1000000 + 6 * 53000 + 500})
+        result = REPORT.delivery_timing(rows)
+        self.assertTrue(result["available"])
+        self.assertAlmostEqual(result["deliveredFps"], 1000 / 53)
+        self.assertEqual(result["arrivalGaps"]["p99Ms"], 53)
+        self.assertEqual(result["demuxToMuxIncludingLookahead"]["p50Ms"], 53)
+        self.assertEqual(result["muxToDecision"]["p50Ms"], .5)
+
+    def test_missing_or_backward_observations_do_not_invent_timing(self):
+        rows = [{"type": "input", "audio": False, "activityId": frame,
+                 "observedSteadyUs": 100 - frame} for frame in range(3)]
+        self.assertFalse(REPORT.delivery_timing(rows)["available"])
+        rows[0].pop("observedSteadyUs")
+        self.assertFalse(REPORT.delivery_timing(rows)["available"])
+
     def test_correlates_packets_and_replays_independent_partial(self):
         with tempfile.TemporaryDirectory(prefix="witness-packet-report-") as temp:
             directory = Path(temp)

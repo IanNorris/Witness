@@ -66,13 +66,21 @@ int main(int argc, char** argv)
 	bool started = false;
 	int generation = -1;
 	bool changedGeneration = false;
+	int discontinuities = 0;
 	live.SetEventCallback([&](const LiveStreamEvent& event) {
+		if (event.EventType == LiveStreamEvent::Discontinuity) ++discontinuities;
 		if (event.EventType == LiveStreamEvent::InitSegmentReady) {
-			if (started && event.Generation != generation) changedGeneration = true;
+			if (generation >= 0 && event.Generation != generation) {
+				changedGeneration = true;
+				output.close();
+				output.open(std::string(argv[2]) + ".generation-" +
+					std::to_string(event.Generation) + ".mp4", std::ios::binary);
+				started = false;
+			}
 			init = event.Data;
 			generation = event.Generation;
 		}
-		if (changedGeneration || event.EventType != LiveStreamEvent::PartialReady || !event.Data) return;
+		if (event.EventType != LiveStreamEvent::PartialReady || !event.Data) return;
 		if (!started) {
 			if (!event.Independent || !init) return;
 			output.write(reinterpret_cast<const char*>(init->data()), init->size());
@@ -94,6 +102,18 @@ int main(int argc, char** argv)
 		<< " nonMonotonicOutput=" << stats.NonMonotonicOutputPackets
 		<< " repaired=" << stats.RepairedVideoTimestamps
 		<< " normalized=" << stats.TimestampNormalizationActive
+		<< " rejected=" << stats.TimestampNormalizationRejected
+		<< " retries=" << stats.TimestampRetryAttempts
+		<< " generation=" << stats.InitGeneration
+		<< " discontinuities=" << discontinuities
+		<< " rejectedDeclaredMs=" << stats.TimestampDeclaredWindowMs
+		<< " rejectedReferenceMs=" << stats.TimestampReferenceWindowMs
+		<< " deliveryPackets=" << stats.TimestampDelivery.Packets
+		<< " deliveryDeclaredMs=" << stats.TimestampDelivery.DeclaredMs
+		<< " deliveryMaxGapMs=" << stats.TimestampDelivery.MaxGapMs
+		<< " deliveryLongGapExcessMs=" << stats.TimestampDelivery.LongGapExcessMs
+		<< " deliveryInvalidDurations=" << stats.TimestampDelivery.InvalidDurations
+		<< " deliveryDeclarationChanges=" << stats.TimestampDelivery.DeclarationChanges
 		<< " phaseMs=" << stats.VideoPhaseErrorMs
 		<< " saturated=" << stats.TimestampCorrectionSaturatedPackets
 		<< " muxErrors=" << stats.MuxErrorPackets
@@ -108,7 +128,7 @@ int main(int argc, char** argv)
 	CameraStreamError result = CameraStreamError::Success;
 	while (std::chrono::steady_clock::now() - start < std::chrono::seconds(seconds)) {
 		result = input.ProcessFrame(nullptr, nullptr, &live);
-		if (result != CameraStreamError::Success || changedGeneration) break;
+		if (result != CameraStreamError::Success || !output.good()) break;
 		if (std::getenv("WITNESS_PROBE_CAPTURE") && !Captured &&
 			std::chrono::steady_clock::now() - start >= std::chrono::seconds(CaptureDelay) && !capture()) return 6;
 		if (std::chrono::steady_clock::now() >= nextReport) {
@@ -119,5 +139,5 @@ int main(int argc, char** argv)
 	report();
 	std::cout << "readResult=" << static_cast<int>(result)
 		<< " generationChanged=" << changedGeneration << '\n';
-	return result == CameraStreamError::Success && !changedGeneration && output.good() && started ? 0 : 5;
+	return result == CameraStreamError::Success && output.good() && started ? 0 : 5;
 }
