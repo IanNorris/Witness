@@ -19,6 +19,35 @@ static void Require(bool Condition)
 int main()
 {
     {
+        Witness::Camera::CadenceDeliveryEvidence Delivery;
+        for (int Frame = 0; Frame < 2400; ++Frame)
+            Delivery.Observe(Frame * 50.0, 4500, 50, false);
+        Require(Delivery.Packets == 2400 && Delivery.DeclaredMs == 120000);
+        Require(Delivery.MaxGapMs == 50 && Delivery.LongGapExcessMs == 0);
+        Require(Delivery.InvalidDurations == 0 && Delivery.DeclarationChanges == 0);
+        Delivery.Observe(126350, 4500, 50, false);
+        Require(Delivery.MaxGapMs == 6400 && Delivery.LongGapExcessMs == 6350);
+        Delivery.Observe(126400, 0, 0, true);
+        Require(Delivery.InvalidDurations == 1 && Delivery.CorruptPackets == 1);
+        Delivery = {};
+        for (int Frame = 0; Frame < 2400; ++Frame)
+            Delivery.Observe(Frame * 53.0, 4500, 50, false);
+        Require(Delivery.DeclaredMs == 120000 && Delivery.MaxGapMs == 53);
+        Require(Delivery.LongGapExcessMs == 0); // sustained slower cadence, not a pause
+        Delivery.Observe(127200, 4501, 50, false);
+        Require(Delivery.DeclarationChanges == 0); // rational rounding
+        Delivery.Observe(127250, 9000, 100, false);
+        Require(Delivery.DeclarationChanges == 1);
+        Delivery.Observe(127300, INT64_MAX, 1e20, false);
+        Require(Delivery.InvalidDurations == 1);
+        Delivery = {};
+        Delivery.Observe(0, 4500, 50, false);
+        Delivery.NextWindow();
+        Delivery.Observe(6400, 4500, 50, false);
+        Require(Delivery.Packets == 1 && Delivery.DeclaredMs == 50);
+        Require(Delivery.MaxGapMs == 6400 && Delivery.LongGapExcessMs == 6350);
+    }
+    {
         Witness::Camera::TimestampRequalification Retry;
         Retry.Reject(0);
         Require(!Retry.Observe(59999, true, true));

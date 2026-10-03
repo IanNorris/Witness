@@ -607,6 +607,7 @@ void LiveOutputStream::ResetForReconnect(InputStream* NewInputStream)
 	_TimestampProbeInputTicks = 0;
 	_TimestampProbeDurationTicks = 0;
 	_TimestampCadenceClock.Reset();
+	_TimestampDeliveryEvidence = {};
 	_TimestampArrivalGuard.Reset();
 	_TimestampStableCadenceSamples = 0;
 	_TimestampStableCadenceTicks = 0;
@@ -1042,6 +1043,10 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 		PacketCodec, Packet->data, Packet->size > 0 ? (size_t)Packet->size : 0);
 	const int64_t ArrivalMs = std::chrono::duration_cast<std::chrono::milliseconds>(
 		std::chrono::steady_clock::now() - _PacketDiagEpoch).count();
+	if (IsVideo && _NormalizeNoBFrameTimestamps && _TimestampCadenceClock.UseArrival)
+		_TimestampDeliveryEvidence.Observe(static_cast<double>(ArrivalMs), OriginalSourceDuration,
+			OriginalSourceDuration > 0 ? av_q2d(InputTimebase) * OriginalSourceDuration * 1000.0 : 0,
+			(Packet->flags & AV_PKT_FLAG_CORRUPT) != 0);
 	const uint64_t PacketSequence = ++_PacketDiagSequence;
 	bool DtsSynthesized = false;
 	bool PtsSynthesized = false;
@@ -1351,6 +1356,7 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 						_TimestampCadenceClock.StartArrival(av_rescale_q(
 							ArrivalMs, AVRational{1, 1000}, InputTimebase),
 							_LastWrittenDTS + _LastOutputPacketDuration);
+						_TimestampDeliveryEvidence = {};
 					}
 					_TimestampProbeSamples = 0;
 					_TimestampProbeOutliers = 0;
@@ -1506,6 +1512,7 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
                             _DiagTimestampDeclaredWindowMs = ProbeDurationUs / 1000.0;
                             _DiagTimestampReferenceWindowMs = av_q2d(InputTimebase) * ReferenceTicks * 1000.0;
                             _DiagTimestampRejectionUsesArrival = _TimestampCadenceClock.UseArrival;
+                            _DiagTimestampDeliveryEvidence = _TimestampDeliveryEvidence;
                         }
 						_SourceTimestampOffset =
 							(_LastWrittenDTS + _LastOutputPacketDuration) - PacketCopy.dts;
@@ -1520,6 +1527,7 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 					_TimestampProbeInputTicks = 0;
 					_TimestampProbeDurationTicks = 0;
 					_TimestampCadenceClock.NextWindow(ArrivalTicks);
+					_TimestampDeliveryEvidence.NextWindow();
 				}
 			}
 		}
@@ -2227,6 +2235,7 @@ LiveOutputStream::StreamingDiagnostics LiveOutputStream::GetStreamingDiagnostics
     Diag.TimestampRejectedUnixMs = _DiagTimestampRejectedUnixMs;
     Diag.TimestampDeclaredWindowMs = _DiagTimestampDeclaredWindowMs;
     Diag.TimestampReferenceWindowMs = _DiagTimestampReferenceWindowMs;
+    Diag.TimestampDelivery = _DiagTimestampDeliveryEvidence;
     Diag.TimestampRejectionClock = _DiagTimestampRejectedUnixMs ?
         (_DiagTimestampRejectionUsesArrival ? "arrival" : "source") : "";
 	Diag.DroppedVideoPackets = _DiagDroppedVideoPackets;

@@ -249,3 +249,39 @@ fragments. Both saved generations independently decoded with FFmpeg without
 errors. The VS2026 RelWithDebInfo build completed without rebuilding external
 dependencies. This round did not run a new live-camera soak; production
 confirmation is still required.
+
+## October 3 production follow-up: delivery-window evidence
+
+The matching native `8e9d8a53f373` / web `25f90af6b0d1` export covers about
+22.6 hours. Six displayed non-Tapo players have no restarts or stalls. Tapo
+camera 8 is currently normalized but has accumulated 990 restarts/968 stalls;
+camera 9 preview exhausted three recovery attempts early and remains rejected.
+Its final rejection compares 120,000 ms of nominal durations with 126,415 ms
+of mux arrival time. Camera 8 also rejected a 120,000/132,245 ms window.
+
+These comparisons do not prove genuine variable frame rate. The duration sum
+counts packets surviving earlier timestamp/keyframe decisions, whereas elapsed
+time includes pauses. A missing access unit, discarded invalid timestamp,
+server scheduling stall or sustained lower delivered cadence could all produce
+this result. Do not simply widen the tolerance based on this export.
+
+The next diagnostic build retains raw delivery evidence for the rejected
+arrival-clock window: packet count, original-duration total, invalid durations,
+duration changes (allowing one tick of rounding), corrupt flags, maximum gap,
+and excess time in substantial gaps (>250 ms and >4 nominal frame intervals).
+Sampling occurs before mux drop decisions. Both health and full-debug exports
+carry the snapshot, and Health displays it with the rejection evidence.
+Evidence remains bounded and adds no packet/media retention.
+
+These are **mux delivery** times, not NIC/RTP ingress times. Long-gap excess is
+an indicator, not a quantity to subtract blindly from the clock. The diagnostic
+does not change normalization, correction limits or retry budgets. Rejection
+window counters must be paired with a fresh input/output capture before
+choosing between delivery-clock correction, outage handling or rate adaptation.
+
+Validation: the native policy/evidence tests cover regular delivery, sustained
+slower delivery, a substantial pause, a pause across a window boundary, invalid
+durations, flagged corruption and rational-duration rounding. Seven browser
+playback/drift regression tests passed. The final VS2026 RelWithDebInfo server,
+Camera DLL and web build passed (existing ABI/Sass/linker warnings remain).
+No new live-camera capture has been taken in this round.

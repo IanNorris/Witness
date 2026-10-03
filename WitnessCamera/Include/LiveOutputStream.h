@@ -229,6 +229,8 @@ private:
     int64_t _DiagTimestampRejectedUnixMs = 0;
     double _DiagTimestampDeclaredWindowMs = 0;
     double _DiagTimestampReferenceWindowMs = 0;
+    Witness::Camera::CadenceDeliveryEvidence _TimestampDeliveryEvidence;
+    Witness::Camera::CadenceDeliveryEvidence _DiagTimestampDeliveryEvidence;
     bool _DiagTimestampRejectionUsesArrival = false;
 
 	int64_t _InitialDTS;
@@ -422,6 +424,7 @@ public:
         int64_t TimestampRejectedUnixMs = 0;
         double TimestampDeclaredWindowMs = 0;
         double TimestampReferenceWindowMs = 0;
+        Witness::Camera::CadenceDeliveryEvidence TimestampDelivery;
         std::string TimestampRejectionClock;
 		uint64_t AcceptedVideoPackets = 0;
 		uint64_t AcceptedVideoKeyframes = 0;

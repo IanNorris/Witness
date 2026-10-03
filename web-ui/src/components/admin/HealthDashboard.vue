@@ -43,6 +43,13 @@ interface StreamHealth {
   timestampRejectedUnixMs?: number
   timestampDeclaredWindowMs?: number
   timestampReferenceWindowMs?: number
+  timestampDeliveryPackets?: number
+  timestampDeliveryDeclaredMs?: number
+  timestampDeliveryMaxGapMs?: number
+  timestampDeliveryLongGapExcessMs?: number
+  timestampDeliveryInvalidDurations?: number
+  timestampDeliveryDeclarationChanges?: number
+  timestampDeliveryCorruptPackets?: number
   timestampRejectionClock?: string
 }
 
@@ -696,6 +703,12 @@ onBeforeUnmount(() => {
                       <div class="health-secondary">
                         {{ stream.timestampRejectionClock }} clock {{ formatMs(stream.timestampReferenceWindowMs) }} vs declared {{ formatMs(stream.timestampDeclaredWindowMs) }}
                         <span v-if="stream.timestampRejectedUnixMs"> · {{ mediaEventTime(stream.timestampRejectedUnixMs) }}</span>
+                      </div>
+                      <div v-if="stream.timestampDeliveryPackets" class="health-secondary">
+                        Mux delivery: {{ stream.timestampDeliveryPackets }} packets · raw durations {{ formatMs(stream.timestampDeliveryDeclaredMs) }}
+                        · longest gap {{ formatMs(stream.timestampDeliveryMaxGapMs) }} · long-pause excess {{ formatMs(stream.timestampDeliveryLongGapExcessMs) }}
+                        · invalid durations {{ stream.timestampDeliveryInvalidDurations }} · duration changes {{ stream.timestampDeliveryDeclarationChanges }}
+                        · flagged corrupt {{ stream.timestampDeliveryCorruptPackets }}
                       </div>
                     </div>
                   </div>

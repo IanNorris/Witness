@@ -324,6 +324,13 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
         Value["timestampDeclaredWindowMs"] = Diag.TimestampDeclaredWindowMs;
         Value["timestampReferenceWindowMs"] = Diag.TimestampReferenceWindowMs;
         Value["timestampRejectionClock"] = Diag.TimestampRejectionClock;
+        Value["timestampDeliveryPackets"] = Diag.TimestampDelivery.Packets;
+        Value["timestampDeliveryDeclaredMs"] = Diag.TimestampDelivery.DeclaredMs;
+        Value["timestampDeliveryMaxGapMs"] = Diag.TimestampDelivery.MaxGapMs;
+        Value["timestampDeliveryLongGapExcessMs"] = Diag.TimestampDelivery.LongGapExcessMs;
+        Value["timestampDeliveryInvalidDurations"] = Diag.TimestampDelivery.InvalidDurations;
+        Value["timestampDeliveryDeclarationChanges"] = Diag.TimestampDelivery.DeclarationChanges;
+        Value["timestampDeliveryCorruptPackets"] = Diag.TimestampDelivery.CorruptPackets;
 		Value["videoPhaseErrorMs"] = Diag.VideoPhaseErrorMs;
 		Value["videoCorrectionMs"] = Diag.VideoCorrectionMs;
 		Value["audioVideoSkewMs"] = Diag.HasAudioVideoSkew ?
@@ -849,6 +856,13 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
                     StreamData["timestampDeclaredWindowMs"] = Diag.TimestampDeclaredWindowMs;
                     StreamData["timestampReferenceWindowMs"] = Diag.TimestampReferenceWindowMs;
                     StreamData["timestampRejectionClock"] = Diag.TimestampRejectionClock;
+                    StreamData["timestampDeliveryPackets"] = Diag.TimestampDelivery.Packets;
+                    StreamData["timestampDeliveryDeclaredMs"] = Diag.TimestampDelivery.DeclaredMs;
+                    StreamData["timestampDeliveryMaxGapMs"] = Diag.TimestampDelivery.MaxGapMs;
+                    StreamData["timestampDeliveryLongGapExcessMs"] = Diag.TimestampDelivery.LongGapExcessMs;
+                    StreamData["timestampDeliveryInvalidDurations"] = Diag.TimestampDelivery.InvalidDurations;
+                    StreamData["timestampDeliveryDeclarationChanges"] = Diag.TimestampDelivery.DeclarationChanges;
+                    StreamData["timestampDeliveryCorruptPackets"] = Diag.TimestampDelivery.CorruptPackets;
 					StreamData["videoPhaseErrorMs"] = Diag.VideoPhaseErrorMs;
 					StreamData["videoCorrectionMs"] = Diag.VideoCorrectionMs;
 					StreamData["audioVideoSkewMs"] = Diag.AudioVideoSkewMs;
