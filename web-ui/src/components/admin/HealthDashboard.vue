@@ -39,6 +39,8 @@ interface StreamHealth {
   recentMediaEvents?: MediaDiagnosticEvent[]
   timestampNormalizationRejected?: boolean
   timestampRetryAttempts?: number
+  timestampPauseResets?: number
+  timestampLastPauseGapMs?: number
   timestampRetryExhausted?: boolean
   timestampRejectedUnixMs?: number
   timestampDeclaredWindowMs?: number
@@ -697,6 +699,9 @@ onBeforeUnmount(() => {
                   <div v-for="stream in camera.streams" :key="`${stream.tier}-av`" class="small">
                     <span class="evidence-tier">{{ streamTierLabel(stream.tier) }}</span>
                     A/V skew {{ formatMs(stream.audioVideoSkewMs) }} · maximum segment duration difference {{ formatMs(stream.maxSegmentDriftMs) }}
+                    <div v-if="stream.timestampPauseResets" class="health-secondary">
+                      Delivery-pause recoveries {{ stream.timestampPauseResets }} · last gap {{ formatMs(stream.timestampLastPauseGapMs) }}
+                    </div>
                     <div v-if="stream.timestampNormalizationRejected" class="text-warning">
                       Timestamp repair rejected · {{ stream.timestampRetryAttempts ?? 0 }}/3 retries
                       <span v-if="stream.timestampRetryExhausted"> · automatic retries exhausted</span>

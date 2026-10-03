@@ -337,3 +337,62 @@ The reconstructed output decodes without FFmpeg errors. The probe finishes
 normalized with zero established drops/mux errors. Reporter and credential-safe
 runner tests pass. These unloaded local timings do not establish production
 server timing under memory/CPU pressure.
+
+## Delivery-pause recovery candidate
+
+The `codex/tapo-pause-recovery` candidate handles a >=2-second gap only on an
+already qualified, video-only, no-B-frame arrival-clock preview. It defers
+validation of that contaminated window for at most 30 seconds. Fresh delivery
+must meet the original 5% cadence tolerance on unchanged declared durations,
+span at least one second and reach a clean keyframe. Only then does the mux
+retire the pending old-generation packet, publish a discontinuity/new init and
+re-anchor the independent output clock. Genuine sustained rate mismatch,
+invalid/corrupt samples and changed declarations do not inherit this exception.
+An expired recovery cannot repeatedly rearm the validation exemption on the
+same generation. Pause recovery does not consume or clear cadence-retry budget.
+Recording, audio and source-clock normalization paths are unchanged.
+
+Native policy tests and actual-mux tests passed for H.264 and HEVC. The tests
+cover a buffered pause/burst, fresh-keyframe recovery, the one pending-frame
+retirement, unchanged cadence-retry budget and continued rejection of a sustained
+10% rate mismatch. Both control and both pause generations for each codec
+independently decode without errors. The earlier rejected-clock requalification
+integration test and seven browser playback/drift tests also pass.
+
+Five-minute ordinary live checks with native `86d6d681ff18` passed on cameras
+8 and 9. Camera 8 accepted 4,975 packets and repaired 252; camera 9 accepted
+5,761 and repaired 263. Both had zero established drops, zero mux errors,
+no rejection and no unexpected pause resets; both saved outputs decode cleanly.
+
+A subsequent 210-second camera 9 test injected one 12-second processing pause
+into the standalone test connection at 124 seconds. It recovered at one new
+generation, remained normalized with zero established drops/mux errors, and
+consumed no cadence-retry attempt. The raw capture
+`build-vs2026/packet-captures/camera-9-preview-1791068277917-1` verifies an
+independent 12,014.873 ms demux gap, unchanged payload hashes, and no writer
+queue loss. However, it exposed one `beforeVideoEpoch` drop shortly after the
+reset: the source clock stepped 74.7 ms before the newly selected epoch.
+
+The final candidate (`a50a695dabb9`) preserves that picture only when the
+already qualified arrival clock, unchanged duration, equal PTS/DTS and clean
+packet prove a bounded regression (at most one second/20 nominal frames).
+Unqualified, audio, B-frame, corrupt and unbounded-reset cases keep their
+guards. The H.264/HEVC integration fixtures now inject an epoch-crossing
+picture and still have zero timestamp drops and clean decoded generations.
+
+Validation limitation: the live pause's new generation decoded cleanly, but
+the old generation produced three non-monotonic decoded-frame DTS messages
+at the FFmpeg null output sink. Its 2,669 encoded packet DTS values were
+strictly increasing, and decoded pictures were I/P only. This is not a mux
+packet-DTS regression; presentation reordering around the camera pause remains
+an investigation item. Do not claim the production Tapo problem fully solved
+or all pause outputs timing-clean from these checks.
+
+A 45-second camera 9 confirmation of the final epoch guard accepted 854
+packets, repaired 39, and had only one startup drop, with zero established
+drops/mux errors, no rejection and no unexpected pause reset. It remained
+normalized. The candidate server/Camera DLL/Web/models were preserved together
+under `build-vs2026/deploy/tapo-pause-recovery-a50a695dabb9`; copied server/DLL
+SHA-256 hashes match the built binaries. The previous
+`tapo-pause-recovery-86d6d681ff18` staging directory is an earlier candidate
+without the epoch-crossing guard, not the final deployment candidate.

@@ -591,6 +591,7 @@ void LiveOutputStream::ResetForReconnect(InputStream* NewInputStream)
 	_NormalizeNoBFrameTimestamps = false;
 	_TimestampNormalizationRejected = false;
     _TimestampRequalification = {};
+    _TimestampPauseRecovery = {};
     _RequalificationArrivalGuard.Reset();
     _RequalificationCollecting = false;
 	_InitialDTS = 0;
@@ -912,6 +913,43 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
 	const bool IsVideo = Packet->stream_index == InputData.ChosenStreamIndex;
 
     if (IsVideo && _AllowObservedTimestampRegressionRepair && !_AllowTimestampNormalization &&
+        !_HasAudioStream && !_HasBFrames && _NormalizeNoBFrameTimestamps &&
+        _TimestampCadenceClock.UseArrival && !_TimestampNormalizationRejected) {
+        const auto Timebase = InputData.FormatContext->streams[InputData.ChosenStreamIndex]->time_base;
+        const int64_t NowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - _PacketDiagEpoch).count();
+        const bool Valid = Packet->dts != AV_NOPTS_VALUE && Packet->pts == Packet->dts &&
+            !(Packet->flags & AV_PKT_FLAG_CORRUPT) &&
+            (!_DecodeCorruptionActive || _DecodeCorruptionActivityID < _CurrentDiagnosticActivity);
+        if (_TimestampPauseRecovery.Observe(NowMs, av_rescale_q(NowMs, AVRational{1,1000}, Timebase),
+            Packet->duration, Valid, Valid && (Packet->flags & AV_PKT_FLAG_KEY),
+            av_rescale_q(AV_TIME_BASE, AV_TIME_BASE_Q, Timebase))) {
+            const auto Retry = _TimestampRequalification;
+            const auto GapMs = _TimestampPauseRecovery.LastGapMs;
+            // Fresh cadence has been verified on the same declared clock.
+            // Reset before retaining this keyframe; never reset inside the
+            // pending-packet writer or concatenate incompatible mux epochs.
+            ResetForReconnect(_InputStream);
+            const auto Result = InitFormatContext();
+            if (Result != CameraStreamError::Success) return Result;
+            _TimestampRequalification = Retry;
+            if (!_HasAudioStream && !_HasBFrames) {
+                _NormalizeNoBFrameTimestamps = true;
+                _TimestampCadenceClock.StartArrival(
+                    av_rescale_q(NowMs, AVRational{1,1000}, Timebase), 0);
+            }
+            {
+                const std::lock_guard<std::mutex> Guard(*_SegmentsMutex);
+                ++_DiagTimestampPauseResets;
+                _DiagTimestampLastPauseGapMs = GapMs;
+                _DiagTimestampRetryAttempts = Retry.Attempts;
+            }
+            LOG_INFO("[HLS] Source %d recovered %lldms delivery pause at fresh-cadence keyframe",
+                _InputStream->GetSourceId(), (long long)GapMs);
+        }
+    }
+
+    if (IsVideo && _AllowObservedTimestampRegressionRepair && !_AllowTimestampNormalization &&
         !_HasAudioStream && !_HasBFrames && _TimestampNormalizationRejected) {
         const int64_t NowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
             std::chrono::steady_clock::now() - _PacketDiagEpoch).count();
@@ -1216,7 +1254,21 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 	int64_t PacketTimestampUs = av_rescale_q(PacketCopy.dts, InputTimebase, AV_TIME_BASE_Q);
 	if (_InitialTimestampUs == AV_NOPTS_VALUE && IsVideo)
 		_InitialTimestampUs = PacketTimestampUs;
-	if (_InitialTimestampUs == AV_NOPTS_VALUE || PacketTimestampUs < _InitialTimestampUs)
+	// A qualified preview may see a small backward clock step cross its new
+	// source epoch immediately after recovery. Preserve the reference picture;
+	// the independent output clock will place it safely. Unqualified/audio/
+	// B-frame streams and unbounded source resets retain their existing guards.
+	const bool BoundedArrivalEpochRegression = IsVideo && _NormalizeNoBFrameTimestamps &&
+		_TimestampCadenceClock.UseArrival && !_TimestampNormalizationRejected &&
+		!_HasAudioStream && !_HasBFrames && _LastWrittenDTS != AV_NOPTS_VALUE &&
+		PacketCopy.pts == PacketCopy.dts && !(PacketCopy.flags & AV_PKT_FLAG_CORRUPT) &&
+		_InitialTimestampUs != AV_NOPTS_VALUE && PacketTimestampUs < _InitialTimestampUs &&
+		SourceDurationUs > 0 && SourceDurationUs <= AV_TIME_BASE &&
+		TimestampArrivalGuard::SameDeclaration(OriginalSourceDuration, _LastPacketDuration) &&
+		static_cast<long double>(_InitialTimestampUs) - PacketTimestampUs <=
+			(std::min<int64_t>)(AV_TIME_BASE, SourceDurationUs * 20);
+	if (_InitialTimestampUs == AV_NOPTS_VALUE ||
+		(PacketTimestampUs < _InitialTimestampUs && !BoundedArrivalEpochRegression))
 	{
 		if (IsVideo)
 		{
@@ -1234,7 +1286,7 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 		AV_TIME_BASE_Q, InputTimebase);
 
 	// Guard against negative timestamps from B-frame reordering at stream start
-	if (PacketCopy.dts != AV_NOPTS_VALUE && PacketCopy.dts < 0)
+	if (PacketCopy.dts != AV_NOPTS_VALUE && PacketCopy.dts < 0 && !BoundedArrivalEpochRegression)
 	{
 		if (IsVideo)
 		{
@@ -1504,7 +1556,11 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 					const double DriftMs =
 						(double)SignedError * InputTimebase.num * 1000.0 / InputTimebase.den;
 
-					if (WindowCadenceDrifted)
+					// A buffered pause can straddle the validation boundary before
+					// its burst drains. Retain the qualified repair until fresh
+					// cadence/keyframe recovery, bounded to 30 seconds by the policy.
+					if (WindowCadenceDrifted &&
+						!(_TimestampCadenceClock.UseArrival && _TimestampPauseRecovery.Pending()))
 					{
 						_NormalizeNoBFrameTimestamps = false;
 						_TimestampNormalizationRejected = true;
@@ -2239,6 +2295,8 @@ LiveOutputStream::StreamingDiagnostics LiveOutputStream::GetStreamingDiagnostics
 	Diag.RepairedVideoTimestamps = _DiagRepairedVideoTimestamps;
     Diag.TimestampNormalizationRejected = _DiagTimestampRejected;
     Diag.TimestampRetryAttempts = _DiagTimestampRetryAttempts;
+    Diag.TimestampPauseResets = _DiagTimestampPauseResets;
+    Diag.TimestampLastPauseGapMs = _DiagTimestampLastPauseGapMs;
     Diag.TimestampRejectedUnixMs = _DiagTimestampRejectedUnixMs;
     Diag.TimestampDeclaredWindowMs = _DiagTimestampDeclaredWindowMs;
     Diag.TimestampReferenceWindowMs = _DiagTimestampReferenceWindowMs;

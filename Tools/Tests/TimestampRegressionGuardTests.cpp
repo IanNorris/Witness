@@ -3,6 +3,7 @@
 #include "TimestampArrivalGuard.h"
 #include "AudioSampleClock.h"
 #include "TimestampRequalification.h"
+#include "TimestampPauseRecovery.h"
 
 #include <stdexcept>
 
@@ -18,6 +19,45 @@ static void Require(bool Condition)
 
 int main()
 {
+    {
+        Witness::Camera::TimestampPauseRecovery Pause;
+        for (int Frame = 0; Frame < 30; ++Frame)
+            Require(!Pause.Observe(Frame * 50, Frame * 4500, 4500, true, true, 90000));
+        Require(!Pause.Pending());
+        Require(!Pause.Observe(17000, 1530000, 4500, true, true, 90000));
+        Require(Pause.Pending());
+        for (int Frame = 0; Frame < 40; ++Frame)
+            Require(!Pause.Observe(17000, 1530000, 4500, true, true, 90000)); // buffered burst
+        bool Ready = false;
+        for (int Frame = 1; Frame <= 40; ++Frame)
+            Ready = Pause.Observe(17000 + Frame * 50, 1530000 + Frame * 4500,
+                4500, true, Frame == 40, 90000);
+        Require(Ready); // clean keyframe, fresh regular delivery
+        Pause = {};
+        Pause.Observe(0, 0, 4500, true, false, 90000);
+        Pause.Observe(3000, 270000, 4500, true, false, 90000);
+        for (int Frame = 1; Frame <= 40; ++Frame)
+            Require(!Pause.Observe(3000 + Frame * 50, 270000 + Frame * 4500,
+                9000, true, true, 90000)); // changed declaration never inherits qualification
+        Require(!Pause.Observe(33001, 2970090, 9000, true, true, 90000));
+        Require(!Pause.Pending()); // bounded deferral, not permanent exemption
+        for (int Sample = 1; Sample <= 100; ++Sample)
+            Require(!Pause.Observe(33001 + Sample * 3000, 2970090 + Sample * 270000,
+                4500, true, true, 90000));
+        Require(!Pause.Pending()); // continued stalls cannot repeatedly extend the exemption
+        Pause = {};
+        Pause.Observe(0, 0, 4500, true, false, 90000);
+        Pause.Observe(3000, 270000, 4500, true, false, 90000);
+        for (int Frame = 1; Frame <= 40; ++Frame)
+            Require(!Pause.Observe(3000 + Frame * 50, 270000 + Frame * 4500,
+                4500, false, true, 90000)); // corrupt/invalid keyframes cannot reset
+        Pause = {};
+        Pause.Observe(0, 0, 4500, true, false, 90000);
+        Pause.Observe(3000, 270000, 4500, true, false, 90000);
+        for (int Frame = 1; Frame <= 80; ++Frame)
+            Require(!Pause.Observe(3000 + Frame * 55, 270000 + Frame * 4950,
+                4500, true, true, 90000)); // actual 10% rate mismatch retains the 5% guard
+    }
     {
         Witness::Camera::CadenceDeliveryEvidence Delivery;
         for (int Frame = 0; Frame < 2400; ++Frame)

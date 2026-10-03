@@ -6,6 +6,7 @@
 #include "TimestampCadenceClock.h"
 #include "TimestampArrivalGuard.h"
 #include "TimestampRequalification.h"
+#include "TimestampPauseRecovery.h"
 #include <mutex>
 #include <chrono>
 #include <string>
@@ -222,6 +223,9 @@ private:
 	bool _NormalizeNoBFrameTimestamps;
 	bool _TimestampNormalizationRejected;
     TimestampRequalification _TimestampRequalification;
+    TimestampPauseRecovery _TimestampPauseRecovery;
+    uint64_t _DiagTimestampPauseResets = 0;
+    int64_t _DiagTimestampLastPauseGapMs = 0;
     TimestampArrivalGuard _RequalificationArrivalGuard;
     bool _RequalificationCollecting = false;
     bool _DiagTimestampRejected = false;
@@ -421,6 +425,8 @@ public:
 		bool TimestampNormalizationActive = false;
         bool TimestampNormalizationRejected = false;
         unsigned TimestampRetryAttempts = 0;
+        uint64_t TimestampPauseResets = 0;
+        int64_t TimestampLastPauseGapMs = 0;
         int64_t TimestampRejectedUnixMs = 0;
         double TimestampDeclaredWindowMs = 0;
         double TimestampReferenceWindowMs = 0;

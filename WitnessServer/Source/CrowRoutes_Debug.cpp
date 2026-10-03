@@ -319,6 +319,8 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 			"lastCompletedSegmentMayPrecedeReconnect";
         Value["timestampNormalizationRejected"] = Diag.TimestampNormalizationRejected;
         Value["timestampRetryAttempts"] = Diag.TimestampRetryAttempts;
+        Value["timestampPauseResets"] = Diag.TimestampPauseResets;
+        Value["timestampLastPauseGapMs"] = Diag.TimestampLastPauseGapMs;
         Value["timestampRetryExhausted"] = Diag.TimestampNormalizationRejected && Diag.TimestampRetryAttempts >= 3;
         Value["timestampRejectedUnixMs"] = Diag.TimestampRejectedUnixMs;
         Value["timestampDeclaredWindowMs"] = Diag.TimestampDeclaredWindowMs;
@@ -851,6 +853,8 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 					StreamData["packetDispositionCounts"] = std::move( DropReasons );
                     StreamData["timestampNormalizationRejected"] = Diag.TimestampNormalizationRejected;
                     StreamData["timestampRetryAttempts"] = Diag.TimestampRetryAttempts;
+                    StreamData["timestampPauseResets"] = Diag.TimestampPauseResets;
+                    StreamData["timestampLastPauseGapMs"] = Diag.TimestampLastPauseGapMs;
                     StreamData["timestampRetryExhausted"] = Diag.TimestampNormalizationRejected && Diag.TimestampRetryAttempts >= 3;
                     StreamData["timestampRejectedUnixMs"] = Diag.TimestampRejectedUnixMs;
                     StreamData["timestampDeclaredWindowMs"] = Diag.TimestampDeclaredWindowMs;

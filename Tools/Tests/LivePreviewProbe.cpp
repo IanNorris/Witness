@@ -12,6 +12,7 @@ extern "C" {
 #include <atomic>
 #include <cstdio>
 #include <cstring>
+#include <thread>
 
 static std::atomic<uint64_t> AudioDurationWarnings{0}, MissingPtsWarnings{0}, FfmpegErrors{0};
 static void ProbeLog(void*, int level, const char* format, va_list args)
@@ -51,6 +52,10 @@ int main(int argc, char** argv)
 	live.SetObservedTimestampRegressionRepairAllowed(true);
 	if (std::getenv("WITNESS_PROBE_REOLINK")) live.SetTimestampNormalizationAllowed(true);
 	const int CaptureDelay = std::getenv("WITNESS_PROBE_CAPTURE_DELAY") ? std::atoi(std::getenv("WITNESS_PROBE_CAPTURE_DELAY")) : 0;
+	const int PauseAt = std::getenv("WITNESS_PROBE_PAUSE_AT") ? std::atoi(std::getenv("WITNESS_PROBE_PAUSE_AT")) : -1;
+	const int PauseSeconds = std::getenv("WITNESS_PROBE_PAUSE_SECONDS") ? std::atoi(std::getenv("WITNESS_PROBE_PAUSE_SECONDS")) : 0;
+	if (PauseAt >= 0 && (PauseSeconds < 1 || PauseSeconds > 15 || PauseAt + PauseSeconds + 5 > seconds)) return 2;
+	bool PauseInjected = false;
 	bool Captured = false;
 	auto capture = [&]() {
 		std::string directory;
@@ -104,6 +109,8 @@ int main(int argc, char** argv)
 		<< " normalized=" << stats.TimestampNormalizationActive
 		<< " rejected=" << stats.TimestampNormalizationRejected
 		<< " retries=" << stats.TimestampRetryAttempts
+		<< " pauseResets=" << stats.TimestampPauseResets
+		<< " lastPauseGapMs=" << stats.TimestampLastPauseGapMs
 		<< " generation=" << stats.InitGeneration
 		<< " discontinuities=" << discontinuities
 		<< " rejectedDeclaredMs=" << stats.TimestampDeclaredWindowMs
@@ -127,6 +134,12 @@ int main(int argc, char** argv)
 	auto nextReport = start + std::chrono::seconds(60);
 	CameraStreamError result = CameraStreamError::Success;
 	while (std::chrono::steady_clock::now() - start < std::chrono::seconds(seconds)) {
+		if (PauseAt >= 0 && !PauseInjected &&
+			std::chrono::steady_clock::now() - start >= std::chrono::seconds(PauseAt)) {
+			PauseInjected = true;
+			std::cout << "probePauseSeconds=" << PauseSeconds << std::endl;
+			std::this_thread::sleep_for(std::chrono::seconds(PauseSeconds));
+		}
 		result = input.ProcessFrame(nullptr, nullptr, &live);
 		if (result != CameraStreamError::Success || !output.good()) break;
 		if (std::getenv("WITNESS_PROBE_CAPTURE") && !Captured &&

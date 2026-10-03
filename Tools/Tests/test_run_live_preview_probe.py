@@ -15,6 +15,17 @@ SPEC.loader.exec_module(RUNNER)
 
 
 class ProbeRunnerTests(unittest.TestCase):
+    def test_pause_requires_bounded_complete_pair(self):
+        base = [str(SCRIPT), "--database", "unused.db", "--probe", "unused.exe",
+                "--camera", "9", "--seconds", "120", "--output", "unused.mp4"]
+        for extra in (["--pause-at", "60"], ["--pause-for", "10"],
+                      ["--pause-at", "60", "--pause-for", "16"],
+                      ["--pause-at", "119", "--pause-for", "1"]):
+            with self.subTest(extra=extra), patch("sys.argv", base + extra), \
+                    contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as caught:
+                RUNNER.main()
+            self.assertEqual(caught.exception.code, 2)
+
     def test_credentials_are_environment_only_and_logs_are_filtered(self):
         with tempfile.TemporaryDirectory(prefix="witness-probe-test-") as root:
             root = Path(root)

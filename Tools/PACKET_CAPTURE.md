@@ -74,3 +74,11 @@ The probe now continues through mux generation changes, saving each new
 generation in a separate file instead of concatenating incompatible timelines.
 Use `--capture-delay` for an additional bounded 30-second raw packet capture.
 All generated recordings are sensitive local artifacts and are not uploaded.
+
+For an explicitly controlled stall test, the runner accepts a paired
+`--pause-at SECONDS --pause-for SECONDS` (pause length 1..15). This sleeps only
+the standalone probe's processing loop; it does not change camera settings,
+pause production, or bypass authentication. Leave at least five seconds for
+recovery. Each mux generation is written independently. Inspect every output
+generation for both decode errors and presentation timestamp problems; a zero
+process exit alone does not prove clean decoded-frame pacing.
