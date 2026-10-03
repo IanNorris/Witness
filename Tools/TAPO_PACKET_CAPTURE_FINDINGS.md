@@ -436,3 +436,9 @@ attribute this second stall. The standalone probe deliberately terminates on
 read failure; the server's existing worker recreates its input on this error.
 Do not report this run as a six-minute stability pass or conflate the later
 read failure with failure to recover the controlled pause.
+
+A fresh 60-second connection immediately afterward succeeded: 1,131 accepted,
+52 repaired, one startup drop, zero established drops/mux errors/rejections,
+and a clean independent decode (`tapo9-reconnect-check-20261004.mp4`). The
+camera was not persistently latched offline. This short reconnect check does
+not establish the cause or frequency of the late input-read failure.
