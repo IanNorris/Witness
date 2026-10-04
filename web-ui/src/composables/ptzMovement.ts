@@ -10,6 +10,7 @@ export function createPtzMovement(
   let disposed = false
   let tail = Promise.resolve()
   let deadline: ReturnType<typeof setTimeout> | null = null
+  let stopFailed = false
   function enqueue(work: () => Promise<void>) {
     tail = tail.then(work).catch(() => {})
   }
@@ -21,8 +22,8 @@ export function createPtzMovement(
     changed(false)
     if (previous) enqueue(async () => {
       if (!previous.sent) return
-      try { await send(previous.cameraId, 'stop', previous.speed) }
-      catch (error) { failed('stop', error) }
+      try { await send(previous.cameraId, 'stop', previous.speed); stopFailed = false }
+      catch (error) { stopFailed = true; failed('stop', error) }
     })
   }
   function start(cameraId: number, command: string, speed: number) {
@@ -45,12 +46,25 @@ export function createPtzMovement(
     const held = gesture?.cameraId
     stop()
     if (held !== cameraId) enqueue(async () => {
-      try { await send(cameraId, 'stop', speed) }
-      catch (error) { failed('stop', error) }
+      try { await send(cameraId, 'stop', speed); stopFailed = false }
+      catch (error) { stopFailed = true; failed('stop', error) }
     })
   }
   return {
     start, stop, emergencyStop,
+    position(work: () => Promise<unknown>): Promise<boolean> {
+      stop()
+      return new Promise(resolve => enqueue(async () => {
+        let success = false
+        try {
+          if (disposed) return
+          if (stopFailed) throw new Error('Stop has not been confirmed; retry Stop before moving to a saved position')
+          await work()
+          success = true
+        } catch (error) { failed('position', error) }
+        finally { resolve(success) }
+      }))
+    },
     dispose() { stop(); disposed = true },
     async settled() {
       // A failed move can append its safety stop while we await the move.

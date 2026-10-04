@@ -16,6 +16,13 @@ Branch: `codex/ptz-selection-controls`.
   in the controls; keep the explicit Stop action available.
 - Disable absolute zoom until supported state is returned; ignore stale polls
   after user edits, camera changes or unmount.
+- Add press-and-hold relative zoom for cameras without absolute zoom support.
+  Do not repeatedly poll an explicitly unsupported absolute zoom capability.
+- Expose enabled saved positions through a read-only capability lookup. Position
+  commands wait for a confirmed manual Stop; failed Stop cannot be bypassed.
+  Absolute zoom uses the same ordered position-command lane on both client and
+  server. Capability replies from an earlier camera visit cannot overwrite the
+  current selection. No preset is assumed to represent the camera's home.
 - Explicit fullscreen control selection is independent of automatic camera focus
   and layout dragging. Show an outline/dismiss label; Escape deselects first.
   Close PTZ when its camera is deselected, hidden, disabled or disconnected.
@@ -42,9 +49,15 @@ device must be configured as linked views to share the lane.
 Standalone server tests cover expiry without a browser Stop, ambiguous move
 delivery, failed Stop retry, replacement ordering, independent camera lanes,
 shutdown and preset interlocks. They use simulated transports, not camera motors.
-Preset/home UI and live camera capability validation remain outstanding. Do not
-claim the PTZ goal complete yet.
+Saved-position UI is implemented; automatic home/calibration recovery is a
+separate backlog item and is not triggered here. Live camera capability/motor
+validation remains outstanding. Do not claim the PTZ goal complete yet.
 
 The query-lock fix has build validation but no isolated concurrency regression
 test yet. Fullscreen selection still needs visual/keyboard testing in a browser.
 Existing Sass, DLL-interface and incremental-link warnings are not fixed here.
+
+Component-script tests exercise read-only preset discovery, filtering disabled
+positions, actual preset POST selection, stale replies after switching away and
+back, stale zoom polls, and zoom following Stop. These execute compiled Vue setup
+code with mocked HTTP and lifecycle hooks, not browser-rendering or hardware.

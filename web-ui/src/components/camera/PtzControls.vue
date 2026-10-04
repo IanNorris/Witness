@@ -14,10 +14,18 @@ const zoomPos = ref(0)
 const zoomMin = ref(0)
 const zoomMax = ref(33)
 const zoomLoaded = ref(false)
+const presets = ref<Array<{ id: number; name: string }>>([])
+const presetId = ref<number | ''>('')
+const presetsLoading = ref(false)
+const presetsUnavailable = ref(false)
+const presetBusy = ref(false)
 let zoomSendTimeout: ReturnType<typeof setTimeout> | null = null
 let zoomRevision = 0
 let zoomPending = 0
 let alive = true
+let cameraRevision = 0
+let zoomFetchPending = false
+let zoomUnavailable = false
 
 const zoomMultiplier = computed(() => {
   if (zoomMax.value <= zoomMin.value) return '1.0x'
@@ -31,7 +39,7 @@ const movement = createPtzMovement(
     method: 'POST', body: { speed: moveSpeed }, redirectOnFail: false,
   }),
   moving => { isMoving.value = moving },
-  (command, failure) => { error.value = `${command === 'stop' ? 'Stop failed' : 'Movement failed'}: ${failure instanceof Error ? failure.message : String(failure)}` },
+  (command, failure) => { error.value = `${command === 'stop' ? 'Stop failed' : command === 'position' ? 'Position change failed' : 'Movement failed'}: ${failure instanceof Error ? failure.message : String(failure)}` },
 )
 let heldPointer: number | null = null
 
@@ -61,10 +69,45 @@ function onVisibility() {
   if (document.visibilityState !== 'visible') stopMove()
 }
 
+async function fetchPresets() {
+  const cameraId = props.cameraId
+  const revision = cameraRevision
+  presetsLoading.value = true
+  presetsUnavailable.value = false
+  try {
+    const data = await api<{ presets: Array<{ id: number; name: string; enabled: boolean }> }>(
+      `/ptz/${cameraId}/presets`, { redirectOnFail: false },
+    )
+    if (alive && cameraId === props.cameraId && revision === cameraRevision) {
+      presets.value = (data?.presets ?? []).filter(p => p.enabled && Number.isInteger(p.id) && p.id >= 0 && p.id <= 65535)
+        .map(p => ({ id: p.id, name: p.name || `Position ${p.id}` }))
+    }
+  } catch {
+    if (alive && cameraId === props.cameraId && revision === cameraRevision) presetsUnavailable.value = true
+  } finally {
+    if (alive && cameraId === props.cameraId && revision === cameraRevision) presetsLoading.value = false
+  }
+}
+async function goToPreset() {
+  const cameraId = props.cameraId
+  const revision = cameraRevision
+  const id = presetId.value
+  if (presetBusy.value || id === '' || !presets.value.some(p => p.id === id)) return
+  presetBusy.value = true
+  error.value = ''
+  await movement.position(async () => {
+    // Selecting another camera or dismissing controls cancels undispatched work.
+    if (!alive || cameraId !== props.cameraId || revision !== cameraRevision) return
+    await api(`/ptz/${cameraId}/preset`, { method: 'POST', body: { id }, redirectOnFail: false })
+  })
+  if (alive && cameraId === props.cameraId && revision === cameraRevision) presetBusy.value = false
+}
+
 async function fetchZoomState() {
   const cameraId = props.cameraId
   const revision = zoomRevision
-  if (isMoving.value || zoomSendTimeout || zoomPending) return
+  if (isMoving.value || zoomSendTimeout || zoomPending || zoomFetchPending || zoomUnavailable) return
+  zoomFetchPending = true
   try {
     const data = await api<{ valid: boolean; zoom: number; zoomMin: number; zoomMax: number }>(
       `/ptz/${cameraId}/zoom`, { redirectOnFail: false }
@@ -75,21 +118,25 @@ async function fetchZoomState() {
       if (data.zoomMax > 0) zoomMax.value = data.zoomMax
       zoomLoaded.value = true
     }
+    if (alive && cameraId === props.cameraId && revision === zoomRevision && data?.valid === false) zoomUnavailable = true
   } catch {
     // Ignore - might not support absolute zoom
-  }
+  } finally { zoomFetchPending = false }
 }
 
 async function setZoomAbsolute(cameraId: number, pos: number) {
+  const revision = cameraRevision
+  const editRevision = zoomRevision
   error.value = ''
   // Clamp to valid range
   pos = Math.max(zoomMin.value, Math.min(zoomMax.value, Math.round(pos)))
   zoomPending++
   try {
-    await api(`/ptz/${cameraId}/zoom/set`, {
-      method: 'POST',
-      body: { zoom: pos },
-      redirectOnFail: false,
+    await movement.position(async () => {
+      if (!alive || cameraId !== props.cameraId || revision !== cameraRevision || editRevision !== zoomRevision) return
+      await api(`/ptz/${cameraId}/zoom/set`, {
+        method: 'POST', body: { zoom: pos }, redirectOnFail: false,
+      })
     })
   } catch (e: any) {
     if (alive && cameraId === props.cameraId) error.value = e.message
@@ -120,6 +167,7 @@ onMounted(() => {
   window.addEventListener('pointercancel', onPointerStop)
   document.addEventListener('visibilitychange', onVisibility)
   fetchZoomState()
+  void fetchPresets()
   pollInterval = setInterval(fetchZoomState, 5000)
 })
 
@@ -134,11 +182,17 @@ onUnmounted(() => {
   if (zoomSendTimeout) clearTimeout(zoomSendTimeout)
 })
 watch(() => props.cameraId, () => {
+  cameraRevision++
   zoomRevision++
   stopMove()
   if (zoomSendTimeout) clearTimeout(zoomSendTimeout)
   zoomSendTimeout = null
   zoomLoaded.value = false
+  zoomUnavailable = false
+  presets.value = []
+  presetId.value = ''
+  presetBusy.value = false
+  void fetchPresets()
   void fetchZoomState()
 })
 </script>
@@ -235,6 +289,11 @@ watch(() => props.cameraId, () => {
 
       <!-- Zoom slider (vertical) -->
       <div class="ptz-zoom">
+        <button class="ptz-btn" title="Hold to zoom in" aria-label="Zoom in"
+          @pointerdown.prevent.stop="onMovePointer($event, 'zoomin')"
+          @pointerup="onPointerStop" @pointercancel="onPointerStop" @lostpointercapture="onPointerStop"
+          @keydown.space.prevent="onMoveKey($event, 'zoomin')" @keydown.enter.prevent="onMoveKey($event, 'zoomin')"
+          @keyup.space.prevent="stopMove" @keyup.enter.prevent="stopMove" @blur="stopMove">+</button>
         <span class="ptz-zoom-label">+</span>
         <input
           type="range"
@@ -249,7 +308,12 @@ watch(() => props.cameraId, () => {
           @input="onZoomInput"
         />
         <span class="ptz-zoom-label">−</span>
-        <span class="ptz-zoom-level">{{ zoomMultiplier }}</span>
+        <span class="ptz-zoom-level">{{ zoomLoaded ? zoomMultiplier : 'Hold ±' }}</span>
+        <button class="ptz-btn" title="Hold to zoom out" aria-label="Zoom out"
+          @pointerdown.prevent.stop="onMovePointer($event, 'zoomout')"
+          @pointerup="onPointerStop" @pointercancel="onPointerStop" @lostpointercapture="onPointerStop"
+          @keydown.space.prevent="onMoveKey($event, 'zoomout')" @keydown.enter.prevent="onMoveKey($event, 'zoomout')"
+          @keyup.space.prevent="stopMove" @keyup.enter.prevent="stopMove" @blur="stopMove">−</button>
       </div>
     </div>
 
@@ -267,6 +331,13 @@ watch(() => props.cameraId, () => {
       <span class="ptz-speed-value">{{ speed }}</span>
     </div>
 
+    <div class="ptz-presets">
+      <select v-model="presetId" aria-label="Saved camera position" :disabled="presetsLoading || presetBusy || !presets.length">
+        <option value="">{{ presetsLoading ? 'Loading positions…' : presetsUnavailable ? 'Positions unavailable' : presets.length ? 'Saved position…' : 'No saved positions' }}</option>
+        <option v-for="preset in presets" :key="preset.id" :value="preset.id">{{ preset.name }}</option>
+      </select>
+      <button :disabled="presetId === '' || presetBusy" @click="goToPreset" title="Move to selected saved position">{{ presetBusy ? 'Moving…' : 'Go' }}</button>
+    </div>
     <!-- Error display -->
     <div v-if="error" class="ptz-error" role="alert">{{ error }}</div>
   </div>
@@ -285,6 +356,10 @@ watch(() => props.cameraId, () => {
   user-select: none;
 }
 .ptz-hint { color: #b9c7d9; font-size: 10px; }
+.ptz-presets { display: flex; gap: 5px; max-width: 240px; }
+.ptz-presets select { min-width: 0; flex: 1; }
+.ptz-presets :is(select, button) { color: #e8f3ff; background: #243449; border: 1px solid #52677f; border-radius: 4px; font-size: 11px; padding: 4px; }
+.ptz-presets :disabled { opacity: 0.6; }
 .ptz-btn { touch-action: none; }
 
 .ptz-main {

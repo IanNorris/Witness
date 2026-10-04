@@ -68,3 +68,38 @@ test('a failed stop is reported and does not block a subsequent emergency stop',
   assert.deepEqual(calls, [[10, 'right'], [10, 'stop'], [10, 'stop']])
   movement.dispose()
 })
+test('saved positions wait for movement Stop acknowledgement', async () => {
+  const calls = []
+  let releaseStop
+  const movement = createPtzMovement(async (id, command) => {
+    calls.push(command)
+    if (command === 'stop') await new Promise(resolve => { releaseStop = resolve })
+  }, () => {}, () => {})
+  movement.start(10, 'left', 32); await movement.settled()
+  const position = movement.position(async () => { calls.push('preset') })
+  await Promise.resolve(); await Promise.resolve()
+  assert.deepEqual(calls, ['left', 'stop'])
+  releaseStop()
+  assert.equal(await position, true)
+  assert.deepEqual(calls, ['left', 'stop', 'preset'])
+  movement.dispose()
+})
+test('saved positions cannot bypass a failed Stop and are cancelled on disposal', async () => {
+  let fail = true
+  const calls = [], failures = []
+  const movement = createPtzMovement(async (id, command) => {
+    calls.push(command)
+    if (command === 'stop' && fail) throw new Error('offline')
+  }, () => {}, command => failures.push(command))
+  movement.start(10, 'right', 32); await movement.settled()
+  assert.equal(await movement.position(async () => { calls.push('preset') }), false)
+  assert.deepEqual(calls, ['right', 'stop'])
+  assert.deepEqual(failures, ['stop', 'position'])
+  fail = false
+  movement.emergencyStop(10, 32); await movement.settled()
+  assert.equal(await movement.position(async () => { calls.push('preset') }), true)
+  const pending = movement.position(async () => { calls.push('stale-preset') })
+  movement.dispose()
+  assert.equal(await pending, false)
+  assert.equal(calls.includes('stale-preset'), false)
+})

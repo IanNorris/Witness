@@ -7,6 +7,18 @@
 #include "UrlHelpers.h"
 #include "PtzMovementLease.h"
 
+static int PtzDeviceId(GlobalContext& ctx, int cameraId)
+{
+    int deviceId = cameraId;
+    SQLiteDatabaseQueryInstance linked(ctx.Database, "GetLinkedCameraId");
+    linked->Bind("@CameraId", cameraId);
+    linked->Execute([&](const SQLiteDatabaseQuery& query) {
+        if (query.GetColumnValueInt(0) > 0) deviceId = query.GetColumnValueInt(0);
+        return true;
+    });
+    return deviceId; // Query and its DB lock are destroyed before caller camera I/O.
+}
+
 // Try to lazily initialize a PTZ client if it wasn't created at startup
 static std::shared_ptr<ReolinkClient> TryInitPtzClient(GlobalContext& ctx, int cameraId)
 {
@@ -185,15 +197,7 @@ void CrowListener::HandlePtzCommand(const crow::request& req, crow::response& re
 
 	// Do not run HTTP discovery before a healthy Baichuan command (especially Stop).
 	std::shared_ptr<ReolinkClient> client;
-	int deviceId = cameraId;
-    {
-        SQLiteDatabaseQueryInstance linked(m_GlobalContext->Database, "GetLinkedCameraId");
-        linked->Bind("@CameraId", cameraId);
-        linked->Execute([&](const SQLiteDatabaseQuery& query) {
-            if (query.GetColumnValueInt(0) > 0) deviceId = query.GetColumnValueInt(0);
-            return true;
-        });
-    }
+	const int deviceId = PtzDeviceId(*m_GlobalContext, cameraId);
 	const auto lease = m_GlobalContext->PtzMovement;
 	if (!lease) { res.code = 503; res.end(); return; }
 
@@ -373,11 +377,13 @@ void CrowListener::HandlePtzZoomSet(const crow::request& req, crow::response& re
 		return;
 	}
 
-	if (!body || !body.has("zoom"))
+	if (!body || !body.has("zoom") || body["zoom"].t() != crow::json::type::Number ||
+		body["zoom"].d() < 0 || body["zoom"].d() > 65535 ||
+		body["zoom"].d() != static_cast<double>(static_cast<int>(body["zoom"].d())))
 	{
 		res.code = 400;
 		crow::json::wvalue err;
-		err["error"] = "Missing 'zoom' parameter";
+		err["error"] = "zoom must be an integer from 0 to 65535";
 		res.write(err.dump());
 		res.end();
 		return;
@@ -391,7 +397,9 @@ void CrowListener::HandlePtzZoomSet(const crow::request& req, crow::response& re
 	}
 
 	int zoomPos = (int)body["zoom"].i();
-	bool ok = client->SetZoomPos(zoomPos);
+	const auto lease = m_GlobalContext->PtzMovement;
+	if (!lease) { res.code = 503; res.end(); return; }
+	bool ok = lease->Position(PtzDeviceId(*m_GlobalContext, cameraId), [client, zoomPos] { return client->SetZoomPos(zoomPos); });
 
 	crow::json::wvalue result;
 	result["success"] = ok;
