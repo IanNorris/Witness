@@ -22,6 +22,20 @@ static bool HasPtzResponseCode(const crow::json::rvalue& Json)
 		Code >= std::numeric_limits<int>::min() && Code <= std::numeric_limits<int>::max();
 }
 
+static bool PtzWriteAcknowledged(const std::string& Response, const char* Command, std::string& Error)
+{
+	if (Response.empty()) return false; // Preserve the HTTP transport error.
+	const auto Json = crow::json::load(Response);
+	if (!HasPtzResponseCode(Json)) {
+		Error = std::string(Command) + ": invalid or missing acknowledgement code";
+		return false;
+	}
+	const int Code = static_cast<int>(Json[0]["code"].d());
+	if (Code == 0) return true;
+	Error = std::string(Command) + " failed, code=" + std::to_string(Code);
+	return false;
+}
+
 // Cache failed AutoDetect attempts to avoid hammering cameras with repeated login failures
 static std::shared_mutex s_FailureCacheMutex;
 static std::unordered_map<std::string, std::chrono::steady_clock::time_point> s_FailureCache;
@@ -516,18 +530,9 @@ bool ReolinkClient::SetZoomPos(int zoomPos)
 		return false;
 	}
 
-	auto json = crow::json::load(response);
-	if (!json || json.size() == 0)
-		return false;
-
-	auto& resp = json[0];
-	if (resp.has("code") && resp["code"].i() != 0)
-	{
-		m_LastError = "SetZoomPos failed, code=" + std::to_string((int)resp["code"].i());
-		LOG_ERROR("ReolinkClient: %s (response: %s)", m_LastError.c_str(), response.substr(0, 300).c_str());
-		return false;
-	}
-	return true;
+	const bool Acknowledged = PtzWriteAcknowledged(response, "SetZoomPos", m_LastError);
+	if (!Acknowledged) LOG_ERROR("ReolinkClient: %s", m_LastError.c_str());
+	return Acknowledged;
 }
 
 bool ReolinkClient::SetFocusPos(int focusPos)
@@ -540,17 +545,7 @@ bool ReolinkClient::SetFocusPos(int focusPos)
 	if (response.empty())
 		return false;
 
-	auto json = crow::json::load(response);
-	if (!json || json.size() == 0)
-		return false;
-
-	auto& resp = json[0];
-	if (resp.has("code") && resp["code"].i() != 0)
-	{
-		m_LastError = "SetFocusPos failed, code=" + std::to_string((int)resp["code"].i());
-		return false;
-	}
-	return true;
+	return PtzWriteAcknowledged(response, "SetFocusPos", m_LastError);
 }
 
 std::vector<PtzPreset> ReolinkClient::GetPresets()
@@ -588,19 +583,15 @@ std::vector<PtzPreset> ReolinkClient::GetPresets()
 
 bool ReolinkClient::SetPreset(int id, const std::string& name)
 {
+	crow::json::wvalue EscapedName(name);
 	std::string body = R"([{"cmd":"SetPtzPreset","action":0,"param":{"channel":0,"enable":1,"id":)" +
-		std::to_string(id) + R"(,"name":")" + name + R"("}}])";
+		std::to_string(id) + R"(,"name":)" + EscapedName.dump() + R"(}}])";
 
 	std::string response = SendCommand("SetPtzPreset", body);
 	if (response.empty())
 		return false;
 
-	auto json = crow::json::load(response);
-	if (!json || json.size() == 0)
-		return false;
-
-	auto& resp = json[0];
-	return !resp.has("code") || resp["code"].i() == 0;
+	return PtzWriteAcknowledged(response, "SetPreset", m_LastError);
 }
 
 bool ReolinkClient::DeletePreset(int id)
@@ -609,7 +600,7 @@ bool ReolinkClient::DeletePreset(int id)
 		std::to_string(id) + R"(}}])";
 
 	std::string response = SendCommand("SetPtzPreset", body);
-	return !response.empty();
+	return PtzWriteAcknowledged(response, "DeletePreset", m_LastError);
 }
 
 bool ReolinkClient::GetMotionState(int channel)

@@ -174,3 +174,40 @@ web ID `439c7eef7414`. The read-only verifier confirms all 96 files /
 ID. Report: `artifacts/ptz-ack-package-verification-20261004.json`. This package
 includes the prior ordered improvements; it was not deployed, merged to main
 or pushed. The original package and user's backlog edits remain unchanged.
+
+### Absolute controls and preset edits
+
+The follow-up synthetic check extends the same production transport to absolute
+zoom/focus, saving presets and deleting presets. Before this pass, absolute
+controls and preset saves still accepted missing/fractional success codes, while
+delete accepted any nonempty response (including a device error or invalid JSON).
+Preset names were concatenated directly into JSON, so quotes, backslashes and
+newlines could make otherwise valid requests malformed. The pre-fix run records
+25 failing assertions in `artifacts/ptz-write-before.log`.
+
+All four methods now use the explicit acknowledgement validator, preserving
+transport failures and setting operation-specific invalid/device error text.
+Preset names are serialized with Crow's JSON string encoder. Read-only camera
+queries, reboot behavior, physical preset values and authentication are unchanged.
+The probe remains hardcoded to loopback with synthetic credentials; it cannot
+select a real camera or import its credentials.
+
+All six methods / 90 synthetic command cases pass in
+`artifacts/ptz-write-after.log`, including absolute control wire fields, round-trip
+preset names with quote/backslash/newline characters, malformed acknowledgements,
+HTTP/device failures, zoom fallback and Stop re-authentication. Server shutdown
+polling in the Python fixture is reduced to 10 ms to avoid a needless half-second
+delay per case; command/network timeouts remain bounded. Lease tests and all 44
+UI tests pass again (`artifacts/ptz-write-lease.log`, `artifacts/ptz-write-ui-tests.log`).
+
+Final combined package: `build-vs2026/deploy/ptz-writes-7db5a3d55a55`, native ID
+`7db5a3d55a55`, web ID `77600b108b51`. All 96 files / 179,884,306 bytes match the
+runtime output (`artifacts/ptz-write-package-verification-20261004.json`). This
+supersedes the earlier acknowledgement package for deployment testing. The build
+has no C++/linker warnings and no dependency installation; third-party web
+warnings remain visible. A fresh full vcpkg inventory confirms all 3,078 files /
+1,830,711,343 bytes match the previous inventory with zero additions, removals or
+content changes (`artifacts/dependency-ptz-write-after-20261004.json`).
+
+No package was deployed, merged to main or pushed. Physical movement/Stop latency
+and real firmware preset-write behavior are still unverified and require permission.
