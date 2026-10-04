@@ -723,3 +723,29 @@ The probe exit status was checked alongside these health/disposition metrics;
 exit zero alone is not accepted as proof. This closes the concurrent production
 demux/mux validation gate for this candidate. Browser MSE, full server workload
 and longer production stability remain separate verification limits.
+
+### Combined build handoff
+
+The combined `codex/ordered-improvements-validated` branch adds the real-browser
+health-history fixture and read-only PTZ capability validation after the rate
+fix. Fresh runtime output is native identity `6a692114ad54`; the identity differs
+from the 900-second probes because of server CMake/test-target and standalone
+Reolink header include changes. `git diff e8e1f36 HEAD -- WitnessCamera` is empty:
+the actual camera cadence implementation is unchanged from the measured run.
+
+`build-vs2026/deploy/ordered-improvements-b58eba2` contains 96 runtime files,
+including Web and models. Each SHA-256 matches its final built counterpart, and
+both the server executable and Camera DLL contain the same native identity.
+No databases, authentication configuration, probe/test executables or captured
+media are packaged. The final native build has no C++/linker warnings and does
+not reinstall dependencies; existing third-party Sass and Vite chunk advisories
+remain. Log: `artifacts/ordered-improvements-final-build.log`.
+
+Guard, H.264/HEVC cadence, cross-DLL ownership, PTZ movement-lease/configuration,
+health payload, history and endpoint tests all passed against the final runtime.
+The last two tests were rerun with fresh caller-owned fixture paths after their
+initial no-argument invocations correctly returned usage exit 2. Near-limit
+history export measured 10 ms / 9,393,620 bytes in this single run, not a p95 or
+live-server benchmark. No test listener/probe remains running. Physical PTZ
+movement testing awaits permission; the read-only check moved no camera.
+The package is for deployment testing, not a claim of production/MSE stability.
