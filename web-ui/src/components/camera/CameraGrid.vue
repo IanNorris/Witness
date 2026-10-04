@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useCameraStore } from '../../stores/cameras'
 import { useSettingsStore } from '../../stores/settings'
@@ -54,6 +54,23 @@ const gridStyle = computed(() => {
 
 const gridRef = ref<HTMLElement | null>(null)
 const activeCameraId = ref<number | null>(null)
+// Control selection is independent of layout editing and automatic focus.
+const selectedControlsCameraId = ref<number | null>(null)
+function selectControls(cameraId: number) {
+  if (settings.fullscreenMode && !props.editingLayout) selectedControlsCameraId.value = cameraId
+}
+function onOutsidePointer(event: PointerEvent) {
+  const target = event.target
+  if (!(target instanceof Element) || !gridRef.value?.contains(target) || !target.closest('.camera-grid-item')) {
+    selectedControlsCameraId.value = null
+  }
+}
+watch(() => [settings.fullscreenMode, props.editingLayout,
+  filteredCameras.value.filter(camera => isCameraVisible(camera.id)).map(camera => camera.id).join(',')],
+() => {
+  if (!settings.fullscreenMode || props.editingLayout || !filteredCameras.value.some(camera =>
+    camera.id === selectedControlsCameraId.value && isCameraVisible(camera.id))) selectedControlsCameraId.value = null
+})
 const invalidPlacement = ref(false)
 let pointerAction: 'move' | 'resize' | null = null
 let pointerStartX = 0
@@ -169,13 +186,18 @@ function openClips(cameraId: number) {
 function onKeydown(e: KeyboardEvent) {
   if (e.key === 'Escape' && settings.fullscreenMode) {
     if (props.editingLayout) emit('cancelLayout')
+    else if (selectedControlsCameraId.value !== null) selectedControlsCameraId.value = null
     else settings.toggleFullscreen()
   }
 }
 
-onMounted(() => window.addEventListener('keydown', onKeydown))
+onMounted(() => {
+  window.addEventListener('keydown', onKeydown)
+  document.addEventListener('pointerdown', onOutsidePointer, true)
+})
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
+  document.removeEventListener('pointerdown', onOutsidePointer, true)
   window.removeEventListener('pointermove', onPointerMove)
 })
 </script>
@@ -223,10 +245,14 @@ onUnmounted(() => {
         'dashboard-camera-hidden': !isCameraVisible(camera.id),
       }"
       :style="tileStyle(camera.id)"
+      @pointerdown.capture="selectControls(camera.id)"
+      @focusin="selectControls(camera.id)"
     >
       <CameraCard
         :camera="camera"
         :dashboard-hidden="!isCameraVisible(camera.id)"
+        :controls-selected="selectedControlsCameraId === camera.id"
+        @dismiss-controls="selectedControlsCameraId = null"
         @open-stream="openStream"
         @open-clips="openClips"
       />

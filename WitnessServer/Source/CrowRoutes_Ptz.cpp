@@ -9,28 +9,26 @@
 // Try to lazily initialize a PTZ client if it wasn't created at startup
 static std::shared_ptr<ReolinkClient> TryInitPtzClient(GlobalContext& ctx, int cameraId)
 {
-	SQLiteDatabaseQueryInstance GetPtzConfig(ctx.Database, "GetCameraPtzConfig");
-	GetPtzConfig->Bind("@CameraId", cameraId);
-
-	std::shared_ptr<ReolinkClient> client;
-	GetPtzConfig->Execute([&](const SQLiteDatabaseQuery& query)
-	{
-		int ptzEnabled = query.GetColumnValueInt(0);
-		if (!ptzEnabled) return true;
-
-		const char* host = query.GetColumnValueText(1);
-		int port = query.GetColumnValueInt(2);
-		const char* user = query.GetColumnValueText(3);
-		const char* pass = query.GetColumnValueText(4);
-		const char* rtspPath = query.GetColumnValueText(5);
-
-		std::string hostStr = (host && strlen(host) > 0) ? host : "";
-		std::string userStr = (user && strlen(user) > 0) ? user : "";
-		std::string passStr = (pass && strlen(pass) > 0) ? pass : "";
+    bool Enabled = false;
+    int port = 443;
+    std::string hostStr, userStr, passStr, rtspPath;
+    {
+        SQLiteDatabaseQueryInstance GetPtzConfig(ctx.Database, "GetCameraPtzConfig");
+        GetPtzConfig->Bind("@CameraId", cameraId);
+        GetPtzConfig->Execute([&](const SQLiteDatabaseQuery& query) {
+            Enabled = query.GetColumnValueInt(0) != 0;
+            port = query.GetColumnValueInt(2);
+            auto Copy = [&](int Column) { const char* Value = query.GetColumnValueText(Column); return Value ? std::string(Value) : std::string{}; };
+            hostStr = Copy(1); userStr = Copy(3); passStr = Copy(4); rtspPath = Copy(5);
+            return true;
+        });
+    } // Release the recording DB lock before discovery, authentication or I/O.
+    if (!Enabled) return nullptr;
+    std::shared_ptr<ReolinkClient> client;
 
 		// Fall back to RTSP URL credentials if PTZ-specific ones are empty
 		// Note: we only take host/user/pass from RTSP URL, NOT port (RTSP uses 554, API uses 443/80)
-		if (rtspPath && strlen(rtspPath) > 0 && (userStr.empty() || passStr.empty() || hostStr.empty()))
+		if (!rtspPath.empty() && (userStr.empty() || passStr.empty() || hostStr.empty()))
 		{
 			std::string rtspUser, rtspPass, rtspHost;
 			int rtspPort = 0;
@@ -49,7 +47,9 @@ static std::shared_ptr<ReolinkClient> TryInitPtzClient(GlobalContext& ctx, int c
 			client = ReolinkClient::AutoDetect(hostStr, port > 0 ? port : 443, userStr, passStr);
 			if (client)
 			{
-				ctx.PtzClients[cameraId] = client;
+                std::unique_lock<std::shared_mutex> Lock(ctx.Mutex);
+                auto [Existing, Inserted] = ctx.PtzClients.try_emplace(cameraId, client);
+                if (!Inserted) client = Existing->second;
 				LOG_INFO("PTZ lazy-init succeeded for camera %d (%s)", cameraId, hostStr.c_str());
 			}
 			else
@@ -64,9 +64,6 @@ static std::shared_ptr<ReolinkClient> TryInitPtzClient(GlobalContext& ctx, int c
 				userStr.empty() ? "<empty>" : userStr.c_str(),
 				passStr.empty() ? "<empty>" : "<present>");
 		}
-		return true;
-	});
-
 	return client;
 }
 
@@ -86,14 +83,14 @@ static std::shared_ptr<ReolinkClient> GetPtzClientForCamera(GlobalContext& ctx, 
 	if (client) return client;
 
 	// Check linked camera
-	SQLiteDatabaseQueryInstance GetLinked(ctx.Database, "GetLinkedCameraId");
-	GetLinked->Bind("@CameraId", cameraId);
 	int linkedId = 0;
-	GetLinked->Execute([&](const SQLiteDatabaseQuery& query)
-	{
-		linkedId = query.GetColumnValueInt(0);
-		return true;
-	});
+    {
+        SQLiteDatabaseQueryInstance GetLinked(ctx.Database, "GetLinkedCameraId");
+        GetLinked->Bind("@CameraId", cameraId);
+        GetLinked->Execute([&](const SQLiteDatabaseQuery& query) {
+            linkedId = query.GetColumnValueInt(0); return true;
+        });
+    } // Lazy init may query this connection again; never retain GetLinked here.
 
 	if (linkedId > 0)
 	{
@@ -185,7 +182,8 @@ void CrowListener::HandlePtzCommand(const crow::request& req, crow::response& re
 		return;
 	}
 
-	auto client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
+	// Do not run HTTP discovery before a healthy Baichuan command (especially Stop).
+	std::shared_ptr<ReolinkClient> client;
 
 	// Try Baichuan client: direct camera first, then linked camera
 	auto bcClient = m_GlobalContext->GetBaichuanClient(cameraId);
@@ -203,25 +201,25 @@ void CrowListener::HandlePtzCommand(const crow::request& req, crow::response& re
 			bcClient = m_GlobalContext->GetBaichuanClient(linkedId);
 	}
 
-	if (!client && !bcClient)
-	{
-		crow::json::wvalue err;
-		err["error"] = "Camera does not have PTZ enabled";
-		res.code = 400;
-		res.write(err.dump());
-		res.end();
-		return;
-	}
-
 	// Parse speed from body if present
 	int speed = 32;
 	if (body && body.has("speed"))
-		speed = (int)body["speed"].i();
+	{
+		if (body["speed"].t() != crow::json::type::Number ||
+			body["speed"].d() < 1 || body["speed"].d() > 64 ||
+			body["speed"].d() != static_cast<double>(static_cast<int>(body["speed"].d())))
+		{
+			res.code = 400; res.write("{\"error\":\"speed must be an integer from 1 to 64\"}"); res.end(); return;
+		}
+		speed = static_cast<int>(body["speed"].d());
+	}
 
 	// Handle preset command specially
 	if (command == "preset")
 	{
-		if (!body || !body.has("id"))
+		if (!body || !body.has("id") || body["id"].t() != crow::json::type::Number ||
+			body["id"].d() < 0 || body["id"].d() > 65535 ||
+			body["id"].d() != static_cast<double>(static_cast<int>(body["id"].d())))
 		{
 			res.code = 400;
 			crow::json::wvalue err;
@@ -234,6 +232,7 @@ void CrowListener::HandlePtzCommand(const crow::request& req, crow::response& re
 
 		// Try Baichuan first (more reliable for Reolink cameras)
 		bool ok = TryBaichuanPreset(bcClient, presetId);
+		if (!ok) client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
 		if (!ok && client)
 			ok = client->PtzGoToPreset(presetId);
 
@@ -247,9 +246,14 @@ void CrowListener::HandlePtzCommand(const crow::request& req, crow::response& re
 	}
 
 	PtzOp op = ParsePtzCommand(command);
+	if (op == PtzOp::Stop && command != "stop")
+	{
+		res.code = 400; res.write("{\"error\":\"Unknown PTZ command\"}"); res.end(); return;
+	}
 
 	// Try Baichuan first (more reliable for Reolink cameras)
 	bool ok = TryBaichuanPtz(bcClient, op, speed);
+	if (!ok) client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
 	if (!ok && client)
 		ok = client->PtzControl(op, speed);
 

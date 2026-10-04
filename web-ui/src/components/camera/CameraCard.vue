@@ -11,11 +11,13 @@ import { useLiveAudio } from '../../composables/useLiveAudio'
 const props = defineProps<{
   camera: Camera
   dashboardHidden?: boolean
+  controlsSelected?: boolean
 }>()
 
 const emit = defineEmits<{
   openStream: [cameraId: number]
   openClips: [cameraId: number]
+  dismissControls: []
 }>()
 
 const settings = useSettingsStore()
@@ -42,6 +44,10 @@ const hlsPlayerRef = ref<InstanceType<typeof HlsPlayer> | InstanceType<typeof Ms
 const detectionOverlayActive = ref(false)
 const selectedMseStream = ref<'main' | 'sub' | null>(null)
 const showPtzControls = ref(false)
+watch(() => [props.controlsSelected, props.dashboardHidden, props.camera.id, props.camera.ptzEnabled, props.camera.status], () => {
+  if (props.dashboardHidden || !props.camera.ptzEnabled || props.camera.status !== 'Connected' ||
+    (settings.fullscreenMode && !props.controlsSelected)) showPtzControls.value = false
+})
 const {
   mode: audioMode,
   enabled: audioActive,
@@ -218,7 +224,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="camera-card" :class="{ 'camera-card-fullscreen': settings.fullscreenMode }">
+  <div class="camera-card" :class="{ 'camera-card-fullscreen': settings.fullscreenMode, 'controls-selected': controlsSelected }">
     <div class="camera-preview">
       <div class="camera-video-wrap" @click.prevent="onSingleClick" @dblclick.prevent="onDoubleClick">
         <!-- HLS preview mode -->
@@ -277,6 +283,10 @@ onUnmounted(() => {
         <div v-if="settings.fullscreenMode" class="camera-name-overlay">
           {{ camera.name }}
         </div>
+        <button v-if="settings.fullscreenMode && controlsSelected" class="control-selection-label"
+          @click.stop="emit('dismissControls')" title="Dismiss camera controls (Esc)">
+          Controls selected · ×
+        </button>
 
         <!-- Latency overlay -->
         <div v-if="latencyLabel && effectiveMode !== 'jpeg'" class="latency-overlay">
@@ -380,3 +390,18 @@ onUnmounted(() => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.camera-card-fullscreen.controls-selected { outline: 2px solid #67b5ff; outline-offset: -2px; }
+.control-selection-label {
+  position: absolute; top: 8px; left: 8px; z-index: 10;
+  border: 1px solid #67b5ff; border-radius: 5px; background: #142940e8;
+  color: #e8f3ff; padding: 3px 7px; font-size: 11px;
+}
+.camera-card-fullscreen:not(.controls-selected):not(:hover) :is(.audio-toggle, .motion-audio-toggle, .detection-toggle, .ptz-toggle) {
+  opacity: 0; pointer-events: none;
+}
+.camera-card-fullscreen.controls-selected :is(.audio-toggle, .motion-audio-toggle, .detection-toggle, .ptz-toggle) {
+  opacity: 1; pointer-events: auto;
+}
+</style>

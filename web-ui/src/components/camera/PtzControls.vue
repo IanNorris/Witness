@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
 import { api } from '../../composables/useApi'
+import { createPtzMovement } from '../../composables/ptzMovement'
 
 const props = defineProps<{
   cameraId: number
@@ -14,6 +15,9 @@ const zoomMin = ref(0)
 const zoomMax = ref(33)
 const zoomLoaded = ref(false)
 let zoomSendTimeout: ReturnType<typeof setTimeout> | null = null
+let zoomRevision = 0
+let zoomPending = 0
+let alive = true
 
 const zoomMultiplier = computed(() => {
   if (zoomMax.value <= zoomMin.value) return '1.0x'
@@ -22,36 +26,50 @@ const zoomMultiplier = computed(() => {
   return (fraction * 100).toFixed(0) + '%'
 })
 
-async function sendPtz(command: string) {
-  error.value = ''
-  try {
-    await api(`/ptz/${props.cameraId}/${command}`, {
-      method: 'POST',
-      body: { speed: speed.value },
-    })
-  } catch (e: any) {
-    error.value = e.message
-  }
-}
+const movement = createPtzMovement(
+  (cameraId, command, moveSpeed) => api(`/ptz/${cameraId}/${command}`, {
+    method: 'POST', body: { speed: moveSpeed }, redirectOnFail: false,
+  }),
+  moving => { isMoving.value = moving },
+  (command, failure) => { error.value = `${command === 'stop' ? 'Stop failed' : 'Movement failed'}: ${failure instanceof Error ? failure.message : String(failure)}` },
+)
+let heldPointer: number | null = null
 
 function startMove(command: string) {
-  isMoving.value = true
-  sendPtz(command)
+  error.value = ''
+  movement.start(props.cameraId, command, speed.value)
 }
 
 function stopMove() {
-  if (isMoving.value) {
-    isMoving.value = false
-    sendPtz('stop')
-  }
+  heldPointer = null
+  movement.stop()
+}
+function onMovePointer(event: PointerEvent, command: string) {
+  if (event.button !== 0 || !event.isPrimary) return
+  heldPointer = event.pointerId
+  try { (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId) }
+  catch { heldPointer = null; return }
+  startMove(command)
+}
+function onMoveKey(event: KeyboardEvent, command: string) {
+  if (!event.repeat) startMove(command)
+}
+function onPointerStop(event: PointerEvent) {
+  if (event.pointerId === heldPointer) stopMove()
+}
+function onVisibility() {
+  if (document.visibilityState !== 'visible') stopMove()
 }
 
 async function fetchZoomState() {
+  const cameraId = props.cameraId
+  const revision = zoomRevision
+  if (isMoving.value || zoomSendTimeout || zoomPending) return
   try {
     const data = await api<{ valid: boolean; zoom: number; zoomMin: number; zoomMax: number }>(
-      `/ptz/${props.cameraId}/zoom`
+      `/ptz/${cameraId}/zoom`, { redirectOnFail: false }
     )
-    if (data?.valid) {
+    if (alive && cameraId === props.cameraId && revision === zoomRevision && data?.valid && !zoomSendTimeout && !zoomPending) {
       zoomPos.value = data.zoom
       if (data.zoomMin !== undefined) zoomMin.value = data.zoomMin
       if (data.zoomMax > 0) zoomMax.value = data.zoomMax
@@ -62,57 +80,87 @@ async function fetchZoomState() {
   }
 }
 
-async function setZoomAbsolute(pos: number) {
+async function setZoomAbsolute(cameraId: number, pos: number) {
   error.value = ''
   // Clamp to valid range
   pos = Math.max(zoomMin.value, Math.min(zoomMax.value, Math.round(pos)))
+  zoomPending++
   try {
-    await api(`/ptz/${props.cameraId}/zoom/set`, {
+    await api(`/ptz/${cameraId}/zoom/set`, {
       method: 'POST',
       body: { zoom: pos },
+      redirectOnFail: false,
     })
   } catch (e: any) {
-    error.value = e.message
-  }
+    if (alive && cameraId === props.cameraId) error.value = e.message
+  } finally { zoomPending-- }
 }
 
 function onZoomInput(event: Event) {
   const target = event.target as HTMLInputElement
   const newVal = Number(target.value)
+  zoomRevision++
   zoomPos.value = newVal
 
   // Debounce: send after 100ms of no further input
   if (zoomSendTimeout) clearTimeout(zoomSendTimeout)
-  zoomSendTimeout = setTimeout(() => setZoomAbsolute(newVal), 100)
+  const cameraId = props.cameraId
+  zoomSendTimeout = setTimeout(() => {
+    zoomSendTimeout = null
+    if (alive && cameraId === props.cameraId) void setZoomAbsolute(cameraId, newVal)
+  }, 100)
 }
 
 // Poll zoom position periodically while controls are visible
 let pollInterval: ReturnType<typeof setInterval> | null = null
 
 onMounted(() => {
+  window.addEventListener('blur', stopMove)
+  window.addEventListener('pointerup', onPointerStop)
+  window.addEventListener('pointercancel', onPointerStop)
+  document.addEventListener('visibilitychange', onVisibility)
   fetchZoomState()
   pollInterval = setInterval(fetchZoomState, 5000)
 })
 
 onUnmounted(() => {
+  alive = false
+  movement.dispose()
+  window.removeEventListener('blur', stopMove)
+  window.removeEventListener('pointerup', onPointerStop)
+  window.removeEventListener('pointercancel', onPointerStop)
+  document.removeEventListener('visibilitychange', onVisibility)
   if (pollInterval) clearInterval(pollInterval)
   if (zoomSendTimeout) clearTimeout(zoomSendTimeout)
+})
+watch(() => props.cameraId, () => {
+  zoomRevision++
+  stopMove()
+  if (zoomSendTimeout) clearTimeout(zoomSendTimeout)
+  zoomSendTimeout = null
+  zoomLoaded.value = false
+  void fetchZoomState()
 })
 </script>
 
 <template>
   <div class="ptz-controls">
+    <div class="ptz-hint">Hold to move · release to stop · 10s maximum</div>
     <!-- D-pad + Zoom row -->
     <div class="ptz-main">
       <!-- D-pad -->
       <div class="ptz-dpad">
       <button
         class="ptz-btn ptz-up"
-        @mousedown="startMove('up')"
-        @mouseup="stopMove"
-        @mouseleave="stopMove"
-        @touchstart.prevent="startMove('up')"
-        @touchend.prevent="stopMove"
+        @pointerdown.prevent.stop="onMovePointer($event, 'up')"
+        @pointerup="onPointerStop"
+        @pointercancel="onPointerStop"
+        @lostpointercapture="onPointerStop"
+        @keydown.space.prevent="onMoveKey($event, 'up')"
+        @keydown.enter.prevent="onMoveKey($event, 'up')"
+        @keyup.space.prevent="stopMove"
+        @keyup.enter.prevent="stopMove"
+        @blur="stopMove"
         title="Tilt Up"
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
@@ -122,11 +170,15 @@ onUnmounted(() => {
 
       <button
         class="ptz-btn ptz-left"
-        @mousedown="startMove('left')"
-        @mouseup="stopMove"
-        @mouseleave="stopMove"
-        @touchstart.prevent="startMove('left')"
-        @touchend.prevent="stopMove"
+        @pointerdown.prevent.stop="onMovePointer($event, 'left')"
+        @pointerup="onPointerStop"
+        @pointercancel="onPointerStop"
+        @lostpointercapture="onPointerStop"
+        @keydown.space.prevent="onMoveKey($event, 'left')"
+        @keydown.enter.prevent="onMoveKey($event, 'left')"
+        @keyup.space.prevent="stopMove"
+        @keyup.enter.prevent="stopMove"
+        @blur="stopMove"
         title="Pan Left"
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
@@ -136,7 +188,7 @@ onUnmounted(() => {
 
       <button
         class="ptz-btn ptz-center"
-        @click="sendPtz('stop')"
+        @click="movement.emergencyStop(cameraId, speed)"
         title="Stop"
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
@@ -146,11 +198,15 @@ onUnmounted(() => {
 
       <button
         class="ptz-btn ptz-right"
-        @mousedown="startMove('right')"
-        @mouseup="stopMove"
-        @mouseleave="stopMove"
-        @touchstart.prevent="startMove('right')"
-        @touchend.prevent="stopMove"
+        @pointerdown.prevent.stop="onMovePointer($event, 'right')"
+        @pointerup="onPointerStop"
+        @pointercancel="onPointerStop"
+        @lostpointercapture="onPointerStop"
+        @keydown.space.prevent="onMoveKey($event, 'right')"
+        @keydown.enter.prevent="onMoveKey($event, 'right')"
+        @keyup.space.prevent="stopMove"
+        @keyup.enter.prevent="stopMove"
+        @blur="stopMove"
         title="Pan Right"
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
@@ -160,11 +216,15 @@ onUnmounted(() => {
 
       <button
         class="ptz-btn ptz-down"
-        @mousedown="startMove('down')"
-        @mouseup="stopMove"
-        @mouseleave="stopMove"
-        @touchstart.prevent="startMove('down')"
-        @touchend.prevent="stopMove"
+        @pointerdown.prevent.stop="onMovePointer($event, 'down')"
+        @pointerup="onPointerStop"
+        @pointercancel="onPointerStop"
+        @lostpointercapture="onPointerStop"
+        @keydown.space.prevent="onMoveKey($event, 'down')"
+        @keydown.enter.prevent="onMoveKey($event, 'down')"
+        @keyup.space.prevent="stopMove"
+        @keyup.enter.prevent="stopMove"
+        @blur="stopMove"
         title="Tilt Down"
       >
         <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
@@ -183,6 +243,8 @@ onUnmounted(() => {
           :max="zoomMax"
           step="1"
           class="ptz-zoom-slider"
+          :disabled="!zoomLoaded"
+          :title="zoomLoaded ? 'Absolute zoom position' : 'Absolute zoom unavailable for this camera'"
           orient="vertical"
           @input="onZoomInput"
         />
@@ -206,7 +268,7 @@ onUnmounted(() => {
     </div>
 
     <!-- Error display -->
-    <div v-if="error" class="ptz-error">{{ error }}</div>
+    <div v-if="error" class="ptz-error" role="alert">{{ error }}</div>
   </div>
 </template>
 
@@ -222,6 +284,8 @@ onUnmounted(() => {
   backdrop-filter: blur(4px);
   user-select: none;
 }
+.ptz-hint { color: #b9c7d9; font-size: 10px; }
+.ptz-btn { touch-action: none; }
 
 .ptz-main {
   display: flex;
