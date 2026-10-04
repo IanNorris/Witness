@@ -14,11 +14,13 @@ import {
   createDefaultFocusLayout,
   normaliseDashboardLayout,
   generatedDashboardTiles,
+  dashboardAreasOverlap,
   type ActivityDock,
   type DashboardMode,
   type DashboardPreset,
   type DashboardLayout,
   type DashboardTileLayout,
+  type DashboardGridArea,
 } from '../types/dashboardLayout'
 
 const cameraStore = useCameraStore()
@@ -36,6 +38,72 @@ const editingLayout = ref(false)
 const editingLayoutMode = ref<'regular' | 'focus'>('regular')
 const focusPreviewCameraId = ref<number | null>(null)
 const dashboardLayout = ref<DashboardLayout>(createDefaultDashboardLayout([]))
+const stageRef = ref<HTMLElement | null>(null)
+const layoutMessage = ref('')
+const rectangleRequested = computed(() => canvasMode.value && showRecentActivity.value && dashboardLayout.value.activityPlacement === 'rectangle')
+const regularTiles = computed(() => dashboardLayout.value.preset === 'custom'
+  ? dashboardLayout.value.tiles.filter(tile => dashboardLayout.value.visibleCameraIds.includes(tile.cameraId))
+  : generatedDashboardTiles(dashboardLayout.value.preset, dashboardLayout.value.priorityCameraIds))
+const regularActivityConflict = computed(() => rectangleRequested.value &&
+  regularTiles.value.some(tile => dashboardAreasOverlap(tile, dashboardLayout.value.activityRegion)))
+// A changed group can fill a previously empty slot. Keep activity available in
+// its dock until the user rearranges, rather than covering a newly added camera.
+const rectangleActive = computed(() => rectangleRequested.value && (editingLayout.value || !regularActivityConflict.value))
+const occupiedFocusAreas = computed(() => [dashboardLayout.value.focusRegion,
+  ...dashboardLayout.value.focusSlots.slice(0, displayedCameraIds.value.length)])
+const focusActivityConflict = computed(() => rectangleActive.value &&
+  occupiedFocusAreas.value.some(area => dashboardAreasOverlap(area, dashboardLayout.value.activityRegion)))
+const focusCameraConflict = computed(() => occupiedFocusAreas.value.some((area, index) =>
+  occupiedFocusAreas.value.slice(index + 1).some(other => dashboardAreasOverlap(area, other))))
+const focusAllowed = computed(() => !focusActivityConflict.value && !focusCameraConflict.value)
+const regularCameraConflict = computed(() => regularTiles.value.some((tile, index) =>
+  regularTiles.value.slice(index + 1).some(other => dashboardAreasOverlap(tile, other))))
+const canSaveLayout = computed(() => !regularCameraConflict.value && !regularActivityConflict.value &&
+  (!dashboardLayout.value.autoFocusEnabled || focusAllowed.value))
+let activityDrag: { action: 'move' | 'resize'; x: number; y: number; region: DashboardGridArea } | null = null
+function stopActivityDrag() {
+  activityDrag = null
+  window.removeEventListener('pointermove', moveActivity)
+  window.removeEventListener('pointerup', stopActivityDrag)
+  window.removeEventListener('pointercancel', stopActivityDrag)
+}
+function startActivityDrag(event: PointerEvent, action: 'move' | 'resize') {
+  if (!editingLayout.value) return
+  event.preventDefault()
+  activityDrag = { action, x: event.clientX, y: event.clientY, region: { ...dashboardLayout.value.activityRegion } }
+  window.addEventListener('pointermove', moveActivity)
+  window.addEventListener('pointerup', stopActivityDrag)
+  window.addEventListener('pointercancel', stopActivityDrag)
+}
+function moveActivity(event: PointerEvent) {
+  if (!activityDrag) return
+  const bounds = settings.fullscreenMode ? { width: window.innerWidth, height: window.innerHeight } : stageRef.value?.getBoundingClientRect()
+  if (!bounds || bounds.width <= 0 || bounds.height <= 0) return
+  const dx = Math.round((event.clientX - activityDrag.x) * 12 / bounds.width)
+  const dy = Math.round((event.clientY - activityDrag.y) * 12 / bounds.height)
+  const region = { ...activityDrag.region }
+  if (activityDrag.action === 'move') {
+    region.x = Math.max(0, Math.min(12 - region.width, region.x + dx))
+    region.y = Math.max(0, Math.min(12 - region.height, region.y + dy))
+  } else {
+    region.width = Math.max(1, Math.min(12 - region.x, region.width + dx))
+    region.height = Math.max(1, Math.min(12 - region.y, region.height + dy))
+  }
+  dashboardLayout.value.activityRegion = region
+}
+function setActivityPlacement(placement: 'dock' | 'rectangle') {
+  stopActivityDrag()
+  dashboardLayout.value.activityPlacement = placement
+}
+function setActivityCoordinate(field: keyof DashboardGridArea, event: Event) {
+  const value = Number((event.target as HTMLInputElement).value)
+  if (!Number.isFinite(value)) return
+  const region = { ...dashboardLayout.value.activityRegion, [field]: Math.round(value) }
+  region.x = Math.max(0, Math.min(11, region.x)); region.y = Math.max(0, Math.min(11, region.y))
+  region.width = Math.max(1, Math.min(12 - region.x, region.width))
+  region.height = Math.max(1, Math.min(12 - region.y, region.height))
+  dashboardLayout.value.activityRegion = region
+}
 const layoutView = ref(localStorage.getItem('witness-dashboard-windowed-mode') === 'layout')
 const canvasMode = computed(() => settings.fullscreenMode || layoutView.value)
 const dashboardMode = computed<DashboardMode>(() => settings.fullscreenMode ? 'fullscreen' : layoutView.value ? 'layout' : 'tiles')
@@ -102,7 +170,17 @@ const editorTiles = computed(() =>
 const displayedCameraIds = computed(() => dashboardLayout.value.preset === 'custom' || editingLayout.value
   ? dashboardLayout.value.visibleCameraIds : editorTiles.value.map(tile => tile.cameraId))
 function changePreset(event: Event) {
-  dashboardLayout.value.preset = (event.target as HTMLSelectElement).value as DashboardPreset
+  const select = event.target as HTMLSelectElement
+  const next = select.value as DashboardPreset
+  const tiles = next === 'custom' ? dashboardLayout.value.tiles.filter(tile => dashboardLayout.value.visibleCameraIds.includes(tile.cameraId))
+    : generatedDashboardTiles(next, dashboardLayout.value.priorityCameraIds)
+  if (rectangleActive.value && tiles.some(tile => dashboardAreasOverlap(tile, dashboardLayout.value.activityRegion))) {
+    layoutMessage.value = 'This preset overlaps activity. Dock activity or adjust the custom layout first.'
+    select.value = dashboardLayout.value.preset
+    return
+  }
+  layoutMessage.value = ''
+  dashboardLayout.value.preset = next
   focusedCameraId.value = null
   manuallyFocused.value = false
   persistLayout()
@@ -147,6 +225,7 @@ function persistLayout() {
 }
 
 function beginLayoutEdit() {
+  layoutMessage.value = ''
   layoutBeforeEditing = cloneLayout(dashboardLayout.value)
   // Generated presets do not overwrite the independently saved custom canvas.
   dashboardLayout.value.preset = 'custom'
@@ -161,12 +240,15 @@ function openLayoutEditor() {
 }
 
 function saveLayout() {
+  if (!canSaveLayout.value) return
+  stopActivityDrag()
   persistLayout()
   layoutBeforeEditing = null
   editingLayout.value = false
 }
 
 function cancelLayoutEdit() {
+  stopActivityDrag()
   if (layoutBeforeEditing) dashboardLayout.value = layoutBeforeEditing
   layoutBeforeEditing = null
   editingLayout.value = false
@@ -222,6 +304,10 @@ function changeActivitySize(delta: number) {
 }
 
 function toggleAutoFocus() {
+  if (!dashboardLayout.value.autoFocusEnabled && !focusAllowed.value) {
+    layoutMessage.value = 'Adjust the focus layout so it does not overlap activity.'
+    return
+  }
   dashboardLayout.value = {
     ...dashboardLayout.value,
     autoFocusEnabled: !dashboardLayout.value.autoFocusEnabled,
@@ -245,6 +331,7 @@ function toggleCameraVisibility(cameraId: number) {
 }
 
 function focusCamera(cameraId: number) {
+  if (!focusAllowed.value) return
   if (focusedCameraId.value === cameraId && manuallyFocused.value) {
     focusedCameraId.value = null
     manuallyFocused.value = false
@@ -262,8 +349,12 @@ function cameraFocusPriority(cameraId: number) {
 }
 
 function updateAutomaticFocus() {
+  if (!focusAllowed.value) {
+    manuallyFocused.value = false
+    focusedCameraId.value = null
+  }
   if (manuallyFocused.value) return
-  if (!dashboardLayout.value.autoFocusEnabled) {
+  if (!dashboardLayout.value.autoFocusEnabled || !focusAllowed.value) {
     if (focusReleaseTimer) { clearTimeout(focusReleaseTimer); focusReleaseTimer = null }
     focusedCameraId.value = null
     return
@@ -327,11 +418,16 @@ const reserveActivitySpace = computed(() =>
 
 const fullscreenInsets = computed(() => {
   const insets = { top: 0, right: 0, bottom: 0, left: 0 }
-  if (reserveActivitySpace.value) insets[dashboardLayout.value.activityDock] = dashboardLayout.value.activitySize
+  if (reserveActivitySpace.value && !rectangleActive.value) insets[dashboardLayout.value.activityDock] = dashboardLayout.value.activitySize
   return insets
 })
 
 const fullscreenActivityStyle = computed(() => {
+  if (rectangleActive.value) {
+    const area = dashboardLayout.value.activityRegion
+    return { left: `${area.x / 12 * 100}%`, top: `${area.y / 12 * 100}%`,
+      width: `${area.width / 12 * 100}%`, height: `${area.height / 12 * 100}%` }
+  }
   const size = `${dashboardLayout.value.activitySize}px`
   switch (dashboardLayout.value.activityDock) {
     case 'top': return { top: '0', left: '0', right: '0', height: size }
@@ -342,6 +438,7 @@ const fullscreenActivityStyle = computed(() => {
 })
 
 const activityOrientation = computed(() =>
+  rectangleActive.value ? dashboardLayout.value.activityDirection :
   dashboardLayout.value.activityDock === 'left' || dashboardLayout.value.activityDock === 'right'
     ? 'vertical' as const
     : 'horizontal' as const,
@@ -369,11 +466,12 @@ watch(
   [() => cameraStore.cameras.map(camera => `${camera.id}:${camera.motionActive ? 1 : 0}`).join(','),
     () => dashboardLayout.value.autoFocusEnabled,
     () => dashboardLayout.value.focusEligibleCameraIds.join(','),
-    () => dashboardLayout.value.priorityCameraIds.join(',')],
+    () => dashboardLayout.value.priorityCameraIds.join(','), focusAllowed],
   updateAutomaticFocus,
 )
 
 onUnmounted(() => {
+  stopActivityDrag()
   if (focusReleaseTimer) clearTimeout(focusReleaseTimer)
   if (fullscreenControlsTimer) clearTimeout(fullscreenControlsTimer)
   window.removeEventListener('pointermove', showFullscreenControls)
@@ -486,7 +584,10 @@ onMounted(async () => {
       <div><div class="ui-eyebrow">LIVE OVERVIEW</div><h1>{{ selectedGroupId === null ? 'Your cameras' : groupStore.getGroupById(selectedGroupId)?.displayName ?? 'Your cameras' }}</h1><p>Keep an eye on what matters. Open a camera for a closer look.</p></div>
       <span class="ui-count-pill">{{ currentCameras.length }} cameras · {{ currentCameras.filter(camera => camera.status === 'Connected').length }} connected</span>
     </section>
-    <div class="dashboard-stage" :class="{ 'canvas-stage': canvasMode }">
+    <p v-if="layoutMessage || (!editingLayout && regularActivityConflict)" class="layout-notice" role="status">
+      {{ layoutMessage || 'Activity is docked because the current cameras occupy its saved rectangle. Use Arrange to adjust it.' }}
+    </p>
+    <div ref="stageRef" class="dashboard-stage" :class="{ 'canvas-stage': canvasMode }">
     <CameraGrid
       :layout-mode="layoutView"
       :group-camera-ids="groupCameraIds"
@@ -500,6 +601,7 @@ onMounted(async () => {
       :visible-camera-ids="displayedCameraIds"
       :focus-region="dashboardLayout.focusRegion"
       :focus-slots="dashboardLayout.focusSlots"
+      :focus-allowed="focusAllowed"
       @update-fullscreen-layout="updateFullscreenLayout"
       @cancel-layout="cancelLayoutEdit"
       @focus-camera="focusCamera"
@@ -507,17 +609,25 @@ onMounted(async () => {
       @toggle-camera-visibility="toggleCameraVisibility"
     />
 
-    <ActivityStrip
+    <div
       v-if="showRecentActivity"
       class="dashboard-activity-strip"
-      :class="{ 'dashboard-activity-strip-fullscreen': settings.fullscreenMode, 'dashboard-activity-strip-layout': layoutView && !settings.fullscreenMode }"
+      :class="{ 'dashboard-activity-strip-fullscreen': settings.fullscreenMode, 'dashboard-activity-strip-layout': layoutView && !settings.fullscreenMode,
+        'activity-rectangle-editing': rectangleActive && editingLayout, 'activity-region-invalid': rectangleActive && (editingLayoutMode === 'focus' ? focusActivityConflict : regularActivityConflict) }"
       :style="canvasMode ? fullscreenActivityStyle : undefined"
+    >
+    <ActivityStrip
       :camera-ids="groupCameraIds"
       :orientation="canvasMode ? activityOrientation : 'horizontal'"
       :force-visible="canvasMode && editingLayout"
       :fill="canvasMode"
       @play="playingClip = $event"
     />
+      <template v-if="rectangleActive && editingLayout">
+        <button class="activity-move-handle" @pointerdown="startActivityDrag($event, 'move')" aria-label="Drag to move activity panel">Move activity</button>
+        <button class="activity-resize-handle" @pointerdown="startActivityDrag($event, 'resize')" aria-label="Drag to resize activity panel">↘</button>
+      </template>
+    </div>
     </div>
 
     <div
@@ -567,6 +677,11 @@ onMounted(async () => {
       </select>
       <span class="layout-editor-separator" />
       <span class="layout-editor-label">Activity</span>
+      <select :value="dashboardLayout.activityPlacement" aria-label="Activity placement"
+        @change="setActivityPlacement(($event.target as HTMLSelectElement).value as 'dock' | 'rectangle')">
+        <option value="dock">Edge dock</option><option value="rectangle">Free rectangle</option>
+      </select>
+      <template v-if="dashboardLayout.activityPlacement === 'dock'">
       <button
         v-for="dock in (['top', 'right', 'bottom', 'left'] as ActivityDock[])"
         :key="dock"
@@ -575,6 +690,17 @@ onMounted(async () => {
       >{{ dock }}</button>
       <button title="Make activity panel smaller" @click="changeActivitySize(-16)">−</button>
       <button title="Make activity panel larger" @click="changeActivitySize(16)">+</button>
+      </template>
+      <template v-else>
+        <select v-model="dashboardLayout.activityDirection" aria-label="Activity direction">
+          <option value="horizontal">Horizontal</option><option value="vertical">Vertical</option>
+        </select>
+        <label v-for="field in (['x', 'y', 'width', 'height'] as const)" :key="field" class="activity-coordinate">
+          {{ field }}<input type="number" :aria-label="`Activity ${field}`" :min="field === 'x' || field === 'y' ? 0 : 1"
+            :max="field === 'x' || field === 'y' ? 11 : 12" :value="dashboardLayout.activityRegion[field]"
+            @change="setActivityCoordinate(field, $event)">
+        </label>
+      </template>
       <span class="layout-editor-separator" />
       <button
         :class="{ active: dashboardLayout.autoFocusEnabled }"
@@ -583,7 +709,8 @@ onMounted(async () => {
       <span class="layout-editor-separator" />
       <button @click="resetLayout">Reset</button>
       <button @click="cancelLayoutEdit">Cancel</button>
-      <button class="primary" @click="saveLayout">Save</button>
+      <button class="primary" :disabled="!canSaveLayout" @click="saveLayout">Save</button>
+      <span v-if="!canSaveLayout" class="layout-conflict" role="status">{{ regularCameraConflict ? 'Cameras overlap.' : regularActivityConflict ? 'Activity overlaps a regular camera.' : focusCameraConflict ? 'Focus camera regions overlap.' : 'Activity overlaps the enabled focus layout.' }} Move or resize regions before saving.</span>
       <details class="priority-editor"><summary>Camera priority</summary>
         <div v-for="(cameraId, rank) in dashboardLayout.priorityCameraIds" :key="cameraId">
           <span>{{ rank + 1 }}. {{ cameraStore.getCameraById(cameraId)?.name ?? cameraId }}</span>
@@ -604,6 +731,15 @@ onMounted(async () => {
 .dashboard-stage { position: relative; }
 .dashboard-preset { width: auto; max-width: 260px; }
 .dashboard-activity-strip-layout { position: absolute; margin: 0; z-index: 4; }
+.layout-notice { color: var(--bs-warning-text-emphasis); background: var(--bs-warning-bg-subtle); padding: .5rem .75rem; border-radius: .5rem; }
+.activity-rectangle-editing { outline: 2px solid #4ea5ff; }
+.activity-region-invalid { outline-color: #ff6474; }
+.activity-move-handle, .activity-resize-handle { position: absolute; z-index: 5; background: #142235; color: #fff; border: 1px solid #4ea5ff; border-radius: .25rem; touch-action: none; }
+.activity-move-handle { top: 0; left: 50%; transform: translateX(-50%); cursor: move; font-size: .7rem; }
+.activity-resize-handle { right: 0; bottom: 0; cursor: nwse-resize; }
+.activity-coordinate { display: flex; align-items: center; gap: 3px; }
+.activity-coordinate input { width: 3rem; color: #fff; background: #16161d; border: 1px solid #456; border-radius: .25rem; }
+.layout-conflict { color: #ff9ba6; }
 .priority-editor { position: relative; }
 .priority-editor[open] { max-height: 70vh; overflow: auto; min-width: 240px; }
 .priority-editor div { display: flex; align-items: center; gap: 4px; margin-top: 4px; }
@@ -613,6 +749,7 @@ onMounted(async () => {
   margin-top: 1rem;
   margin-bottom: 0;
 }
+.dashboard-activity-strip-layout { margin: 0; }
 
 .dashboard-activity-strip-fullscreen {
   position: fixed;
@@ -661,6 +798,9 @@ onMounted(async () => {
   z-index: 1004;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  max-width: calc(100vw - 32px);
+  width: max-content;
   gap: 4px;
   padding: 6px;
   border: 1px solid rgba(255, 255, 255, 0.3);
@@ -692,6 +832,7 @@ onMounted(async () => {
 .layout-editor-toolbar button:hover,
 .layout-editor-toolbar button.active { background: rgba(13, 110, 253, 0.65); color: #fff; }
 .layout-editor-toolbar button.primary { background: #0d6efd; color: #fff; }
+.layout-editor-toolbar button:disabled { opacity: .4; cursor: not-allowed; }
 .layout-editor-label { margin: 0 2px; color: rgba(255, 255, 255, 0.65); }
 .layout-editor-separator { width: 1px; height: 18px; margin: 0 3px; background: rgba(255, 255, 255, 0.25); }
 

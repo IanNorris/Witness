@@ -19,6 +19,7 @@ const props = defineProps<{
   editingLayoutMode?: 'regular' | 'focus'
   fullscreenControlsVisible?: boolean
   layoutMode?: boolean
+  focusAllowed?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -152,11 +153,14 @@ function startPointer(event: PointerEvent, cameraId: number, action: 'move' | 'r
   originalTiles = (props.fullscreenLayout ?? []).map(item => ({ ...item }))
   window.addEventListener('pointermove', onPointerMove)
   window.addEventListener('pointerup', finishPointer, { once: true })
+  window.addEventListener('pointercancel', finishPointer, { once: true })
 }
 
 function onPointerMove(event: PointerEvent) {
+  if (!props.editingLayout) { clearPointer(); return }
   if (!gridRef.value || !originalTile || !pointerAction) return
   const bounds = gridRef.value.getBoundingClientRect()
+  if (bounds.width <= 0 || bounds.height <= 0) return
   const dx = Math.round((event.clientX - pointerStartX) / (bounds.width / 12))
   const dy = Math.round((event.clientY - pointerStartY) / (bounds.height / 12))
   const next = { ...originalTile }
@@ -171,14 +175,20 @@ function onPointerMove(event: PointerEvent) {
   emit('updateFullscreenLayout', originalTiles.map(tile => tile.cameraId === next.cameraId ? next : tile))
 }
 
-function finishPointer() {
+function clearPointer() {
   window.removeEventListener('pointermove', onPointerMove)
-  if (invalidPlacement.value) emit('updateFullscreenLayout', originalTiles)
+  window.removeEventListener('pointerup', finishPointer)
+  window.removeEventListener('pointercancel', finishPointer)
   activeCameraId.value = null
   invalidPlacement.value = false
   pointerAction = null
   originalTile = null
 }
+function finishPointer() {
+  if (props.editingLayout && invalidPlacement.value) emit('updateFullscreenLayout', originalTiles)
+  clearPointer()
+}
+watch(() => [props.editingLayout, props.editingLayoutMode], clearPointer)
 
 function openStream(cameraId: number) {
   router.push(`/live/${cameraId}`)
@@ -203,7 +213,7 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeydown)
   document.removeEventListener('pointerdown', onOutsidePointer, true)
-  window.removeEventListener('pointermove', onPointerMove)
+  clearPointer()
 })
 </script>
 
@@ -296,6 +306,7 @@ onUnmounted(() => {
       <button
         v-if="canvasMode && !editingLayout"
         class="camera-focus-button"
+        :disabled="focusAllowed === false"
         :class="{ active: focusedCameraId === camera.id }"
         @click.stop="emit('focusCamera', camera.id)"
         :title="focusedCameraId === camera.id ? 'Return to regular layout' : `Focus ${camera.name}`"

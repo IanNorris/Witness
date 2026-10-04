@@ -150,3 +150,115 @@ test('windowed canvas keeps every group camera mounted and selects controls with
     assert.deepEqual(f.recording, []) // entering Layout cancels a pending tile shortcut
   } finally { f.close() }
 })
+
+test('activity rectangle clamps edits, blocks overlap saves, and falls back to a dock outside editing', async () => {
+  const f = fixture()
+  const saved = []
+  globalThis.localStorage.setItem = (...args) => saved.push(args)
+  const state = f.setup(await component('DashboardView'), {})
+  try {
+    state.beginLayoutEdit()
+    state.setActivityPlacement('rectangle')
+    state.dashboardLayout.value.tiles = [
+      { cameraId: 10, x: 0, y: 0, width: 6, height: 6 },
+      { cameraId: 12, x: 6, y: 0, width: 6, height: 6 },
+    ]
+    state.dashboardLayout.value.activityRegion = { x: 0, y: 6, width: 12, height: 6 }
+    assert.equal(state.rectangleActive.value, true)
+    assert.equal(state.canSaveLayout.value, true)
+    state.setActivityCoordinate('y', { target: { value: '0' } })
+    assert.equal(state.canSaveLayout.value, false)
+    state.saveLayout()
+    assert.equal(state.editingLayout.value, true)
+    assert.equal(saved.length, 0)
+    state.setActivityCoordinate('x', { target: { value: '99' } })
+    assert.deepEqual(state.dashboardLayout.value.activityRegion, { x: 11, y: 0, width: 1, height: 6 })
+    state.setActivityCoordinate('y', { target: { value: '6' } })
+    state.saveLayout()
+    assert.equal(state.editingLayout.value, false)
+    assert.equal(saved.length, 1)
+    state.dashboardLayout.value.tiles[1].height = 12
+    assert.equal(state.rectangleActive.value, false)
+    assert.equal(state.regularActivityConflict.value, true)
+    state.beginLayoutEdit()
+    assert.equal(state.rectangleActive.value, true)
+    state.cancelLayoutEdit()
+    assert.equal(state.rectangleActive.value, false)
+  } finally { f.close() }
+})
+
+test('activity drag uses the canvas bounds and cancellation removes listeners', async () => {
+  const f = fixture()
+  f.settings.fullscreenMode = false
+  const state = f.setup(await component('DashboardView'), {})
+  try {
+    state.selectDashboardMode('layout')
+    state.beginLayoutEdit()
+    state.stageRef.value = { getBoundingClientRect: () => ({ width: 1200, height: 600 }) }
+    state.dashboardLayout.value.activityRegion = { x: 0, y: 0, width: 4, height: 4 }
+    state.startActivityDrag({ clientX: 0, clientY: 0, preventDefault() {} }, 'move')
+    state.moveActivity({ clientX: 300, clientY: 100 })
+    assert.deepEqual(state.dashboardLayout.value.activityRegion, { x: 3, y: 2, width: 4, height: 4 })
+    state.stopActivityDrag()
+    state.moveActivity({ clientX: 9999, clientY: 9999 })
+    assert.equal(state.dashboardLayout.value.activityRegion.x, 3)
+    state.startActivityDrag({ clientX: 0, clientY: 0, preventDefault() {} }, 'resize')
+    state.moveActivity({ clientX: 9999, clientY: 9999 })
+    assert.deepEqual(state.dashboardLayout.value.activityRegion, { x: 3, y: 2, width: 9, height: 10 })
+    state.cancelLayoutEdit()
+    const restored = JSON.stringify(state.dashboardLayout.value)
+    state.moveActivity({ clientX: -999, clientY: -999 })
+    assert.equal(JSON.stringify(state.dashboardLayout.value), restored)
+  } finally { f.close() }
+})
+
+test('activity overlap disables focus and clears existing manual selection', async () => {
+  const f = fixture()
+  const state = f.setup(await component('DashboardView'), {})
+  try {
+    state.beginLayoutEdit()
+    state.dashboardLayout.value.tiles = [
+      { cameraId: 10, x: 0, y: 0, width: 6, height: 6 },
+      { cameraId: 12, x: 6, y: 0, width: 6, height: 6 },
+    ]
+    state.focusCamera(10)
+    assert.equal(state.focusedCameraId.value, 10)
+    state.dashboardLayout.value.activityRegion = { x: 0, y: 6, width: 12, height: 6 }
+    state.setActivityPlacement('rectangle')
+    await Vue.nextTick()
+    assert.equal(state.focusAllowed.value, false)
+    assert.equal(state.focusedCameraId.value, null)
+    state.toggleAutoFocus()
+    assert.equal(state.dashboardLayout.value.autoFocusEnabled, false)
+    state.dashboardLayout.value.focusRegion = { x: 0, y: 0, width: 6, height: 6 }
+    state.dashboardLayout.value.focusSlots = [{ x: 6, y: 0, width: 6, height: 6 }]
+    await Vue.nextTick()
+    assert.equal(state.focusAllowed.value, true)
+    state.toggleAutoFocus()
+    assert.equal(state.dashboardLayout.value.autoFocusEnabled, true)
+    assert.equal(state.canSaveLayout.value, true)
+  } finally { f.close() }
+})
+
+test('cancelling a camera drag cannot write its stale layout after the editor closes', async () => {
+  const f = fixture()
+  const props = Vue.reactive({ editingLayout: true, fullscreenLayout: [
+    { cameraId: 10, x: 0, y: 0, width: 6, height: 6 },
+    { cameraId: 12, x: 6, y: 0, width: 6, height: 6 },
+  ] })
+  const state = f.setup(await component('CameraGrid'), props)
+  try {
+    state.gridRef.value = { getBoundingClientRect: () => ({ width: 1200, height: 600 }) }
+    state.startPointer({ clientX: 0, clientY: 0, preventDefault() {}, stopPropagation() {} }, 10, 'move')
+    state.onPointerMove({ clientX: 600, clientY: 0 })
+    assert.equal(state.invalidPlacement.value, true)
+    const count = f.events.length
+    props.editingLayout = false
+    // Pointerup can race Vue's queued watcher; check the synchronous guard too.
+    state.finishPointer()
+    state.onPointerMove({ clientX: 0, clientY: 0 })
+    await Vue.nextTick()
+    assert.equal(f.events.length, count)
+    assert.equal(state.activeCameraId.value, null)
+  } finally { f.close() }
+})
