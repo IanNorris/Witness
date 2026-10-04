@@ -208,7 +208,10 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Generate PDBs even in Release builds (MSVC)
 if(MSVC)
     add_compile_options(/Z7)
-    add_link_options(/DEBUG /OPT:REF /OPT:ICF)
+    # /OPT:REF and /OPT:ICF already force a non-incremental link. Declare that
+    # explicitly rather than letting the RelWithDebInfo defaults request both
+    # modes and emit LNK4075 on every executable/DLL.
+    add_link_options(/DEBUG /OPT:REF /OPT:ICF /INCREMENTAL:NO)
     if(WITNESS_PROFILE_BUILD)
         add_compile_options(/Bt+ /d1reportTime)
     endif()

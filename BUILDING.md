@@ -330,3 +330,11 @@ through a checkout, fetches the exact commit from the official repository rather
 than trusting an existing `origin`, and validates the commit argument first.
 These network/bootstrap paths were not executed during this pass; policy tests
 use temporary local Git repositories and a synthetic installation marker.
+
+The MSVC link options now explicitly disable incremental linking, matching the
+existing `/OPT:REF` and `/OPT:ICF` behavior rather than requesting incompatible
+modes. After CMake regenerates Visual Studio projects, start a fresh MSBuild
+invocation: an already-loaded project can retain its old settings for that run.
+The regenerated RelWithDebInfo build linked successfully without LNK4075; the
+full rebuild had no C++ compiler warnings. Third-party Sass deprecations and the
+web bundle size advisory remain separate work, not suppressed warnings.
