@@ -261,3 +261,57 @@ It does not validate AES/TLS firmware, reconnect traffic, motor motion, physical
 Stop latency or real preset movement. No physical camera commands, production
 deployment, main merge or remote push were performed. The user's backlog edits
 remain untouched.
+
+### TLS ownership and connection-key checkpoint (2026-10-04)
+
+The extended synthetic fixture negotiates a BC-XOR nonce/login, verifies the
+derived credential hashes, decrypts outgoing AES-128-CFB PTZ commands, sends an
+encrypted motion/people event, and exercises header-only/nonempty replies. It
+uses the bundled OpenSSL CLI with synthetic values, not real camera secrets.
+TLS cases use a temporary self-signed loopback certificate that is removed when
+the fixture exits. Plain negotiation is deliberately rejected to exercise the
+client's existing immediate TLS-upgrade path.
+
+Before the ownership change, ten TLS event/shutdown runs reproduced five process
+crashes: four access violations (`0xc0000005`) and one heap-corruption exit
+(`0xc0000374`), recorded in `artifacts/baichuan-tls-repeat-before.log`. The reader,
+PTZ caller and Stop path could concurrently read/write/free the same SSL object.
+OpenSSL requires applications to prevent concurrent use of one SSL object:
+https://docs.openssl.org/master/man7/openssl-threads/
+
+The worker now owns every socket/TLS read, write and cleanup call. PTZ callers
+enqueue at most 32 requests; expired/cancelled tickets are discarded before
+delivery. Nonblocking TLS record I/O and 50 ms socket polling allow that owner
+to service outbound PTZ while awaiting push events. WANT_READ/WANT_WRITE retries
+preserve pending buffer arguments; pending read writes are retried before queued
+controls. Stop cancels acknowledgements, interrupts the published socket and
+joins its owner; only that owner closes the socket and frees TLS. Socket
+publication/shutdown/close are synchronized, and disconnected retry sleeps can
+be interrupted by Stop. The exported class layout remains unchanged.
+
+A second reconnect regression failed when an AES session was followed by an
+empty-nonce session: old key state encrypted commands that should be plaintext
+(`artifacts/baichuan-key-transition-before.log`). Authenticate now clears the
+previous session's key before negotiating. Reconnect tests verify both fresh-AES
+and AES-to-empty-nonce sessions, injecting a stale reply with the opposite status
+before the real reply to prove it cannot complete the new command.
+
+Final evidence: eight methods / 30 synthetic transport cases pass in 18.699 s
+(`artifacts/baichuan-ownership-key-final-transport.log`). Ten additional repetitions
+of the TLS event, pending-Stop cancellation and disconnect cases (30 cases) pass
+in 7.496 s (`artifacts/baichuan-ownership-key-tls-repeat.log`). Reply-state tests,
+20 exported-DLL shutdown cycles and the timestamp guard exit zero. The combined
+runtime build has no C++/linker warnings or dependency installation; third-party
+web warnings remain visible. This is focused synthetic coverage, not a claim
+of production stability, network-fault coverage or physical motor behavior.
+
+Verified package: `build-vs2026/deploy/baichuan-ownership-e257df084b8f`, native ID
+`e257df084b8f`, web ID `2bd87297e056`, 96 files / 180,083,986 bytes. Report:
+`artifacts/baichuan-ownership-package-verification-20261004.json`. It supersedes
+the prior package for testing and contains no fixture certificates, test
+executables, databases or captured media. No production deployment, main merge
+or remote push occurred. The user's backlog edits are untouched.
+
+The user has now authorized brief low-speed move-and-Stop checks on cameras 10
+and 12. No physical movement has yet been performed at this checkpoint; firmware
+acknowledgements, actual movement and physical Stop latency remain unverified.

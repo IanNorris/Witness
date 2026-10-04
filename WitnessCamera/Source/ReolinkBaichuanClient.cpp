@@ -11,6 +11,7 @@
 #include <mutex>
 #include <thread>
 #include <atomic>
+#include <deque>
 #include <Log.h>
 
 #include <lz4frame.h>
@@ -26,6 +27,7 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <unistd.h>
+#include <fcntl.h>
 #define closesocket close
 #define INVALID_SOCKET (~(uintptr_t)0)
 typedef int SOCKET;
@@ -198,6 +200,9 @@ private:
 	void ParseAlarmEvent(const std::string& xml);
 	bool ReadExact(uint8_t* buffer, size_t length);
 	bool SendRaw(const uint8_t* data, size_t length);
+	void DrainPtzWrites();
+	void CloseSocket();
+	bool WaitSocket(bool Write, std::chrono::steady_clock::time_point Deadline);
 	bool SendBcMessage(uint32_t cmdId, uint32_t msgId, const std::vector<uint8_t>& payload);
 
 	std::string m_Host;
@@ -207,8 +212,12 @@ private:
 
 	// Socket
 	uintptr_t m_Socket = ~(uintptr_t)0; // INVALID_SOCKET
-	mutable std::mutex m_SendMutex; // Protects socket writes from multiple threads
+	mutable std::mutex m_SendMutex; // Protects outbound queue, message IDs and authentication state.
+	std::mutex m_SocketMutex; // Publish/shutdown/close ownership, not blocking I/O.
+	std::condition_variable m_Wake;
 	BaichuanCommandReplies m_PtzReplies;
+	struct PtzWrite { std::vector<uint8_t> Bytes; BaichuanCommandReplies::Ticket Reply; };
+	std::deque<PtzWrite> m_PtzWrites; // Worker owns every socket/TLS I/O call.
 
 	// Thread
 	std::thread m_Thread;
@@ -293,18 +302,18 @@ void ReolinkBaichuanClient::Impl::Stop()
 	m_Running = false;
 	m_Connected = false;
 	m_PtzReplies.CancelAll();
-	CleanupTls();
+	m_Wake.notify_all();
+	// Interrupt I/O, but never free TLS or close a socket still used by the worker.
+	std::unique_lock SocketLock(m_SocketMutex);
 	if (m_Socket != (uintptr_t)INVALID_SOCKET)
 	{
 #ifdef _WIN32
 		shutdown((SOCKET)m_Socket, SD_BOTH);
-		closesocket((SOCKET)m_Socket);
 #else
 		shutdown((int)m_Socket, SHUT_RDWR);
-		closesocket((int)m_Socket);
 #endif
-		m_Socket = (uintptr_t)INVALID_SOCKET;
 	}
+	SocketLock.unlock();
 	if (m_Thread.joinable())
 		m_Thread.join();
 }
@@ -328,11 +337,16 @@ void ReolinkBaichuanClient::Impl::ThreadFunc()
 
 	while (m_Running.load())
 	{
-		if (Connect() && Authenticate() && RequestStream())
+		bool Ready;
+		{
+			std::lock_guard SendLock(m_SendMutex);
+			Ready = Connect() && Authenticate() && RequestStream();
+			m_Connected = Ready && m_Running.load();
+		}
+		if (Ready && m_Running.load())
 		{
 			backoff = 5000;
 			consecutiveFailures = 0;
-			m_Connected = true;
 			LOG_INFO("[Baichuan] Camera %s:%d connected%s, receiving detections",
 				m_Host.c_str(), m_Port, m_UseTls ? " (TLS)" : "");
 			ReadLoop();
@@ -359,12 +373,13 @@ void ReolinkBaichuanClient::Impl::ThreadFunc()
 			}
 		}
 
-		CleanupTls();
-
-		if (m_Socket != (uintptr_t)INVALID_SOCKET)
 		{
-			closesocket((SOCKET)m_Socket);
-			m_Socket = (uintptr_t)INVALID_SOCKET;
+			std::lock_guard SendLock(m_SendMutex);
+			m_Connected = false;
+			m_PtzReplies.CancelAll();
+			m_PtzWrites.clear();
+			CleanupTls();
+			CloseSocket();
 		}
 
 		if (!m_Running.load()) break;
@@ -386,7 +401,8 @@ void ReolinkBaichuanClient::Impl::ThreadFunc()
 		if (m_UseTls && consecutiveFailures == 1)
 			continue;
 
-		std::this_thread::sleep_for(std::chrono::milliseconds(backoff));
+		std::unique_lock SendLock(m_SendMutex);
+		m_Wake.wait_for(SendLock, std::chrono::milliseconds(backoff), [&] { return !m_Running.load(); });
 		backoff = std::min(backoff * 2, 60000);
 	}
 }
@@ -446,15 +462,18 @@ bool ReolinkBaichuanClient::Impl::Connect()
 	setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 #endif
 
-	m_Socket = (uintptr_t)sock;
+	{
+		std::lock_guard SocketLock(m_SocketMutex);
+		if (!m_Running.load()) { closesocket(sock); return false; }
+		m_Socket = (uintptr_t)sock;
+	}
 
 	// Establish TLS if required
 	if (m_UseTls)
 	{
 		if (!TryTlsConnect())
 		{
-			closesocket(sock);
-			m_Socket = (uintptr_t)INVALID_SOCKET;
+			CloseSocket();
 			return false;
 		}
 	}
@@ -499,6 +518,15 @@ bool ReolinkBaichuanClient::Impl::TryTlsConnect()
 
 	m_SslCtx = ctx;
 	m_Ssl = ssl;
+	// Only the worker touches SSL. Nonblocking record reads let it service
+	// queued control writes while waiting for push events.
+#ifdef _WIN32
+	u_long Nonblocking = 1;
+	if (ioctlsocket((SOCKET)m_Socket, FIONBIO, &Nonblocking) != 0) return false;
+#else
+	const int Flags = fcntl((int)m_Socket, F_GETFL, 0);
+	if (Flags < 0 || fcntl((int)m_Socket, F_SETFL, Flags | O_NONBLOCK) < 0) return false;
+#endif
 
 	LOG_INFO("[Baichuan] TLS handshake successful with %s:%d", m_Host.c_str(), m_Port);
 	return true;
@@ -508,7 +536,7 @@ void ReolinkBaichuanClient::Impl::CleanupTls()
 {
 	if (m_Ssl)
 	{
-		SSL_shutdown((SSL*)m_Ssl);
+		// Socket shutdown already handles interruption; no concurrent SSL_shutdown.
 		SSL_free((SSL*)m_Ssl);
 		m_Ssl = nullptr;
 	}
@@ -521,6 +549,9 @@ void ReolinkBaichuanClient::Impl::CleanupTls()
 
 bool ReolinkBaichuanClient::Impl::Authenticate()
 {
+	// Keys belong to one negotiated connection; an empty nonce must not
+	// reuse encryption state from a previous authenticated session.
+	m_AesKey.clear();
 	// Phase 1: Encryption negotiation (Legacy header, empty body)
 	BcHeader20 negHeader{};
 	negHeader.Magic = BC_MAGIC;
@@ -958,6 +989,7 @@ bool ReolinkBaichuanClient::Impl::PtzControl(const std::string& command, int spe
 	xml += "</PtzControl>\n</body>";
 
 	std::unique_lock<std::mutex> lock(m_SendMutex);
+	if (!m_Running.load() || !m_Connected.load() || m_PtzWrites.size() >= 32) return false;
 	uint32_t msgId = ++m_MessageCounter;
 
 	// AES-encrypt the body for modern header commands
@@ -1004,11 +1036,10 @@ bool ReolinkBaichuanClient::Impl::PtzControl(const std::string& command, int spe
 	const uint32_t Identity = uint32_t(header.ChannelId) | (uint32_t(header.StreamType) << 8) | (uint32_t(header.MsgNum) << 16);
 	const auto Reply = m_PtzReplies.Begin(header.CmdId, Identity);
 	if (!Reply) return false;
-	if (!m_Running.load() || !m_Connected.load() ||
-		!SendRaw(reinterpret_cast<uint8_t*>(&header), sizeof(header)) || !SendRaw(encBody.data(), encBody.size())) {
-		m_PtzReplies.Cancel(Reply); return false;
-	}
-	lock.unlock(); // Never hold socket-write ownership while waiting on the reader.
+	std::vector<uint8_t> Bytes(reinterpret_cast<const uint8_t*>(&header), reinterpret_cast<const uint8_t*>(&header) + sizeof(header));
+	Bytes.insert(Bytes.end(), encBody.begin(), encBody.end());
+	m_PtzWrites.push_back({std::move(Bytes), Reply});
+	lock.unlock(); // The worker alone writes, reads and frees TLS/socket state.
 	const bool Acknowledged = m_PtzReplies.Wait(Reply, std::chrono::milliseconds(1000));
 	if (!Acknowledged) {
 		std::lock_guard ErrorLock(m_ErrorMutex);
@@ -1038,6 +1069,7 @@ bool ReolinkBaichuanClient::Impl::PtzGoToPreset(int presetId, int channel)
 		"</body>";
 
 	std::unique_lock<std::mutex> lock(m_SendMutex);
+	if (!m_Running.load() || !m_Connected.load() || m_PtzWrites.size() >= 32) return false;
 	uint32_t msgId = ++m_MessageCounter;
 
 	std::vector<uint8_t> body(xml.begin(), xml.end());
@@ -1082,10 +1114,9 @@ bool ReolinkBaichuanClient::Impl::PtzGoToPreset(int presetId, int channel)
 	const uint32_t Identity = uint32_t(header.ChannelId) | (uint32_t(header.StreamType) << 8) | (uint32_t(header.MsgNum) << 16);
 	const auto Reply = m_PtzReplies.Begin(header.CmdId, Identity);
 	if (!Reply) return false;
-	if (!m_Running.load() || !m_Connected.load() ||
-		!SendRaw(reinterpret_cast<uint8_t*>(&header), sizeof(header)) || !SendRaw(encBody.data(), encBody.size())) {
-		m_PtzReplies.Cancel(Reply); return false;
-	}
+	std::vector<uint8_t> Bytes(reinterpret_cast<const uint8_t*>(&header), reinterpret_cast<const uint8_t*>(&header) + sizeof(header));
+	Bytes.insert(Bytes.end(), encBody.begin(), encBody.end());
+	m_PtzWrites.push_back({std::move(Bytes), Reply});
 	lock.unlock();
 	const bool Acknowledged = m_PtzReplies.Wait(Reply, std::chrono::milliseconds(1000));
 	if (!Acknowledged) {
@@ -1099,19 +1130,90 @@ bool ReolinkBaichuanClient::Impl::PtzGoToPreset(int presetId, int channel)
 // Low-level I/O
 // ============================================================================
 
+void ReolinkBaichuanClient::Impl::CloseSocket()
+{
+	std::lock_guard SocketLock(m_SocketMutex);
+	if (m_Socket != (uintptr_t)INVALID_SOCKET) {
+		closesocket((SOCKET)m_Socket);
+		m_Socket = (uintptr_t)INVALID_SOCKET;
+	}
+}
+
+void ReolinkBaichuanClient::Impl::DrainPtzWrites()
+{
+	if (!m_Connected.load()) return;
+	std::lock_guard SendLock(m_SendMutex);
+	while (!m_PtzWrites.empty()) {
+		auto Write = std::move(m_PtzWrites.front());
+		m_PtzWrites.pop_front();
+		// Expired or cancelled commands must not be delivered later.
+		if (!m_Running.load() || !m_PtzReplies.IsPending(Write.Reply)) continue;
+		if (!SendRaw(Write.Bytes.data(), Write.Bytes.size())) {
+			m_PtzReplies.Cancel(Write.Reply);
+			m_Connected = false;
+			m_PtzReplies.CancelAll();
+			m_PtzWrites.clear();
+			// A partial write cannot be recovered by appending another header.
+			std::lock_guard SocketLock(m_SocketMutex);
+#ifdef _WIN32
+			shutdown((SOCKET)m_Socket, SD_BOTH);
+#else
+			shutdown((int)m_Socket, SHUT_RDWR);
+#endif
+			break;
+		}
+	}
+}
+
+bool ReolinkBaichuanClient::Impl::WaitSocket(bool Write, std::chrono::steady_clock::time_point Deadline)
+{
+	while (m_Running.load() && std::chrono::steady_clock::now() < Deadline) {
+		fd_set Ready;
+		FD_ZERO(&Ready); FD_SET((SOCKET)m_Socket, &Ready);
+		timeval Timeout{0, 50000};
+		const int Result = select((int)((SOCKET)m_Socket + 1), Write ? nullptr : &Ready,
+			Write ? &Ready : nullptr, nullptr, &Timeout);
+		if (Result > 0) return true;
+		if (Result < 0) return false;
+	}
+	return false;
+}
+
 bool ReolinkBaichuanClient::Impl::ReadExact(uint8_t* buffer, size_t length)
 {
 	size_t totalRead = 0;
+	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+	bool ReadNeedsWrite = false;
 	while (totalRead < length && m_Running.load())
 	{
+		if (!ReadNeedsWrite) DrainPtzWrites();
+		if (!m_Running.load()) return false;
 		int bytesRead;
+		int SslError = 0;
 		if (m_Ssl)
 		{
+			ERR_clear_error();
 			bytesRead = SSL_read((SSL*)m_Ssl, reinterpret_cast<char*>(buffer + totalRead),
 				(int)(length - totalRead));
+			if (bytesRead <= 0) {
+				SslError = SSL_get_error((SSL*)m_Ssl, bytesRead);
+				if (SslError == SSL_ERROR_WANT_READ || SslError == SSL_ERROR_WANT_WRITE) {
+					ReadNeedsWrite = SslError == SSL_ERROR_WANT_WRITE;
+					// Short polling lets the same owner service PTZ between idle reads.
+					const auto PollDeadline = std::min(Deadline, std::chrono::steady_clock::now() + std::chrono::milliseconds(50));
+					WaitSocket(SslError == SSL_ERROR_WANT_WRITE, PollDeadline);
+					if (std::chrono::steady_clock::now() >= Deadline) return false;
+					continue;
+				}
+			}
 		}
 		else
 		{
+			const auto PollDeadline = std::min(Deadline, std::chrono::steady_clock::now() + std::chrono::milliseconds(50));
+			if (!WaitSocket(false, PollDeadline)) {
+				if (std::chrono::steady_clock::now() >= Deadline) return false;
+				continue;
+			}
 			bytesRead = recv((SOCKET)m_Socket, reinterpret_cast<char*>(buffer + totalRead),
 				(int)(length - totalRead), 0);
 		}
@@ -1126,8 +1228,7 @@ bool ReolinkBaichuanClient::Impl::ReadExact(uint8_t* buffer, size_t length)
 			{
 				if (m_Ssl)
 				{
-					int sslErr = SSL_get_error((SSL*)m_Ssl, bytesRead);
-					LOG_WARNING("[Baichuan] SSL read error %d (read %zu/%zu bytes)", sslErr, totalRead, length);
+					LOG_WARNING("[Baichuan] SSL read error %d (read %zu/%zu bytes)", SslError, totalRead, length);
 				}
 				else
 				{
@@ -1142,6 +1243,7 @@ bool ReolinkBaichuanClient::Impl::ReadExact(uint8_t* buffer, size_t length)
 			return false;
 		}
 		totalRead += bytesRead;
+		ReadNeedsWrite = false;
 	}
 	return totalRead == length;
 }
@@ -1149,13 +1251,20 @@ bool ReolinkBaichuanClient::Impl::ReadExact(uint8_t* buffer, size_t length)
 bool ReolinkBaichuanClient::Impl::SendRaw(const uint8_t* data, size_t length)
 {
 	size_t totalSent = 0;
-	while (totalSent < length)
+	const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+	while (totalSent < length && m_Running.load())
 	{
 		int sent;
 		if (m_Ssl)
 		{
+			ERR_clear_error();
 			sent = SSL_write((SSL*)m_Ssl, reinterpret_cast<const char*>(data + totalSent),
 				(int)(length - totalSent));
+			if (sent <= 0) {
+				const int Error = SSL_get_error((SSL*)m_Ssl, sent);
+				if ((Error == SSL_ERROR_WANT_READ || Error == SSL_ERROR_WANT_WRITE) &&
+					WaitSocket(Error == SSL_ERROR_WANT_WRITE, Deadline)) continue;
+			}
 		}
 		else
 		{
@@ -1167,7 +1276,7 @@ bool ReolinkBaichuanClient::Impl::SendRaw(const uint8_t* data, size_t length)
 			return false;
 		totalSent += sent;
 	}
-	return true;
+	return totalSent == length;
 }
 
 bool ReolinkBaichuanClient::Impl::SendBcMessage(uint32_t cmdId, uint32_t msgId, const std::vector<uint8_t>& payload)

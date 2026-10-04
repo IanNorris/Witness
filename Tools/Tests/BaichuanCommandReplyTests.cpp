@@ -17,8 +17,10 @@ int main() {
         for (unsigned Status : {200u, 201u, 300u, 0u, 400u, 401u}) {
             auto Ticket = Replies.Begin(18, 0x12345601);
             Require(bool(Ticket), "register");
+            Require(Replies.IsPending(Ticket), "new ticket pending");
             Require(Replies.Complete(18, 0x12345601, Status, true), "complete before wait");
             Require(!Replies.Complete(18, 0x12345601, 200, true), "duplicate cannot override");
+            Require(!Replies.IsPending(Ticket), "completed ticket cannot be delivered again");
             Require(Replies.Wait(Ticket, 0ms) == (Status == 200 || Status == 201 || Status == 300), "status interpretation");
         }
         auto Ticket = Replies.Begin(18, 0x12345601);
@@ -28,6 +30,7 @@ int main() {
             Require(!Replies.Complete(18, Identity, 200, true), "full identity mismatch");
         Require(!Replies.Complete(18, 0x12345601, 200, false), "legacy reply rejected");
         Require(!Replies.Wait(Ticket, 1ms), "timeout fails closed");
+        Require(!Replies.IsPending(Ticket), "timed out ticket cannot be delivered later");
         Require(!Replies.Complete(18, 0x12345601, 200, true), "late reply ignored");
         auto Replacement = Replies.Begin(18, 0x12345601);
         Replies.Cancel(Ticket);
@@ -45,6 +48,7 @@ int main() {
             if (CancelAll) Replies.CancelAll(); else Replies.Cancel(Ticket);
             Require(Waiting.wait_for(500ms) == std::future_status::ready, "cancellation wakes waiter");
             Require(!Waiting.get(), "cancelled request fails");
+            Require(!Replies.IsPending(Ticket), "cancelled ticket cannot be delivered later");
         }
         std::vector<BaichuanCommandReplies::Ticket> Tickets;
         for (unsigned Index = 0; Index < 32; ++Index) {

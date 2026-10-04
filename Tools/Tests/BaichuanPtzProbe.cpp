@@ -12,7 +12,7 @@ int main(int argc, char** argv) {
     if (Port < 1 || Port > 65535) return 2;
     Witness::Camera::ReolinkBaichuanClient Client("127.0.0.1", Port, "fixture", "fixture");
     Client.Start();
-    const auto Deadline = std::chrono::steady_clock::now() + 3s;
+    const auto Deadline = std::chrono::steady_clock::now() + 10s;
     while (!Client.IsConnected() && std::chrono::steady_clock::now() < Deadline)
         std::this_thread::sleep_for(5ms);
     if (!Client.IsConnected()) { Client.Stop(); return 4; }
@@ -24,6 +24,13 @@ int main(int argc, char** argv) {
         std::this_thread::sleep_for(150ms);
         Client.Stop();
         Result = Pending.get();
+    } else if (Operation == "reconnect") {
+        if (Client.PtzStop(2)) { Client.Stop(); return 6; }
+        const auto ReconnectDeadline = std::chrono::steady_clock::now() + 8s;
+        while (!Client.IsConnected() && std::chrono::steady_clock::now() < ReconnectDeadline)
+            std::this_thread::sleep_for(5ms);
+        if (!Client.IsConnected()) { Client.Stop(); return 7; }
+        Result = Client.PtzStop(2);
     } else if (Operation == "preset") Result = Client.PtzGoToPreset(7, 2);
     else if (Operation == "stop" || Operation == "event") Result = Client.PtzStop(2);
     else if (Operation == "move") Result = Client.PtzControl("Left", 1, 2);

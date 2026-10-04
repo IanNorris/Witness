@@ -16,6 +16,10 @@ class BaichuanCommandReplies {
     std::map<Key, std::shared_ptr<Request>> Pending;
 public:
     using Ticket = std::shared_ptr<Request>;
+    bool IsPending(const Ticket& Value) {
+        std::lock_guard Lock(Mutex);
+        return Value && !Value->Done;
+    }
     Ticket Begin(unsigned Command, unsigned Message) {
         std::lock_guard Lock(Mutex);
         const Key Identity{Command, Message};
