@@ -349,3 +349,33 @@ invocation: an already-loaded project can retain its old settings for that run.
 The regenerated RelWithDebInfo build linked successfully without LNK4075; the
 full rebuild had no C++ compiler warnings. Third-party Sass deprecations and the
 web bundle size advisory remain separate work, not suppressed warnings.
+
+### Repeatable deployment coherence check (2026-10-04)
+
+`Tools/verify_deployment_package.py` compares a separate Windows deployment
+folder with its original runtime output without modifying either tree. Python
+3.12 or later is required for Windows junction detection. It hashes every
+packaged file, rejects missing/extra/mismatched entries and linked directories,
+requires the server and core DLLs, and verifies optional symbols if included.
+Databases and private key/certificate files cannot be packaged, including when
+they accidentally appear in both model trees. Test/probe executables are not
+deployment inputs. Only `WitnessServer.exe`, `openssl.exe`, `openssl.cnf`, root
+runtime DLLs, optional Witness PDBs, Web and models are expected.
+
+```powershell
+python Tools/verify_deployment_package.py --runtime build-vs2026/bin/RelWithDebInfo --package build-vs2026/deploy/ordered-improvements-b58eba2 --native-id 6a692114ad54 --output artifacts/ordered-package-verification-final-20261004.json
+python -m unittest discover -s Tools/Tests -p test_deployment_package.py
+```
+
+The report must be outside both trees and is exclusively created, never
+overwriting prior evidence. The supplied native ID must appear in both server
+and Camera DLL. Web identity must appear in compiled JS assets and match the
+original build output. Native and web identities are independent by design:
+matching timestamps or requiring these two IDs to equal is not a valid test.
+
+The combined package passes: 96 files / 179,866,898 bytes, native ID
+`6a692114ad54`, web ID `a020307e891c`. All eleven verifier regressions pass;
+results are in `artifacts/deployment-package-tests-20261004.log`. No package
+or production binary was changed. The check establishes file/embedded-identity
+coherence, not source provenance by itself, DLL ABI compatibility, runtime
+behavior or production stability.
