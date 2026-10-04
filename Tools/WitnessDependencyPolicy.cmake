@@ -27,6 +27,21 @@ function(witness_normalized_text_sha256 output path)
     set(${output} "${digest}" PARENT_SCOPE)
 endfunction()
 
+function(witness_require_lf_triplet path)
+    if(NOT EXISTS "${path}")
+        message(FATAL_ERROR "Managed dependency triplet not found: ${path}")
+    endif()
+    # vcpkg hashes raw triplet bytes, unlike our logical-text manifest hash.
+    # Test hexadecimal bytes so CMake/platform newline handling cannot hide CR.
+    file(READ "${path}" bytes HEX)
+    if(bytes MATCHES "^(..)*0d")
+        message(FATAL_ERROR
+            "Managed vcpkg triplet contains CR/CRLF line endings: ${path}. "
+            "Restore its LF working-tree contents (see .gitattributes) before configuring. "
+            "Line-ending-only changes would invalidate every dependency ABI; no installation was attempted.")
+    endif()
+endfunction()
+
 function(witness_read_vcpkg_pins environment checkout_output tool_output)
     string(JSON schema ERROR_VARIABLE schema_error GET "${environment}" schema)
     if(schema_error OR NOT schema EQUAL 2)

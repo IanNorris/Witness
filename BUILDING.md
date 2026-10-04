@@ -111,6 +111,59 @@ bootstrap, followed by managed configure/build and another unchanged-package
 inventory, remains necessary to validate that migration. Existing legacy
 builds remain available meanwhile.
 
+### Triplet byte stability and managed reuse (2026-10-05)
+
+An actual vcpkg manifest dry run initially proposed rebuilding all 30 managed
+packages even though every installed version matched the requested version.
+Comparing generated and installed `vcpkg_abi_info.txt` files isolated the cause:
+the working-tree triplet contained CRLF despite its `.gitattributes` LF rule.
+Its raw SHA-256 was `ed08119bb231820879927b233f1e39a6f37521c19cc0e3eed34050209876631b`;
+the installed triplet used LF and hashed to
+`ca2bdf7d73682a5e7d18129a1fe5b842d986d00d3662fea6a9545ed0d6b55d85`.
+The dependent ABI differences followed from that triplet change; package
+versions, tool versions and the underlying toolchain hash were unchanged.
+
+Restoring the triplet's exact LF bytes, with no semantic changes, made the next
+dry run report all 30 packages already installed. Managed preflight now rejects
+CRLF, mixed endings or bare CR in local target/host triplets **before**
+`project()` can execute the vcpkg toolchain. Do not resolve this error by
+bootstrapping: restore LF first. Logical normalization remains appropriate for
+Witness's manifest signature, but cannot hide the raw bytes vcpkg itself hashes.
+Fourteen policy tests pass, including no-install rejection during a requested
+bootstrap.
+
+The corrected independent pins then passed the real explicit bootstrap with
+source builds/downloads disabled and private workspace buildtrees/packages.
+The installation step completed in 29.8 ms with the existing packages reused.
+Ordinary managed configure passed afterward with both install/bootstrap cache
+permissions OFF. All 2,673 installed files (759,367,637 bytes) remained byte
+identical. This supersedes the earlier *unverified bootstrap* checkpoint above;
+it is not evidence of a clean-machine source build or servicing-compiler A/B
+experiment.
+
+Local evidence: `artifacts/managed-migration-dry-run-20261004.log`,
+`artifacts/managed-migration-lf-dry-run-20261004.log`,
+`artifacts/managed-lf-bootstrap.log`,
+`artifacts/managed-lf-ordinary-configure.log`,
+`artifacts/dependency-lf-policy-tests.log`, and
+`artifacts/dependency-managed-bootstrap-after.json` (compared with the earlier
+unchanged installed-package inventory).
+
+The combined RelWithDebInfo runtime also builds against the reused managed
+tree without native compiler/linker warnings; existing third-party web
+advisories remain. CPU producer/serialization, production PTZ SQL/lease and
+timestamp regression executables exit zero. Final ordinary configure removes
+the temporary cache-only validation options, leaves installation/bootstrap
+permissions OFF, and the final inventory still has zero added, removed or
+changed files. Logs: `artifacts/managed-lf-runtime-build.log`,
+`artifacts/managed-lf-{cpu,ptz,timestamp}-tests.log`,
+`artifacts/managed-lf-final-configure.log`, and
+`artifacts/dependency-managed-final-after.json`.
+The exported Camera-DLL consumer additionally passed 20 loopback stalled-TCP
+shutdown/snapshot cycles (`artifacts/managed-lf-lifetime-tests.log`). This
+checks the actual DLL boundary; it does not exercise physical camera TLS or
+replace the longer playback/processing performance gate.
+
 ## Existing and non-Windows builds
 
 Existing build trees and the legacy presets continue to behave as before. The

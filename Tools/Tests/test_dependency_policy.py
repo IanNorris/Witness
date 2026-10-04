@@ -162,6 +162,33 @@ witness_require_vcpkg_version("{root}" "${{tool}}" version)
         result = self.script(body + '\nif(NOT a STREQUAL b OR a STREQUAL c)\nmessage(FATAL_ERROR "text fingerprint mismatch")\nendif()')
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_triplet_requires_raw_lf_before_vcpkg_can_hash_it(self):
+        triplet = self.root / 'triplet.cmake'
+        command = f'witness_require_lf_triplet("{triplet.as_posix()}")'
+        self.assertNotEqual(self.script(command).returncode, 0)
+        triplet.write_bytes(b'# epoch 1\nset(VCPKG_DISABLE_COMPILER_TRACKING ON)\n')
+        self.assertEqual(self.script(command).returncode, 0)
+        for content in (b'# epoch 1\r\nset(VCPKG_DISABLE_COMPILER_TRACKING ON)\r\n',
+                        b'# epoch 1\nset(VCPKG_DISABLE_COMPILER_TRACKING ON)\r\n',
+                        b'# epoch 1\rset(VCPKG_DISABLE_COMPILER_TRACKING ON)\n'):
+            triplet.write_bytes(content)
+            result = self.script(command)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('line-ending-only'.lower(), result.stderr.lower())
+
+    def test_crlf_triplet_rejected_before_bootstrap_toolchain_execution(self):
+        build, configure = self.project()
+        triplet = self.root / 'triplet.cmake'
+        triplet.write_bytes(b'set(VCPKG_TARGET_ARCHITECTURE x64)\r\n')
+        source = self.root / 'source' / 'CMakeLists.txt'
+        source.write_text(source.read_text().replace('project(PolicyFixture LANGUAGES NONE)',
+            f'witness_require_lf_triplet("{triplet.as_posix()}")\nproject(PolicyFixture LANGUAGES NONE)'))
+        result = configure('-DWITNESS_BOOTSTRAP_DEPENDENCIES=ON')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('CR/CRLF', result.stderr)
+        self.assertFalse((self.root / 'install-intent.txt').exists())
+        self.assertIn('WITNESS_BOOTSTRAP_DEPENDENCIES:BOOL=OFF', (build / 'CMakeCache.txt').read_text())
+
     def checkout(self):
         root = self.root / 'vcpkg'
         root.mkdir()

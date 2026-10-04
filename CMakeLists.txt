@@ -70,6 +70,14 @@ endif()
 # Validate scripts before project() can execute the selected toolchain or install
 # packages during an explicitly authorized bootstrap invocation.
 if(WITNESS_MANAGED_DEPENDENCIES)
+    if(NOT DEFINED VCPKG_TARGET_TRIPLET OR VCPKG_TARGET_TRIPLET STREQUAL "")
+        message(FATAL_ERROR "Managed dependencies require VCPKG_TARGET_TRIPLET.")
+    endif()
+    witness_require_lf_triplet("${CMAKE_SOURCE_DIR}/triplets/${VCPKG_TARGET_TRIPLET}.cmake")
+    if(DEFINED VCPKG_HOST_TRIPLET AND
+            EXISTS "${CMAKE_SOURCE_DIR}/triplets/${VCPKG_HOST_TRIPLET}.cmake")
+        witness_require_lf_triplet("${CMAKE_SOURCE_DIR}/triplets/${VCPKG_HOST_TRIPLET}.cmake")
+    endif()
     file(READ "${CMAKE_SOURCE_DIR}/build-environment.json" _WITNESS_PREFLIGHT_ENVIRONMENT)
     witness_read_vcpkg_pins("${_WITNESS_PREFLIGHT_ENVIRONMENT}"
         _WITNESS_PREFLIGHT_COMMIT _WITNESS_PREFLIGHT_TOOL_COMMIT)
