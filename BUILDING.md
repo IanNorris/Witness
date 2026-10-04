@@ -247,9 +247,11 @@ Tests use offline fixtures, not real cameras or a browser:
   explicit/repeated Shutdown and destructor-only shutdown are exercised. The
   AAC case also requires an audio codec and muxed audio packet evidence.
 - Existing cadence tests pass with both H.264 and HEVC across a virtual
-  15-second delivery pause, a clean-keyframe generation reset, and a deliberate
-  sustained rate mismatch which must still be rejected. The cooldown/recovery
-  fixture and timestamp guard regressions also pass.
+  15-second delivery pause and a clean-keyframe generation reset. The later
+  qualified video-only arrival-rate learner retains clean stable-rate mismatches,
+  but rejects persistently inconsistent delivery windows. Intact source clocks
+  remain unchanged. The cooldown/recovery fixture and timestamp guard regressions
+  also pass; measured live validation is in `Tools/TAPO_PACKET_CAPTURE_FINDINGS.md`.
 - All eight emitted control/pause/recovery MP4 generations strictly decode
   with `ffmpeg -err_detect explode -xerror`. Decoded-frame timestamps increase
   monotonically: control/recovery intervals are 50ms, pause outputs stay within
@@ -330,6 +332,15 @@ through a checkout, fetches the exact commit from the official repository rather
 than trusting an existing `origin`, and validates the commit argument first.
 These network/bootstrap paths were not executed during this pass; policy tests
 use temporary local Git repositories and a synthetic installation marker.
+
+After the combined runtime build, a fresh full inventory again matches the
+original 3,078 vcpkg files / 1,830,711,343 bytes and all 26 official ONNX files /
+394,357,023 bytes, with zero additions, removals or content changes. The fresh
+artifacts are `artifacts/dependency-ordered-final-20261004.json` and
+`artifacts/dependency-onnx-ordered-final-20261004.json`. All fourteen isolated
+dependency tests pass again. Current cache flags remain managed/bootstrap/install/
+profiling OFF. This reinforces real legacy package reuse, not successful migration
+of the stale managed tree or equivalence of arbitrary compiler ABI changes.
 
 The MSVC link options now explicitly disable incremental linking, matching the
 existing `/OPT:REF` and `/OPT:ICF` behavior rather than requesting incompatible

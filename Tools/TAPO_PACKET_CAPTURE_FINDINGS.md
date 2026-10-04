@@ -749,3 +749,45 @@ history export measured 10 ms / 9,393,620 bytes in this single run, not a p95 or
 live-server benchmark. No test listener/probe remains running. Physical PTZ
 movement testing awaits permission; the read-only check moved no camera.
 The package is for deployment testing, not a claim of production/MSE stability.
+
+### Real-browser MSE replay checkpoint (4 October)
+
+The existing `web-ui/tests/replayMux.mjs` harness now has a bounded `--serve`
+mode for computer-use browser inspection, without launching a browser itself.
+It replays the saved native output through the built application's actual MSE
+player. It labels the requested camera, advertises AAC only when present in the
+init, and supplies byte counts plus FNV-32 hashes. Periodic browser snapshots
+are retained in the fixture log. Input is bounded to 512 MiB, report bodies and
+counts are bounded, the listener is loopback-only, and it has a time limit plus
+an explicit test Stop. The fixture provides synthetic application/auth responses;
+this is not authentication validation or a connection to the configured server.
+
+```powershell
+cd web-ui
+node tests/replayMux.mjs ../artifacts/tapo8-rate-consistency-15minute-20261004.mp4 90 --serve --camera 8
+```
+
+Two in-app-browser tabs replayed cameras 8 and 9 concurrently. All 26/27 saved
+samples show advancing, unpaused playback, readyState 4, no media errors and zero
+restart/stall/error, integrity-mismatch or decoder-corruption counters. The last
+saved media times are 145.387784 and 148.361244 seconds; the first are 3.382171 and
+3.365438. Camera 8 verified 829 binary messages and camera 9 verified 1,007.
+Latency ranges were 1,202–1,395 ms and 1,199–1,504 ms, with empty append queues in
+the inspected DOM. Browser playback quality did report eight dropped frames out
+of 2,424 and one out of 2,874; these are not zero-drop browser results. Both
+reported zero corrupted frames, which does not independently rule out concealment.
+
+An earlier listener expired during inspection and produced the expected reconnect
+UI; it was not counted as a clean playback pass. The repeat increased fixture
+setup headroom and saved snapshots before its bounded shutdown. Screenshots of
+the long repeat were taken too late, after shutdown, so are not healthy-playback
+proof. A separate short repeat captured `artifacts/tapo8-browser-mse-live-proof.png`
+while actively playing with empty queues and zero error/restart counters, then
+closed its tab and successfully stopped its listener. Detailed successful repeat
+logs: `artifacts/tapo{8,9}-browser-mse-replay-20261004.log`. All tabs/listeners were
+closed; the 41 pure UI regressions also pass after allowing Node test subprocesses.
+
+The replay schedules moof/mdat units from their muxed timestamps, not original
+network-arrival jitter or partial boundaries. It proves short real-browser MSE
+compatibility of this saved output, not live WebSocket-server behavior, full
+dashboard load, hidden-tab decoder continuity or long production stability.

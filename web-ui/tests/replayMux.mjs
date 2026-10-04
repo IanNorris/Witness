@@ -3,7 +3,10 @@
 // Replays every moof/mdat, not the original network-arrival jitter or partial boundaries.
 // Optional --inject-lag (Chromium, >=20s) verifies pre-restart drift evidence
 // using an intentional backwards seek, not a claim of production reproduction.
-import { readFile, mkdtemp, copyFile, rm } from 'node:fs/promises'
+// --serve runs only the loopback fixture for computer-use browser inspection.
+// No browser process is launched in that mode. Optional --camera N labels the
+// replay with its actual source camera; the configured server is never contacted.
+import { readFile, mkdtemp, copyFile, rm, stat } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { join, resolve, extname, sep } from 'node:path'
 import { tmpdir } from 'node:os'
@@ -12,9 +15,16 @@ import { spawn, spawnSync } from 'node:child_process'
 import { chromium } from 'playwright'
 const { wsServer: WebSocketServer } = createRequire(import.meta.url)('../node_modules/playwright-core/lib/utilsBundle.js')
 
+const inputInfo = await stat(process.argv[2])
+if (!inputInfo.isFile() || inputInfo.size > 512 * 1024 * 1024) throw new Error('Replay requires a local file bounded to 512 MiB')
 const data = await readFile(process.argv[2])
 const seconds = Number(process.argv[3] ?? 90)
 if (!Number.isFinite(seconds) || seconds < 10 || seconds > 1800) throw new Error('Replay duration must be 10..1800 seconds')
+function binaryHash(buffer) {
+  let hash = 0x811c9dc5
+  for (const byte of buffer) hash = Math.imul((hash ^ byte) >>> 0, 0x01000193) >>> 0
+  return hash.toString(16).padStart(8, '0')
+}
 function boxes(buffer, from = 0, to = buffer.length) {
   const result = []
   for (let p = from; p + 8 <= to;) {
@@ -28,6 +38,7 @@ const top = boxes(data)
 const first = top.find(b => b.type === 'moof')?.from
 if (first === undefined) throw new Error('No fragments in mux capture')
 const init = data.subarray(0, first)
+const initHash = binaryHash(init)
 const fragments = []
 let lastVideoTime = 0
 for (let i = 0; i < top.length; i++) {
@@ -43,40 +54,92 @@ for (let i = 0; i < top.length; i++) {
   // The muxer can emit audio-only moofs. They are real media, not padding;
   // dropping one makes a fake audio gap that reliably stalls Firefox.
   if (at !== null) lastVideoTime = at
-  fragments.push({ at: at ?? lastVideoTime, bytes: data.subarray(moof.from, top[i + 1].to) })
+  const bytes = data.subarray(moof.from, top[i + 1].to)
+  fragments.push({ at: at ?? lastVideoTime, bytes, hash: binaryHash(bytes) })
 }
 if (!fragments.length) throw new Error('No video fragments in mux capture')
 if (fragments[fragments.length - 1].at - fragments[0].at < seconds + 2)
   throw new Error('Capture is too short for the requested replay; avoid mistaking fixture EOF for a playback stall')
 const root = resolve('../WitnessServer/Web')
 const firefoxMode = process.argv[4] === 'firefox'
+const serveMode = process.argv.includes('--serve')
+const cameraOption = process.argv.indexOf('--camera')
+const cameraId = cameraOption < 0 ? 13 : Number(process.argv[cameraOption + 1])
+if (!Number.isSafeInteger(cameraId) || cameraId <= 0) throw new Error('Invalid replay camera ID')
+const hasAudio = init.includes(Buffer.from('mp4a'))
 const injectLag = process.argv.includes('--inject-lag')
 const blockAudio = process.argv.includes('--block-audio')
+if (serveMode && (firefoxMode || injectLag || blockAudio)) throw new Error('--serve uses external browser control, without automated injection modes')
 if (blockAudio && (firefoxMode || injectLag)) throw new Error('--block-audio requires Chromium without --inject-lag')
 if (injectLag && (firefoxMode || seconds < 20)) throw new Error('--inject-lag requires Chromium and >=20 seconds')
 const received = []
+let finishServing
+const servingStopped = new Promise(done => { finishServing = done })
 const server = createServer(async (req, res) => {
   const path = new URL(req.url, 'http://localhost').pathname
   if (path === '/test/report') {
-    let text = ''; for await (const chunk of req) text += chunk
-    const snapshot = JSON.parse(text); received.push(snapshot)
-    console.log(JSON.stringify({ elapsed: received.length * 5, stats: snapshot.stats, state: snapshot.currentState,
+    let text = ''; for await (const chunk of req) {
+      text += chunk
+      if (text.length > 256 * 1024) { res.statusCode = 413; return res.end() }
+    }
+    let snapshot
+    try { snapshot = JSON.parse(text) } catch { res.statusCode = 400; return res.end() }
+    if (!snapshot || typeof snapshot !== 'object' || !snapshot.stats || !snapshot.currentState) {
+      res.statusCode = 400; return res.end()
+    }
+    if (received.length >= 400) { res.statusCode = 429; return res.end() }
+    received.push(snapshot)
+    const observedElapsed = (Date.now() - Date.parse(snapshot.startTime)) / 1000
+    console.log(JSON.stringify({ elapsed: Number.isFinite(observedElapsed) ? observedElapsed : null,
+      stats: snapshot.stats, state: snapshot.currentState,
       events: received.length === 1 ? snapshot.importantEvents : undefined }))
     return res.end('ok')
   }
+  if (serveMode && path === '/test/stop' && req.method === 'POST') {
+    res.end('ok'); finishServing(); return
+  }
   let value
   if (path === '/auth/profile') value = { csrf: 'test', username: 'tester', admin: false }
-  else if (path === '/camera/enum') value = [{ id: 13, name: 'Mux replay', groups: [], status: 'Connected', codec: 'h264', width: 896, height: 512, hasSubStream: true, subCodec: 'h264' }]
+  else if (path === '/camera/enum') value = [{ id: cameraId, name: 'Private mux replay', groups: [], status: 'Connected', codec: 'h264', width: 896, height: 512, hasSubStream: true, subCodec: 'h264' }]
   else if (path === '/group/enum') value = { groups: [] }
   else if (path.startsWith('/camera/') || req.method === 'POST') value = {}
   if (value !== undefined) { res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify(value)) }
   try {
     const file = path.startsWith('/assets/') ? join(root, path.slice(1)) : join(root, 'index.html')
+    if (!resolve(file).startsWith(root + sep)) { res.statusCode = 403; return res.end() }
     res.setHeader('Content-Type', ({ '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html' })[extname(file)] ?? 'application/octet-stream')
     let body = await readFile(file)
     if (firefoxMode && extname(file) === '.html') body = body.toString().replace('</head>', `<script>
       setInterval(() => { const d = Object.values(window._witnessMseDiag || {})[0]; if(d) fetch('/test/report',
         {method:'POST',body:JSON.stringify(d.snapshot())}).catch(()=>{}); }, 5000);
+    </script></head>`)
+    if (serveMode && extname(file) === '.html') body = body.toString().replace('</head>', `<script>
+      const replayStarted = performance.now();
+      let replayLastReport = 0;
+      setInterval(() => {
+        const d = Object.values(window._witnessMseDiag || {})[0];
+        if (!d) return;
+        let panel = document.getElementById('replay-evidence');
+        if (!panel) {
+          panel = document.createElement('pre'); panel.id = 'replay-evidence';
+          panel.style.cssText = 'position:fixed;right:12px;top:12px;z-index:99999;padding:12px;background:#111e;color:#eee;font:12px monospace;max-width:460px;max-height:80vh;overflow:auto;pointer-events:none';
+          document.body.appendChild(panel);
+        }
+        const snapshot = d.snapshot();
+        const state = snapshot.currentState;
+        if (performance.now() - replayLastReport >= 5000) {
+          replayLastReport = performance.now();
+          fetch('/test/report', {method:'POST',body:JSON.stringify(snapshot)}).catch(()=>{});
+        }
+        panel.textContent = JSON.stringify({ fixture: 'Private mux replay, no camera connection',
+          elapsed: (performance.now()-replayStarted)/1000, stats: snapshot.stats,
+          state: { currentTime: state?.currentTime, paused: state?.paused,
+            readyState: state?.readyState, error: state?.error, quality: state?.playbackQuality },
+          pipeline: { queue: snapshot.liveState?.appendQueueLength,
+            queueBytes: snapshot.liveState?.appendQueueBytes, lastFragAge: snapshot.liveState?.lastFragAge,
+            latencyMs: snapshot.liveState?.latencyMs, selectedStream: snapshot.liveState?.selectedStream },
+        }, null, 2);
+      }, 1000);
     </script></head>`)
     res.end(body)
   } catch { res.statusCode = 404; res.end() }
@@ -110,13 +173,13 @@ function stream(socket) {
     const later = (fn, ms) => { const timer = setTimeout(() => { timers.delete(timer); if (!closed) fn() }, ms); timers.add(timer) }
     later(() => {
       socket.send(JSON.stringify({ type: 'streamSelection', stream: 'sub', codec: 'h264', width: 896, height: 512 }))
-      socket.send(JSON.stringify({ type: 'initSegment', generation: 0, audioCodec: 'mp4a.40.2', bytes: init.length }))
+      socket.send(JSON.stringify({ type: 'initSegment', generation: 0, ...(hasAudio ? { audioCodec: 'mp4a.40.2' } : {}), bytes: init.length, hash: initHash }))
       socket.send(init)
       for (let i = 0; i < fragments.length; i++) {
         const fragment = fragments[i]
         later(() => {
           socket.send(JSON.stringify({ type: 'partial', generation: 0, segmentIndex: Math.floor(fragment.at / 2), partIndex: i,
-            independent: i === 0, keyframeSeekSafe: false, duration: fragments[i + 1]?.at - fragment.at || .15, bytes: fragment.bytes.length }))
+            independent: i === 0, keyframeSeekSafe: false, duration: fragments[i + 1]?.at - fragment.at || .15, bytes: fragment.bytes.length, hash: fragment.hash }))
           socket.send(fragment.bytes)
         }, Math.max(0, fragment.at - fragments[0].at) * 1000)
       }
@@ -128,8 +191,19 @@ sockets.on('connection', (socket, req) => {
   stream({ send: data => socket.readyState === 1 && socket.send(data), onClose: cb => socket.on('close', cb) })
 })
 try {
-  const origin = `http://127.0.0.1:${server.address().port}/live/13`
-  if (firefoxMode) {
+  const origin = `http://127.0.0.1:${server.address().port}/live/${cameraId}`
+  if (serveMode) {
+    console.log('replayOrigin=' + origin)
+    console.log('replayVideoFragments=' + fragments.length + ' hasAudio=' + hasAudio)
+    // Browser-control startup/observation round trips are outside replay time.
+    // Allow setup headroom, but still bound the listener and support early Stop.
+    const deadline = setTimeout(finishServing, (seconds + 90) * 1000)
+    await servingStopped
+    clearTimeout(deadline)
+    const last = received.at(-1)
+    if (last) console.log('FINAL', JSON.stringify({ file: process.argv[2], stats: last.stats,
+      state: last.currentState, observedReports: received.length }))
+  } else if (firefoxMode) {
     firefoxProfile = await mkdtemp(join(tmpdir(), 'witness-firefox-mux-'))
     await copyFile('tests/firefox-mux-user.js', join(firefoxProfile, 'user.js'))
     firefoxProcess = spawn('C:/Program Files/Mozilla Firefox/firefox.exe', ['-headless', '-no-remote', '-profile', firefoxProfile, origin],
