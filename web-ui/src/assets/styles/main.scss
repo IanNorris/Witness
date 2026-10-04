@@ -209,7 +209,7 @@ html, body, #app {
   gap: 1rem;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
 
-  &.fullscreen {
+  &.fullscreen, &.layout-canvas {
     position: fixed;
     top: var(--fs-top-inset, 0px);
     right: var(--fs-right-inset, 0px);
@@ -233,6 +233,13 @@ html, body, #app {
       height: 100%;
     }
   }
+  &.layout-canvas {
+    position: relative;
+    top: auto; right: auto; bottom: auto; left: auto;
+    height: max(420px, calc(100dvh - 230px));
+    margin: var(--fs-top-inset, 0px) var(--fs-right-inset, 0px) var(--fs-bottom-inset, 0px) var(--fs-left-inset, 0px);
+    z-index: auto;
+  }
 }
 
 .camera-grid-item {
@@ -240,23 +247,23 @@ html, body, #app {
   min-width: 0;
 }
 
-.camera-grid.fullscreen.layout-editing {
+.camera-grid:is(.fullscreen, .layout-canvas).layout-editing {
   background-image:
     linear-gradient(rgba(255,255,255,0.055) 1px, transparent 1px),
     linear-gradient(90deg, rgba(255,255,255,0.055) 1px, transparent 1px);
   background-size: calc(100% / 12) calc(100% / 12);
 }
 
-.camera-grid.fullscreen.layout-editing .camera-grid-item {
+.camera-grid:is(.fullscreen, .layout-canvas).layout-editing .camera-grid-item {
   outline: 2px solid rgba(13, 110, 253, 0.7);
   outline-offset: -2px;
   z-index: 1;
 }
 
-.camera-grid.fullscreen.layout-editing .camera-grid-item.active { z-index: 3; }
-.camera-grid.fullscreen.layout-editing .camera-grid-item.invalid { outline-color: #dc3545; }
+.camera-grid:is(.fullscreen, .layout-canvas).layout-editing .camera-grid-item.active { z-index: 3; }
+.camera-grid:is(.fullscreen, .layout-canvas).layout-editing .camera-grid-item.invalid { outline-color: #dc3545; }
 
-.camera-grid.fullscreen .camera-grid-item.dashboard-camera-hidden {
+.camera-grid:is(.fullscreen, .layout-canvas) .camera-grid-item.dashboard-camera-hidden {
   position: absolute;
   left: -10000px;
   top: -10000px;

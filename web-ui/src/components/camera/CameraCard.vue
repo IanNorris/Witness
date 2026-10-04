@@ -12,6 +12,7 @@ const props = defineProps<{
   camera: Camera
   dashboardHidden?: boolean
   controlsSelected?: boolean
+  layoutMode?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -22,6 +23,7 @@ const emit = defineEmits<{
 
 const settings = useSettingsStore()
 const cameraStore = useCameraStore()
+const canvasMode = computed(() => settings.fullscreenMode || props.layoutMode === true)
 
 // MSE requires MediaSource API — fall back to HLS if unavailable
 const effectiveMode = computed(() => {
@@ -44,9 +46,9 @@ const hlsPlayerRef = ref<InstanceType<typeof HlsPlayer> | InstanceType<typeof Ms
 const detectionOverlayActive = ref(false)
 const selectedMseStream = ref<'main' | 'sub' | null>(null)
 const showPtzControls = ref(false)
-watch(() => [props.controlsSelected, props.dashboardHidden, props.camera.id, props.camera.ptzEnabled, props.camera.status], () => {
+watch(() => [canvasMode.value, props.controlsSelected, props.dashboardHidden, props.camera.id, props.camera.ptzEnabled, props.camera.status], () => {
   if (props.dashboardHidden || !props.camera.ptzEnabled || props.camera.status !== 'Connected' ||
-    (settings.fullscreenMode && !props.controlsSelected)) showPtzControls.value = false
+    (canvasMode.value && !props.controlsSelected)) showPtzControls.value = false
 })
 const {
   mode: audioMode,
@@ -106,11 +108,11 @@ function onJpegError() {
 // Fullscreen clicks select controls; recording is explicit there. Tile-view
 // single click retains its existing recording shortcut.
 function onSingleClick() {
-  if (settings.fullscreenMode) return
+  if (canvasMode.value) return
   if (clickTimer) { clearTimeout(clickTimer); clickTimer = null }
   clickTimer = setTimeout(() => {
     clickTimer = null
-    cameraStore.toggleRecording(props.camera.id)
+    if (!canvasMode.value) cameraStore.toggleRecording(props.camera.id)
   }, 250)
 }
 
@@ -226,7 +228,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="camera-card" :class="{ 'camera-card-fullscreen': settings.fullscreenMode, 'controls-selected': controlsSelected }">
+  <div class="camera-card" :class="{ 'camera-card-fullscreen': canvasMode, 'controls-selected': controlsSelected }">
     <div class="camera-preview">
       <div class="camera-video-wrap" @click.prevent="onSingleClick" @dblclick.prevent="onDoubleClick">
         <!-- HLS preview mode -->
@@ -282,14 +284,14 @@ onUnmounted(() => {
         </div>
 
         <!-- Camera name overlay in fullscreen -->
-        <div v-if="settings.fullscreenMode" class="camera-name-overlay">
+        <div v-if="canvasMode" class="camera-name-overlay">
           {{ camera.name }}
         </div>
-        <button v-if="settings.fullscreenMode && controlsSelected" class="control-selection-label"
+        <button v-if="canvasMode && controlsSelected" class="control-selection-label"
           @click.stop="emit('dismissControls')" title="Dismiss camera controls (Esc)">
           Controls selected · ×
         </button>
-        <button v-if="settings.fullscreenMode && controlsSelected" class="fullscreen-record-toggle"
+        <button v-if="canvasMode && controlsSelected" class="fullscreen-record-toggle"
           :class="{ recording: camera.isRecording }" @click.stop="cameraStore.toggleRecording(camera.id)"
           :aria-label="camera.isRecording ? 'Stop recording' : 'Start recording'"
           :aria-pressed="camera.isRecording" :title="camera.isRecording ? 'Stop manual recording' : 'Start manual recording'">
@@ -360,11 +362,11 @@ onUnmounted(() => {
         </button>
 
         <!-- PTZ controls overlay -->
-        <Teleport to="body" :disabled="!settings.fullscreenMode">
+        <Teleport to="body" :disabled="!canvasMode">
           <div v-if="showPtzControls && camera.ptzEnabled" class="ptz-overlay"
-            :class="{ 'ptz-floating-panel': settings.fullscreenMode }"
+            :class="{ 'ptz-floating-panel': canvasMode }"
             :data-ptz-controls-camera="camera.id" @click.stop>
-            <div v-if="settings.fullscreenMode" class="ptz-panel-heading">
+            <div v-if="canvasMode" class="ptz-panel-heading">
               <span>{{ camera.name }}</span>
               <button aria-label="Close PTZ controls" @click="showPtzControls = false">×</button>
             </div>
@@ -375,7 +377,7 @@ onUnmounted(() => {
     </div>
 
     <!-- Info bar: hidden in fullscreen -->
-    <div v-if="!settings.fullscreenMode" class="camera-info">
+    <div v-if="!canvasMode" class="camera-info">
       <div class="camera-details">
         <div class="camera-name">{{ camera.name }}</div>
         <div class="camera-status" :class="{ 'is-connected': isConnected }">

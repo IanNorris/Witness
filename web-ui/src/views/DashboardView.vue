@@ -13,7 +13,10 @@ import {
   createDefaultDashboardLayout,
   createDefaultFocusLayout,
   normaliseDashboardLayout,
+  generatedDashboardTiles,
   type ActivityDock,
+  type DashboardMode,
+  type DashboardPreset,
   type DashboardLayout,
   type DashboardTileLayout,
 } from '../types/dashboardLayout'
@@ -33,6 +36,17 @@ const editingLayout = ref(false)
 const editingLayoutMode = ref<'regular' | 'focus'>('regular')
 const focusPreviewCameraId = ref<number | null>(null)
 const dashboardLayout = ref<DashboardLayout>(createDefaultDashboardLayout([]))
+const layoutView = ref(localStorage.getItem('witness-dashboard-windowed-mode') === 'layout')
+const canvasMode = computed(() => settings.fullscreenMode || layoutView.value)
+const dashboardMode = computed<DashboardMode>(() => settings.fullscreenMode ? 'fullscreen' : layoutView.value ? 'layout' : 'tiles')
+function selectDashboardMode(mode: DashboardMode) {
+  if (editingLayout.value) cancelLayoutEdit()
+  settings.fullscreenMode = mode === 'fullscreen'
+  if (mode !== 'fullscreen') {
+    layoutView.value = mode === 'layout'
+    localStorage.setItem('witness-dashboard-windowed-mode', mode)
+  }
+}
 let layoutBeforeEditing: DashboardLayout | null = null
 const focusedCameraId = ref<number | null>(null)
 const manuallyFocused = ref(false)
@@ -81,11 +95,29 @@ const focusEditorTiles = computed<DashboardTileLayout[]>(() => {
 const editorTiles = computed(() =>
   editingLayout.value && editingLayoutMode.value === 'focus'
     ? focusEditorTiles.value
-    : dashboardLayout.value.tiles,
+    : dashboardLayout.value.preset !== 'custom' && !editingLayout.value
+      ? generatedDashboardTiles(dashboardLayout.value.preset, dashboardLayout.value.priorityCameraIds)
+      : dashboardLayout.value.tiles,
 )
+const displayedCameraIds = computed(() => dashboardLayout.value.preset === 'custom' || editingLayout.value
+  ? dashboardLayout.value.visibleCameraIds : editorTiles.value.map(tile => tile.cameraId))
+function changePreset(event: Event) {
+  dashboardLayout.value.preset = (event.target as HTMLSelectElement).value as DashboardPreset
+  focusedCameraId.value = null
+  manuallyFocused.value = false
+  persistLayout()
+  updateAutomaticFocus()
+}
+function moveCameraPriority(cameraId: number, direction: number) {
+  const order = [...dashboardLayout.value.priorityCameraIds]
+  const index = order.indexOf(cameraId), next = index + direction
+  if (index < 0 || next < 0 || next >= order.length) return
+  ;[order[index], order[next]] = [order[next]!, order[index]!]
+  dashboardLayout.value.priorityCameraIds = order
+}
 
 const displayedFocusedCameraId = computed(() => {
-  if (!settings.fullscreenMode) return null
+  if (!canvasMode.value) return null
   if (editingLayout.value) {
     return editingLayoutMode.value === 'focus' ? focusPreviewCameraId.value : null
   }
@@ -97,6 +129,7 @@ function cloneLayout(layout: DashboardLayout): DashboardLayout {
 }
 
 function loadLayout() {
+  if (focusReleaseTimer) { clearTimeout(focusReleaseTimer); focusReleaseTimer = null }
   let saved: Partial<DashboardLayout> | null = null
   try {
     const value = localStorage.getItem(layoutStorageKey.value)
@@ -115,13 +148,15 @@ function persistLayout() {
 
 function beginLayoutEdit() {
   layoutBeforeEditing = cloneLayout(dashboardLayout.value)
+  // Generated presets do not overwrite the independently saved custom canvas.
+  dashboardLayout.value.preset = 'custom'
   editingLayoutMode.value = 'regular'
   focusPreviewCameraId.value = currentCameraIds.value[0] ?? null
   editingLayout.value = true
 }
 
 function openLayoutEditor() {
-  if (!settings.fullscreenMode) settings.toggleFullscreen()
+  if (!canvasMode.value) selectDashboardMode('layout')
   beginLayoutEdit()
 }
 
@@ -222,17 +257,14 @@ function focusCamera(cameraId: number) {
 }
 
 function cameraFocusPriority(cameraId: number) {
-  const tile = dashboardLayout.value.tiles.find(item => item.cameraId === cameraId)
-  return tile ? tile.width * tile.height : 0
+  const rank = dashboardLayout.value.priorityCameraIds.indexOf(cameraId)
+  return rank < 0 ? 0 : dashboardLayout.value.priorityCameraIds.length - rank
 }
 
 function updateAutomaticFocus() {
   if (manuallyFocused.value) return
-  if (focusReleaseTimer) {
-    clearTimeout(focusReleaseTimer)
-    focusReleaseTimer = null
-  }
   if (!dashboardLayout.value.autoFocusEnabled) {
+    if (focusReleaseTimer) { clearTimeout(focusReleaseTimer); focusReleaseTimer = null }
     focusedCameraId.value = null
     return
   }
@@ -249,10 +281,12 @@ function updateAutomaticFocus() {
     return
   }
   if (active.some(camera => camera.id === current)) {
+    if (focusReleaseTimer) { clearTimeout(focusReleaseTimer); focusReleaseTimer = null }
     if (best !== null && cameraFocusPriority(best) > cameraFocusPriority(current)) focusedCameraId.value = best
     return
   }
 
+  if (focusReleaseTimer) return // unrelated camera motion must not extend this hold forever
   focusReleaseTimer = setTimeout(() => {
     focusReleaseTimer = null
     focusedCameraId.value = null
@@ -266,6 +300,7 @@ function toggleRecentActivity() {
 }
 
 function selectGroup(id: number | null) {
+  if (editingLayout.value) cancelLayoutEdit()
   selectedGroupId.value = id
   if (id === null) {
     localStorage.removeItem(DASHBOARD_GROUP_KEY)
@@ -287,7 +322,7 @@ const hasDashboardActivity = computed(() => {
 })
 
 const reserveActivitySpace = computed(() =>
-  settings.fullscreenMode && showRecentActivity.value && (hasDashboardActivity.value || editingLayout.value),
+  canvasMode.value && showRecentActivity.value && (hasDashboardActivity.value || editingLayout.value),
 )
 
 const fullscreenInsets = computed(() => {
@@ -333,7 +368,8 @@ watch(() => settings.fullscreenMode, fullscreen => {
 watch(
   [() => cameraStore.cameras.map(camera => `${camera.id}:${camera.motionActive ? 1 : 0}`).join(','),
     () => dashboardLayout.value.autoFocusEnabled,
-    () => dashboardLayout.value.focusEligibleCameraIds.join(',')],
+    () => dashboardLayout.value.focusEligibleCameraIds.join(','),
+    () => dashboardLayout.value.priorityCameraIds.join(',')],
   updateAutomaticFocus,
 )
 
@@ -367,6 +403,20 @@ onMounted(async () => {
     <template #title>Dashboard</template>
     <template #actions>
       <div class="dashboard-toolbar d-flex align-items-center gap-2">
+        <div class="btn-group btn-group-sm" aria-label="Dashboard view">
+          <button v-for="mode in (['tiles', 'layout', 'fullscreen'] as DashboardMode[])" :key="mode"
+            class="btn" :class="dashboardMode === mode ? 'btn-primary' : 'btn-outline-secondary'"
+            :aria-pressed="dashboardMode === mode" @click="selectDashboardMode(mode)">
+            {{ mode === 'fullscreen' ? 'Full Screen' : mode === 'layout' ? 'Layout' : 'Tiles' }}
+          </button>
+        </div>
+        <select v-if="canvasMode && !editingLayout" class="form-select form-select-sm dashboard-preset"
+          :value="dashboardLayout.preset" aria-label="Layout preset" @change="changePreset">
+          <option value="custom">Custom layout</option>
+          <option value="hero7">1 large + 2 medium + 4 small</option>
+          <option value="balanced8">4 medium + 4 small</option>
+          <option value="grid16">16 small</option>
+        </select>
         <!-- Group picker -->
         <div v-if="groupStore.activeGroups.length > 0" class="btn-group btn-group-sm me-2">
           <button
@@ -398,7 +448,7 @@ onMounted(async () => {
         <button
           class="btn btn-sm btn-outline-secondary"
           @click="openLayoutEditor"
-          title="Arrange this group's fullscreen dashboard"
+          title="Edit this group's saved custom layout"
         >Arrange</button>
         <button
           class="btn btn-sm"
@@ -436,7 +486,9 @@ onMounted(async () => {
       <div><div class="ui-eyebrow">LIVE OVERVIEW</div><h1>{{ selectedGroupId === null ? 'Your cameras' : groupStore.getGroupById(selectedGroupId)?.displayName ?? 'Your cameras' }}</h1><p>Keep an eye on what matters. Open a camera for a closer look.</p></div>
       <span class="ui-count-pill">{{ currentCameras.length }} cameras · {{ currentCameras.filter(camera => camera.status === 'Connected').length }} connected</span>
     </section>
+    <div class="dashboard-stage" :class="{ 'canvas-stage': canvasMode }">
     <CameraGrid
+      :layout-mode="layoutView"
       :group-camera-ids="groupCameraIds"
       :fullscreen-insets="fullscreenInsets"
       :fullscreen-layout="editorTiles"
@@ -445,7 +497,7 @@ onMounted(async () => {
       :fullscreen-controls-visible="fullscreenControlsVisible"
       :focused-camera-id="displayedFocusedCameraId"
       :focus-eligible-camera-ids="dashboardLayout.focusEligibleCameraIds"
-      :visible-camera-ids="dashboardLayout.visibleCameraIds"
+      :visible-camera-ids="displayedCameraIds"
       :focus-region="dashboardLayout.focusRegion"
       :focus-slots="dashboardLayout.focusSlots"
       @update-fullscreen-layout="updateFullscreenLayout"
@@ -458,14 +510,15 @@ onMounted(async () => {
     <ActivityStrip
       v-if="showRecentActivity"
       class="dashboard-activity-strip"
-      :class="{ 'dashboard-activity-strip-fullscreen': settings.fullscreenMode }"
-      :style="settings.fullscreenMode ? fullscreenActivityStyle : undefined"
+      :class="{ 'dashboard-activity-strip-fullscreen': settings.fullscreenMode, 'dashboard-activity-strip-layout': layoutView && !settings.fullscreenMode }"
+      :style="canvasMode ? fullscreenActivityStyle : undefined"
       :camera-ids="groupCameraIds"
-      :orientation="settings.fullscreenMode ? activityOrientation : 'horizontal'"
-      :force-visible="settings.fullscreenMode && editingLayout"
-      :fill="settings.fullscreenMode"
+      :orientation="canvasMode ? activityOrientation : 'horizontal'"
+      :force-visible="canvasMode && editingLayout"
+      :fill="canvasMode"
       @play="playingClip = $event"
     />
+    </div>
 
     <div
       v-if="settings.fullscreenMode"
@@ -492,12 +545,16 @@ onMounted(async () => {
         @click="toggleRecentActivity"
         :title="showRecentActivity ? 'Hide recent activity' : 'Show recent activity'"
       >Activity</button>
+      <select v-if="!editingLayout" :value="dashboardLayout.preset" aria-label="Fullscreen layout preset" @change="changePreset">
+        <option value="custom">Custom</option><option value="hero7">1 + 2 + 4</option>
+        <option value="balanced8">4 + 4</option><option value="grid16">16 small</option>
+      </select>
     </div>
 
     <div
-      v-if="settings.fullscreenMode && editingLayout"
+      v-if="canvasMode && editingLayout"
       class="layout-editor-toolbar fullscreen-fading-controls"
-      :class="{ visible: fullscreenControlsVisible }"
+      :class="{ visible: !settings.fullscreenMode || fullscreenControlsVisible }"
     >
       <button :class="{ active: editingLayoutMode === 'regular' }" @click="setLayoutEditorMode('regular')">Regular</button>
       <button :class="{ active: editingLayoutMode === 'focus' }" @click="setLayoutEditorMode('focus')">Auto-focus</button>
@@ -527,6 +584,13 @@ onMounted(async () => {
       <button @click="resetLayout">Reset</button>
       <button @click="cancelLayoutEdit">Cancel</button>
       <button class="primary" @click="saveLayout">Save</button>
+      <details class="priority-editor"><summary>Camera priority</summary>
+        <div v-for="(cameraId, rank) in dashboardLayout.priorityCameraIds" :key="cameraId">
+          <span>{{ rank + 1 }}. {{ cameraStore.getCameraById(cameraId)?.name ?? cameraId }}</span>
+          <button :disabled="rank === 0" :aria-label="`Raise priority of camera ${cameraId}`" @click="moveCameraPriority(cameraId, -1)">↑</button>
+          <button :disabled="rank === dashboardLayout.priorityCameraIds.length - 1" :aria-label="`Lower priority of camera ${cameraId}`" @click="moveCameraPriority(cameraId, 1)">↓</button>
+        </div>
+      </details>
     </div>
 
     <ClipPlayer v-if="playingClip" :clip="playingClip" @close="playingClip = null" />
@@ -537,6 +601,14 @@ onMounted(async () => {
 .dashboard-toolbar { padding: 0.25rem 0; }
 .dashboard-toolbar .btn { white-space: nowrap; }
 .mode-detail { margin-left: 0.35rem; font-size: 0.65rem; opacity: 0.75; }
+.dashboard-stage { position: relative; }
+.dashboard-preset { width: auto; max-width: 260px; }
+.dashboard-activity-strip-layout { position: absolute; margin: 0; z-index: 4; }
+.priority-editor { position: relative; }
+.priority-editor[open] { max-height: 70vh; overflow: auto; min-width: 240px; }
+.priority-editor div { display: flex; align-items: center; gap: 4px; margin-top: 4px; }
+.priority-editor div span { flex: 1; }
+.fullscreen-dashboard-controls select { max-width: 150px; background: #142235; color: #dceafa; border: 1px solid #456; border-radius: .375rem; }
 .dashboard-activity-strip {
   margin-top: 1rem;
   margin-bottom: 0;

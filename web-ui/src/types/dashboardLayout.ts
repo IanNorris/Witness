@@ -1,4 +1,6 @@
 export type ActivityDock = 'top' | 'right' | 'bottom' | 'left'
+export type DashboardMode = 'tiles' | 'layout' | 'fullscreen'
+export type DashboardPreset = 'custom' | 'hero7' | 'balanced8' | 'grid16'
 
 export interface DashboardTileLayout {
   cameraId: number
@@ -17,6 +19,11 @@ export interface DashboardLayout {
   tiles: DashboardTileLayout[]
   activityDock: ActivityDock
   activitySize: number
+  activityPlacement: 'dock' | 'rectangle'
+  activityRegion: DashboardGridArea
+  activityDirection: 'horizontal' | 'vertical'
+  preset: DashboardPreset
+  priorityCameraIds: number[]
   autoFocusEnabled: boolean
   focusHoldSeconds: number
   focusEligibleCameraIds: number[]
@@ -79,6 +86,11 @@ export function createDefaultDashboardLayout(cameraIds: number[]): DashboardLayo
     }),
     activityDock: 'bottom',
     activitySize: 108,
+    activityPlacement: 'dock',
+    activityRegion: { x: 8, y: 8, width: 4, height: 4 },
+    activityDirection: 'horizontal',
+    preset: 'custom',
+    priorityCameraIds: [...cameraIds],
     autoFocusEnabled: false,
     focusHoldSeconds: 15,
     focusEligibleCameraIds: [...cameraIds],
@@ -153,6 +165,12 @@ export function normaliseDashboardLayout(
     tiles: hasEveryCamera && !hasOverlap ? validTiles : fallback.tiles,
     activityDock: dock,
     activitySize: Math.max(72, Math.min(320, Number(candidate.activitySize) || 108)),
+    activityPlacement: candidate.activityPlacement === 'rectangle' ? 'rectangle' : 'dock',
+    activityRegion: normaliseArea(candidate.activityRegion) ?? fallback.activityRegion,
+    activityDirection: candidate.activityDirection === 'vertical' ? 'vertical' : 'horizontal',
+    preset: ['hero7', 'balanced8', 'grid16'].includes(candidate.preset ?? '')
+      ? candidate.preset as DashboardPreset : 'custom',
+    priorityCameraIds: normaliseCameraPriority(candidate.priorityCameraIds, cameraIds),
     autoFocusEnabled: candidate.autoFocusEnabled === true,
     focusHoldSeconds: Math.max(3, Math.min(120, Number(candidate.focusHoldSeconds) || 15)),
     focusEligibleCameraIds: Array.isArray(candidate.focusEligibleCameraIds)
@@ -164,4 +182,37 @@ export function normaliseDashboardLayout(
     focusRegion: useCandidateFocus ? candidateRegion! : defaultFocus.focusRegion,
     focusSlots: useCandidateFocus ? candidateSlots.slice(0, requiredSlots) : defaultFocus.focusSlots,
   }
+}
+
+// Removed cameras disappear, duplicates are discarded, and newly added cameras
+// join the end. A preset never replaces the user's saved custom rectangles.
+export function normaliseCameraPriority(candidate: unknown, cameraIds: number[]): number[] {
+  const allowed = new Set(cameraIds)
+  const ranked = Array.isArray(candidate) ? candidate.filter(id => typeof id === 'number' && allowed.has(id)) : []
+  return [...new Set([...ranked, ...cameraIds])]
+}
+
+export function generatedDashboardTiles(preset: DashboardPreset, cameraIds: number[]): DashboardTileLayout[] {
+  let areas: DashboardGridArea[]
+  switch (preset) {
+    case 'hero7':
+      areas = [{ x: 0, y: 0, width: 8, height: 8 },
+        { x: 8, y: 0, width: 4, height: 4 }, { x: 8, y: 4, width: 4, height: 4 },
+        ...Array.from({ length: 4 }, (_, i) => ({ x: i * 3, y: 8, width: 3, height: 4 }))]
+      break
+    case 'balanced8':
+      areas = Array.from({ length: 4 }, (_, i) => ({ x: i % 2 * 6, y: Math.floor(i / 2) * 4, width: 6, height: 4 }))
+        .concat(Array.from({ length: 4 }, (_, i) => ({ x: i * 3, y: 8, width: 3, height: 4 })))
+      break
+    case 'grid16':
+      areas = Array.from({ length: 16 }, (_, i) => ({ x: i % 4 * 3, y: Math.floor(i / 4) * 3, width: 3, height: 3 }))
+      break
+    default:
+      return createDefaultDashboardLayout(cameraIds).tiles
+  }
+  return [...new Set(cameraIds)].slice(0, areas.length).map((cameraId, index) => ({ cameraId, ...areas[index]! }))
+}
+
+export function dashboardAreasOverlap(a: DashboardGridArea, b: DashboardGridArea): boolean {
+  return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
 }

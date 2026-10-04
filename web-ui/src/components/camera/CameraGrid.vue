@@ -18,6 +18,7 @@ const props = defineProps<{
   focusSlots?: DashboardGridArea[]
   editingLayoutMode?: 'regular' | 'focus'
   fullscreenControlsVisible?: boolean
+  layoutMode?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -31,6 +32,7 @@ const emit = defineEmits<{
 const cameraStore = useCameraStore()
 const settings = useSettingsStore()
 const router = useRouter()
+const canvasMode = computed(() => settings.fullscreenMode || props.layoutMode === true)
 
 const filteredCameras = computed(() => {
   if (!props.groupCameraIds) return cameraStore.cameras
@@ -38,7 +40,7 @@ const filteredCameras = computed(() => {
 })
 
 const gridStyle = computed(() => {
-  if (settings.fullscreenMode) {
+  if (canvasMode.value) {
     return {
       '--fs-top-inset': `${props.fullscreenInsets?.top ?? 0}px`,
       '--fs-right-inset': `${props.fullscreenInsets?.right ?? 0}px`,
@@ -57,7 +59,7 @@ const activeCameraId = ref<number | null>(null)
 // Control selection is independent of layout editing and automatic focus.
 const selectedControlsCameraId = ref<number | null>(null)
 function selectControls(cameraId: number) {
-  if (settings.fullscreenMode && !props.editingLayout) selectedControlsCameraId.value = cameraId
+  if (canvasMode.value && !props.editingLayout) selectedControlsCameraId.value = cameraId
 }
 function onOutsidePointer(event: PointerEvent) {
   const target = event.target
@@ -68,10 +70,10 @@ function onOutsidePointer(event: PointerEvent) {
     selectedControlsCameraId.value = null
   }
 }
-watch(() => [settings.fullscreenMode, props.editingLayout,
+watch(() => [canvasMode.value, props.editingLayout,
   filteredCameras.value.filter(camera => isCameraVisible(camera.id)).map(camera => camera.id).join(',')],
 () => {
-  if (!settings.fullscreenMode || props.editingLayout || !filteredCameras.value.some(camera =>
+  if (!canvasMode.value || props.editingLayout || !filteredCameras.value.some(camera =>
     camera.id === selectedControlsCameraId.value && isCameraVisible(camera.id))) selectedControlsCameraId.value = null
 })
 const invalidPlacement = ref(false)
@@ -86,13 +88,13 @@ function tileFor(cameraId: number) {
 }
 
 function isCameraVisible(cameraId: number) {
-  if (!settings.fullscreenMode || props.editingLayout) return true
+  if (!canvasMode.value || props.editingLayout) return true
   if (cameraId === props.focusedCameraId) return true
   return props.visibleCameraIds?.includes(cameraId) ?? true
 }
 
 function tileStyle(cameraId: number) {
-  if (!settings.fullscreenMode) return undefined
+  if (!canvasMode.value) return undefined
   if (!isCameraVisible(cameraId)) return undefined
   if (props.focusedCameraId !== null && props.focusedCameraId !== undefined) {
     const others = filteredCameras.value.filter(camera =>
@@ -187,10 +189,10 @@ function openClips(cameraId: number) {
 }
 
 function onKeydown(e: KeyboardEvent) {
-  if (e.key === 'Escape' && settings.fullscreenMode) {
+  if (e.key === 'Escape' && canvasMode.value) {
     if (props.editingLayout) emit('cancelLayout')
     else if (selectedControlsCameraId.value !== null) selectedControlsCameraId.value = null
-    else settings.toggleFullscreen()
+    else if (settings.fullscreenMode) settings.toggleFullscreen()
   }
 }
 
@@ -220,7 +222,7 @@ onUnmounted(() => {
     v-else
     ref="gridRef"
     class="camera-grid"
-    :class="{ fullscreen: settings.fullscreenMode, 'layout-editing': editingLayout }"
+    :class="{ fullscreen: settings.fullscreenMode, 'layout-canvas': layoutMode && !settings.fullscreenMode, 'layout-editing': editingLayout }"
     :style="gridStyle"
   >
     <!-- Fullscreen exit button -->
@@ -248,6 +250,8 @@ onUnmounted(() => {
         'dashboard-camera-hidden': !isCameraVisible(camera.id),
       }"
       :style="tileStyle(camera.id)"
+      :inert="!isCameraVisible(camera.id)"
+      :aria-hidden="!isCameraVisible(camera.id)"
       @pointerdown.capture="selectControls(camera.id)"
       @click.capture="selectControls(camera.id)"
       @focusin="selectControls(camera.id)"
@@ -256,24 +260,25 @@ onUnmounted(() => {
         :camera="camera"
         :dashboard-hidden="!isCameraVisible(camera.id)"
         :controls-selected="selectedControlsCameraId === camera.id"
+        :layout-mode="layoutMode"
         @dismiss-controls="selectedControlsCameraId = null"
         @open-stream="openStream"
         @open-clips="openClips"
       />
       <div
-        v-if="settings.fullscreenMode && editingLayout"
+        v-if="canvasMode && editingLayout"
         class="layout-move-shield"
         title="Drag to move"
         @pointerdown="startPointer($event, camera.id, 'move')"
       />
       <button
-        v-if="settings.fullscreenMode && editingLayout"
+        v-if="canvasMode && editingLayout"
         class="layout-resize-handle"
         title="Drag to resize"
         @pointerdown="startPointer($event, camera.id, 'resize')"
       >↘</button>
       <button
-        v-if="settings.fullscreenMode && editingLayout && editingLayoutMode !== 'focus'"
+        v-if="canvasMode && editingLayout && editingLayoutMode !== 'focus'"
         class="layout-camera-visibility"
         :class="{ enabled: visibleCameraIds?.includes(camera.id) }"
         @pointerdown.stop
@@ -281,7 +286,7 @@ onUnmounted(() => {
         :title="visibleCameraIds?.includes(camera.id) ? 'Hide from the regular fullscreen layout' : 'Show in the regular fullscreen layout'"
       >{{ visibleCameraIds?.includes(camera.id) ? 'Shown' : 'Hidden' }}</button>
       <button
-        v-if="settings.fullscreenMode && editingLayout && editingLayoutMode !== 'focus'"
+        v-if="canvasMode && editingLayout && editingLayoutMode !== 'focus'"
         class="layout-focus-eligibility"
         :class="{ enabled: focusEligibleCameraIds?.includes(camera.id) }"
         @pointerdown.stop
@@ -289,7 +294,7 @@ onUnmounted(() => {
         :title="focusEligibleCameraIds?.includes(camera.id) ? 'Exclude from automatic focus' : 'Allow automatic focus'"
       >Focus {{ focusEligibleCameraIds?.includes(camera.id) ? 'on' : 'off' }}</button>
       <button
-        v-if="settings.fullscreenMode && !editingLayout"
+        v-if="canvasMode && !editingLayout"
         class="camera-focus-button"
         :class="{ active: focusedCameraId === camera.id }"
         @click.stop="emit('focusCamera', camera.id)"
