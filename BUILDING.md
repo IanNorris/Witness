@@ -143,3 +143,43 @@ concentrated in `LiveOutputStream` and `ReolinkBaichuanClient`. Those classes
 own substantially more active streaming/network state and need their own
 reviewed PIMPL migration and cross-DLL lifetime tests; do not suppress C4251
 globally.
+
+### Profiling safely in an existing dependency environment
+
+Use `scripts/profile-build.ps1 -BuildRoot build-vs2026 -UseExistingConfiguration`
+to measure the existing build without switching dependency installations. The
+profiler explicitly disables dependency installation/bootstrap, captures verbose
+native timing output in `build-output.txt`, and restores the previous
+`WITNESS_PROFILE_BUILD` value even when the build fails. `session-output.txt`
+records configuration and trace collection separately. Use
+`-KeepProfilingConfiguration` only when intentionally retaining timing flags.
+`-Clean` is restricted to a build directory beneath this repository; it cleans
+project build outputs, not the installed vcpkg package tree.
+
+Summarize a trace without printing captured environment variables or command
+lines:
+
+```powershell
+python Tools/summarize_build_trace.py artifacts/build-profile-YYYYMMDD-HHMMSS/build-timetrace.json
+python -m unittest discover -s Tools/Tests -p test_build_trace_summary.py
+```
+
+The 2026-10-04 clean VS2026 RelWithDebInfo profile recorded 79 front-end and
+79 back-end passes across 78 distinct source paths, with no dropped trace
+events or unmatched begin/end events. Aggregate front-end work was 629.1s and
+back-end work 308.7s. These are overlapping compiler durations with heavy
+profiling enabled, not build elapsed time or a comparable uninstrumented
+baseline. All phase durations were attributed to a source path.
+
+The largest individual phase totals were `CrowRoutes_Debug.cpp` (50.5s),
+`CrowListener.cpp` (45.0s), and `CameraWorker.cpp` (36.4s). The Crow PCH took
+17.7s. Repeated inclusive project-header timings put `RecordFilter.h` first
+(84.2s over 37 visits), followed by `Stream.h` (50.0s over 26 visits) and
+`SourceStats.h` (46.3s over 37 visits). Header timings include nested headers;
+they cannot be added together or interpreted as the savings from removing
+one include. This identifies candidates for a subsequent measured header/PIMPL
+pass, not proof that a particular refactor is already faster.
+
+Raw traces and binary logs may contain machine paths, environment variables,
+and command lines. Keep those ignored artifacts local and review/redact them
+before sharing. The summary omits these fields by design.
