@@ -46,7 +46,7 @@ extern "C" {
 #define SERVICE_ACCOUNT L"NT AUTHORITY\\NetworkService"
 #define SERVICE_PASSWORD L""
 
-bool ContinueRunning = true;
+std::atomic<bool> ContinueRunning{ true };
 
 bool UpdateService(wchar_t* Path, bool Install)
 {
@@ -134,6 +134,10 @@ bool UpdateService(wchar_t* Path, bool Install)
 }
 
 WitnessServer* GlobalServer = nullptr;
+// Serializes control callbacks with main-thread teardown. A handler must finish
+// stopping/joining workers before ServiceMain can destroy those same workers.
+std::mutex ServerControlMutex;
+bool ServerStopRequested = false;
 bool IsService = true;
 SERVICE_STATUS ServiceStatus = {};
 SERVICE_STATUS_HANDLE ServiceHandle = nullptr;
@@ -161,13 +165,17 @@ void WINAPI ServiceController(DWORD Action)
 	{
 	case SERVICE_CONTROL_STOP:
 	case SERVICE_CONTROL_SHUTDOWN:
+	{
+		std::lock_guard Lock(ServerControlMutex);
 		UpdateStatus(SERVICE_STOP_PENDING, 20);
 		ContinueRunning = false;
-		if (GlobalServer)
+		if (GlobalServer && !ServerStopRequested)
 		{
 			GlobalServer->RequestShutdown();
+			ServerStopRequested = true;
 		}
 		break;
+	}
 	case SERVICE_CONTROL_INTERROGATE:
 		break;
 	}
@@ -175,11 +183,12 @@ void WINAPI ServiceController(DWORD Action)
 
 BOOL WINAPI ConsoleHandlerRoutine(DWORD ControlType)
 {
+	std::lock_guard Lock(ServerControlMutex);
 	ContinueRunning = false;
-	if (GlobalServer)
+	if (GlobalServer && !ServerStopRequested)
 	{
 		GlobalServer->RequestShutdown();
-		GlobalServer = nullptr;
+		ServerStopRequested = true;
 	}
 	return true;
 }
@@ -235,7 +244,6 @@ void WINAPI ServiceMain(DWORD dwArgc, PWSTR* pszArgv)
 	Witness::Camera::TargetDebugConsole = &DebugConsoleInstance;
 
 	WitnessServer Server;
-	GlobalServer = &Server;
 	TerminalDashboard Dashboard( DashboardLogLevel );
 	std::atomic<bool> DashboardServerReady{ false };
 	if( UseTerminalDashboard && !IsService )
@@ -263,12 +271,24 @@ void WINAPI ServiceMain(DWORD dwArgc, PWSTR* pszArgv)
 		return;
 	}
 	DashboardServerReady.store( true, std::memory_order_release );
+	{
+		std::lock_guard Lock(ServerControlMutex);
+		GlobalServer = &Server;
+		ServerStopRequested = false;
+	}
 
 	UpdateStatus( SERVICE_RUNNING );
 
 	Server.MessageLoop(ContinueRunning);
 
-	GlobalServer = nullptr;
+	{
+		std::lock_guard Lock(ServerControlMutex);
+		// Also handles a stop received during Initialize, before publication.
+		if (!ServerStopRequested)
+			Server.RequestShutdown();
+		ServerStopRequested = true;
+		GlobalServer = nullptr;
+	}
 	DashboardServerReady.store( false, std::memory_order_release );
 	Dashboard.Stop();
 	if( UseTerminalDashboard && !IsService )

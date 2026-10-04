@@ -548,3 +548,38 @@ treating fresh-database initialization as warning-clean. Test processes ended an
 their private database/cache directories were removed. No cameras were connected
 or moved. This zero-camera lifecycle smoke is not the 16-stream performance gate;
 the 30-minute load phases, CPU and processing/HTTP P95 evidence remain outstanding.
+
+### Dump-confirmed shutdown race and fix (2026-10-05)
+
+The user-provided `WitnessServer.exe_261005_004649.dmp` loads matching private
+symbols from the `119f84433c11` package. The exception is `FAST_FAIL_FATAL_APP_EXIT`
+(subcode 7), not evidence of a stack-buffer overwrite: an uncaught C++ exception
+from `std::thread::join` in `WorkerBase::Join` escapes `RequestShutdown` on the
+console-handler thread. At the same instant, the main thread is in
+`Shutdown -> ImageWorkers.clear -> WorkerBase destructor -> join`. This confirms
+that main-thread destruction overlaps handler-thread worker joins. Stack evidence
+is retained in `artifacts/full-server-shutdown-dump-stack.log`; the dump itself
+remains in its original private location and is not packaged or committed.
+
+The fix serializes console/service stop callbacks with main-thread teardown,
+makes the run flag atomic, prevents repeated stop requests, and only publishes
+the server to callbacks after initialization completes. Main-thread teardown waits
+for the callback's stop/join sequence before releasing worker ownership. A stop
+received during initialization is retained and processed after initialization;
+the callback no longer operates on a partially initialized server. No join
+exception is swallowed and no camera/HTTP authentication behavior is changed.
+
+The previously failing full-server lifecycle regression now passes against native
+`866a4420204d`, including authenticated diagnostics, anonymous rejection, durable
+history export, clean shutdown, restart, and retained history. Additional repeated
+run logs are `artifacts/shutdown-single-owner-repeat-*.log`. Service Control Manager
+shutdown, interrupted initialization, repeated simultaneous control signals and
+camera-loaded shutdown are not yet independently exercised by this zero-camera
+test. Missing face-table preparation warnings remain a separate investigation.
+
+Deployable package: `build-vs2026-stable/deploy/shutdown-order-866a4420204d`,
+native `866a4420204d`, web `199371ef8283`, 94 files / 177,487,324 bytes, verified
+byte-for-byte against the build runtime by
+`artifacts/shutdown-order-package-verified.json`. Native build completed without
+C++/linker warnings or dependency installation; frontend chunk-size advisories
+remain. The full multi-stream performance gate and overall goal remain open.

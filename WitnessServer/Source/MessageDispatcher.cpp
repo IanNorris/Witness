@@ -12,7 +12,7 @@
 #define MakeLambda( Name ) auto LambdaHandle##Name = std::bind( &WitnessServer::Handle##Name, this, std::placeholders::_1 )
 #define HandleEvent( Name ) Msg->Handle<Name>(LambdaHandle##Name)
 
-void WitnessServer::MessageLoop( bool& ContinueRunning )
+void WitnessServer::MessageLoop( const std::atomic<bool>& ContinueRunning )
 {
 	MakeLambda(CameraStartupMessage);
 	MakeLambda(CameraReconnectMessage);
@@ -22,7 +22,7 @@ void WitnessServer::MessageLoop( bool& ContinueRunning )
 	MakeLambda(CameraUpdateMotionMessage);
 	MakeLambda(CameraEndMotionMessage);
 		
-	while( ContinueRunning )
+	while( ContinueRunning.load() )
 	{
 		std::shared_ptr<Message> Msg;
 		MessageClient->Pop( Msg );

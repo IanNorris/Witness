@@ -28,7 +28,7 @@ public:
 
 	bool Initialize( DebugConsole* DebugConsoleInstance );
 
-	void MessageLoop( bool& ContinueRunning );
+	void MessageLoop( const std::atomic<bool>& ContinueRunning );
 
 	void Shutdown();
 	void RequestShutdown();
