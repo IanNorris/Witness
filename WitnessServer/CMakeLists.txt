@@ -164,6 +164,23 @@ if(MSVC)
     target_compile_options(DetectionCleanupTests PRIVATE /utf-8 /W3)
 endif()
 
+# Explicit, loopback-only real-cookie health integration fixture. Never starts
+# camera workers or uses the configured server database; Python owns its fixtures.
+add_executable(ClientHealthHttpFixture EXCLUDE_FROM_ALL
+    ../Tools/Tests/ClientHealthHttpFixture.cpp
+    Source/CrowAuth.cpp Source/SQLite.cpp Source/Common.cpp Source/ClientHealthHistory.cpp
+)
+target_include_directories(ClientHealthHttpFixture PRIVATE
+    Source ${CMAKE_SOURCE_DIR}/WitnessCamera/Include ${OpenCV_INCLUDE_DIRS}
+)
+target_link_libraries(ClientHealthHttpFixture PRIVATE
+    WitnessCommon Crow::Crow unofficial::sqlite3::sqlite3
+)
+if(MSVC)
+    target_compile_options(ClientHealthHttpFixture PRIVATE /utf-8 /W3)
+    target_compile_definitions(ClientHealthHttpFixture PRIVATE _WINDOWS _WIN32_WINNT=0x0A00)
+endif()
+
 # Copy models directory next to the executable
 add_custom_command(TARGET WitnessServer POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory

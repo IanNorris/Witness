@@ -162,15 +162,54 @@ incident, and retain evidence after dismissal.
 - Current browser: every two seconds while visible and ten seconds while
   hidden; retain ten minutes plus bounded important events, including disposed
   player instances.
-- V1 merges server history with the current browser and clearly marks other
-  clients unavailable. Cross-client reporting can later use ephemeral,
-  authenticated client summaries without uploading raw media.
+- The browser report worker uploads bounded, authenticated summaries without
+  raw media to `/debug/client-health`. An administrator export combines stored
+  cross-client history with the current browser's detailed local evidence.
+  Missing or stale reports are distinguished from live browser replies.
 - JSON contains the complete correlated evidence, collection bounds, clock
   offset/uncertainty, versions, effective policies, selected detailed traces,
   and missing-data reasons. CSV/TSV contains the copyable per-camera table and
   protects against spreadsheet formula injection.
 - Serialization copies bounded snapshots and never holds the global context,
   stream, or processing locks while producing the response.
+
+### Implemented cross-client history and validation
+
+The separate `client-health.db` worker retains at most 24 hours, 8 MiB of
+payload/identity data, 2,048 samples, 64 sessions globally, eight sessions per
+authenticated user and 120 samples per session. The submission queue holds at
+most 64 samples. A report is at most 64 KiB; per-session and per-user rate limits
+also apply. SQLite storage is capped independently. This is a recent diagnostic
+ring, not a permanent activity audit trail. Browsers normally report every
+15 seconds, including hidden tabs subject to browser throttling, with a
+five-second request deadline and retry. Silent/disconnected clients retain
+their last submitted evidence until retention or capacity eviction.
+
+POST requires a normal authenticated session and its CSRF token. GET requires
+administrator privileges. There is no Debug/loopback bypass for this endpoint.
+User UID, username, receive time and sequence come from the server; supplied
+ownership fields are ignored. Raw error messages, credentials and arbitrary
+nested event payloads are not stored. The persistent local browser ID and
+per-page session ID identify reports, not authentication principals.
+
+`Tools/Tests/ClientHealthHttpFixture.cpp` and `test_client_health_http.py` add an
+opt-in actual HTTP integration test. The fixture binds only to `127.0.0.1` on an
+ephemeral port, uses temporary databases, and calls the production `CrowAuth`
+implementation and authentication SQL extracted from `Database.cpp`. It starts
+no cameras and does not disable authentication. The test covers absent cookies,
+wrong cookie-port namespace, normal versus admin privileges, disabled/missing
+users, wrong/missing CSRF, accepted and rate-limited POSTs, forged ownership,
+cross-user export, session revocation, and durable history across process restart.
+The administrator can export a revoked client's retained samples but that client
+can no longer submit reports. The real-cookie HTTP test passes.
+
+Build the explicit `ClientHealthHttpFixture` target, set
+`WITNESS_HEALTH_HTTP_FIXTURE` to its executable path, and run
+`python -m unittest discover -s Tools/Tests -p test_client_health_http.py -v`.
+Without the environment variable it skips rather than contacting a live server.
+The fixture test does not validate the login/password endpoint, HTTPS cookie
+transport, the full `CrowListener` registration, or actual multi-browser UI
+reporting; those remain distinct integration/production validation concerns.
 
 ## Tapo corruption acceptance scenario
 
