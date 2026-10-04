@@ -5,7 +5,7 @@ Branch: `codex/ptz-selection-controls`.
 ## Changes
 
 - Destroy database query instances before PTZ discovery or nested lazy lookup.
-  Query instances own the database mutex for their full lifetime.
+  Query instances own their prepared-query mutex for their full lifetime.
 - Publish lazily discovered clients under the context mutex; prefer an existing
   Baichuan connection before attempting HTTP discovery for movement and presets.
 - Reject unknown movement commands and invalid speed/preset parameters.
@@ -60,14 +60,31 @@ Saved-position UI is implemented; automatic home/calibration recovery is a
 separate backlog item and is not triggered here. Live camera capability/motor
 validation remains outstanding. Do not claim the PTZ goal complete yet.
 
-The query-lock fix has build validation but no isolated concurrency regression
-test yet. Computer-use browser checks against the built UI on a loopback-only
+The query-lock fix now has an isolated native concurrency regression using the
+production snapshot helpers, SQL extracted from `Database.cpp`, and the actual
+SQLite query wrapper. A deliberately stalled simulated discovery holds an owned
+snapshot while another camera reuses the same queries and updates SQLite text.
+It verifies that queries remain available and earlier strings remain unchanged;
+NULL, missing and linked-camera cases are covered too. These are per-query mutex
+checks, not a claim that every DB operation or HTTP route is nonblocking.
+The registered `PtzMovementLeaseTests` and `PtzConfigurationTests` targets passed
+on Windows with a 15-second external process deadline. They do not connect to
+any camera or move a motor. Linux compilation remains unverified.
+
+```powershell
+cmake --build build-vs2026 --config RelWithDebInfo --target PtzMovementLeaseTests PtzConfigurationTests
+build-vs2026/bin/RelWithDebInfo/PtzMovementLeaseTests.exe
+build-vs2026/bin/RelWithDebInfo/PtzConfigurationTests.exe WitnessServer/Source/Database.cpp
+```
+
+Computer-use browser checks against the built UI on a loopback-only
 synthetic fixture verified selection, switching camera/closing the prior panel,
 saved-position selection, and two-stage Escape dismissal. No physical camera,
 real authentication session or production database was involved. The visual
 check exposed the fullscreen recording side effect and in-tile panel clipping,
 which were repaired. The test fixture cannot forward camera commands.
-Existing Sass, DLL-interface and incremental-link warnings are not fixed here.
+Later build-health branches resolved the DLL-interface and incremental-link
+warnings; third-party Sass deprecations remain separate work.
 
 Component-script tests exercise read-only preset discovery, filtering disabled
 positions, actual preset POST selection, stale replies after switching away and

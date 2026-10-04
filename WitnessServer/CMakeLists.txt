@@ -181,6 +181,20 @@ if(MSVC)
     target_compile_definitions(ClientHealthHttpFixture PRIVATE _WINDOWS _WIN32_WINNT=0x0A00)
 endif()
 
+# Isolated PTZ safety/query tests: never initialize a camera transport.
+find_package(Threads REQUIRED)
+add_executable(PtzMovementLeaseTests EXCLUDE_FROM_ALL
+    ../Tools/PtzMovementLeaseTests.cpp Source/PtzMovementLease.cpp)
+add_executable(PtzConfigurationTests EXCLUDE_FROM_ALL
+    ../Tools/Tests/PtzConfigurationTests.cpp Source/SQLite.cpp Source/Common.cpp)
+target_include_directories(PtzConfigurationTests PRIVATE Source)
+target_link_libraries(PtzMovementLeaseTests PRIVATE Threads::Threads)
+target_link_libraries(PtzConfigurationTests PRIVATE WitnessCommon unofficial::sqlite3::sqlite3 Threads::Threads)
+if(MSVC)
+    target_compile_options(PtzMovementLeaseTests PRIVATE /utf-8 /W3)
+    target_compile_options(PtzConfigurationTests PRIVATE /utf-8 /W3)
+endif()
+
 # Copy models directory next to the executable
 add_custom_command(TARGET WitnessServer POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory

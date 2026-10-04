@@ -6,37 +6,24 @@
 #include "SQLite.h"
 #include "UrlHelpers.h"
 #include "PtzMovementLease.h"
+#include "PtzConfiguration.h"
 
 static int PtzDeviceId(GlobalContext& ctx, int cameraId)
 {
-    int deviceId = cameraId;
-    SQLiteDatabaseQueryInstance linked(ctx.Database, "GetLinkedCameraId");
-    linked->Bind("@CameraId", cameraId);
-    linked->Execute([&](const SQLiteDatabaseQuery& query) {
-        if (query.GetColumnValueInt(0) > 0) deviceId = query.GetColumnValueInt(0);
-        return true;
-    });
-    return deviceId; // Query and its DB lock are destroyed before caller camera I/O.
+    const int linkedId = ReadPtzLinkedCameraId(ctx.Database, cameraId);
+    return linkedId > 0 ? linkedId : cameraId;
 }
 
 // Try to lazily initialize a PTZ client if it wasn't created at startup
 static std::shared_ptr<ReolinkClient> TryInitPtzClient(GlobalContext& ctx, int cameraId)
 {
-    bool Enabled = false;
-    int port = 443;
-    std::string hostStr, userStr, passStr, rtspPath;
-    {
-        SQLiteDatabaseQueryInstance GetPtzConfig(ctx.Database, "GetCameraPtzConfig");
-        GetPtzConfig->Bind("@CameraId", cameraId);
-        GetPtzConfig->Execute([&](const SQLiteDatabaseQuery& query) {
-            Enabled = query.GetColumnValueInt(0) != 0;
-            port = query.GetColumnValueInt(2);
-            auto Copy = [&](int Column) { const char* Value = query.GetColumnValueText(Column); return Value ? std::string(Value) : std::string{}; };
-            hostStr = Copy(1); userStr = Copy(3); passStr = Copy(4); rtspPath = Copy(5);
-            return true;
-        });
-    } // Release the recording DB lock before discovery, authentication or I/O.
-    if (!Enabled) return nullptr;
+    auto Config = ReadPtzConfiguration(ctx.Database, cameraId);
+    if (!Config.Enabled) return nullptr;
+    const int port = Config.Port;
+    auto& hostStr = Config.Host;
+    auto& userStr = Config.Username;
+    auto& passStr = Config.Password;
+    const auto& rtspPath = Config.RtspPath;
     std::shared_ptr<ReolinkClient> client;
 
 		// Fall back to RTSP URL credentials if PTZ-specific ones are empty
@@ -96,14 +83,7 @@ static std::shared_ptr<ReolinkClient> GetPtzClientForCamera(GlobalContext& ctx, 
 	if (client) return client;
 
 	// Check linked camera
-	int linkedId = 0;
-    {
-        SQLiteDatabaseQueryInstance GetLinked(ctx.Database, "GetLinkedCameraId");
-        GetLinked->Bind("@CameraId", cameraId);
-        GetLinked->Execute([&](const SQLiteDatabaseQuery& query) {
-            linkedId = query.GetColumnValueInt(0); return true;
-        });
-    } // Lazy init may query this connection again; never retain GetLinked here.
+	const int linkedId = ReadPtzLinkedCameraId(ctx.Database, cameraId);
 
 	if (linkedId > 0)
 	{
