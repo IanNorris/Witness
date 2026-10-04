@@ -12,6 +12,7 @@ set(SERVER_SOURCES
     Source/AuthHelpers.cpp
     Source/ClipHelpers.cpp
     Source/ClientHealthHistory.cpp
+    Source/CpuUsage.cpp
     Source/DetectionAssetFiles.cpp
     Source/DetectionCleanup.cpp
     Source/ClipReprocessWorker.cpp
@@ -196,6 +197,13 @@ if(MSVC)
 endif()
 
 # Explicit telemetry limit/privacy regressions, with caller-owned temporary DBs.
+add_executable(CpuUsageTests EXCLUDE_FROM_ALL ../Tools/Tests/CpuUsageTests.cpp Source/CpuUsage.cpp)
+target_include_directories(CpuUsageTests PRIVATE Source)
+target_link_libraries(CpuUsageTests PRIVATE Threads::Threads Crow::Crow)
+if(MSVC)
+    target_compile_options(CpuUsageTests PRIVATE /utf-8 /W3)
+endif()
+
 add_executable(PtzCapabilityProbe EXCLUDE_FROM_ALL
     ../Tools/Tests/PtzCapabilityProbe.cpp Source/ReolinkClient.cpp)
 target_include_directories(PtzCapabilityProbe PRIVATE Source ${CMAKE_SOURCE_DIR}/ThirdParty/httplib)

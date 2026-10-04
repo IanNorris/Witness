@@ -6,6 +6,7 @@
 #include "ClipReprocessWorker.h"
 #include "BuildIdentity.h"
 #include "ClientHealthEndpoint.h"
+#include "CpuUsageJson.h"
 
 #include <Log.h>
 #include <filesystem>
@@ -242,6 +243,8 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 	}
 
 	crow::json::wvalue Host;
+	const auto Cpu = Witness::Diagnostics::SampleCpuUsage();
+	Witness::Diagnostics::WriteCpuHealth(Host, Cpu);
 	SYSTEM_INFO SystemInfo{};
 	GetSystemInfo( &SystemInfo );
 	const DWORD ActiveProcessors = GetActiveProcessorCount( ALL_PROCESSOR_GROUPS );
@@ -606,7 +609,8 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 	Server["database"] = std::move( SQLite );
 
 	crow::json::wvalue Coverage;
-	Coverage["hostCpuPercent"] = "notImplemented";
+	Coverage["hostCpuPercent"] = Cpu.HostReason;
+	Coverage["processCpuPercent"] = Cpu.ProcessReason;
 	Coverage["rtpSequenceCounters"] = "notExposedByDemuxer";
 	Coverage["hardwareDecoderSessions"] = "notExposedByBrowser";
 	Coverage["otherBrowserClients"] = "bounded authenticated history at /debug/client-health; silent or offline clients retain their last heartbeat";

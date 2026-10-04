@@ -367,3 +367,57 @@ This demonstrates bounded HTTP responsiveness in this synthetic run, not the
 production summary endpoint, camera processing overhead, sustained browser
 reporting CPU or the 16-representative-stream/30-minute gate. No recording DB,
 authentication setting, camera worker or production runtime route is changed.
+
+### Shared host/process CPU measurement checkpoint (4 October)
+
+The earlier health API reported CPU coverage as not implemented even though the
+terminal independently sampled host CPU. Both now use one process-wide sampler.
+It reuses a cached result for 500 ms, so concurrent terminal/HTTP consumers do
+not consume each other's tiny counter-delta windows. Collection remains on
+demand: this adds no background thread or persistent storage. It does not cache
+the entire health response or implement the future periodic summary sampler.
+
+Windows host CPU is busy-time percentage from GetSystemTimes deltas; kernel
+time includes idle, which is subtracted once. Process CPU uses GetProcessTimes
+kernel/user deltas in 100 ns units divided by monotonic elapsed time and total
+logical CPU capacity. Thus 100% process CPU means the full host, not one core.
+References: [GetSystemTimes](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-getsystemtimes)
+and [GetProcessTimes](https://learn.microsoft.com/en-us/windows/win32/api/processthreadsapi/nf-processthreadsapi-getprocesstimes).
+Host CPU above 64 logical processors remains unavailable because GetSystemTimes
+is processor-group scoped there. Process CPU can still be collected. Non-Windows
+collection remains an explicit `platformNotImplemented` stub; Linux execution
+was not tested in this checkpoint.
+
+Health `server.host` adds optional numeric `cpuPercent` and `processCpuPercent`,
+`cpuSampleWindowMs`, `cpuSampleAgeMs`, unavailable reasons, and an explicit
+process-normalization description. Warmup, counter/clock resets, missing data,
+invalid deltas and capacity changes produce null, not a guessed zero. Measured
+zero remains numeric zero. Coverage carries the current availability reason.
+The Health cards show host and Witness CPU; the latter is labelled as total host
+capacity. Older reports remain readable, and warmup/reset/unsupported values
+have distinct human-readable labels. Existing endpoint authentication and
+client-history retention policies are unchanged.
+
+`CpuUsageTests` is an opt-in native target. It verifies known 80% host / 25%
+process arithmetic, measured zero, unavailable/reset/invalid deltas, partial
+coverage, sample windows, exact production health JSON serialization, and 8,000
+concurrent cache reads without extra OS sampling. Its real Windows producer
+smoke test collected a 564.353 ms window (host 20.3704%, idle test process 0%).
+That is the test executable's CPU, not a loaded Witness-server measurement.
+Log: `artifacts/unified-cpu-final-native-tests.log`. PTZ graph/lease configuration
+and timestamp regression guards also exit zero. All 46 client tests pass,
+including two CPU display/legacy/null-versus-zero cases. Vue type checking and
+the combined build pass without C++/linker warnings or dependency installation;
+existing third-party web warnings remain. The new card text was not separately
+visually inspected in a browser.
+
+Verified package: `build-vs2026/deploy/unified-cpu-ce1cb1924b1e`, native ID
+`ce1cb1924b1e`, web ID `baeb86a8a3de`, 96 files / 180,175,836 bytes. Report:
+`artifacts/unified-cpu-package-verification-20261004.json`. It includes the prior
+ordered improvements and excludes probes, databases, certificates and captures.
+No production deployment, main merge, remote push or camera movement occurred.
+The user's backlog edits are unchanged.
+
+This supplies a missing measurement prerequisite. It does not establish the
+16-representative-stream/30-minute diagnostics overhead gate, processing P95
+overhead, summary HTTP P95 under production load or managed dependency migration.

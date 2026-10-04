@@ -2,6 +2,7 @@
 #include "CrowListener.h"
 #include "GlobalContext.h"
 #include "BuildIdentity.h"
+#include "CpuUsage.h"
 
 #include <algorithm>
 #include <mutex>
@@ -14,40 +15,6 @@
 #include <psapi.h>
 #endif
 
-namespace
-{
-#ifdef _WIN32
-	uint64_t FileTimeValue( const FILETIME& Value )
-	{
-		ULARGE_INTEGER Combined{};
-		Combined.LowPart = Value.dwLowDateTime;
-		Combined.HighPart = Value.dwHighDateTime;
-		return Combined.QuadPart;
-	}
-
-	double SampleHostCpu()
-	{
-		static std::mutex Mutex;
-		static uint64_t LastIdle = 0, LastKernel = 0, LastUser = 0;
-		std::lock_guard<std::mutex> lock( Mutex );
-		FILETIME IdleTime{}, KernelTime{}, UserTime{};
-		if( !GetSystemTimes( &IdleTime, &KernelTime, &UserTime ) )
-			return -1.0;
-		const uint64_t Idle = FileTimeValue( IdleTime );
-		const uint64_t Kernel = FileTimeValue( KernelTime );
-		const uint64_t User = FileTimeValue( UserTime );
-		const uint64_t IdleDelta = Idle - LastIdle;
-		const uint64_t TotalDelta = ( Kernel - LastKernel ) + ( User - LastUser );
-		const bool HasBaseline = LastKernel != 0 && TotalDelta != 0;
-		LastIdle = Idle;
-		LastKernel = Kernel;
-		LastUser = User;
-		return HasBaseline ? 100.0 * (double)( TotalDelta - std::min( IdleDelta, TotalDelta ) ) /
-			(double)TotalDelta : -1.0;
-	}
-#endif
-}
-
 OperationalStatus WitnessServer::GetOperationalStatus() const
 {
 	OperationalStatus Result;
@@ -56,7 +23,7 @@ OperationalStatus WitnessServer::GetOperationalStatus() const
 	Result.WebReady = Server && Server->IsReady();
 
 #ifdef _WIN32
-	Result.HostCpuPercent = SampleHostCpu();
+	Result.HostCpuPercent = Witness::Diagnostics::SampleCpuUsage().HostPercent.value_or(-1.0);
 	MEMORYSTATUSEX Memory{};
 	Memory.dwLength = sizeof( Memory );
 	if( GlobalMemoryStatusEx( &Memory ) )

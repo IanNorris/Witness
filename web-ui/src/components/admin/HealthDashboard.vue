@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { api } from '../../composables/useApi'
 import { openHealthMonitor } from '../../composables/useHealthMonitor'
+import { formatCpuPercent } from '../../composables/healthCpuUsage'
 import {
   collectClientHealthSessions,
   type ClientHealthSession,
@@ -191,6 +192,12 @@ interface HealthSnapshot {
       memoryLoadPercent: number | null
       processWorkingSetBytes: number | null
       processPrivateBytes: number | null
+      cpuPercent?: number | null
+      processCpuPercent?: number | null
+      cpuSampleWindowMs?: number
+      cpuSampleAgeMs?: number
+      cpuUnavailableReason?: string
+      processCpuUnavailableReason?: string
     }
     audioIntelligence?: {
       workerLoaded: boolean
@@ -530,9 +537,10 @@ onBeforeUnmount(() => {
       <div class="row g-3 mb-3">
         <div class="col-sm-6 col-xl-3">
           <div class="card h-100"><div class="card-body py-3">
-            <div class="health-secondary small">Host memory</div>
+            <div class="health-secondary small">Host resources</div>
             <div class="fs-5">{{ formatBytes(memoryUsed) }} / {{ formatBytes(snapshot.server.host.totalMemoryBytes) }}</div>
             <div class="small">{{ snapshot.server.host.memoryLoadPercent ?? 'Unknown' }}% physical memory used · {{ snapshot.server.host.logicalProcessors }} logical CPUs</div>
+            <div class="small" :title="`CPU sample window ${snapshot.server.host.cpuSampleWindowMs ?? 'unknown'} ms; age ${snapshot.server.host.cpuSampleAgeMs ?? 'unknown'} ms`">Host CPU {{ formatCpuPercent(snapshot.server.host.cpuPercent, snapshot.server.host.cpuUnavailableReason) }}</div>
           </div></div>
         </div>
         <div class="col-sm-6 col-xl-3">
@@ -540,6 +548,7 @@ onBeforeUnmount(() => {
             <div class="health-secondary small">Witness process private memory</div>
             <div class="fs-5">{{ formatBytes(snapshot.server.host.processPrivateBytes) }}</div>
             <div class="small">{{ formatBytes(snapshot.server.host.processWorkingSetBytes) }} working set</div>
+            <div class="small">CPU {{ formatCpuPercent(snapshot.server.host.processCpuPercent, snapshot.server.host.processCpuUnavailableReason) }} of total host capacity</div>
           </div></div>
         </div>
         <div class="col-sm-6 col-xl-3">
