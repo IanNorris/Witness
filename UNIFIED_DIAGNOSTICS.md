@@ -462,3 +462,45 @@ durable. Report: `artifacts/history-snapshot-after-20261004.json`. Export P95 is
 similar to the preliminary run; this change removes a payload-copy critical
 section, not the serialization/HTTP-worker cost. These synthetic measurements
 are not production summary latency or evidence of improved camera playback.
+
+### Ordered goal audit (5 October)
+
+The five functional work pieces are implemented, but the full-runtime
+validation below remains open. The active goal is not being marked complete
+from component tests or package identity checks.
+
+| Goal item | Current authoritative evidence | Remaining validation limit |
+|---|---|---|
+| Tapo cadence/stalls | Concurrent 900-second camera 8/9 demux/mux runs, paired payload/decode checks and saved-output real-browser MSE replay. InputStream.cpp and LiveOutputStream.cpp have no diff from the measured e8e1f36 implementation. | Replay does not reproduce live server delivery, original network jitter or the complete processing workload. |
+| Bounded authenticated browser history | Persistence/retention/byte/session bounds and concurrent snapshot/pruning tests; actual Crow cookie, CSRF, cross-user and restart tests; bounded HTTP export benchmark. | Independent browser profiles and a complete live-server workload have not been tested together. |
+| PTZ and explicit fullscreen selection | Final 46-test client suite; production SQL/lease regressions; HTTP/Baichuan acknowledgement, TLS ownership and exported-DLL tests; real cameras 10/12 acknowledged brief Move and Stop. | Real firmware replies are not measured motor stopping time; full production HTTP-to-camera routing and concurrent reconfiguration are not proved by the direct probes. |
+| Dashboard modes/layouts/activity placement | Priority/manual/automatic-slot geometry regressions and built-dashboard real-MSE slot transitions; five players remain primed through promotion/fallback. | Five synthetic IDs replayed one saved source, not five independent live cameras; hardware-capacity and hidden-tab behaviour remain outside that run. |
+| Measured build/PIMPL/dependency reuse | Compiler profiling, clean native warning results, cross-DLL shutdown tests, corrected separate pins and actual managed bootstrap/configure/build with every installed file unchanged. | A clean-machine source bootstrap and actual compiler-servicing A/B comparison were not performed. |
+
+Final client suite: `artifacts/ordered-goal-final-ui-tests.log`, 46 passed,
+zero failed/skipped. Detailed evidence and limitations remain in
+`Tools/TAPO_PACKET_CAPTURE_FINDINGS.md`, `Tools/PTZ_CONTROL_VALIDATION.md`,
+`Tools/DASHBOARD_LAYOUT_VALIDATION.md` and `BUILDING.md`.
+
+Current coherent managed package:
+`build-vs2026-stable/deploy/managed-reuse-d53320113674`, native
+`d53320113674`, web `c13b0dc19b82`, 94 files / 174,189,020 bytes;
+`artifacts/managed-lf-package-verified.json`. No production deployment, main
+merge or remote push has occurred. The user-owned backlog changes are unstaged.
+
+The next full-load harness must run actual server camera workers, decode/mux,
+essential/AI queues, HTTP/WebSockets and browser reporting, not only the existing
+HTTP-history fixture or passthrough probe. Its data root, recording database,
+history database, cache, logs and listener must be isolated before initialization;
+the current GetConfigFilePath uses the machine-wide Windows directory, not the
+process working directory. Changing cwd or copying the production database
+alone is therefore insufficient. Startup cleanup must have no path to real
+recordings, and authentication must remain enabled with fixture-owned sessions.
+
+Use a declared H.264/HEVC source/resolution/frame-rate matrix for 16 streams,
+explicit baseline/enabled phases of at least 30 minutes, and report decode,
+queue, playback, CPU and HTTP evidence separately. Processing P95 requires
+actual per-item distributions, not reconstruction from cumulative means.
+Missing sources, unsupported decode, hidden-tab throttling, storage failures or
+unfinished phases must be reported as incomplete rather than a passing gate.
+No longer test has been started yet; there is no live job being waited on.
