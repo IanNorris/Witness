@@ -19,6 +19,13 @@ class LogTestStream : public Stream
 public:
 	CameraStreamError WriteInterleavedPacket(const AVPacket*) override { return CameraStreamError::Success; }
 };
+// Declared after the callback's local captures, so even an early return clears
+// the callback before those locals die and the mux destructor flushes.
+struct ProbeCallbackLifetime
+{
+	LiveOutputStream& Live;
+	~ProbeCallbackLifetime() { Live.SetEventCallback({}); }
+};
 static uint64_t Timestamp()
 {
 	return std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -111,6 +118,7 @@ int main(int argc, char** argv)
 		}
 		output.write(reinterpret_cast<const char*>(event.Data->data()), event.Data->size());
 	});
+	ProbeCallbackLifetime callbackLifetime{live};
 	const auto start = std::chrono::steady_clock::now();
 	double LastReadMs = 0, MaxReadMs = 0;
 	uint64_t ReadsOverOneSecond = 0;
@@ -179,6 +187,11 @@ int main(int argc, char** argv)
 			nextReport += std::chrono::seconds(60);
 		}
 	}
+	// Flush while the output and all callback captures are still alive. A final
+	// partial must not be written by the destructor through a dangling ofstream.
+	live.Shutdown();
+	live.SetEventCallback({});
+	output.flush();
 	report();
 	std::cout << "readResult=" << static_cast<int>(result)
 		<< " generationChanged=" << changedGeneration << '\n';

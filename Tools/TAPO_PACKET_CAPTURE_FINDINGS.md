@@ -562,9 +562,10 @@ transport capture. Artifacts are `tapo8-natural-15minute-20261004.mp4` and
 
 Both complete recordings pass the strict decoder/timestamp checker with no
 codec diagnostics, missing timestamps, duplicate timestamps or regressions.
-Camera 8 has 14,968 finalized packet/frame samples; camera 9 has 17,440. The
-two camera-8 packets still in fragment assembly at probe termination are not
-evidence of a timestamp-policy drop. Camera 9's one very short step (4.93 ms)
+Camera 8 has 14,968 finalized packet/frame samples; camera 9 has 17,440.
+The counts were sampled before mux shutdown and the files contain finalized
+fragment callbacks; this difference alone does not establish a timestamp-policy
+drop or transport loss. Camera 9's one very short step (4.93 ms)
 and all four steps below 40 ms occur within the first two seconds of startup,
 not throughout the established stream; its maximum packet step is 413.9 ms.
 
@@ -573,3 +574,16 @@ reproduce the earlier input stall. It does not prove full production-load or
 browser/MSE stability, attribute the intermittent input issue, or eliminate the
 raw-input codec error seen in the separate artificial-pause test. No server
 restart, production database mutation or production deployment occurred.
+
+A subsequent lifetime audit found that the probe's mux destructor could flush
+its callback after the captured output stream/local state had been destroyed.
+The probe now explicitly shuts down the mux while those captures are alive,
+flushes the output before checking its status, and has a scope guard that clears
+the callback on early exits. This corrects the diagnostic recorder only, not
+the server stream path. Previously saved files independently decode as recorded,
+but their termination tail must not be used as proof that all accepted packets
+were finalized. The live read/cadence counts above are still the directly sampled
+pre-shutdown evidence, not a claim about final tail completeness.
+The corrected probe builds, passes its log self-test and all three wrapper
+tests, and completes a fresh 30-second camera-9 run with exit zero. Its finalized
+recording passes strict decode and packet/frame timestamp checks.
