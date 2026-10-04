@@ -68,6 +68,7 @@ set(CAMERA_SOURCES
 set(CAMERA_HEADERS
     Include/AudioClassifier.h
     Include/ContinuousOutputStream.h
+    Include/CadenceDeliveryEvidence.h
     Include/DebugBind.h
     Include/Export.h
     Include/FaceDetectionFilter.h
@@ -92,6 +93,7 @@ set(CAMERA_HEADERS
     Source/FilterData.h
     Source/ImageProcessingData.h
     Source/StreamData.h
+    Source/LiveOutputStreamData.h
     Source/StreamManager.h
 )
 
@@ -169,3 +171,15 @@ endif()
 if(MSVC)
     target_compile_options(BaichuanLifetimeTests PRIVATE /utf-8 /W3)
 endif()
+
+# Offline fixtures only. Internal state access belongs to these test consumers,
+# never to the exported Camera DLL header.
+foreach(test_name LiveTimestampRecoveryTests LiveCadencePauseTests LiveStreamOwnershipTests)
+    add_executable(${test_name} EXCLUDE_FROM_ALL ../Tools/Tests/${test_name}.cpp)
+    target_include_directories(${test_name} PRIVATE Source ${FFMPEG_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
+    target_link_directories(${test_name} PRIVATE ${FFMPEG_LIBRARY_DIRS})
+    target_link_libraries(${test_name} PRIVATE WitnessCamera ${FFMPEG_LIBRARIES})
+    if(MSVC)
+        target_compile_options(${test_name} PRIVATE /utf-8 /W3)
+    endif()
+endforeach()

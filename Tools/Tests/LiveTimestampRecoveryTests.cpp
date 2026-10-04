@@ -2,6 +2,7 @@
 // video-only fixture (20 fps) and an output prefix. No camera credentials needed.
 #include "InputStream.h"
 #include "LiveOutputStream.h"
+#include "LiveOutputStreamData.h"
 #include <chrono>
 #include <fstream>
 #include <iostream>
@@ -13,11 +14,11 @@ namespace Witness::Camera {
 struct LiveTimestampRecoveryTestAccess {
     static void RejectAfterCooldown(LiveOutputStream& Live) {
         const int64_t NowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - Live._PacketDiagEpoch).count();
-        Live._NormalizeNoBFrameTimestamps = false;
-        Live._TimestampNormalizationRejected = true;
-        Live._TimestampRequalification.Reject(NowMs - 60000);
-        Live._DiagTimestampRejected = true;
+            std::chrono::steady_clock::now() - Live._LiveData->_PacketDiagEpoch).count();
+        Live._LiveData->_NormalizeNoBFrameTimestamps = false;
+        Live._LiveData->_TimestampNormalizationRejected = true;
+        Live._LiveData->_TimestampRequalification.Reject(NowMs - 60000);
+        Live._LiveData->_DiagTimestampRejected = true;
     }
 };
 }

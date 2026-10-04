@@ -216,3 +216,49 @@ bypass is used. This does not validate real-camera detections, TLS read/write
 concurrency, or Linux runtime behavior. Existing transport/lifecycle behavior,
 including TLS cleanup ordering and retry sleep, is unchanged by this pass;
 the synthetic TCP result must not be treated as proof of every network path.
+
+### Live-stream DLL ownership pass (2026-10-04)
+
+`LiveOutputStream` owns one immutable pointer to Camera-DLL-private state.
+Its segment backlog, FFmpeg resources, capture state, callbacks, cadence guards
+and diagnostic rings no longer live in the exported class. Ten formerly inline
+accessors/mutators execute in the DLL; `InputStream` and repair machinery no
+longer need to be included by the public live-stream header. Delivery evidence
+is an independent header-defined value type, preserving the diagnostics schema.
+The existing mux/clock method bodies are unchanged apart from accessing the
+private state. Copy/move are explicitly unavailable.
+
+The normal RelWithDebInfo DLL/server rebuild completed with **zero C++ compiler
+warnings**, versus 216 C4251 occurrences immediately before this pass. Linker
+LNK4075 and web Sass warnings remain; they are not hidden. The rebuild took
+153.4s, versus the previous 105.0s sample, so this does **not** demonstrate a
+compile-time speedup. Timing comparisons need a controlled repeated baseline;
+the proven improvement here is warning and DLL ownership health.
+
+```powershell
+cmake --build build-vs2026 --config RelWithDebInfo --target LiveStreamOwnershipTests LiveCadencePauseTests LiveTimestampRecoveryTests TimestampRegressionGuardTests --parallel 2
+```
+
+Tests use offline fixtures, not real cameras or a browser:
+
+- The exported-DLL ownership test passed eight cycles each with H.264, HEVC,
+  and H.264/AAC: callback media retains its original hash after reconnect and
+  stream destruction; init snapshots and retained segment copies survive;
+  explicit/repeated Shutdown and destructor-only shutdown are exercised. The
+  AAC case also requires an audio codec and muxed audio packet evidence.
+- Existing cadence tests pass with both H.264 and HEVC across a virtual
+  15-second delivery pause, a clean-keyframe generation reset, and a deliberate
+  sustained rate mismatch which must still be rejected. The cooldown/recovery
+  fixture and timestamp guard regressions also pass.
+- All eight emitted control/pause/recovery MP4 generations strictly decode
+  with `ffmpeg -err_detect explode -xerror`. Decoded-frame timestamps increase
+  monotonically: control/recovery intervals are 50ms, pause outputs stay within
+  47.5–52.5ms, matching the production clock's explicit nominal/20 correction
+  limit. An initially tighter ±1ms check was inappropriate for that intentional
+  correction and was replaced with the actual production bound.
+
+Fixtures and results are ignored under `artifacts/live-pimpl-tests`. These tests
+do not establish production/MSE stability or concurrent shutdown safety while
+another caller is using the stream; its existing camera-worker ownership
+contract is unchanged. Because exported class layout changed, always deploy
+the rebuilt server and Camera DLL together.

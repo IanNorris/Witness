@@ -3,6 +3,7 @@
 // at a validation boundary without waiting two minutes or using camera secrets.
 #include "InputStream.h"
 #include "LiveOutputStream.h"
+#include "LiveOutputStreamData.h"
 #include "StreamData.h"
 extern "C" {
 #include <libavformat/avformat.h>
@@ -16,7 +17,7 @@ using namespace Witness::Camera;
 namespace Witness::Camera {
 struct LiveTimestampRecoveryTestAccess {
     static void Elapsed(LiveOutputStream& Live, int64_t Ms) {
-        Live._PacketDiagEpoch = std::chrono::steady_clock::now() - std::chrono::milliseconds(Ms);
+        Live._LiveData->_PacketDiagEpoch = std::chrono::steady_clock::now() - std::chrono::milliseconds(Ms);
     }
 };
 }
