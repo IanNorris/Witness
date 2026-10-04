@@ -626,3 +626,38 @@ arbitrary text sharing a report prefix is rejected. All four wrapper tests and
 the native log self-test pass. The rebuilt runtime identity `9100299d68a0`
 differs because explicit telemetry test targets were added to server CMake;
 the Camera stream implementation is unchanged from the 900-second run above.
+
+### Camera 8 reproduced cadence rejection; first candidate failed
+
+The later 900-second camera-8 baseline (`9100299d68a0`) reproduced the actual
+failure: at 120 seconds of declared packet duration, the arrival reference was
+131.284 seconds. Repair was disabled, followed by 5,734 established timestamp
+drops and 194 corruption notifications by the end of the run. There were no
+FFmpeg errors, source-duration changes or invalid declared durations. ProcessFrame
+never exceeded 299.111 ms. A probe exit zero only means reading/muxing continued;
+it is emphatically not a playback-health pass.
+
+In the captured rejection window (`camera-8-preview-1791139369180-2`), all raw
+input access units replay and strictly decode without errors, but 124 of 682 mux
+decisions drop non-monotonic timestamps. Recorded input hashes and output hashes
+match, with one boundary lookahead decision lacking its captured source record.
+The reconstructed output still strictly decodes (frequent random-access frames
+can mask reference loss), but that does not excuse the measured packet loss.
+Artifacts: `artifacts/tapo8-before-rate-window2.*` and the baseline
+`artifacts/tapo8-current-retry-15minute-20261004.*`.
+
+A first bounded arrival-duration learner used a 20-second window, clean/stable
+duration metadata, pause/corruption/order guards, and a strict 10% rate bound.
+Its H.264/HEVC offline tests passed for an 8% mismatch, while preserving 10%
+rejection, pause recovery and stable-source-clock behavior. Timestamp recovery
+and H.264/AAC ownership tests passed too. An integer comparison corrected an
+initial MSVC floating-point ambiguity at the exact 10% boundary.
+
+The subsequent 180-second live experiment (`4c926fc8926c`) nevertheless failed:
+20 seconds declared took 22.404 seconds to deliver (about 12% slower), and the
+bound rejected it before any rate adjustment. It produced 1,124 established
+drops and 47 corruption notifications. See
+`artifacts/tapo8-bounded-rate-candidate1-20261004.*`. This disproves treating the
+8% synthetic case as sufficient camera coverage. The candidate remains
+experimental, not a deployable fix; simply moving the arbitrary percentage
+threshold would not establish safe adaptation across changing delivery rates.
