@@ -183,3 +183,36 @@ pass, not proof that a particular refactor is already faster.
 Raw traces and binary logs may contain machine paths, environment variables,
 and command lines. Keep those ignored artifacts local and review/redact them
 before sharing. The summary omits these fields by design.
+
+### Baichuan DLL ownership pass (2026-10-04)
+
+`ReolinkBaichuanClient` now owns one opaque implementation pointer. Credential,
+socket, TLS, thread, atomic, mutex, error and detection state stay inside the
+Camera DLL. Exported calls delegate to the existing protocol implementation;
+copy/move remain unavailable because an active worker needs a stable address.
+This changes the class size: rebuild and deploy the server and Camera DLL
+together, never mix a pre-refactor consumer with the new DLL.
+
+The normal RelWithDebInfo before/after build logs contained 264 versus 216
+C4251 occurrences, eliminating the 48 occurrences involving this class without
+suppressing warnings. The initial normal rebuild took 99.5s, versus 105.0s for
+the post-refactor `/t:Rebuild`. Different rebuild mechanisms and single samples
+do not establish a compile-time improvement; this pass primarily improves
+ownership boundaries and warning health. `LiveOutputStream` remains the next
+exported-state migration and needs separate streaming lifetime tests.
+
+```powershell
+cmake --build build-vs2026 --config RelWithDebInfo --target BaichuanLifetimeTests --parallel 2
+.\build-vs2026\bin\RelWithDebInfo\BaichuanLifetimeTests.exe
+```
+
+The test links to the actual Camera DLL. Twenty synthetic loopback TCP cycles
+verify initial state, independent returned detection snapshots, idle/repeated
+Stop, duplicate Start, and both explicit Stop and destruction during a stalled
+encryption-negotiation receive. Each shutdown must finish within three seconds.
+Compile-time checks require pointer-sized ownership and prohibit copy/move.
+No physical camera, production credentials, PTZ command, or authentication
+bypass is used. This does not validate real-camera detections, TLS read/write
+concurrency, or Linux runtime behavior. Existing transport/lifecycle behavior,
+including TLS cleanup ordering and retry sleep, is unchanged by this pass;
+the synthetic TCP result must not be treated as proof of every network path.

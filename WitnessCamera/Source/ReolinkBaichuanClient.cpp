@@ -7,6 +7,9 @@
 // Protocol reference: community reverse-engineering (apocaliss92/nodelink-js)
 
 #include "ReolinkBaichuanClient.h"
+#include <mutex>
+#include <thread>
+#include <atomic>
 #include <Log.h>
 
 #include <lz4frame.h>
@@ -171,7 +174,98 @@ static WinsockInit g_WinsockInit;
 // ReolinkBaichuanClient implementation
 // ============================================================================
 
+class ReolinkBaichuanClient::Impl
+{
+public:
+    Impl(const std::string& host, int port, const std::string& username, const std::string& password);
+    ~Impl();
+    void Start();
+    void Stop();
+    ReolinkDetectionState GetDetections() const;
+    std::string GetLastError() const;
+    bool IsConnected() const { return m_Connected.load(); }
+    bool PtzControl(const std::string& command, int speed, int channel);
+    bool PtzGoToPreset(int presetId, int channel);
+    bool PtzStop(int channel);
+
+private:
+	void ThreadFunc();
+	bool Connect();
+	bool Authenticate();
+	bool RequestStream();
+	void ReadLoop();
+	void ParseAlarmEvent(const std::string& xml);
+	bool ReadExact(uint8_t* buffer, size_t length);
+	bool SendRaw(const uint8_t* data, size_t length);
+	bool SendBcMessage(uint32_t cmdId, uint32_t msgId, const std::vector<uint8_t>& payload);
+
+	std::string m_Host;
+	int m_Port;
+	std::string m_Username;
+	std::string m_Password;
+
+	// Socket
+	uintptr_t m_Socket = ~(uintptr_t)0; // INVALID_SOCKET
+	mutable std::mutex m_SendMutex; // Protects socket writes from multiple threads
+
+	// Thread
+	std::thread m_Thread;
+	std::atomic<bool> m_Running{false};
+	std::atomic<bool> m_Connected{false};
+
+	// Detection state (protected by mutex)
+	mutable std::mutex m_DetectionMutex;
+	ReolinkDetectionState m_CurrentDetections;
+
+	// Error state
+	mutable std::mutex m_ErrorMutex;
+	std::string m_LastError;
+
+	// Auth token from login
+	std::string m_AuthToken;
+	uint32_t m_MessageCounter = 0;
+
+	// AES key for decrypting push events (derived from nonce + password after login)
+	std::vector<uint8_t> m_AesKey; // 16 bytes
+	bool AesDecrypt(const uint8_t* in, size_t len, std::string& out);
+
+	// AI coordinate space (from camera, typically 896x480)
+	uint16_t m_AiWidth = 896;
+	uint16_t m_AiHeight = 480;
+
+	// TLS state (for cameras with Baichuan over TLS)
+	void* m_SslCtx = nullptr;  // SSL_CTX*
+	void* m_Ssl = nullptr;     // SSL*
+	bool m_UseTls = false;
+
+	void CleanupTls();
+	bool TryTlsConnect();
+
+};
+
 ReolinkBaichuanClient::ReolinkBaichuanClient(const std::string& host, int port,
+    const std::string& username, const std::string& password)
+    : m_Impl(new Impl(host, port, username, password))
+{
+}
+
+ReolinkBaichuanClient::~ReolinkBaichuanClient() { delete m_Impl; }
+void ReolinkBaichuanClient::Start() { m_Impl->Start(); }
+void ReolinkBaichuanClient::Stop() { m_Impl->Stop(); }
+ReolinkDetectionState ReolinkBaichuanClient::GetDetections() const { return m_Impl->GetDetections(); }
+std::string ReolinkBaichuanClient::GetLastError() const { return m_Impl->GetLastError(); }
+bool ReolinkBaichuanClient::IsConnected() const { return m_Impl->IsConnected(); }
+bool ReolinkBaichuanClient::PtzControl(const std::string& command, int speed, int channel)
+{
+    return m_Impl->PtzControl(command, speed, channel);
+}
+bool ReolinkBaichuanClient::PtzGoToPreset(int presetId, int channel)
+{
+    return m_Impl->PtzGoToPreset(presetId, channel);
+}
+bool ReolinkBaichuanClient::PtzStop(int channel) { return m_Impl->PtzStop(channel); }
+
+ReolinkBaichuanClient::Impl::Impl(const std::string& host, int port,
 	const std::string& username, const std::string& password)
 	: m_Host(host)
 	, m_Port(port > 0 ? port : 9000)
@@ -180,19 +274,19 @@ ReolinkBaichuanClient::ReolinkBaichuanClient(const std::string& host, int port,
 {
 }
 
-ReolinkBaichuanClient::~ReolinkBaichuanClient()
+ReolinkBaichuanClient::Impl::~Impl()
 {
 	Stop();
 }
 
-void ReolinkBaichuanClient::Start()
+void ReolinkBaichuanClient::Impl::Start()
 {
 	if (m_Running.load()) return;
 	m_Running = true;
-	m_Thread = std::thread(&ReolinkBaichuanClient::ThreadFunc, this);
+	m_Thread = std::thread(&ReolinkBaichuanClient::Impl::ThreadFunc, this);
 }
 
-void ReolinkBaichuanClient::Stop()
+void ReolinkBaichuanClient::Impl::Stop()
 {
 	m_Running = false;
 	CleanupTls();
@@ -211,19 +305,19 @@ void ReolinkBaichuanClient::Stop()
 		m_Thread.join();
 }
 
-ReolinkDetectionState ReolinkBaichuanClient::GetDetections() const
+ReolinkDetectionState ReolinkBaichuanClient::Impl::GetDetections() const
 {
 	std::lock_guard<std::mutex> lock(m_DetectionMutex);
 	return m_CurrentDetections;
 }
 
-std::string ReolinkBaichuanClient::GetLastError() const
+std::string ReolinkBaichuanClient::Impl::GetLastError() const
 {
 	std::lock_guard<std::mutex> lock(m_ErrorMutex);
 	return m_LastError;
 }
 
-void ReolinkBaichuanClient::ThreadFunc()
+void ReolinkBaichuanClient::Impl::ThreadFunc()
 {
 	int backoff = 5000;
 	int consecutiveFailures = 0;
@@ -292,7 +386,7 @@ void ReolinkBaichuanClient::ThreadFunc()
 	}
 }
 
-bool ReolinkBaichuanClient::Connect()
+bool ReolinkBaichuanClient::Impl::Connect()
 {
 	struct addrinfo hints{}, *result = nullptr;
 	hints.ai_family = AF_INET;
@@ -363,7 +457,7 @@ bool ReolinkBaichuanClient::Connect()
 	return true;
 }
 
-bool ReolinkBaichuanClient::TryTlsConnect()
+bool ReolinkBaichuanClient::Impl::TryTlsConnect()
 {
 	SSL_CTX* ctx = SSL_CTX_new(TLS_client_method());
 	if (!ctx)
@@ -405,7 +499,7 @@ bool ReolinkBaichuanClient::TryTlsConnect()
 	return true;
 }
 
-void ReolinkBaichuanClient::CleanupTls()
+void ReolinkBaichuanClient::Impl::CleanupTls()
 {
 	if (m_Ssl)
 	{
@@ -420,7 +514,7 @@ void ReolinkBaichuanClient::CleanupTls()
 	}
 }
 
-bool ReolinkBaichuanClient::Authenticate()
+bool ReolinkBaichuanClient::Impl::Authenticate()
 {
 	// Phase 1: Encryption negotiation (Legacy header, empty body)
 	BcHeader20 negHeader{};
@@ -613,7 +707,7 @@ bool ReolinkBaichuanClient::Authenticate()
 	return true;
 }
 
-bool ReolinkBaichuanClient::RequestStream()
+bool ReolinkBaichuanClient::Impl::RequestStream()
 {
 	// Subscribe to push events (cmd_id=31) — this gives us motion/AI detection events
 	// without needing to parse BcMedia video frames.
@@ -643,7 +737,7 @@ bool ReolinkBaichuanClient::RequestStream()
 	return true;
 }
 
-void ReolinkBaichuanClient::ReadLoop()
+void ReolinkBaichuanClient::Impl::ReadLoop()
 {
 	while (m_Running.load())
 	{
@@ -758,7 +852,7 @@ void ReolinkBaichuanClient::ReadLoop()
 	}
 }
 
-void ReolinkBaichuanClient::ParseAlarmEvent(const std::string& xml)
+void ReolinkBaichuanClient::Impl::ParseAlarmEvent(const std::string& xml)
 {
 	// Parse cmd_id=33 AlarmEvent XML for motion and AI detection states
 	// Format:
@@ -832,7 +926,7 @@ void ReolinkBaichuanClient::ParseAlarmEvent(const std::string& xml)
 // PTZ commands
 // ============================================================================
 
-bool ReolinkBaichuanClient::PtzControl(const std::string& command, int speed, int channel)
+bool ReolinkBaichuanClient::Impl::PtzControl(const std::string& command, int speed, int channel)
 {
 	if (!m_Connected.load())
 		return false;
@@ -900,12 +994,12 @@ bool ReolinkBaichuanClient::PtzControl(const std::string& command, int speed, in
 	return true;
 }
 
-bool ReolinkBaichuanClient::PtzStop(int channel)
+bool ReolinkBaichuanClient::Impl::PtzStop(int channel)
 {
 	return PtzControl("Stop", 0, channel);
 }
 
-bool ReolinkBaichuanClient::PtzGoToPreset(int presetId, int channel)
+bool ReolinkBaichuanClient::Impl::PtzGoToPreset(int presetId, int channel)
 {
 	if (!m_Connected.load())
 		return false;
@@ -974,7 +1068,7 @@ bool ReolinkBaichuanClient::PtzGoToPreset(int presetId, int channel)
 // Low-level I/O
 // ============================================================================
 
-bool ReolinkBaichuanClient::ReadExact(uint8_t* buffer, size_t length)
+bool ReolinkBaichuanClient::Impl::ReadExact(uint8_t* buffer, size_t length)
 {
 	size_t totalRead = 0;
 	while (totalRead < length && m_Running.load())
@@ -1021,7 +1115,7 @@ bool ReolinkBaichuanClient::ReadExact(uint8_t* buffer, size_t length)
 	return totalRead == length;
 }
 
-bool ReolinkBaichuanClient::SendRaw(const uint8_t* data, size_t length)
+bool ReolinkBaichuanClient::Impl::SendRaw(const uint8_t* data, size_t length)
 {
 	size_t totalSent = 0;
 	while (totalSent < length)
@@ -1045,7 +1139,7 @@ bool ReolinkBaichuanClient::SendRaw(const uint8_t* data, size_t length)
 	return true;
 }
 
-bool ReolinkBaichuanClient::SendBcMessage(uint32_t cmdId, uint32_t msgId, const std::vector<uint8_t>& payload)
+bool ReolinkBaichuanClient::Impl::SendBcMessage(uint32_t cmdId, uint32_t msgId, const std::vector<uint8_t>& payload)
 {
 	// Convenience wrapper — uses modern header
 	BcHeader24 header{};
@@ -1069,7 +1163,7 @@ bool ReolinkBaichuanClient::SendBcMessage(uint32_t cmdId, uint32_t msgId, const 
 	return true;
 }
 
-bool ReolinkBaichuanClient::AesDecrypt(const uint8_t* in, size_t len, std::string& out)
+bool ReolinkBaichuanClient::Impl::AesDecrypt(const uint8_t* in, size_t len, std::string& out)
 {
 	if (m_AesKey.empty() || m_AesKey.size() != 16)
 		return false;

@@ -4,11 +4,7 @@
 
 #include <string>
 #include <vector>
-#include <mutex>
-#include <thread>
-#include <atomic>
 #include <chrono>
-#include <functional>
 #include <cstdint>
 
 namespace Witness {
@@ -48,6 +44,12 @@ public:
 	ReolinkBaichuanClient(const std::string& host, int port, const std::string& username, const std::string& password);
 	~ReolinkBaichuanClient();
 
+	// Stable-address thread ownership; never copy or move an active client.
+	ReolinkBaichuanClient(const ReolinkBaichuanClient&) = delete;
+	ReolinkBaichuanClient& operator=(const ReolinkBaichuanClient&) = delete;
+	ReolinkBaichuanClient(ReolinkBaichuanClient&&) = delete;
+	ReolinkBaichuanClient& operator=(ReolinkBaichuanClient&&) = delete;
+
 	// Start/stop the background connection thread
 	void Start();
 	void Stop();
@@ -61,61 +63,12 @@ public:
 	bool PtzStop(int channel = 0);
 
 	// Connection status
-	bool IsConnected() const { return m_Connected.load(); }
+	bool IsConnected() const;
 	std::string GetLastError() const;
 
 private:
-	void ThreadFunc();
-	bool Connect();
-	bool Authenticate();
-	bool RequestStream();
-	void ReadLoop();
-	void ParseAlarmEvent(const std::string& xml);
-	bool ReadExact(uint8_t* buffer, size_t length);
-	bool SendRaw(const uint8_t* data, size_t length);
-	bool SendBcMessage(uint32_t cmdId, uint32_t msgId, const std::vector<uint8_t>& payload);
-
-	std::string m_Host;
-	int m_Port;
-	std::string m_Username;
-	std::string m_Password;
-
-	// Socket
-	uintptr_t m_Socket = ~(uintptr_t)0; // INVALID_SOCKET
-	mutable std::mutex m_SendMutex; // Protects socket writes from multiple threads
-
-	// Thread
-	std::thread m_Thread;
-	std::atomic<bool> m_Running{false};
-	std::atomic<bool> m_Connected{false};
-
-	// Detection state (protected by mutex)
-	mutable std::mutex m_DetectionMutex;
-	ReolinkDetectionState m_CurrentDetections;
-
-	// Error state
-	mutable std::mutex m_ErrorMutex;
-	std::string m_LastError;
-
-	// Auth token from login
-	std::string m_AuthToken;
-	uint32_t m_MessageCounter = 0;
-
-	// AES key for decrypting push events (derived from nonce + password after login)
-	std::vector<uint8_t> m_AesKey; // 16 bytes
-	bool AesDecrypt(const uint8_t* in, size_t len, std::string& out);
-
-	// AI coordinate space (from camera, typically 896x480)
-	uint16_t m_AiWidth = 896;
-	uint16_t m_AiHeight = 480;
-
-	// TLS state (for cameras with Baichuan over TLS)
-	void* m_SslCtx = nullptr;  // SSL_CTX*
-	void* m_Ssl = nullptr;     // SSL*
-	bool m_UseTls = false;
-
-	void CleanupTls();
-	bool TryTlsConnect();
+	class Impl;
+	Impl* m_Impl;
 };
 
 }}
