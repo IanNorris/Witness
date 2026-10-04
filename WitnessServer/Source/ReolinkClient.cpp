@@ -7,6 +7,20 @@
 #include <sstream>
 #include <shared_mutex>
 #include <unordered_map>
+#include <cmath>
+#include <limits>
+
+// An HTTP 200 alone is not a command acknowledgement. In particular, an
+// ambiguous Stop must remain failed so the movement lease keeps retrying it.
+static bool HasPtzResponseCode(const crow::json::rvalue& Json)
+{
+	if (!Json || Json.t() != crow::json::type::List || Json.size() != 1 ||
+		Json[0].t() != crow::json::type::Object || !Json[0].has("code") ||
+		Json[0]["code"].t() != crow::json::type::Number) return false;
+	const double Code = Json[0]["code"].d();
+	return std::isfinite(Code) && std::trunc(Code) == Code &&
+		Code >= std::numeric_limits<int>::min() && Code <= std::numeric_limits<int>::max();
+}
 
 // Cache failed AutoDetect attempts to avoid hammering cameras with repeated login failures
 static std::shared_mutex s_FailureCacheMutex;
@@ -330,18 +344,18 @@ bool ReolinkClient::PtzControl(PtzOp op, int speed)
 	}
 
 	auto json = crow::json::load(response);
-	if (!json || json.size() == 0)
+	if (!HasPtzResponseCode(json))
 	{
-		m_LastError = "PtzCtrl: invalid JSON: " + response.substr(0, 200);
+		m_LastError = "PtzCtrl: invalid or missing acknowledgement code: " + response.substr(0, 200);
 		LOG_ERROR("ReolinkClient: %s", m_LastError.c_str());
 		return false;
 	}
 
 	// Check for success (code 0)
 	auto& resp = json[0];
-	if (resp.has("code") && resp["code"].i() != 0)
+	if (resp["code"].d() != 0)
 	{
-		int code = (int)resp["code"].i();
+		int code = static_cast<int>(resp["code"].d());
 
 		// For zoom ops, try alternative names on failure
 		if ((op == PtzOp::ZoomInc || op == PtzOp::ZoomDec) && code != 0)
@@ -352,18 +366,20 @@ bool ReolinkClient::PtzControl(PtzOp op, int speed)
 			response = SendCommand("PtzCtrl", body);
 			if (!response.empty())
 			{
-				json = crow::json::load(response);
-				if (json && json.size() > 0)
+				// Keep the original response alive: resp below refers into it.
+				auto retryJson = crow::json::load(response);
+				if (HasPtzResponseCode(retryJson))
 				{
-					auto& retryResp = json[0];
-					if (!retryResp.has("code") || retryResp["code"].i() == 0)
+					auto& retryResp = retryJson[0];
+					if (retryResp["code"].d() == 0)
 						return true;
 				}
 			}
 		}
 
 		m_LastError = "PtzCtrl failed, code=" + std::to_string(code);
-		if (resp.has("error") && resp["error"].has("detail"))
+		if (resp.has("error") && resp["error"].t() == crow::json::type::Object &&
+			resp["error"].has("detail") && resp["error"]["detail"].t() == crow::json::type::String)
 			m_LastError += " detail=" + std::string(resp["error"]["detail"].s());
 		LOG_ERROR("ReolinkClient: %s (response: %s)", m_LastError.c_str(), response.substr(0, 300).c_str());
 		return false;
@@ -387,11 +403,14 @@ bool ReolinkClient::PtzGoToPreset(int presetId)
 		return false;
 
 	auto json = crow::json::load(response);
-	if (!json || json.size() == 0)
+	if (!HasPtzResponseCode(json))
+	{
+		m_LastError = "PtzCtrl preset: invalid or missing acknowledgement code";
 		return false;
+	}
 
 	auto& resp = json[0];
-	return !resp.has("code") || resp["code"].i() == 0;
+	return resp["code"].d() == 0;
 }
 
 PtzPosition ReolinkClient::GetPosition()

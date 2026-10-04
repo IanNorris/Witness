@@ -204,6 +204,14 @@ if(MSVC)
     target_compile_options(PtzCapabilityProbe PRIVATE /utf-8 /W3)
 endif()
 
+add_executable(PtzTransportProbe EXCLUDE_FROM_ALL
+    ../Tools/Tests/PtzTransportProbe.cpp Source/ReolinkClient.cpp)
+target_include_directories(PtzTransportProbe PRIVATE Source ${CMAKE_SOURCE_DIR}/ThirdParty/httplib)
+target_link_libraries(PtzTransportProbe PRIVATE WitnessCommon Crow::Crow OpenSSL::SSL OpenSSL::Crypto)
+if(MSVC)
+    target_compile_options(PtzTransportProbe PRIVATE /utf-8 /W3)
+endif()
+
 add_executable(ClientHealthPayloadTests EXCLUDE_FROM_ALL ../Tools/Tests/ClientHealthPayloadTests.cpp)
 target_include_directories(ClientHealthPayloadTests PRIVATE Source)
 target_link_libraries(ClientHealthPayloadTests PRIVATE Crow::Crow)

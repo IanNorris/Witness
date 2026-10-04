@@ -124,3 +124,53 @@ has no compiler warnings; `ReolinkClient.h` now directly includes its memory
 and vector dependencies instead of relying on earlier includes. Linux execution
 and physical movement/Stop behavior are still not validated by this read-only
 check. Explicit permission is required before the latter test is attempted.
+
+## Synthetic production HTTP transport checkpoint (4 October)
+
+`PtzTransportProbe` uses the real Reolink client, but its destination is hardcoded
+to `127.0.0.1` with synthetic credentials. It has no host argument, database lookup
+or auto-detection path. The Python test starts a disposable loopback HTTP camera;
+no physical camera command is sent. The target is `EXCLUDE_FROM_ALL` and is not
+included in deployment folders.
+
+```powershell
+cmake --build build-vs2026 --config RelWithDebInfo --target PtzTransportProbe
+$env:WITNESS_PTZ_TRANSPORT_PROBE=(Resolve-Path build-vs2026/bin/RelWithDebInfo/PtzTransportProbe.exe).Path
+python Tools/Tests/test_ptz_transport.py
+```
+
+The pre-fix run recorded thirteen failed assertions: malformed HTTP 200 responses
+such as `[{}]` were acknowledged as successful, fractional codes could truncate
+to zero, and other malformed shapes raised exceptions. This included Stop and
+the alternative zoom operation. A successful-looking ambiguous Stop can clear
+the movement lease's retry state even though the device did not acknowledge it.
+
+Movement/Stop, presets and alternative zoom acknowledgements now require a
+single-object response containing a finite, integral, in-range numeric `code`,
+and only zero is success. Missing, boolean/string, fractional or oversized codes,
+null/string objects, multiple responses, invalid JSON and HTTP/device errors
+cannot acknowledge a command. Invalid preset acknowledgements also set an error.
+The zoom fallback keeps its retry JSON separate: previously it replaced the
+original JSON storage while retaining a reference into that storage for error
+reporting. Original error details are type-checked before reading them.
+
+All five test methods / 38 synthetic command cases pass, including low-speed
+movement/Stop/preset wire fields, malformed acknowledgements, zoom fallback and
+one-time HTTP 401 re-authentication followed by an identical Stop. The independent
+movement-lease expiry, ambiguous-delivery, failed-Stop retry, linked ordering,
+shutdown and preset tests also pass. These prove protocol/lease behavior against
+a synthetic device, not motor movement on real firmware or physical Stop latency.
+The latter still requires explicit permission.
+
+Final runtime build: `artifacts/ptz-ack-runtime-build.log`, no C++/linker warnings
+or dependency installation; existing third-party web warnings remain visible.
+All 44 UI regressions pass. Logs: `artifacts/ptz-transport-before.log`,
+`artifacts/ptz-transport-final.log`, `artifacts/ptz-lease-after-ack.log`, and
+`artifacts/ptz-ack-ui-tests.log`.
+
+Deployment: `build-vs2026/deploy/ptz-ack-49630fd8b90c`, native ID `49630fd8b90c`,
+web ID `439c7eef7414`. The read-only verifier confirms all 96 files /
+179,875,602 bytes match runtime output and both native modules contain the native
+ID. Report: `artifacts/ptz-ack-package-verification-20261004.json`. This package
+includes the prior ordered improvements; it was not deployed, merged to main
+or pushed. The original package and user's backlog edits remain unchanged.
