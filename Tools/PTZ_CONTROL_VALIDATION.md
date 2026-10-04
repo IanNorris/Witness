@@ -93,3 +93,34 @@ code with mocked HTTP and lifecycle hooks, not browser-rendering or hardware.
 Additional fullscreen component tests cover selection independent of focus,
 Escape ordering, outside clicks, floating-panel ownership, layout-editor mode,
 no fullscreen click-to-record, preserving tile-view recording, and PTZ dismissal.
+
+## Read-only physical capability checkpoint (4 October)
+
+`PtzCapabilityProbe` calls the production Reolink HTTP transport's authentication,
+`GetPosition`, `GetZoomFocus` and `GetPresets` methods only. No motor movement,
+zoom/preset writes, reboot or calibration commands are reachable. Its wrapper
+reads the supplied SQLite database in read-only mode, follows the configured
+physical parent, and passes credentials through environment variables rather
+than process arguments. Only allowlisted numeric result lines are relayed;
+transport logs, hosts, credentials and preset names are suppressed.
+
+```powershell
+cmake --build build-vs2026 --config RelWithDebInfo --target PtzCapabilityProbe
+python Tools/Tests/run_ptz_capability_probe.py --database C:/Users/icsta/Downloads/server.db --probe build-vs2026/bin/RelWithDebInfo/PtzCapabilityProbe.exe --camera 10
+```
+
+Actual camera 10 authenticated and reported valid zoom state (range 1000–6000,
+position 2155) and one enabled saved position in 1,029 ms. Camera 12 authenticated
+and reported the same zoom range (position 1000) and eight enabled saved positions
+in 10,402 ms. Both returned an invalid absolute pan/tilt position through the
+current parser/API. This does not establish that their firmware has no alternative
+position API. Results: `artifacts/ptz-camera10-readonly-capabilities.log` and
+`artifacts/ptz-camera12-readonly-capabilities.log`.
+
+The wrapper regression verifies linked-parent lookup, URL credential fallback,
+no database-byte changes, bounded subprocess timeout, no credentials in argv
+and rejection of arbitrary/numeric-looking log output. The final probe build
+has no compiler warnings; `ReolinkClient.h` now directly includes its memory
+and vector dependencies instead of relying on earlier includes. Linux execution
+and physical movement/Stop behavior are still not validated by this read-only
+check. Explicit permission is required before the latter test is attempted.

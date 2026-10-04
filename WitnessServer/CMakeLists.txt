@@ -196,6 +196,14 @@ if(MSVC)
 endif()
 
 # Explicit telemetry limit/privacy regressions, with caller-owned temporary DBs.
+add_executable(PtzCapabilityProbe EXCLUDE_FROM_ALL
+    ../Tools/Tests/PtzCapabilityProbe.cpp Source/ReolinkClient.cpp)
+target_include_directories(PtzCapabilityProbe PRIVATE Source ${CMAKE_SOURCE_DIR}/ThirdParty/httplib)
+target_link_libraries(PtzCapabilityProbe PRIVATE WitnessCommon Crow::Crow OpenSSL::SSL OpenSSL::Crypto)
+if(MSVC)
+    target_compile_options(PtzCapabilityProbe PRIVATE /utf-8 /W3)
+endif()
+
 add_executable(ClientHealthPayloadTests EXCLUDE_FROM_ALL ../Tools/Tests/ClientHealthPayloadTests.cpp)
 target_include_directories(ClientHealthPayloadTests PRIVATE Source)
 target_link_libraries(ClientHealthPayloadTests PRIVATE Crow::Crow)
