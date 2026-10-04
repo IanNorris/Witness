@@ -42,6 +42,7 @@ public:
     History& operator=(const History&) = delete;
     SubmitResult Submit(Sample Value);
     Snapshot GetSnapshot() const;
+    std::string ExportJson() const;
 private:
     struct Impl;
     std::unique_ptr<Impl> Data;

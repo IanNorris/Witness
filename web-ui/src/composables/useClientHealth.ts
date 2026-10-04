@@ -1,4 +1,5 @@
 import { sanitizeDriftSample, sanitizeDriftSamples, type DriftSample } from './driftDiagnostics'
+import { api } from './useApi'
 
 export interface ClientPlayerHealth {
   id: string
@@ -60,6 +61,11 @@ export interface ClientPlayerEvent {
 }
 
 export interface ClientHealthSession {
+  browserId?: string
+  username?: string
+  userUid?: number
+  receivedUnixMs?: number
+  serverRecorded?: boolean
   sessionId: string
   sampledAtUtc: string
   buildHash: string
@@ -83,6 +89,15 @@ const MAX_EVENTS_PER_PLAYER = 40
 const TAB_ID = typeof crypto.randomUUID === 'function'
   ? crypto.randomUUID()
   : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+const BROWSER_ID = (() => {
+  const key = 'witness-browser-health-id-v1'
+  try {
+    const saved = localStorage.getItem(key)
+    if (saved && /^[a-zA-Z0-9_-]{1,80}$/.test(saved)) return saved
+    localStorage.setItem(key, TAB_ID)
+  } catch { /* Storage-disabled browsers still report a per-page identity. */ }
+  return TAB_ID
+})()
 let responder: BroadcastChannel | null = null
 let lastResponseAt = 0
 
@@ -196,6 +211,7 @@ function validateSession(value: unknown): ClientHealthSession | null {
   const sampledAtUtc = boundedText(source.sampledAtUtc, 40)
   if (!Number.isFinite(Date.parse(sampledAtUtc))) return null
   return {
+    browserId: boundedText(source.browserId, 80) || undefined,
     sessionId: id,
     sampledAtUtc,
     buildHash: boundedText(source.buildHash, 80),
@@ -284,6 +300,7 @@ export function collectLocalClientHealth(): ClientHealthSession {
 
   players.sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }))
   return {
+    browserId: BROWSER_ID,
     sessionId: TAB_ID,
     sampledAtUtc: new Date().toISOString(),
     buildHash: boundedText(__BUILD_HASH__, 80),
@@ -292,6 +309,84 @@ export function collectLocalClientHealth(): ClientHealthSession {
     visibilityState: document.visibilityState,
     players,
     playersTruncated,
+  }
+}
+
+export interface StoredClientHealth {
+  sequence: number
+  receivedUnixMs: number
+  userUid: number
+  username: string
+  browserId: string
+  sessionId: string
+  snapshot: ClientHealthSession
+}
+export interface ClientHealthHistory {
+  ready: boolean
+  storageAvailable: boolean
+  durableThroughSequence: number
+  pending: number
+  rejected: number
+  storageFailures: number
+  retentionMs: number
+  maxHistoryBytes: number
+  maxSamples: number
+  sessions: StoredClientHealth[]
+  history: StoredClientHealth[]
+}
+
+export function compactHealthReport(session: ClientHealthSession): ClientHealthSession {
+  const report = { ...session, players: session.players.map(player => ({ ...player,
+    recentEvents: player.recentEvents?.slice(-8).map(event => ({ ...event, message: undefined, driftSamples: undefined, drift: undefined })),
+    driftSamples: player.driftSamples?.slice(-4), lastDriftRestart: undefined,
+  })) }
+  if (new TextEncoder().encode(JSON.stringify(report)).length > 60 * 1024) {
+    for (const player of report.players) { player.recentEvents = undefined; player.driftSamples = undefined }
+  }
+  return report
+}
+
+export function startClientHealthReporting(isAllowed: () => boolean): () => void {
+  let stopped = false
+  let busy = false
+  let controller: AbortController | null = null
+  let timer: ReturnType<typeof setTimeout> | null = null
+  let lastAttempt = -Infinity
+  async function send() {
+    if (stopped || busy || !isAllowed() || performance.now() - lastAttempt < 1000) return
+    busy = true
+    lastAttempt = performance.now()
+    controller = new AbortController()
+    const timeout = setTimeout(() => controller?.abort(), 5000)
+    try {
+      // api supplies the session's CSRF token; cancellation bounds a stuck HTTP
+      // connection so it cannot stop all subsequent reports indefinitely.
+      await api('/debug/client-health', { method: 'POST', body: { snapshot: compactHealthReport(collectLocalClientHealth()) },
+        redirectOnFail: false, signal: controller.signal })
+    } catch { /* Telemetry must never interrupt playback or redirect a dashboard. */ }
+    finally {
+      clearTimeout(timeout)
+      controller = null
+      busy = false
+      if (!stopped && isAllowed()) {
+        if (timer) clearTimeout(timer)
+        timer = setTimeout(send, 15000)
+      }
+    }
+  }
+  function changed() {
+    if (timer) clearTimeout(timer)
+    timer = setTimeout(send, 1000)
+  }
+  document.addEventListener('visibilitychange', changed)
+  window.addEventListener('online', changed)
+  timer = setTimeout(send, Math.random() * 1000)
+  return () => {
+    stopped = true
+    if (timer) clearTimeout(timer)
+    controller?.abort()
+    document.removeEventListener('visibilitychange', changed)
+    window.removeEventListener('online', changed)
   }
 }
 

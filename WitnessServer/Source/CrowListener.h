@@ -105,6 +105,7 @@ public:
 private:
 
 	void RegisterRoutes();
+    void HandleClientHealth( const crow::request& req, crow::response& res );
 
 	// Static file serving
 	bool ScanStaticFiles( size_t& FileCount );

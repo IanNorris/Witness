@@ -715,6 +715,9 @@ void CrowListener::RegisterRoutes()
 		HandleDebugHealth( req, res );
 	});
 
+    CROW_ROUTE( m_App, "/debug/client-health" ).methods(crow::HTTPMethod::GET, crow::HTTPMethod::POST)
+    ([this](const crow::request& req, crow::response& res) { HandleClientHealth(req, res); });
+
 	CROW_ROUTE( m_App, "/debug/disk" )
 	([this]( const crow::request& req, crow::response& res )
 	{

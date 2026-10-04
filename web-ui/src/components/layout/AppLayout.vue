@@ -5,7 +5,7 @@ import { useAuthStore } from '../../stores/auth'
 import { useCameraStore } from '../../stores/cameras'
 import { useGroupStore } from '../../stores/groups'
 import { useEventStream } from '../../composables/useEventStream'
-import { ensureClientHealthResponder } from '../../composables/useClientHealth'
+import { ensureClientHealthResponder, startClientHealthReporting } from '../../composables/useClientHealth'
 import { openHealthMonitor } from '../../composables/useHealthMonitor'
 import { format } from 'date-fns'
 
@@ -15,6 +15,11 @@ const groupStore = useGroupStore()
 const { connected } = useEventStream()
 const route = useRoute()
 let stopClientHealthResponder: (() => void) | null = null
+let stopHealthReporting: (() => void) | null = null
+watch(() => auth.isAuthenticated, allowed => {
+  stopHealthReporting?.()
+  stopHealthReporting = allowed ? startClientHealthReporting(() => auth.isAuthenticated) : null
+}, { immediate: true })
 
 const clockTime = ref('')
 const clockDate = ref('')
@@ -54,6 +59,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   if (clockTimer) clearInterval(clockTimer)
   stopClientHealthResponder?.()
+  stopHealthReporting?.()
 })
 </script>
 

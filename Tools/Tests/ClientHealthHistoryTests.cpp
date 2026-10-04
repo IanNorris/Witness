@@ -1,4 +1,5 @@
 #include "ClientHealthHistory.h"
+#include <crow/json.h>
 #include <atomic>
 #include <chrono>
 #include <filesystem>
@@ -17,7 +18,8 @@ template<class Predicate> static void Await(Predicate Ready) {
     }
 }
 static Sample Row(int User = 7, std::string Session = "tab-a", size_t Bytes = 2) {
-    return {999, 123, User, "authenticated-user", "browser-a", std::move(Session), std::string(Bytes, 'x')};
+    return {999, 123, User, "authenticated-user", "browser-a", std::move(Session),
+        Bytes <= 2 ? "{}" : "{\"f\":\"" + std::string(Bytes - 8, 'x') + "\"}"};
 }
 static void Ready(History& Store) {
     Await([&] { return Store.GetSnapshot().Ready; });
@@ -48,7 +50,11 @@ int main(int Argc, char** Argv) {
             Check(Store.Submit(Bad) == History::SubmitResult::Invalid, "oversized payload accepted");
             // An identical browser/tab identifier belongs to a different
             // authenticated principal, not to the client claiming the ID.
-            Save(Store, Row(8));
+            auto QuotedOwner = Row(8); QuotedOwner.Username = "quoted\"user\n";
+            Save(Store, QuotedOwner);
+            auto Export = crow::json::load(Store.ExportJson());
+            Check(Export && Export["sessions"].size() == 2 && Export["history"].size() == 2, "invalid JSON export");
+            Check(std::string(Export["sessions"][1]["username"].s()) == QuotedOwner.Username, "owner string escaped incorrectly");
             for (int Index = 0; Index < 8; ++Index) Save(Store, Row(9, "burst-" + std::to_string(Index)));
             Check(Store.Submit(Row(9, "rotated-id")) == History::SubmitResult::RateLimited, "rotating IDs bypassed owner rate limit");
             for (int Index = 0; Index < 125; ++Index) { Time += 15000; Save(Store, Row()); }
@@ -79,6 +85,11 @@ int main(int Argc, char** Argv) {
                 Bytes += Sample.Json.size() + Sample.Username.size() + Sample.BrowserID.size() + Sample.SessionID.size();
             Check(Bytes <= History::MaxHistoryBytes, "global byte bound failed");
             Check(Store.GetSnapshot().Samples.size() > 100, "byte-bound fixture did not populate enough history");
+            const auto ExportStart = std::chrono::steady_clock::now();
+            const auto LargeExport = Store.ExportJson();
+            std::cout << "Near-limit history export ms=" << std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - ExportStart).count() << " bytes=" << LargeExport.size() << '\n';
+            Check(static_cast<bool>(crow::json::load(LargeExport)), "large history export invalid");
             for (int Index = 0; Index < 80; ++Index) { Time += 15000; Save(Store, Row(200 + Index)); }
         }
         {

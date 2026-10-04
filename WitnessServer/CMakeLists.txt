@@ -11,6 +11,7 @@ set(SERVER_SOURCES
     Source/AsyncWorker.cpp
     Source/AuthHelpers.cpp
     Source/ClipHelpers.cpp
+    Source/ClientHealthHistory.cpp
     Source/DetectionAssetFiles.cpp
     Source/DetectionCleanup.cpp
     Source/ClipReprocessWorker.cpp
@@ -67,6 +68,9 @@ set(SERVER_HEADERS
     Source/CameraState.h
     Source/CameraWorker.h
     Source/ClipHelpers.h
+    Source/ClientHealthHistory.h
+    Source/ClientHealthPayload.h
+    Source/ClientHealthEndpoint.h
     Source/DetectionAssetFiles.h
     Source/DetectionCleanup.h
     Source/ClipReprocessWorker.h

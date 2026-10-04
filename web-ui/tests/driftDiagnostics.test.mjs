@@ -10,6 +10,7 @@ const driftUrl = moduleUrl(await readFile('src/composables/driftDiagnostics.ts',
 const { sanitizeDriftSample, sanitizeDriftSamples } = await import(driftUrl)
 const healthSource = (await readFile('src/composables/useClientHealth.ts', 'utf8'))
   .replace("'./driftDiagnostics'", JSON.stringify(driftUrl))
+  .replace("import { api } from './useApi'", "const api = async () => ({})")
 const health = await import(moduleUrl(healthSource))
 const t = '2026-10-01T01:24:06.933Z'
 const sample = { t, lagMs: 5601, currentTime: 10, playbackRate: 1.08,

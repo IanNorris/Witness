@@ -10,6 +10,7 @@ export interface ApiOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
   body?: Record<string, unknown>
   redirectOnFail?: boolean
+  signal?: AbortSignal
 }
 
 export async function api<T = unknown>(
@@ -22,6 +23,7 @@ export async function api<T = unknown>(
     method,
     credentials: 'same-origin',
     headers: {} as Record<string, string>,
+    signal: options.signal,
   }
 
   if (body || method === 'POST') {

@@ -5,6 +5,7 @@
 #include "SQLite.h"
 #include "ClipReprocessWorker.h"
 #include "BuildIdentity.h"
+#include "ClientHealthEndpoint.h"
 
 #include <Log.h>
 #include <filesystem>
@@ -24,6 +25,23 @@
 #include <openssl/ssl.h>
 #endif
 // ===== Debug Handlers =====
+
+void CrowListener::HandleClientHealth(const crow::request& req, crow::response& res)
+{
+    // Deliberately no Debug/loopback stream bypass and no API-key write access.
+    Witness::ClientHealth::Serve(req, res, m_GlobalContext->ClientHealthHistory,
+        [&](const crow::json::rvalue* Body, bool Write) {
+            return CrowAuth::IsAuthenticated(*m_GlobalContext, req, Body,
+                Write ? CrowAuth::Action::ReadWrite : CrowAuth::Action::Read,
+                Write ? CrowAuth::Privilege::Normal : CrowAuth::Privilege::Administrator);
+        }, [&](int User) -> std::optional<std::string> {
+            std::optional<std::string> Username;
+            SQLiteDatabaseQueryInstance FindUser(m_GlobalContext->Database, "FindUserForAuth");
+            FindUser->Bind("@UserUID", User);
+            FindUser->Execute([&](const SQLiteDatabaseQuery& Query) { Username = Query.GetColumnValueText(1); return true; });
+            return Username;
+        });
+}
 
 namespace
 {
@@ -588,7 +606,7 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 	Coverage["hostCpuPercent"] = "notImplemented";
 	Coverage["rtpSequenceCounters"] = "notExposedByDemuxer";
 	Coverage["hardwareDecoderSessions"] = "notExposedByBrowser";
-	Coverage["otherBrowserClients"] = "notCollectedInV1";
+	Coverage["otherBrowserClients"] = "bounded authenticated history at /debug/client-health; silent or offline clients retain their last heartbeat";
 	Coverage["rateCalculationSupported"] = false;
 	Coverage["rateCalculationReason"] = "worker and processing counter epochs are not yet exposed";
 	Coverage["mediaEventFeed"] = "last 48 warning, error, packet disposition, and recovery events per stream";

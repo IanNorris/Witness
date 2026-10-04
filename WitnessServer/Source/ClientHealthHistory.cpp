@@ -223,4 +223,34 @@ Snapshot History::GetSnapshot() const {
         if (Row.ReceivedUnixMs >= Time - RetentionMs && Row.ReceivedUnixMs <= Time) Result.Samples.push_back(Row);
     return Result;
 }
+std::string History::ExportJson() const {
+    const auto State = GetSnapshot(); // No SQLite or recording DB work on this caller.
+    auto Quote = [](const std::string& Text) {
+        std::string Out = "\"";
+        const char* Hex = "0123456789abcdef";
+        for (unsigned char C : Text) {
+            if (C == '"' || C == '\\') { Out += '\\'; Out += static_cast<char>(C); }
+            else if (C < 32) { Out += "\\u00"; Out += Hex[C >> 4]; Out += Hex[C & 15]; }
+            else Out += static_cast<char>(C);
+        }
+        return Out + '"';
+    };
+    auto RowJson = [&](const Sample& Row) {
+        return "{\"sequence\":" + std::to_string(Row.Sequence) + ",\"receivedUnixMs\":" + std::to_string(Row.ReceivedUnixMs) +
+            ",\"userUid\":" + std::to_string(Row.UserUID) + ",\"username\":" + Quote(Row.Username) +
+            ",\"browserId\":" + Quote(Row.BrowserID) + ",\"sessionId\":" + Quote(Row.SessionID) + ",\"snapshot\":" + Row.Json + "}";
+    };
+    std::map<Key, const Sample*> Latest;
+    std::string Rows;
+    for (const auto& Row : State.Samples) { if (!Rows.empty()) Rows += ','; Rows += RowJson(Row); Latest[Identity(Row)] = &Row; }
+    std::string Sessions;
+    for (const auto& [ID, Row] : Latest) { if (!Sessions.empty()) Sessions += ','; Sessions += RowJson(*Row); }
+    return "{\"schemaVersion\":1,\"ready\":" + std::string(State.Ready ? "true" : "false") +
+        ",\"storageAvailable\":" + (State.StorageAvailable ? "true" : "false") +
+        ",\"durableThroughSequence\":" + std::to_string(State.DurableThroughSequence) +
+        ",\"pending\":" + std::to_string(State.Pending) + ",\"rejected\":" + std::to_string(State.Rejected) +
+        ",\"storageFailures\":" + std::to_string(State.StorageFailures) +
+        ",\"retentionMs\":" + std::to_string(RetentionMs) + ",\"maxHistoryBytes\":" + std::to_string(MaxHistoryBytes) +
+        ",\"maxSamples\":" + std::to_string(MaxSamples) + ",\"sessions\":[" + Sessions + "],\"history\":[" + Rows + "]}";
+}
 }

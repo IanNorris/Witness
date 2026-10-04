@@ -6,6 +6,7 @@ import {
   collectClientHealthSessions,
   type ClientHealthSession,
   type ClientPlayerHealth,
+  type ClientHealthHistory,
 } from '../../composables/useClientHealth'
 
 defineProps<{ standalone?: boolean }>()
@@ -211,6 +212,8 @@ interface HealthSnapshot {
 const snapshot = ref<HealthSnapshot | null>(null)
 const clientSessions = ref<ClientHealthSession[]>([])
 const clientCoverage = ref('Not collected')
+const clientHistory = ref<ClientHealthHistory | null>(null)
+const clientHistoryError = ref('')
 const loading = ref(false)
 const error = ref('')
 const copied = ref(false)
@@ -225,6 +228,9 @@ async function refresh() {
   loading.value = true
   error.value = ''
   try {
+    const historyRequest = api<ClientHealthHistory>('/debug/client-health', { redirectOnFail: false })
+      .then(history => { clientHistory.value = history; clientHistoryError.value = '' })
+      .catch(err => { clientHistory.value = null; clientHistoryError.value = err instanceof Error ? err.message : String(err) })
     const clientRequest = collectClientHealthSessions()
       .then(collection => ({ collection, error: '' }))
       .catch(err => ({
@@ -235,6 +241,7 @@ async function refresh() {
     snapshotReceivedAtMonotonicMs.value = performance.now()
     nowMonotonicMs.value = snapshotReceivedAtMonotonicMs.value
     const clients = await clientRequest
+    await historyRequest
     clientSessions.value = clients.collection?.sessions ?? []
     if (clients.error || !clients.collection) {
       clientCoverage.value = `Unavailable: ${clients.error || 'collection failed'}`
@@ -248,6 +255,19 @@ async function refresh() {
         ? `${collection.sessions.length} browser tab${collection.sessions.length === 1 ? '' : 's'} replied within ${collection.waitMs} ms${truncatedLabel}`
         : `Current tab only (${collection.mode.replace(/-/g, ' ')})${truncatedLabel}`
     }
+    if (clientHistory.value) {
+      const sessions = new Map<string, ClientHealthSession>()
+      const key = (session: ClientHealthSession) => `${session.serverRecorded ? session.userUid : 'live'}/${session.browserId ?? ''}/${session.sessionId}`
+      for (const record of clientHistory.value.sessions) {
+        const session = { ...record.snapshot, browserId: record.browserId, username: record.username, userUid: record.userUid,
+          receivedUnixMs: record.receivedUnixMs, serverRecorded: true }
+        sessions.set(key(session), session)
+      }
+      for (const session of clientSessions.value) sessions.set(key(session), { ...sessions.get(key(session)), ...session })
+      clientSessions.value = [...sessions.values()]
+      clientCoverage.value += ` · ${clientHistory.value.sessions.length} server-recorded tabs; ${clientHistory.value.history.length} historical samples`
+      if (!clientHistory.value.storageAvailable) clientCoverage.value += ' · history storage unavailable'
+    } else if (clientHistoryError.value) clientCoverage.value += ` · server history unavailable: ${clientHistoryError.value}`
   } catch (err) {
     error.value = err instanceof Error ? err.message : String(err)
   } finally {
@@ -423,6 +443,7 @@ function combinedExport() {
       visibilityState: document.visibilityState,
       sessions: clientSessions.value,
       coverage: clientCoverage.value,
+      persistedHistory: clientHistory.value,
     },
   }
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
@@ -772,10 +793,13 @@ onBeforeUnmount(() => {
           <table class="table table-dark table-sm table-hover mb-0 health-table client-table">
             <thead><tr><th>Camera</th><th>Stream</th><th>Playback lag</th><th>Buffer state</th><th>Transport / buffer detail</th><th>Frames</th><th>Dropped</th><th>Corrupt</th><th>Restarts / stalls / errors</th></tr></thead>
             <tbody>
-              <template v-for="session in clientSessions" :key="session.sessionId">
+              <template v-for="session in clientSessions" :key="`${session.userUid ?? 'live'}-${session.browserId}-${session.sessionId}`">
                 <tr class="session-row">
                   <td colspan="9">
                     <span class="session-path">{{ session.path }}</span>
+                    <span class="badge ms-2 bg-secondary">{{ session.serverRecorded ? 'Last heartbeat' : 'Live browser snapshot' }}</span>
+                    <span v-if="session.username" class="health-secondary ms-2">{{ session.username }} · browser {{ session.browserId?.slice(0, 8) }}</span>
+                    <span v-if="session.receivedUnixMs" class="health-secondary ms-2">last heard {{ new Date(session.receivedUnixMs).toLocaleTimeString() }}</span>
                     <span class="badge ms-2" :class="session.visibilityState === 'visible' ? 'bg-success' : 'bg-secondary'">{{ session.visibilityState }}</span>
                     <span class="health-secondary ms-2">Build {{ session.buildHash }} · sampled {{ new Date(session.sampledAtUtc).toLocaleTimeString() }}<span v-if="session.playersTruncated"> · truncated</span></span>
                   </td>

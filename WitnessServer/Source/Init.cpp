@@ -5,6 +5,7 @@
 #include "AuthHelpers.h"
 #include "ClipHelpers.h"
 #include "DetectionCleanup.h"
+#include "ClientHealthHistory.h"
 #include "Database.h"
 #include "TagHelpers.h"
 #include "ReolinkClient.h"
@@ -261,6 +262,8 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 	}
 
 	Context = Server->GetGlobalContext();
+    Context->ClientHealthHistory = std::make_shared<Witness::ClientHealth::History>(
+        (DatabaseFile.parent_path() / "client-health.db").string());
 	Context->CachePath = CachePath;
 
 	// Validate cache path is writable
