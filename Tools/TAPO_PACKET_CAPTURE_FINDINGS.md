@@ -694,3 +694,32 @@ lookahead capture boundary. Window 1 contains startup keyframe waiting. This is
 a short production-demux/mux check, not browser MSE, full server load or a claim
 of sustained production stability. Concurrent 15-minute camera-8/9 validation
 remains the next gate before producing a deployment package.
+
+### Concurrent 15-minute candidate validation
+
+Both camera-8 and camera-9 probes completed 900 seconds concurrently using
+candidate `80f201d75caa`. Camera 8 accepted 14,969 video packets and repaired 754
+timestamps; camera 9 accepted 17,446 and repaired 794. Both had zero established
+drops, cadence rejection/retries, pause resets, mux errors, FFmpeg errors,
+discontinuities or generation changes. Startup drop totals stayed fixed at one
+and sixteen respectively, with one startup corruption/recovery pair each.
+Final phase errors were +64.9889 ms and -244.2 ms. Learned durations ended at
+60.0222 ms and 51.9222 ms; maximum ProcessFrame calls were 243.465 ms and
+179.637 ms, with none over one second.
+
+Both finalized recordings strictly decode with no diagnostics, missing/duplicate
+timestamps or regressions (14,968 and 17,446 packet/frame samples). All sixteen
+30-second captured input replays and reconstructed output replays strictly
+decode too. Every established-window decision is written, rather than discarded
+for non-monotonic timestamps. All binary hashes match and all pre-mux payloads
+remain unchanged. Startup windows include waiting for a clean keyframe; later
+windows each have one uncorrelated lookahead-boundary decision. Writer queues
+reject no capture records. These are eight windows per camera spaced 120 seconds
+apart, leaving 90-second gaps: not continuous input/output correlation.
+
+Artifacts: `artifacts/tapo{8,9}-rate-consistency-15minute-20261004.*` and
+`artifacts/tapo{8,9}-rate-consistency-15minute-window*.report.txt` / `*.checks.json`.
+The probe exit status was checked alongside these health/disposition metrics;
+exit zero alone is not accepted as proof. This closes the concurrent production
+demux/mux validation gate for this candidate. Browser MSE, full server workload
+and longer production stability remain separate verification limits.
