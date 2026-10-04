@@ -522,3 +522,29 @@ not start server workers, HTTP or camera connections. No global configuration,
 authentication or existing media is changed. See `BUILDING.md` for exact scope:
 cache/TLS/media-reference isolation still has to be configured and checked by
 the full-load harness. The 16-stream test has not been started by this change.
+
+### Full-server lifecycle smoke: failing gate (2026-10-05)
+
+`Tools/Tests/test_full_server_isolation.py` is opt-in with the same
+`WITNESS_TEST_DATA_ROOT_SERVER` and `WITNESS_TEST_DATA_ROOT_NATIVE_ID` variables.
+It refuses an executable without the requested native identity/data-root support,
+creates a fresh database/cache, seeds only a fixture-owned administrator session,
+and starts the real server on numeric loopback in a hidden dedicated console.
+Authentication remains enabled. It attempts two runs to validate durable browser
+history across a graceful restart; it never reads a live database or camera URL.
+
+The packaged native `119f84433c11` passed authenticated health, anonymous denial,
+history-store readiness, POST acceptance and durable history export in the first
+run. The initial POST briefly returned 503 before the asynchronous store was
+ready; the harness now waits for storage availability explicitly. Two subsequent
+runs reproduced exit `3221226505` (`0xC0000409`) after a targeted CTRL_BREAK
+shutdown signal. Therefore restart validation is **not passed**. The exact
+shutdown fault/stack has not yet been established, and no fix is claimed.
+
+Evidence: `artifacts/full-server-isolation-smoke.log` and retained private-fixture
+server log `artifacts/full-server-isolation-failed-server.log`. Fresh startup also
+emitted missing face-table preparation errors; investigate their ordering before
+treating fresh-database initialization as warning-clean. Test processes ended and
+their private database/cache directories were removed. No cameras were connected
+or moved. This zero-camera lifecycle smoke is not the 16-stream performance gate;
+the 30-minute load phases, CPU and processing/HTTP P95 evidence remain outstanding.
