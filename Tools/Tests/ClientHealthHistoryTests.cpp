@@ -90,6 +90,44 @@ int main(int Argc, char** Argv) {
             std::cout << "Near-limit history export ms=" << std::chrono::duration_cast<std::chrono::milliseconds>(
                 std::chrono::steady_clock::now() - ExportStart).count() << " bytes=" << LargeExport.size() << '\n';
             Check(static_cast<bool>(crow::json::load(LargeExport)), "large history export invalid");
+            // Returned snapshots own their strings; callers cannot mutate the
+            // immutable store. Readers also race byte-limit pruning and durable
+            // writes, so retained references must outlive retired store rows.
+            auto OwnedSnapshot = Store.GetSnapshot();
+            const auto OriginalPayload = OwnedSnapshot.Samples.back().Json;
+            OwnedSnapshot.Samples.back().Json = "caller-owned mutation";
+            Check(Store.GetSnapshot().Samples.back().Json == OriginalPayload, "snapshot mutation reached stored row");
+            std::atomic<int> ReadersStarted{0}, SnapshotsChecked{0};
+            std::atomic<bool> ReadersFailed{false};
+            auto ReadConcurrent = [&] {
+                ++ReadersStarted;
+                try {
+                    for (int Round = 0; Round < 16; ++Round) {
+                        const auto View = Store.GetSnapshot();
+                        size_t TotalBytes = 0;
+                        uint64_t PreviousSequence = 0;
+                        for (const auto& Sample : View.Samples) {
+                            Check(Sample.Sequence > PreviousSequence, "concurrent snapshot order changed");
+                            PreviousSequence = Sample.Sequence;
+                            Check(static_cast<bool>(crow::json::load(Sample.Json)), "retired snapshot payload invalid");
+                            TotalBytes += Sample.Json.size() + Sample.Username.size() + Sample.BrowserID.size() + Sample.SessionID.size();
+                        }
+                        Check(View.Samples.size() <= History::MaxSamples && TotalBytes <= History::MaxHistoryBytes,
+                              "concurrent snapshot exceeds bounds");
+                        if (Round % 8 == 0) Check(static_cast<bool>(crow::json::load(Store.ExportJson())), "concurrent export invalid");
+                        ++SnapshotsChecked;
+                    }
+                } catch (...) { ReadersFailed = true; }
+            };
+            {
+                std::jthread ReaderA(ReadConcurrent), ReaderB(ReadConcurrent);
+                Await([&] { return ReadersStarted.load() == 2; });
+                for (int Index = 0; Index < 32; ++Index) {
+                    Time += 15000;
+                    Save(Store, Row(100 + Index % 4, "tab-" + std::to_string((Index / 4) % 4), History::MaxPayloadBytes));
+                }
+            }
+            Check(!ReadersFailed && SnapshotsChecked == 32, "concurrent snapshot/pruning regression failed");
             for (int Index = 0; Index < 80; ++Index) { Time += 15000; Save(Store, Row(200 + Index)); }
         }
         {

@@ -421,3 +421,44 @@ The user's backlog edits are unchanged.
 This supplies a missing measurement prerequisite. It does not establish the
 16-representative-stream/30-minute diagnostics overhead gate, processing P95
 overhead, summary HTTP P95 under production load or managed dependency migration.
+
+### Browser-history snapshot contention checkpoint (4 October)
+
+Inspection found that `GetSnapshot()` copied up to 8 MiB of retained payload
+strings while holding the same mutex used by submissions and the persistence
+worker. Stored rows are now immutable shared objects. Snapshot collection copies
+at most 2,048 references under the mutex, then releases it before allocating and
+copying payload strings. Exports still return caller-owned snapshots, with the
+same receive-time filtering, ordering, identity, durability and JSON schema.
+No database work was added to HTTP callers. Authentication is unchanged.
+
+References keep retired rows alive until an in-flight snapshot has finished
+copying them. The retained store and pending queue keep their existing limits;
+the 8 MiB limit is not a cap on all concurrent HTTP response/serialization
+allocations, and was not one before this change either. Collection still has a
+bounded row scan and reference-vector allocation under the lock; it is not
+lock-free, nor is this the planned periodic cached summary sampler.
+
+The native persistence/bounds test passes with two concurrent readers checking
+32 snapshots plus JSON exports while new near-limit rows force pruning.
+It also proves that changing a returned snapshot cannot modify stored payloads.
+Existing byte/session/record bounds, retention, reload and storage-failure cases
+remain enabled. Logs: `artifacts/history-snapshot-regressions-final.log` and
+`artifacts/history-snapshot-endpoint-regressions.log`. The actual Crow HTTP
+cookie, CSRF, cross-user and restart regression also passes:
+`artifacts/history-snapshot-http-auth-regressions.log`.
+
+The combined legacy-dependency runtime builds without native compiler/linker
+warnings or package installation. The preliminary HTTP benchmark overlapped a
+fixture build, so its before/after timings must not be presented as a controlled
+speedup. This checkpoint does not establish the full 16-stream/30-minute gate.
+
+An updated run after builds/tests had stopped used two Crow workers, two export
+floods and one synthetic 16-player report per second, for 30 seconds each with
+empty and near-limit retained history. The populated run completed 896 exports
+(P95 69.290 ms, P99 76.945 ms, maximum 92.705 ms), 233 ping requests
+(P95 57.801 ms) and 30 telemetry POSTs (P95 57.530 ms), with all 156 final rows
+durable. Report: `artifacts/history-snapshot-after-20261004.json`. Export P95 is
+similar to the preliminary run; this change removes a payload-copy critical
+section, not the serialization/HTTP-worker cost. These synthetic measurements
+are not production summary latency or evidence of improved camera playback.

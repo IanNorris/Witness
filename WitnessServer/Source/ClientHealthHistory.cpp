@@ -13,6 +13,9 @@
 namespace Witness::ClientHealth {
 namespace {
 using Key = std::tuple<int, std::string, std::string>;
+// Stored rows are immutable. Exports retain a bounded list of references under
+// the mutex, then copy/serialize payloads without blocking submit or pruning.
+using StoredSample = std::shared_ptr<const Sample>;
 Key Identity(const Sample& Value) { return {Value.UserUID, Value.BrowserID, Value.SessionID}; }
 size_t Bytes(const Sample& Value) {
     return Value.Json.size() + Value.Username.size() + Value.BrowserID.size() + Value.SessionID.size();
@@ -57,7 +60,7 @@ struct History::Impl {
     std::string Path;
     mutable std::mutex Mutex;
     std::condition_variable Wake;
-    std::deque<Sample> Pending, Samples;
+    std::deque<StoredSample> Pending, Samples;
     std::map<Key, int64_t> LastAccepted;
     struct UserWindow { int64_t Start = 0; size_t Count = 0; };
     std::map<int, UserWindow> UserRates;
@@ -83,21 +86,22 @@ struct History::Impl {
         size_t Sessions = 0, Count = 0;
         // Newest samples win; this bounds sessions as well as total payload.
         for (auto It = Samples.rbegin(); It != Samples.rend();) {
-            const Key ID = Identity(*It);
+            const Sample& Row = **It;
+            const Key ID = Identity(Row);
             const bool NewSession = !Counts.contains(ID);
-            const bool Keep = It->ReceivedUnixMs >= Time - RetentionMs && It->ReceivedUnixMs <= Time &&
-                Count < MaxSamples && TotalBytes + Bytes(*It) <= MaxHistoryBytes &&
+            const bool Keep = Row.ReceivedUnixMs >= Time - RetentionMs && Row.ReceivedUnixMs <= Time &&
+                Count < MaxSamples && TotalBytes + Bytes(Row) <= MaxHistoryBytes &&
                 Counts[ID] < MaxSamplesPerSession &&
-                (!NewSession || (Sessions < MaxSessions && UserSessions[It->UserUID] < MaxSessionsPerUser));
+                (!NewSession || (Sessions < MaxSessions && UserSessions[Row.UserUID] < MaxSessionsPerUser));
             if (!Keep) {
-                Removed.push_back(It->Sequence);
+                Removed.push_back(Row.Sequence);
                 // operator[] above may have created an empty entry; do not let
                 // it count as a retained session on the next older sample.
                 if (Counts[ID] == 0) Counts.erase(ID);
-                It = std::deque<Sample>::reverse_iterator(Samples.erase(std::next(It).base()));
+                It = std::deque<StoredSample>::reverse_iterator(Samples.erase(std::next(It).base()));
             } else {
-                if (NewSession) { ++Sessions; ++UserSessions[It->UserUID]; }
-                ++Counts[ID]; ++Count; TotalBytes += Bytes(*It); ++It;
+                if (NewSession) { ++Sessions; ++UserSessions[Row.UserUID]; }
+                ++Counts[ID]; ++Count; TotalBytes += Bytes(Row); ++It;
             }
         }
         return Removed;
@@ -108,7 +112,7 @@ struct History::Impl {
     }
     void Load(sqlite3* DB) {
         Statement Read(DB, "SELECT seq,received,user_uid,username,browser,session,payload FROM samples ORDER BY seq DESC LIMIT 2048");
-        std::deque<Sample> Loaded;
+        std::deque<StoredSample> Loaded;
         std::vector<uint64_t> Invalid;
         size_t LoadedBytes = 0;
         int Result;
@@ -123,7 +127,7 @@ struct History::Impl {
                 sqlite3_column_int(Read.Value, 2), TextColumn(Read.Value, 3), TextColumn(Read.Value, 4),
                 TextColumn(Read.Value, 5), TextColumn(Read.Value, 6)};
             if (Valid(Row) && LoadedBytes + Bytes(Row) <= MaxHistoryBytes) {
-                LoadedBytes += Bytes(Row); Loaded.push_front(std::move(Row));
+                LoadedBytes += Bytes(Row); Loaded.push_front(std::make_shared<const Sample>(std::move(Row)));
             } else Invalid.push_back(Sequence);
         }
         if (Result != SQLITE_DONE) throw std::runtime_error("telemetry load failed");
@@ -148,7 +152,7 @@ struct History::Impl {
             Load(DB);
             { std::lock_guard Lock(Mutex); Ready = Available = true; Durable = NextSequence; }
             while (true) {
-                std::deque<Sample> Batch;
+                std::deque<StoredSample> Batch;
                 std::vector<uint64_t> Removed;
                 {
                     std::unique_lock Lock(Mutex);
@@ -162,7 +166,8 @@ struct History::Impl {
                 Exec(DB, "BEGIN IMMEDIATE");
                 DeleteRows(DB, Removed);
                 Statement Insert(DB, "INSERT INTO samples VALUES(?,?,?,?,?,?,?)");
-                for (const auto& Row : Batch) {
+                for (const auto& StoredRow : Batch) {
+                    const Sample& Row = *StoredRow;
                     if (std::find(Removed.begin(), Removed.end(), Row.Sequence) != Removed.end()) continue;
                     sqlite3_bind_int64(Insert.Value, 1, static_cast<sqlite3_int64>(Row.Sequence));
                     sqlite3_bind_int64(Insert.Value, 2, Row.ReceivedUnixMs);
@@ -171,7 +176,7 @@ struct History::Impl {
                     Insert.Done();
                 }
                 Exec(DB, "COMMIT");
-                if (!Batch.empty()) { std::lock_guard Lock(Mutex); Durable = Batch.back().Sequence; }
+                if (!Batch.empty()) { std::lock_guard Lock(Mutex); Durable = Batch.back()->Sequence; }
             }
         } catch (...) {
             if (DB) sqlite3_exec(DB, "ROLLBACK", nullptr, nullptr, nullptr);
@@ -211,16 +216,23 @@ History::SubmitResult History::Submit(Sample Value) {
     ++UserRate.Count;
     Value.Sequence = ++Data->NextSequence;
     Value.ReceivedUnixMs = Time;
-    Data->Pending.push_back(std::move(Value));
+    Data->Pending.push_back(std::make_shared<const Sample>(std::move(Value)));
     Data->Wake.notify_one();
     return SubmitResult::Accepted;
 }
 Snapshot History::GetSnapshot() const {
-    std::lock_guard Lock(Data->Mutex);
-    Snapshot Result{Data->Ready, Data->Available, Data->Durable, Data->Rejected, Data->Failures, Data->Pending.size(), {}};
-    const int64_t Time = Data->Now();
-    for (const auto& Row : Data->Samples)
-        if (Row.ReceivedUnixMs >= Time - RetentionMs && Row.ReceivedUnixMs <= Time) Result.Samples.push_back(Row);
+    Snapshot Result;
+    std::vector<StoredSample> Rows;
+    {
+        std::lock_guard Lock(Data->Mutex);
+        Result = {Data->Ready, Data->Available, Data->Durable, Data->Rejected, Data->Failures, Data->Pending.size(), {}};
+        const int64_t Time = Data->Now();
+        Rows.reserve(Data->Samples.size());
+        for (const auto& Row : Data->Samples)
+            if (Row->ReceivedUnixMs >= Time - RetentionMs && Row->ReceivedUnixMs <= Time) Rows.push_back(Row);
+    }
+    Result.Samples.reserve(Rows.size());
+    for (const auto& Row : Rows) Result.Samples.push_back(*Row);
     return Result;
 }
 std::string History::ExportJson() const {
