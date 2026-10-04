@@ -2,11 +2,26 @@
 import argparse
 from contextlib import closing
 import os
+import re
 from pathlib import Path
 import sqlite3
 import subprocess
 import sys
 import threading
+
+
+def safe_report(line):
+    """Accept numeric reports, never arbitrary text merely sharing a prefix."""
+    value = line.rstrip("\r\n")
+    if value.startswith(("elapsedSeconds=", "readResult=", "probePauseSeconds=", "initializationResult=")):
+        if re.fullmatch(r"[A-Za-z][A-Za-z0-9]*=[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
+                        r"(?: [A-Za-z][A-Za-z0-9]*=[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)*", value):
+            return value
+    elif value.startswith("captureDirectory="):
+        # The native probe's fixed relative capture root and numeric IDs only.
+        if re.fullmatch(r"captureDirectory=build-vs2026[/\\]packet-captures[/\\]camera-\d+-preview-\d+-\d+", value):
+            return value
+    return None
 
 
 def main():
@@ -77,8 +92,9 @@ def main():
             for line in process.stdout:
                 # Never relay arbitrary native/FFmpeg logs, which may contain URLs.
                 # Emit only numeric probe reports and the bounded local capture path.
-                if line.startswith(("elapsedSeconds=", "readResult=", "captureDirectory=", "probePauseSeconds=")):
-                    print(line.rstrip(), flush=True)
+                report = safe_report(line)
+                if report is not None:
+                    print(report, flush=True)
             result = process.wait(timeout=60)
         except BaseException:
             process.kill()

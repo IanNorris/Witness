@@ -587,3 +587,42 @@ pre-shutdown evidence, not a claim about final tail completeness.
 The corrected probe builds, passes its log self-test and all three wrapper
 tests, and completes a fresh 30-second camera-9 run with exit zero. Its finalized
 recording passes strict decode and packet/frame timestamp checks.
+
+### Current stream-state implementation checkpoint (4 October, evening)
+
+Camera 9 ran for 900 seconds using native identity `5d75fe33ed9e`, after the
+LiveOutputStream private-state migration and PTZ configuration changes. It
+accepted 17,452 video packets and repaired 793 timestamps, with zero established
+drops, mux errors, cadence rejection/retries/pause resets, generation changes or
+FFmpeg errors. End phase was +341.833 ms. One ProcessFrame call took 1,095.66 ms;
+it did not cause a cadence reset. Two startup corruption/recovery events and
+16 startup drops stayed fixed throughout the established stream.
+
+The complete finalized recording has 17,452 decoded-frame and packet timestamp
+samples; strict decoding reports no diagnostics, missing/duplicate timestamps
+or regressions. Eight 30-second captures, starting every 120 seconds, also
+reconstruct and decode cleanly. All recorded binary hashes match. Later windows
+have one decision without a captured input: consistent with the pending
+one-packet lookahead crossing the capture-start boundary, not proof of complete
+source correlation. There are still 90-second uncaptured intervals.
+
+Artifacts are `artifacts/tapo9-current-15minute-20261004.*`, the eight
+`artifacts/tapo9-current-window*-report.txt` / `*-decode.json` files, and capture
+directories `camera-9-preview-1791138146682-1` through
+`camera-9-preview-1791138986727-8`. These measurements exercise camera input,
+production demux/mux and saved output, not browser MSE or full server load.
+
+Camera 8 initially failed initialization and a separate TCP reachability check
+timed out. A later bounded retry initialized in 1,557.01 ms, completed ten
+seconds with no established drops/mux errors, and its recording passed strict
+decode/timestamp checks. This changing reachability is not attributed to the
+cadence fix; a fresh 15-minute camera-8 run is required before claiming the
+current two-camera validation is complete.
+
+The probe now emits numeric initialization result and duration, rather than
+only exit 3 on setup failure. Its credential-safe wrapper requires complete
+numeric report syntax and a bounded relative capture-directory pattern;
+arbitrary text sharing a report prefix is rejected. All four wrapper tests and
+the native log self-test pass. The rebuilt runtime identity `9100299d68a0`
+differs because explicit telemetry test targets were added to server CMake;
+the Camera stream implementation is unchanged from the 900-second run above.

@@ -15,6 +15,17 @@ SPEC.loader.exec_module(RUNNER)
 
 
 class ProbeRunnerTests(unittest.TestCase):
+    def test_reports_require_numeric_fields_or_bounded_capture_path(self):
+        for line in ("initializationResult=2 initializeMs=5000.25\n",
+                     "elapsedSeconds=60 phaseMs=-1.25 lastProcessFrameMs=1.2e-05",
+                     "captureDirectory=build-vs2026\\packet-captures\\camera-9-preview-123-1"):
+            self.assertEqual(RUNNER.safe_report(line), line.rstrip("\r\n"))
+        for line in ("initializationResult=2 url=rtsp://secret@camera",
+                     "elapsedSeconds=60 accepted=secret", "readResult=2\nsecret",
+                     "captureDirectory=build-vs2026/packet-captures/../secret",
+                     "captureDirectory=rtsp://secret@camera", "native log secret"):
+            self.assertIsNone(RUNNER.safe_report(line))
+
     def test_capture_windows_are_bounded_and_fit(self):
         base = [str(SCRIPT), "--database", "unused.db", "--probe", "unused.exe",
                 "--camera", "9", "--seconds", "120", "--output", "unused.mp4"]

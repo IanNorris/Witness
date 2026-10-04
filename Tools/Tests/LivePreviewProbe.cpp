@@ -67,7 +67,12 @@ int main(int argc, char** argv)
 	setup.ExportMotionVectors = false;
 	setup.HistoricalPacketBufferSeconds = 0;
 	InputStream input(setup, cameraId, nullptr, url);
-	if (input.Initialize() != CameraStreamError::Success) return 3;
+	const auto InitializeStart = std::chrono::steady_clock::now();
+	const auto InitializeResult = input.Initialize();
+	std::cout << "initializationResult=" << static_cast<int>(InitializeResult)
+		<< " initializeMs=" << std::chrono::duration<double, std::milli>(
+			std::chrono::steady_clock::now() - InitializeStart).count() << std::endl;
+	if (InitializeResult != CameraStreamError::Success) return 3;
 	LiveOutputStream live("build-vs2026", &input, 1);
 	live.SetObservedTimestampRegressionRepairAllowed(true);
 	if (std::getenv("WITNESS_PROBE_REOLINK")) live.SetTimestampNormalizationAllowed(true);
