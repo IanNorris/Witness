@@ -45,6 +45,7 @@ set(SERVER_SOURCES
     Source/MotionEvents.cpp
     Source/ObservingMotionFilter.cpp
     Source/OperationalStatus.cpp
+    Source/PtzMovementLease.cpp
     Source/Recording.cpp
     Source/ReolinkClient.cpp
     Source/SetupConfig.cpp
@@ -97,6 +98,7 @@ set(SERVER_HEADERS
     Source/TagHelpers.h
     Source/TerminalDashboard.h
     Source/OperationalStatus.h
+    Source/PtzMovementLease.h
     Source/EventBroadcaster.h
     Source/TimerWorker.h
     Source/WatchdogWorker.h

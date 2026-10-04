@@ -19,6 +19,7 @@ namespace Witness{ namespace Camera{ class FaceEmbeddingModel; class ReolinkBaic
 namespace Witness{ namespace Camera{ struct ImageProcessingJobQueue; } }
 class CameraWorker;
 class ReolinkClient;
+class PtzMovementLease;
 namespace Witness::ClientHealth { class History; }
 
 struct CameraStateToggleRecordMessage : public Message
@@ -88,6 +89,7 @@ public:
 
 	std::shared_ptr<SQLiteDatabase> Database;
     std::shared_ptr<Witness::ClientHealth::History> ClientHealthHistory;
+    std::shared_ptr<PtzMovementLease> PtzMovement;
 
 	Witness::Camera::ImageProcessingJobQueue* CommonImageProcessingJobQueue;
 

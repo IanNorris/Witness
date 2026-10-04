@@ -6,6 +6,7 @@
 #include "ClipHelpers.h"
 #include "DetectionCleanup.h"
 #include "ClientHealthHistory.h"
+#include "PtzMovementLease.h"
 #include "Database.h"
 #include "TagHelpers.h"
 #include "ReolinkClient.h"
@@ -262,6 +263,10 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 	}
 
 	Context = Server->GetGlobalContext();
+    Context->PtzMovement = std::make_shared<PtzMovementLease>([](int CameraId, bool Stopped) {
+        if (Stopped) LOG_INFO("PTZ safety stop completed for camera %d", CameraId);
+        else LOG_ERROR("PTZ safety stop failed for camera %d; retrying until reachable", CameraId);
+    });
     Context->ClientHealthHistory = std::make_shared<Witness::ClientHealth::History>(
         (DatabaseFile.parent_path() / "client-health.db").string());
 	Context->CachePath = CachePath;

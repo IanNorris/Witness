@@ -32,6 +32,9 @@ void WitnessServer::RequestShutdown()
 	DetectionCleanupThread.request_stop();
 	if( DetectionCleanupThread.joinable() ) DetectionCleanupThread.join();
 	Server->Stop();
+	// HTTP handlers are joined; stop held PTZ gestures while camera transports
+	// still exist, before camera workers begin disconnecting.
+	Context->PtzMovement.reset();
 
 	{
 		std::unique_lock<std::shared_mutex> Lock(Context->Mutex);

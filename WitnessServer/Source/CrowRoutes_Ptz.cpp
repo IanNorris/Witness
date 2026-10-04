@@ -5,6 +5,7 @@
 #include "ReolinkBaichuanClient.h"
 #include "SQLite.h"
 #include "UrlHelpers.h"
+#include "PtzMovementLease.h"
 
 // Try to lazily initialize a PTZ client if it wasn't created at startup
 static std::shared_ptr<ReolinkClient> TryInitPtzClient(GlobalContext& ctx, int cameraId)
@@ -184,22 +185,21 @@ void CrowListener::HandlePtzCommand(const crow::request& req, crow::response& re
 
 	// Do not run HTTP discovery before a healthy Baichuan command (especially Stop).
 	std::shared_ptr<ReolinkClient> client;
+	int deviceId = cameraId;
+    {
+        SQLiteDatabaseQueryInstance linked(m_GlobalContext->Database, "GetLinkedCameraId");
+        linked->Bind("@CameraId", cameraId);
+        linked->Execute([&](const SQLiteDatabaseQuery& query) {
+            if (query.GetColumnValueInt(0) > 0) deviceId = query.GetColumnValueInt(0);
+            return true;
+        });
+    }
+	const auto lease = m_GlobalContext->PtzMovement;
+	if (!lease) { res.code = 503; res.end(); return; }
 
 	// Try Baichuan client: direct camera first, then linked camera
 	auto bcClient = m_GlobalContext->GetBaichuanClient(cameraId);
-	if (!bcClient)
-	{
-		SQLiteDatabaseQueryInstance GetLinked(m_GlobalContext->Database, "GetLinkedCameraId");
-		GetLinked->Bind("@CameraId", cameraId);
-		int linkedId = 0;
-		GetLinked->Execute([&](const SQLiteDatabaseQuery& query)
-		{
-			linkedId = query.GetColumnValueInt(0);
-			return true;
-		});
-		if (linkedId > 0)
-			bcClient = m_GlobalContext->GetBaichuanClient(linkedId);
-	}
+	if (!bcClient && deviceId != cameraId) bcClient = m_GlobalContext->GetBaichuanClient(deviceId);
 
 	// Parse speed from body if present
 	int speed = 32;
@@ -231,10 +231,11 @@ void CrowListener::HandlePtzCommand(const crow::request& req, crow::response& re
 		int presetId = (int)body["id"].i();
 
 		// Try Baichuan first (more reliable for Reolink cameras)
-		bool ok = TryBaichuanPreset(bcClient, presetId);
-		if (!ok) client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
-		if (!ok && client)
-			ok = client->PtzGoToPreset(presetId);
+		bool ok = lease->Position(deviceId, [&] {
+			bool sent = TryBaichuanPreset(bcClient, presetId);
+			if (!sent) client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
+			return sent || (client && client->PtzGoToPreset(presetId));
+		});
 
 		crow::json::wvalue result;
 		result["success"] = ok;
@@ -250,12 +251,46 @@ void CrowListener::HandlePtzCommand(const crow::request& req, crow::response& re
 	{
 		res.code = 400; res.write("{\"error\":\"Unknown PTZ command\"}"); res.end(); return;
 	}
+	if ((!bcClient || !bcClient->IsConnected()) && op != PtzOp::Stop)
+	{
+		client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
+		if (!client) { RespondNoPtz(res); return; }
+	}
 
 	// Try Baichuan first (more reliable for Reolink cameras)
-	bool ok = TryBaichuanPtz(bcClient, op, speed);
-	if (!ok) client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
-	if (!ok && client)
-		ok = client->PtzControl(op, speed);
+    struct Transport {
+        std::shared_ptr<Witness::Camera::ReolinkBaichuanClient> Baichuan;
+        std::shared_ptr<ReolinkClient> Http;
+        bool BaichuanAttempted = false;
+    };
+    auto transport = std::make_shared<Transport>();
+    transport->Baichuan = bcClient;
+    transport->Http = client;
+    auto send = [&] {
+        transport->BaichuanAttempted = bcClient && bcClient->IsConnected();
+        if (TryBaichuanPtz(bcClient, op, speed)) return true;
+        if (!client) client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
+        transport->Http = client;
+        return client && client->PtzControl(op, speed);
+    };
+    // Retain clients, NOT context/database references, for later expiry/shutdown.
+    auto stop = [transport] {
+        bool attempted = false, ok = true;
+        if (transport->BaichuanAttempted) {
+            attempted = true;
+            ok = TryBaichuanPtz(transport->Baichuan, PtzOp::Stop, 32) && ok;
+        }
+        if (transport->Http) { attempted = true; ok = transport->Http->PtzStop() && ok; }
+        return attempted && ok;
+    };
+    bool ok;
+    if (op == PtzOp::Stop) {
+        // No lease may exist yet (e.g. emergency Stop following a server restart).
+        // Resolve once here; any retry retains only transport clients.
+        transport->BaichuanAttempted = bcClient && bcClient->IsConnected();
+        if (!transport->BaichuanAttempted) transport->Http = GetPtzClientForCamera(*m_GlobalContext, cameraId);
+        ok = lease->Stop(deviceId, stop);
+    } else ok = lease->Move(deviceId, send, stop);
 
 	crow::json::wvalue result;
 	result["success"] = ok;

@@ -19,6 +19,12 @@ Branch: `codex/ptz-selection-controls`.
 - Explicit fullscreen control selection is independent of automatic camera focus
   and layout dragging. Show an outline/dismiss label; Escape deselects first.
   Close PTZ when its camera is deselected, hidden, disabled or disconnected.
+- Server-side movement leases arm before dispatch, expire after ten seconds and
+  retry failed stops once per second, logging the first and every tenth failure.
+  Linked views share their parent camera's lane. Each device has an independent
+  watchdog so a slow camera does not delay another device's Stop. Preset commands
+  stop outstanding manual movement before dispatch. Retained stop callbacks own
+  transport clients only, with no database/context reference.
 
 ## Validation limits and remaining work
 
@@ -26,11 +32,18 @@ Pure movement regression tests cover acknowledgement ordering, cancellation,
 camera replacement/unmount, ambiguous move failure and stop failure recovery.
 These are request-adapter tests, not hardware movement tests.
 
-The browser deadline bounds the gesture only: it cannot guarantee a firmware Stop
-when HTTP or camera transport hangs. A server-side device-aware movement lease
-and ordering across tabs/linked camera IDs remain required. Independent control
-instances do not share a command queue. Preset/home UI and live camera capability
-validation are also outstanding. Do not claim the PTZ goal complete yet.
+The server deadline is an attempt deadline, not a firmware motor-stop guarantee.
+If a transport call hangs, that device's Stop waits for it to finish to preserve
+ordering. Unreachable cameras are retried; server shutdown attempts a final Stop
+but a powered-off/crashed server cannot stop a camera. Baichuan acknowledges a
+successful socket write, not motor execution. Distinct IDs on the same physical
+device must be configured as linked views to share the lane.
+
+Standalone server tests cover expiry without a browser Stop, ambiguous move
+delivery, failed Stop retry, replacement ordering, independent camera lanes,
+shutdown and preset interlocks. They use simulated transports, not camera motors.
+Preset/home UI and live camera capability validation remain outstanding. Do not
+claim the PTZ goal complete yet.
 
 The query-lock fix has build validation but no isolated concurrency regression
 test yet. Fullscreen selection still needs visual/keyboard testing in a browser.
