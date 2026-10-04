@@ -474,3 +474,51 @@ These measure the whole demux/mux operation, not solely socket-read latency, and
 exclude the deliberately injected sleep. They must not be labelled network RTT
 or browser decode latency. The probe still uses passthrough mode and stops on
 input errors rather than silently reconnecting and obscuring the failure.
+
+The corrected probe completed both live runs with exit zero:
+
+| Camera | Run | Accepted / repaired | Established drops / mux errors | End phase | Max ProcessFrame |
+| --- | --- | --- | --- | --- | --- |
+| 8 | 300 seconds, ordinary delivery | 4,974 / 252 | 0 / 0 | -17.8 ms | 192.4 ms |
+| 9 | 390 seconds, 12-second pause at 124 | 7,524 / 339 | 0 / 0 | +477.8 ms | 148.6 ms |
+
+Camera 9 recovered once at a 12,061 ms observed gap, with one discontinuity/new
+generation and zero cadence retries or rejection. Its 16 startup drops (four
+before-epoch and eleven non-monotonic input) did not increase during recovery;
+camera 8 had one startup drop. Neither run had a ProcessFrame call over one
+second or reproduced the prior late input failure. Eight capture windows per
+camera are retained under `camera-8-preview-1791076164956-1` through
+`camera-8-preview-1791076381929-8`, and `camera-9-preview-1791076123153-1`
+through `camera-9-preview-1791076340146-8`.
+
+Camera 9's window seven covers the previous failure time (306..336 seconds).
+It contains 584 inputs/decisions, all written, unchanged payloads and hashes,
+zero capture queue loss, and a maximum arrival gap of 134.0 ms. Window-boundary
+decisions can refer to the single lookahead packet received before capture
+started; a missing source correlation at that boundary is not proof of packet
+loss. Camera 8's last window has 498 inputs/decisions, all written, unchanged
+payloads/hashes, zero queue loss and a maximum arrival gap of 148.3 ms.
+
+Independent decoding found an H.264 macroblock error in camera 9's pause window,
+both in the exact raw-input Annex-B replay and generation-zero mux replay.
+The complete generation-zero recording fails strict `ffmpeg -xerror` decoding
+on the same error. This is not a fully corruption-free pass; unchanged payload
+hashes and reproduction in input attribute this instance upstream of muxing,
+but do not distinguish camera firmware from transport or demux behavior.
+The complete camera 9 generation-one and camera 8 recordings pass strict decode.
+
+Some default FFmpeg null-sink checks also reported duplicate output DTS in late
+replays. Direct decoded `best_effort_timestamp` inspection instead shows zero
+duplicates/regressions: 550 frames/minimum step 4,548 ticks in camera 9 window
+seven, and 489 frames/minimum step 5,387 ticks in camera 8 window eight. Both
+replays decode without warnings using `-enc_time_base 1:1000000 -fps_mode
+passthrough`. These late-window null-sink warnings are output timebase
+quantization, not evidence of a decoded presentation regression. Keep this
+distinction in future validation; a decoder exit zero alone also does not prove
+no codec errors unless strict error handling or captured diagnostics are checked.
+
+A matched server/DLL/Web/models build (native identity `830b8380f811`) is staged
+at `build-vs2026/deploy/tapo-extended-capture-830b8380f811`. The server and Camera
+DLL SHA-256 hashes and all 48 web files match the built output. This validation
+does not establish long-running production or browser/MSE stability, nor resolve
+the raw-input codec error around the controlled processing pause.
