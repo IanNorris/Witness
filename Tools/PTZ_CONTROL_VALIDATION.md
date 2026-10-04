@@ -211,3 +211,53 @@ content changes (`artifacts/dependency-ptz-write-after-20261004.json`).
 
 No package was deployed, merged to main or pushed. Physical movement/Stop latency
 and real firmware preset-write behavior are still unverified and require permission.
+
+### Baichuan command acknowledgements (2026-10-04)
+
+The connected Reolink path previously returned success after writing command 18
+or 19 to its socket. Its reader discarded empty bodies, including header-only
+acknowledgements. It now registers a bounded private ticket before writing and
+waits up to one second after releasing socket-write ownership. Only a modern
+reply matching both command and the entire 32-bit message/channel identity can
+complete it; statuses 200, 201 and 300 succeed. Other statuses, timeout, write
+failure, disconnect and Stop fail closed. Disconnect/Stop cancel pending tickets
+and wake waiters. Duplicate, unmatched and late replies are ignored. The tracker
+is private to the PIMPL; the exported class remains pointer-sized.
+
+Reference for matched message replies and accepted status codes:
+https://github.com/starkillerOG/reolink_aio/blob/master/reolink_aio/baichuan/base_protocol.py
+
+`BaichuanCommandReplyTests` covers status handling, complete-before-wait,
+command/channel/low/high message mismatch, legacy rejection, timeout, duplicate
+completion, old-ticket cancellation, cancellation wake-up, 32-ticket bounds and
+independent concurrent requests. `BaichuanPtzProbe` is a consumer of the actual
+exported DLL, hardcoded to loopback and synthetic credentials. Run its peer with:
+
+```powershell
+$env:WITNESS_BAICHUAN_PTZ_PROBE = 'X:/Programming/Witness/build-vs2026/bin/RelWithDebInfo/BaichuanPtzProbe.exe'
+C:/Python314/python.exe Tools/Tests/test_baichuan_ptz_transport.py -v
+```
+
+Five test methods / 19 TCP command cases pass: movement, Stop and preset accepted
+statuses; header-only and nonempty replies; rejected statuses; all identity
+mismatches; legacy replies; silent timeout; disconnect and explicit Stop
+cancellation; and a motion/people event interleaved before acknowledgement.
+The timeout cases take at least 900 ms and cancellation cases less than 700 ms
+on this machine. Logs: `artifacts/baichuan-command-replies.log`,
+`artifacts/baichuan-ptz-transport-final.log` (4.665 seconds), and
+`artifacts/baichuan-ack-lifetime.log` (20 exported-DLL shutdown cycles). The
+timestamp regression guard exits zero. The combined build has no C++/linker
+warnings or dependency installation; existing third-party web warnings remain.
+
+Package: `build-vs2026/deploy/baichuan-ack-c95df8b98965`, native ID
+`c95df8b98965`, web ID `36cf9f72ad51`. The verifier confirms all 96 files /
+180,004,626 bytes match runtime output and native/web identities agree with
+their compiled artifacts (`artifacts/baichuan-ack-package-verification-20261004.json`).
+It includes the preceding ordered improvements and contains no test executables,
+database, authentication configuration or captured media.
+
+Limits: the TCP fixture uses the existing empty-nonce/no-AES negotiation path.
+It does not validate AES/TLS firmware, reconnect traffic, motor motion, physical
+Stop latency or real preset movement. No physical camera commands, production
+deployment, main merge or remote push were performed. The user's backlog edits
+remain untouched.

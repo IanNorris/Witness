@@ -163,7 +163,15 @@ target_link_directories(LivePreviewProbe PRIVATE ${FFMPEG_LIBRARY_DIRS})
 target_link_libraries(LivePreviewProbe PRIVATE WitnessCamera ${FFMPEG_LIBRARIES})
 
 # Synthetic loopback peer only; exercises exported Camera DLL ownership.
+add_executable(BaichuanCommandReplyTests EXCLUDE_FROM_ALL ../Tools/Tests/BaichuanCommandReplyTests.cpp)
+target_include_directories(BaichuanCommandReplyTests PRIVATE Source)
+if(MSVC)
+    target_compile_options(BaichuanCommandReplyTests PRIVATE /utf-8 /W3)
+endif()
+
 add_executable(BaichuanLifetimeTests EXCLUDE_FROM_ALL ../Tools/Tests/BaichuanLifetimeTests.cpp)
+add_executable(BaichuanPtzProbe EXCLUDE_FROM_ALL ../Tools/Tests/BaichuanPtzProbe.cpp)
+target_link_libraries(BaichuanPtzProbe PRIVATE WitnessCamera)
 target_link_libraries(BaichuanLifetimeTests PRIVATE WitnessCamera)
 if(WIN32)
     target_link_libraries(BaichuanLifetimeTests PRIVATE ws2_32)

@@ -7,6 +7,7 @@
 // Protocol reference: community reverse-engineering (apocaliss92/nodelink-js)
 
 #include "ReolinkBaichuanClient.h"
+#include "BaichuanCommandReplies.h"
 #include <mutex>
 #include <thread>
 #include <atomic>
@@ -207,6 +208,7 @@ private:
 	// Socket
 	uintptr_t m_Socket = ~(uintptr_t)0; // INVALID_SOCKET
 	mutable std::mutex m_SendMutex; // Protects socket writes from multiple threads
+	BaichuanCommandReplies m_PtzReplies;
 
 	// Thread
 	std::thread m_Thread;
@@ -289,6 +291,8 @@ void ReolinkBaichuanClient::Impl::Start()
 void ReolinkBaichuanClient::Impl::Stop()
 {
 	m_Running = false;
+	m_Connected = false;
+	m_PtzReplies.CancelAll();
 	CleanupTls();
 	if (m_Socket != (uintptr_t)INVALID_SOCKET)
 	{
@@ -333,6 +337,7 @@ void ReolinkBaichuanClient::Impl::ThreadFunc()
 				m_Host.c_str(), m_Port, m_UseTls ? " (TLS)" : "");
 			ReadLoop();
 			m_Connected = false;
+			m_PtzReplies.CancelAll();
 		}
 		else
 		{
@@ -761,7 +766,6 @@ void ReolinkBaichuanClient::Impl::ReadLoop()
 		}
 
 		// Read body
-		if (header.BodyLen == 0) continue;
 		if (header.BodyLen > 1 * 1024 * 1024) // 1MB max for event XML
 		{
 			LOG_WARNING("[Baichuan] Body too large (%u), reconnecting", header.BodyLen);
@@ -769,8 +773,19 @@ void ReolinkBaichuanClient::Impl::ReadLoop()
 		}
 
 		std::vector<uint8_t> body(header.BodyLen);
-		if (!ReadExact(body.data(), header.BodyLen))
+		if (header.BodyLen && !ReadExact(body.data(), header.BodyLen))
 			break;
+
+		// PTZ acknowledgements may be header-only. Correlate the complete
+		// message identity (including channel), not just the command number.
+		if (header.CmdId == 18 || header.CmdId == 19) {
+			const uint32_t Identity = uint32_t(header.ChannelId) | (uint32_t(header.StreamType) << 8) |
+				(uint32_t(header.MsgNum) << 16);
+			m_PtzReplies.Complete(header.CmdId, Identity, header.ResponseCode,
+				HeaderHasPayloadOffset(header.MessageClass));
+			continue;
+		}
+		if (header.BodyLen == 0) continue;
 
 		// Decrypt body based on header type and encryption indicator
 		std::string xml;
@@ -942,7 +957,7 @@ bool ReolinkBaichuanClient::Impl::PtzControl(const std::string& command, int spe
 		xml += "<speed>" + std::to_string(speed) + "</speed>\n";
 	xml += "</PtzControl>\n</body>";
 
-	std::lock_guard<std::mutex> lock(m_SendMutex);
+	std::unique_lock<std::mutex> lock(m_SendMutex);
 	uint32_t msgId = ++m_MessageCounter;
 
 	// AES-encrypt the body for modern header commands
@@ -986,12 +1001,20 @@ bool ReolinkBaichuanClient::Impl::PtzControl(const std::string& command, int spe
 	header.MessageClass = BC_CLASS_MODERN;
 	header.PayloadOffset = 0;
 
-	if (!SendRaw(reinterpret_cast<uint8_t*>(&header), sizeof(header)))
-		return false;
-	if (!SendRaw(encBody.data(), encBody.size()))
-		return false;
-
-	return true;
+	const uint32_t Identity = uint32_t(header.ChannelId) | (uint32_t(header.StreamType) << 8) | (uint32_t(header.MsgNum) << 16);
+	const auto Reply = m_PtzReplies.Begin(header.CmdId, Identity);
+	if (!Reply) return false;
+	if (!m_Running.load() || !m_Connected.load() ||
+		!SendRaw(reinterpret_cast<uint8_t*>(&header), sizeof(header)) || !SendRaw(encBody.data(), encBody.size())) {
+		m_PtzReplies.Cancel(Reply); return false;
+	}
+	lock.unlock(); // Never hold socket-write ownership while waiting on the reader.
+	const bool Acknowledged = m_PtzReplies.Wait(Reply, std::chrono::milliseconds(1000));
+	if (!Acknowledged) {
+		std::lock_guard ErrorLock(m_ErrorMutex);
+		m_LastError = "Baichuan PTZ command was not acknowledged";
+	}
+	return Acknowledged;
 }
 
 bool ReolinkBaichuanClient::Impl::PtzStop(int channel)
@@ -1014,7 +1037,7 @@ bool ReolinkBaichuanClient::Impl::PtzGoToPreset(int presetId, int channel)
 		"</PtzPreset>\n"
 		"</body>";
 
-	std::lock_guard<std::mutex> lock(m_SendMutex);
+	std::unique_lock<std::mutex> lock(m_SendMutex);
 	uint32_t msgId = ++m_MessageCounter;
 
 	std::vector<uint8_t> body(xml.begin(), xml.end());
@@ -1056,12 +1079,20 @@ bool ReolinkBaichuanClient::Impl::PtzGoToPreset(int presetId, int channel)
 	header.MessageClass = BC_CLASS_MODERN;
 	header.PayloadOffset = 0;
 
-	if (!SendRaw(reinterpret_cast<uint8_t*>(&header), sizeof(header)))
-		return false;
-	if (!SendRaw(encBody.data(), encBody.size()))
-		return false;
-
-	return true;
+	const uint32_t Identity = uint32_t(header.ChannelId) | (uint32_t(header.StreamType) << 8) | (uint32_t(header.MsgNum) << 16);
+	const auto Reply = m_PtzReplies.Begin(header.CmdId, Identity);
+	if (!Reply) return false;
+	if (!m_Running.load() || !m_Connected.load() ||
+		!SendRaw(reinterpret_cast<uint8_t*>(&header), sizeof(header)) || !SendRaw(encBody.data(), encBody.size())) {
+		m_PtzReplies.Cancel(Reply); return false;
+	}
+	lock.unlock();
+	const bool Acknowledged = m_PtzReplies.Wait(Reply, std::chrono::milliseconds(1000));
+	if (!Acknowledged) {
+		std::lock_guard ErrorLock(m_ErrorMutex);
+		m_LastError = "Baichuan PTZ preset was not acknowledged";
+	}
+	return Acknowledged;
 }
 
 // ============================================================================
