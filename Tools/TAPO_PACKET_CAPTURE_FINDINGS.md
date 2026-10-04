@@ -442,3 +442,35 @@ A fresh 60-second connection immediately afterward succeeded: 1,131 accepted,
 and a clean independent decode (`tapo9-reconnect-check-20261004.mp4`). The
 camera was not persistently latched offline. This short reconnect check does
 not establish the cause or frequency of the late input-read failure.
+
+### Extended-probe instrumentation correction (4 October)
+
+The standalone probe previously installed a private FFmpeg callback before
+initializing its input. `Stream::OneTimeInit()` then replaced it with the
+production callback. Consequently, the probe's earlier `ffmpegErrors`,
+`audioDurationWarnings` and `missingPtsWarnings` zero counts were not valid
+evidence that FFmpeg emitted no such messages. Packet, mux and capture evidence
+is unaffected by this counter defect.
+
+The probe now reads thread-local cumulative counters maintained by the production
+callback. It does not replace that callback or bypass the scoped error tracking
+used by production corruption handling. `LivePreviewProbe --log-self-test`
+checks synthetic warning/error counts and `FFmpegLogContextScope::HasError()`
+across initialization of two streams, without connecting to a camera. This
+self-test passes; the three wrapper tests pass. The existing VS2026 probe target
+builds successfully with the previously recorded ABI/link warnings.
+
+The wrapper supports `--capture-count 1..8` and `--capture-every >=31`, together
+with `--capture-delay`. Every 30-second window must fit inside the requested run.
+Existing per-window 128 MiB byte / 8 MiB queued-byte limits are unchanged, so eight
+windows accept at most 1 GiB of capture record data. There is at least a nominal
+one-second gap between windows: this is not continuous network/RTP capture.
+Ambient capture settings are cleared and stream credentials remain environment
+only. Captures begin before the frame-processing call so an immediately following
+stall does not postpone the requested capture until after that stall.
+
+Numeric reports include last/max `ProcessFrame` time and calls over one second.
+These measure the whole demux/mux operation, not solely socket-read latency, and
+exclude the deliberately injected sleep. They must not be labelled network RTT
+or browser decode latency. The probe still uses passthrough mode and stops on
+input errors rather than silently reconnecting and obscuring the failure.

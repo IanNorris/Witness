@@ -9,22 +9,16 @@ extern "C" {
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
-#include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <thread>
 
-static std::atomic<uint64_t> AudioDurationWarnings{0}, MissingPtsWarnings{0}, FfmpegErrors{0};
-static void ProbeLog(void*, int level, const char* format, va_list args)
-{
-	char message[2048];
-	vsnprintf(message, sizeof(message), format, args);
-	if (strstr(message, "Packet duration:") && strstr(message, "stream 1")) ++AudioDurationWarnings;
-	if (strstr(message, "pts has no value")) ++MissingPtsWarnings;
-	if (level <= AV_LOG_ERROR) ++FfmpegErrors;
-}
-
 using namespace Witness::Camera;
+class LogTestStream : public Stream
+{
+public:
+	CameraStreamError WriteInterleavedPacket(const AVPacket*) override { return CameraStreamError::Success; }
+};
 static uint64_t Timestamp()
 {
 	return std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -33,6 +27,26 @@ static uint64_t Timestamp()
 
 int main(int argc, char** argv)
 {
+	if (argc == 2 && std::strcmp(argv[1], "--log-self-test") == 0) {
+		LogTestStream stream;
+		stream.Initialize();
+		av_log_set_level(AV_LOG_WARNING);
+		const auto before = GetFFmpegThreadLogCounts();
+		FFmpegLogContextScope scope(9, "probe-self-test");
+		av_log(nullptr, AV_LOG_WARNING, "Packet duration: stream 1\n");
+		av_log(nullptr, AV_LOG_WARNING, "pts has no value\n");
+		av_log(nullptr, AV_LOG_ERROR, "synthetic probe error\n");
+		// Another stream initialization must not disable counting or HasError.
+		LogTestStream second;
+		second.Initialize();
+		av_log(nullptr, AV_LOG_ERROR, "second synthetic probe error\n");
+		const auto after = GetFFmpegThreadLogCounts();
+		const bool passed = scope.HasError() && after.Errors == before.Errors + 2 &&
+			after.AudioDurationWarnings == before.AudioDurationWarnings + 1 &&
+			after.MissingPtsWarnings == before.MissingPtsWarnings + 1;
+		std::cout << "logSelfTest=" << passed << std::endl;
+		return passed ? 0 : 7;
+	}
 	const char* url = std::getenv("WITNESS_PREVIEW_PROBE_URL");
 	if (!url || (argc != 3 && argc != 4)) return 2;
 	const int seconds = std::atoi(argv[1]);
@@ -40,7 +54,6 @@ int main(int argc, char** argv)
 	const int cameraId = argc == 4 ? std::atoi(argv[3]) : 8;
 	if (cameraId <= 0) return 2;
 	av_log_set_level(AV_LOG_WARNING);
-	av_log_set_callback(ProbeLog);
 	InputStreamSetup setup;
 	setup.GetTimestamp = Timestamp;
 	setup.PassthroughOnly = true;
@@ -52,16 +65,21 @@ int main(int argc, char** argv)
 	live.SetObservedTimestampRegressionRepairAllowed(true);
 	if (std::getenv("WITNESS_PROBE_REOLINK")) live.SetTimestampNormalizationAllowed(true);
 	const int CaptureDelay = std::getenv("WITNESS_PROBE_CAPTURE_DELAY") ? std::atoi(std::getenv("WITNESS_PROBE_CAPTURE_DELAY")) : 0;
+	const int CaptureEvery = std::getenv("WITNESS_PROBE_CAPTURE_EVERY") ? std::atoi(std::getenv("WITNESS_PROBE_CAPTURE_EVERY")) : 31;
+	const int CaptureCount = std::getenv("WITNESS_PROBE_CAPTURE_COUNT") ? std::atoi(std::getenv("WITNESS_PROBE_CAPTURE_COUNT")) : 1;
+	if (CaptureCount < 1 || CaptureCount > 8 || CaptureEvery < 31 || CaptureDelay < 0 ||
+		(std::getenv("WITNESS_PROBE_CAPTURE") && static_cast<int64_t>(CaptureDelay) +
+		 static_cast<int64_t>(CaptureEvery) * (CaptureCount - 1) + 30 > seconds)) return 2;
 	const int PauseAt = std::getenv("WITNESS_PROBE_PAUSE_AT") ? std::atoi(std::getenv("WITNESS_PROBE_PAUSE_AT")) : -1;
 	const int PauseSeconds = std::getenv("WITNESS_PROBE_PAUSE_SECONDS") ? std::atoi(std::getenv("WITNESS_PROBE_PAUSE_SECONDS")) : 0;
 	if (PauseAt >= 0 && (PauseSeconds < 1 || PauseSeconds > 15 || PauseAt + PauseSeconds + 5 > seconds)) return 2;
 	bool PauseInjected = false;
-	bool Captured = false;
+	int Captured = 0;
 	auto capture = [&]() {
 		std::string directory;
 		if (!live.StartPacketCapture(cameraId, "preview", 30, directory)) return false;
 		std::cout << "captureDirectory=" << directory << std::endl;
-		Captured = true;
+		++Captured;
 		return true;
 	};
 	if (std::getenv("WITNESS_PROBE_CAPTURE") && CaptureDelay == 0 && !capture()) return 6;
@@ -94,8 +112,11 @@ int main(int argc, char** argv)
 		output.write(reinterpret_cast<const char*>(event.Data->data()), event.Data->size());
 	});
 	const auto start = std::chrono::steady_clock::now();
+	double LastReadMs = 0, MaxReadMs = 0;
+	uint64_t ReadsOverOneSecond = 0;
 	auto report = [&]() {
 	const auto stats = live.GetStreamingDiagnostics(false);
+	const auto logs = GetFFmpegThreadLogCounts();
 	std::cout << "elapsedSeconds=" << std::chrono::duration_cast<std::chrono::seconds>(
 		std::chrono::steady_clock::now() - start).count()
 		<< " accepted=" << stats.AcceptedVideoPackets
@@ -127,9 +148,13 @@ int main(int argc, char** argv)
 		<< " corruptionEvents=" << stats.DecodeCorruptionEvents
 		<< " recoveryEvents=" << stats.DecodeRecoveryEvents
 		<< " avSkewMs=" << stats.AudioVideoSkewMs
-		<< " audioDurationWarnings=" << AudioDurationWarnings.load()
-		<< " missingPtsWarnings=" << MissingPtsWarnings.load()
-		<< " ffmpegErrors=" << FfmpegErrors.load() << std::endl;
+		<< " lastProcessFrameMs=" << LastReadMs
+		<< " maxProcessFrameMs=" << MaxReadMs
+		<< " processFramesOverOneSecond=" << ReadsOverOneSecond
+		<< " captures=" << Captured
+		<< " audioDurationWarnings=" << logs.AudioDurationWarnings
+		<< " missingPtsWarnings=" << logs.MissingPtsWarnings
+		<< " ffmpegErrors=" << logs.Errors << std::endl;
 	};
 	auto nextReport = start + std::chrono::seconds(60);
 	CameraStreamError result = CameraStreamError::Success;
@@ -140,10 +165,15 @@ int main(int argc, char** argv)
 			std::cout << "probePauseSeconds=" << PauseSeconds << std::endl;
 			std::this_thread::sleep_for(std::chrono::seconds(PauseSeconds));
 		}
+		if (std::getenv("WITNESS_PROBE_CAPTURE") && Captured < CaptureCount &&
+			std::chrono::steady_clock::now() - start >=
+			std::chrono::seconds(CaptureDelay + CaptureEvery * Captured) && !capture()) return 6;
+		const auto readStart = std::chrono::steady_clock::now();
 		result = input.ProcessFrame(nullptr, nullptr, &live);
+		LastReadMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - readStart).count();
+		if (LastReadMs > MaxReadMs) MaxReadMs = LastReadMs;
+		if (LastReadMs >= 1000) ++ReadsOverOneSecond;
 		if (result != CameraStreamError::Success || !output.good()) break;
-		if (std::getenv("WITNESS_PROBE_CAPTURE") && !Captured &&
-			std::chrono::steady_clock::now() - start >= std::chrono::seconds(CaptureDelay) && !capture()) return 6;
 		if (std::chrono::steady_clock::now() >= nextReport) {
 			report();
 			nextReport += std::chrono::seconds(60);

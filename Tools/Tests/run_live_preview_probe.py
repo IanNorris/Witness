@@ -18,6 +18,10 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--capture-delay", type=int,
                         help="also capture 30 seconds of input/output packets after this delay")
+    parser.add_argument("--capture-every", type=int, default=31,
+                        help="seconds between capture starts, at least 31")
+    parser.add_argument("--capture-count", type=int, default=1,
+                        help="number of bounded 30-second captures, 1..8")
     parser.add_argument("--pause-at", type=int, help="inject one local probe-processing pause after this many seconds")
     parser.add_argument("--pause-for", type=int, help="pause length, 1..15 seconds; requires --pause-at")
     args = parser.parse_args()
@@ -25,6 +29,13 @@ def main():
         parser.error("seconds must be 10..1800 and camera must be positive")
     if args.capture_delay is not None and not 0 <= args.capture_delay <= args.seconds - 30:
         parser.error("capture delay must leave at least 30 seconds in the test")
+    if not 1 <= args.capture_count <= 8 or args.capture_every < 31:
+        parser.error("capture count must be 1..8 and interval at least 31 seconds")
+    if args.capture_count != 1 and args.capture_delay is None:
+        parser.error("repeated captures require capture-delay")
+    if args.capture_delay is not None and (args.capture_delay +
+            args.capture_every * (args.capture_count - 1) + 30 > args.seconds):
+        parser.error("all capture windows must fit within the test")
     if (args.pause_at is None) != (args.pause_for is None):
         parser.error("pause-at and pause-for must be supplied together")
     if args.pause_at is not None and (args.pause_at < 0 or not 1 <= args.pause_for <= 15 or
@@ -43,11 +54,15 @@ def main():
     env.pop("WITNESS_PROBE_REOLINK", None)
     env.pop("WITNESS_PROBE_CAPTURE", None)
     env.pop("WITNESS_PROBE_CAPTURE_DELAY", None)
+    env.pop("WITNESS_PROBE_CAPTURE_EVERY", None)
+    env.pop("WITNESS_PROBE_CAPTURE_COUNT", None)
     env.pop("WITNESS_PROBE_PAUSE_AT", None)
     env.pop("WITNESS_PROBE_PAUSE_SECONDS", None)
     if args.capture_delay is not None:
         env["WITNESS_PROBE_CAPTURE"] = "1"
         env["WITNESS_PROBE_CAPTURE_DELAY"] = str(args.capture_delay)
+        env["WITNESS_PROBE_CAPTURE_EVERY"] = str(args.capture_every)
+        env["WITNESS_PROBE_CAPTURE_COUNT"] = str(args.capture_count)
     if args.pause_at is not None:
         env["WITNESS_PROBE_PAUSE_AT"] = str(args.pause_at)
         env["WITNESS_PROBE_PAUSE_SECONDS"] = str(args.pause_for)

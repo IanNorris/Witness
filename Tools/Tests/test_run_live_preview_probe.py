@@ -15,6 +15,17 @@ SPEC.loader.exec_module(RUNNER)
 
 
 class ProbeRunnerTests(unittest.TestCase):
+    def test_capture_windows_are_bounded_and_fit(self):
+        base = [str(SCRIPT), "--database", "unused.db", "--probe", "unused.exe",
+                "--camera", "9", "--seconds", "120", "--output", "unused.mp4"]
+        for extra in (["--capture-count", "2"], ["--capture-delay", "0", "--capture-count", "9"],
+                      ["--capture-delay", "0", "--capture-every", "30"],
+                      ["--capture-delay", "60", "--capture-count", "3"]):
+            with self.subTest(extra=extra), patch("sys.argv", base + extra), \
+                    contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as caught:
+                RUNNER.main()
+            self.assertEqual(caught.exception.code, 2)
+
     def test_pause_requires_bounded_complete_pair(self):
         base = [str(SCRIPT), "--database", "unused.db", "--probe", "unused.exe",
                 "--camera", "9", "--seconds", "120", "--output", "unused.mp4"]
@@ -40,7 +51,8 @@ class ProbeRunnerTests(unittest.TestCase):
             child.stdout = iter([f"native log {secret_url}\n", "elapsedSeconds=60 accepted=1140\n"])
             child.wait.return_value = 0
             argv = [str(SCRIPT), "--database", str(database), "--probe", str(root / "probe.exe"),
-                    "--camera", "9", "--seconds", "120", "--output", str(root / "new.mp4")]
+                    "--camera", "9", "--seconds", "120", "--output", str(root / "new.mp4"),
+                    "--capture-delay", "0", "--capture-every", "40", "--capture-count", "3"]
             output = io.StringIO()
             with patch("sys.argv", argv), patch.object(RUNNER.subprocess, "Popen", return_value=child) as popen, \
                     patch.object(RUNNER.threading, "Timer") as timer, \
@@ -50,7 +62,8 @@ class ProbeRunnerTests(unittest.TestCase):
             self.assertNotIn(secret_url, str(popen.call_args.args[0]))
             self.assertEqual(popen.call_args.kwargs["env"]["WITNESS_PREVIEW_PROBE_URL"], secret_url)
             self.assertNotIn("WITNESS_PROBE_REOLINK", popen.call_args.kwargs["env"])
-            self.assertNotIn("WITNESS_PROBE_CAPTURE", popen.call_args.kwargs["env"])
+            self.assertEqual(popen.call_args.kwargs["env"]["WITNESS_PROBE_CAPTURE_COUNT"], "3")
+            self.assertEqual(popen.call_args.kwargs["env"]["WITNESS_PROBE_CAPTURE_EVERY"], "40")
             self.assertNotIn("secret", output.getvalue())
             self.assertIn("elapsedSeconds=60 accepted=1140", output.getvalue())
             self.assertEqual(timer.call_args.args[0], 180)

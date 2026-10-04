@@ -16,6 +16,16 @@ namespace Camera{
 
 class LiveOutputStream;
 
+// Cumulative counts for the calling worker thread, from the production callback.
+// Reading these does not replace FFmpeg's callback or alter corruption handling.
+struct FFmpegThreadLogCounts
+{
+	uint64_t Errors = 0;
+	uint64_t AudioDurationWarnings = 0;
+	uint64_t MissingPtsWarnings = 0;
+};
+CAMERA_API FFmpegThreadLogCounts GetFFmpegThreadLogCounts();
+
 // Associates FFmpeg's process-wide log callback with the camera operation on
 // the current worker thread, and records whether FFmpeg emitted a decode error.
 class CAMERA_API FFmpegLogContextScope

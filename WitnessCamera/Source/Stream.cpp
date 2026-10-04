@@ -11,6 +11,7 @@ namespace
 	thread_local int FFmpegLogSourceID = -1;
 	thread_local const char* FFmpegLogPhase = "unscoped";
 	thread_local uint64_t FFmpegLogErrorCount = 0;
+	thread_local Witness::Camera::FFmpegThreadLogCounts FFmpegLogCounts;
 	thread_local Witness::Camera::LiveOutputStream* FFmpegDiagnosticStream = nullptr;
 	thread_local uint64_t FFmpegDiagnosticActivityID = 0;
 }
@@ -29,6 +30,11 @@ void FFMPEGErrorToString(int ErrorCode, char* Buffer, size_t BufferSize)
 
 namespace Witness{
 namespace Camera{
+
+FFmpegThreadLogCounts GetFFmpegThreadLogCounts()
+{
+	return FFmpegLogCounts;
+}
 
 FFmpegLogContextScope::FFmpegLogContextScope( int SourceID, const char* Phase )
 	: PreviousSourceID( FFmpegLogSourceID )
@@ -158,6 +164,9 @@ void Stream::LogCallback( void* AVData, int Level, const char* Format, va_list A
 	}
 
 	AVClass* AVClassData = AVData ? *(AVClass**)AVData : nullptr;
+	if( strstr( OriginalMessageBuf.data(), "Packet duration:" ) &&
+		strstr( OriginalMessageBuf.data(), "stream 1" ) ) ++FFmpegLogCounts.AudioDurationWarnings;
+	if( strstr( OriginalMessageBuf.data(), "pts has no value" ) ) ++FFmpegLogCounts.MissingPtsWarnings;
 
 	const char* OutputFormat = "%s: %s\n";
 
@@ -180,6 +189,7 @@ void Stream::LogCallback( void* AVData, int Level, const char* Format, va_list A
 	if( Level <= AV_LOG_ERROR )
 	{
 		++FFmpegLogErrorCount;
+		++FFmpegLogCounts.Errors;
 		if( EmitLog )
 		{
 			if( ClusterCount == 1 )
