@@ -289,3 +289,37 @@ and history, so its size is not the retained-content byte bound. This is not a
 p95 measurement, a concurrent-server benchmark, or the 16-stream/30-minute
 overhead gate above. Real-browser multi-client reporting, Linux execution and
 full production-load validation remain unproven by these isolated tests.
+
+### Real-browser reporter checkpoint (4 October)
+
+An optional loopback-only harness now bundles the actual `useClientHealth` and
+`useApi` modules. Its native fixture executes production cookie/CSRF checks with
+disposable synthetic administrator/session rows and a private temporary history
+database. It serves only a fixed test page and the generated reporter module;
+there are no camera workers, production credentials, authentication bypass or
+media routes. The optional module is bounded to 1 MiB and must reside directly
+in the fixture's temporary directory. Browser-mode lifetime is bounded to five
+minutes, with an independent launcher deadline.
+
+```powershell
+node web-ui/tests/fixtures/buildClientHealthBrowser.mjs
+python Tools/Tests/run_client_health_browser_fixture.py --fixture build-vs2026/bin/RelWithDebInfo/ClientHealthHttpFixture.exe --module artifacts/client-health-browser-reporter.js
+```
+
+Using the returned ephemeral port, open `/fixture/browser/one` and
+`/fixture/browser/two`. The computer-use check observed two real browser tabs
+with the same persisted browser ID and distinct session IDs, automatic samples
+from their synthetic players, and server-owned `fixture-admin` identity. Reload
+retained the browser ID while generating a new session ID. After closing the
+first tab, the second tab's authenticated export still contained all three
+session records, six durable historical samples and zero pending/rejected/storage
+failure counts. Stop reporting remained independent of reading retained history.
+Screenshot: `artifacts/client-health-browser-retained.png`.
+
+Both temporary browser tabs and the listener were closed. The original real
+cookie/CSRF, disabled/deleted user, cross-principal and process-restart test
+passed again after the harness extension. This test exercises real browser
+timers, localStorage, fetch and cookies, but synthetic player snapshots rather
+than real MSE playback. The in-app browser reported both tabs visible, so hidden
+tab throttling and independently profiled browsers remain unverified. It is not
+the 16-stream/30-minute performance gate above.

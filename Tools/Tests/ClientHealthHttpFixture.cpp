@@ -17,11 +17,21 @@ static std::string ProductionQuery(const std::string& Source, const char* Name) 
 }
 
 int main(int Argc, char** Argv) {
-    if (Argc != 3) return 2;
+    if (Argc != 3 && Argc != 4) return 2;
     const std::filesystem::path Root = std::filesystem::absolute(Argv[1]);
     if (Root.filename().string().find("witness-health-http-") != 0 ||
         !std::filesystem::is_regular_file(Root / "auth.db")) return 2;
     try {
+        // Optional generated browser harness must live in this temporary fixture
+        // directory. It never serves repository/configuration/media files.
+        std::string BrowserModule;
+        if (Argc == 4) {
+            const auto Module = std::filesystem::weakly_canonical(Argv[3]);
+            if (Module.parent_path() != std::filesystem::weakly_canonical(Root) ||
+                Module.filename() != "reporter.js" || !std::filesystem::is_regular_file(Module) ||
+                std::filesystem::file_size(Module) > 1024 * 1024) return 2;
+            BrowserModule = ReadFileToString(Module.string());
+        }
         GlobalContext Context;
         Context.Database = std::make_shared<SQLiteDatabase>((Root / "auth.db").string(), "", false,
             [](const std::string&) { throw std::runtime_error("fixture auth database error"); });
@@ -38,6 +48,31 @@ int main(int Argc, char** Argv) {
         crow::SimpleApp App;
         std::atomic<bool> Stop{false};
         std::atomic<bool> Ready{false};
+        CROW_ROUTE(App, "/fixture/browser/<string>")
+        ([&](const std::string& Label) {
+            if (BrowserModule.empty() || (Label != "one" && Label != "two")) return crow::response(404);
+            crow::response Res(200);
+            Res.add_header("Content-Type", "text/html; charset=utf-8");
+            Res.add_header("Cache-Control", "no-store");
+            // Synthetic fixture session only, scoped to this ephemeral port.
+            // The health endpoint still executes production cookie/CSRF checks.
+            Res.add_header("Set-Cookie", "SessionToken-" + std::to_string(Context.Port) +
+                "=admin-token; Path=/; HttpOnly; SameSite=Strict");
+            Res.body = R"HTML(<!doctype html><html><head><title>Witness health browser fixture</title></head>
+<body><h1>Loopback health-history fixture</h1><p>Synthetic player data. No camera or production database access.</p>
+<button id="stop">Stop reporting</button><button id="export">Read retained history</button>
+<pre id="identity">Starting</pre><pre id="history">Not exported</pre>
+<script type="module" src="/fixture/health.js"></script></body></html>)HTML";
+            return Res;
+        });
+        CROW_ROUTE(App, "/fixture/health.js")
+        ([&] {
+            if (BrowserModule.empty()) return crow::response(404);
+            crow::response Res(200, BrowserModule);
+            Res.add_header("Content-Type", "text/javascript");
+            Res.add_header("Cache-Control", "no-store");
+            return Res;
+        });
         CROW_ROUTE(App, "/debug/client-health").methods(crow::HTTPMethod::Get, crow::HTTPMethod::Post)
         ([&](const crow::request& Req, crow::response& Res) {
             if (!Ready.load(std::memory_order_acquire)) { Res.code = 503; Res.end(); return; }
@@ -66,7 +101,7 @@ int main(int Argc, char** Argv) {
         Context.Port = App.port();
         Ready.store(true, std::memory_order_release);
         std::cout << "fixturePort=" << Context.Port << std::endl;
-        const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(120);
+        const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(BrowserModule.empty() ? 120 : 300);
         while (!Stop && std::chrono::steady_clock::now() < Deadline)
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
         // Allow the stop response to complete before shutting down the listener.
