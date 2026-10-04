@@ -157,6 +157,8 @@ int main(int argc, char** argv)
 		<< " deliveryDeclarationChanges=" << stats.TimestampDelivery.DeclarationChanges
 		<< " phaseMs=" << stats.VideoPhaseErrorMs
 		<< " saturated=" << stats.TimestampCorrectionSaturatedPackets
+		<< " arrivalRateAdjustments=" << stats.TimestampArrivalRateAdjustments
+		<< " arrivalDurationMs=" << stats.TimestampArrivalDurationMs
 		<< " muxErrors=" << stats.MuxErrorPackets
 		<< " corruptionEvents=" << stats.DecodeCorruptionEvents
 		<< " recoveryEvents=" << stats.DecodeRecoveryEvents

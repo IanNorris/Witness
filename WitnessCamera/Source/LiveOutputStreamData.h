@@ -169,6 +169,8 @@ struct LiveOutputStreamData
 	bool _DiagHasVideoOutputTimestamp = false;
 	bool _DiagHasAudioOutputTimestamp = false;
 	uint64_t _DiagTimestampCorrectionSaturatedPackets = 0;
+	uint64_t _DiagTimestampArrivalRateAdjustments = 0;
+	double _DiagTimestampArrivalDurationMs = 0;
 	uint64_t _SegmentAcceptedVideoPackets = 0;
 	uint64_t _SegmentAcceptedVideoKeyframes = 0;
 	uint64_t _SegmentRepairedVideoTimestamps = 0;

@@ -720,6 +720,8 @@ void LiveOutputStream::ResetForReconnect(InputStream* NewInputStream)
 		_LiveData->_InitGeneration++;
         _LiveData->_DiagTimestampRejected = false;
         _LiveData->_DiagTimestampRetryAttempts = 0;
+		_LiveData->_DiagTimestampArrivalRateAdjustments = 0;
+		_LiveData->_DiagTimestampArrivalDurationMs = 0;
 		_LiveData->_DiagVideoPhaseErrorMs = 0.0;
 		_LiveData->_DiagVideoCorrectionMs = 0.0;
 		_LiveData->_DiagLastVideoOutputUs = 0;
@@ -1159,7 +1161,7 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 	if (IsVideo && _LiveData->_NormalizeNoBFrameTimestamps && _LiveData->_TimestampCadenceClock.UseArrival)
 		_LiveData->_TimestampDeliveryEvidence.Observe(static_cast<double>(ArrivalMs), OriginalSourceDuration,
 			OriginalSourceDuration > 0 ? av_q2d(InputTimebase) * OriginalSourceDuration * 1000.0 : 0,
-			(Packet->flags & AV_PKT_FLAG_CORRUPT) != 0);
+			(Packet->flags & AV_PKT_FLAG_CORRUPT) != 0, !SourceHasDts || !SourceHasPts || Packet->pts != Packet->dts);
 	const uint64_t PacketSequence = ++_LiveData->_PacketDiagSequence;
 	bool DtsSynthesized = false;
 	bool PtsSynthesized = false;
@@ -1401,6 +1403,7 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 	// packets are distinct access units in arrival order; discarding one can lose
 	// an HEVC reference picture and visibly corrupt dependent frames.
 	bool RepairedRegressingVideoTimestamp = false;
+	bool StartedArrivalThisPacket = false;
 	// Keep declared-duration evidence separate from source-DTS lookahead. Sample
 	// every eligible packet, including timestamp drops, so the raw high-water
 	// mark cannot distort the measured arrival cadence.
@@ -1486,6 +1489,7 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 							ArrivalMs, AVRational{1, 1000}, InputTimebase),
 							_LiveData->_LastWrittenDTS + _LiveData->_LastOutputPacketDuration);
 						_LiveData->_TimestampDeliveryEvidence = {};
+						StartedArrivalThisPacket = true;
 					}
 					_LiveData->_TimestampProbeSamples = 0;
 					_LiveData->_TimestampProbeOutliers = 0;
@@ -1565,7 +1569,7 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 
 		const bool ProbeTimestampNormalization = _LiveData->_AllowTimestampNormalization ||
 			(_LiveData->_AllowObservedTimestampRegressionRepair && _LiveData->_NormalizeNoBFrameTimestamps);
-		if (!_LiveData->_HasBFrames && ProbeTimestampNormalization && !_LiveData->_TimestampNormalizationRejected &&
+		if (!_LiveData->_HasBFrames && ProbeTimestampNormalization && !StartedArrivalThisPacket && !_LiveData->_TimestampNormalizationRejected &&
 			_LiveData->_LastInputDTS != AV_NOPTS_VALUE && _LiveData->_LastPacketDuration > 0)
 		{
 			const int64_t InputDelta = PacketCopy.dts - _LiveData->_LastInputDTS;
@@ -1614,22 +1618,39 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 				// phase-error budget, which incorrectly rejected camera 11.
 				const int64_t ProbeDurationUs = av_rescale_q(
 					_LiveData->_TimestampProbeDurationTicks, InputTimebase, AV_TIME_BASE_Q);
-				if (ProbeDurationUs >= 120 * AV_TIME_BASE)
+				const bool ArrivalRateEligible = _LiveData->_TimestampCadenceClock.UseArrival &&
+					_LiveData->_AllowObservedTimestampRegressionRepair && !_LiveData->_AllowTimestampNormalization &&
+					!_LiveData->_HasAudioStream;
+				const int64_t ValidationWindowUs = (ArrivalRateEligible ? 20LL : 120LL) * AV_TIME_BASE;
+				const int64_t ArrivalTicks = av_rescale_q(
+					ArrivalMs, AVRational{1, 1000}, InputTimebase);
+				const int64_t ReferenceTicks = _LiveData->_TimestampCadenceClock.WindowElapsed(
+					_LiveData->_TimestampProbeInputTicks, ArrivalTicks);
+				const int64_t ReferenceUs = av_rescale_q(ReferenceTicks, InputTimebase, AV_TIME_BASE_Q);
+				if ((ArrivalRateEligible ? ReferenceUs : ProbeDurationUs) >= ValidationWindowUs)
 				{
-					const int64_t ArrivalTicks = av_rescale_q(
-						ArrivalMs, AVRational{1, 1000}, InputTimebase);
-					const int64_t ReferenceTicks = _LiveData->_TimestampCadenceClock.WindowElapsed(
-						_LiveData->_TimestampProbeInputTicks, ArrivalTicks);
 					const int64_t SignedError = ReferenceTicks - _LiveData->_TimestampProbeDurationTicks;
 					const bool WindowCadenceDrifted =
 						TimestampCadenceClock::CadenceDrifted(ReferenceTicks, _LiveData->_TimestampProbeDurationTicks);
+					const bool BoundedArrivalRate = ArrivalRateEligible &&
+						!_LiveData->_TimestampPauseRecovery.Pending() &&
+						_LiveData->_TimestampCadenceClock.LearnArrivalDuration(ReferenceTicks,
+							_LiveData->_TimestampProbeDurationTicks, _LiveData->_TimestampProbeSamples,
+							av_rescale_q(20 * AV_TIME_BASE, AV_TIME_BASE_Q, InputTimebase),
+							_LiveData->_TimestampDeliveryEvidence);
+					if (BoundedArrivalRate) {
+						const std::lock_guard<std::mutex> Guard(*_LiveData->_SegmentsMutex);
+						_LiveData->_DiagTimestampArrivalRateAdjustments = _LiveData->_TimestampCadenceClock.RateAdjustments;
+						_LiveData->_DiagTimestampArrivalDurationMs =
+							av_q2d(InputTimebase) * _LiveData->_TimestampCadenceClock.LearnedDurationTicks * 1000.0;
+					}
 					const double DriftMs =
 						(double)SignedError * InputTimebase.num * 1000.0 / InputTimebase.den;
 
 					// A buffered pause can straddle the validation boundary before
 					// its burst drains. Retain the qualified repair until fresh
 					// cadence/keyframe recovery, bounded to 30 seconds by the policy.
-					if (WindowCadenceDrifted &&
+					if (WindowCadenceDrifted && !BoundedArrivalRate &&
 						!(_LiveData->_TimestampCadenceClock.UseArrival && _LiveData->_TimestampPauseRecovery.Pending()))
 					{
 						_LiveData->_NormalizeNoBFrameTimestamps = false;
@@ -1725,10 +1746,13 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 		PacketCopy.duration = _LiveData->_LastPacketDuration;
 		DurationSynthesized = true;
 	}
-	const int64_t NominalVideoDuration = IsVideo ? PacketCopy.duration : 0;
+	const int64_t DeclaredVideoDuration = IsVideo ? PacketCopy.duration : 0;
+	const int64_t NominalVideoDuration = IsVideo && _LiveData->_NormalizeNoBFrameTimestamps &&
+		_LiveData->_TimestampCadenceClock.UseArrival && _LiveData->_TimestampCadenceClock.LearnedDurationTicks > 0 ?
+		_LiveData->_TimestampCadenceClock.LearnedDurationTicks : DeclaredVideoDuration;
 	const int64_t SourceNominalVideoDuration = IsVideo && OriginalSourceDuration > 0 &&
 		OriginalSourceDuration <= INT_MAX ?
-		OriginalSourceDuration : NominalVideoDuration;
+		OriginalSourceDuration : DeclaredVideoDuration;
 
 	// Once the Reolink source has met the guarded jitter test, build a continuous
 	// output clock from declared durations, then gently steer it towards the raw
@@ -1865,8 +1889,8 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 		}
 		if (_LiveData->_NormalizeNoBFrameTimestamps)
 			_LiveData->_SegmentTimestampNormalizationActive = true;
-		if (NominalVideoDuration > 0)
-			_LiveData->_LastPacketDuration = NominalVideoDuration;
+		if (DeclaredVideoDuration > 0)
+			_LiveData->_LastPacketDuration = DeclaredVideoDuration;
 		if (PacketCopy.duration > 0)
 			_LiveData->_LastOutputPacketDuration = PacketCopy.duration;
 	}
@@ -2417,6 +2441,8 @@ LiveOutputStream::StreamingDiagnostics LiveOutputStream::GetStreamingDiagnostics
 	if (Diag.HasAudioVideoSkew)
 		Diag.AudioVideoSkewMs = (_LiveData->_DiagLastAudioOutputUs - _LiveData->_DiagLastVideoOutputUs) / 1000.0;
 	Diag.TimestampCorrectionSaturatedPackets = _LiveData->_DiagTimestampCorrectionSaturatedPackets;
+	Diag.TimestampArrivalRateAdjustments = _LiveData->_DiagTimestampArrivalRateAdjustments;
+	Diag.TimestampArrivalDurationMs = _LiveData->_DiagTimestampArrivalDurationMs;
 	Diag.VideoCodec = _LiveData->_DiagVideoCodec;
 	Diag.AudioCodec = _LiveData->_DiagAudioCodec;
 	Diag.InputFormat = _LiveData->_DiagInputFormat;

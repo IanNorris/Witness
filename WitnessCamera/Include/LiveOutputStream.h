@@ -309,6 +309,8 @@ public:
 		double AudioVideoSkewMs = 0.0;
 		bool HasAudioVideoSkew = false;
 		uint64_t TimestampCorrectionSaturatedPackets = 0;
+		uint64_t TimestampArrivalRateAdjustments = 0;
+		double TimestampArrivalDurationMs = 0;
 		std::string VideoCodec;
 		std::string AudioCodec;
 		std::string InputFormat;

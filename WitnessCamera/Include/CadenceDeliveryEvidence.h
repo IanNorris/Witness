@@ -9,6 +9,7 @@ struct CadenceDeliveryEvidence
 	uint64_t InvalidDurations = 0;
 	uint64_t DeclarationChanges = 0;
 	uint64_t CorruptPackets = 0;
+	uint64_t ReorderedPackets = 0;
 	double DeclaredMs = 0;
 	double MaxGapMs = 0;
 	double LongGapExcessMs = 0;
@@ -27,10 +28,11 @@ struct CadenceDeliveryEvidence
 		LastDurationTicks = Ticks;
 	}
 
-	void Observe(double ArrivalMs, int64_t DurationTicks, double DurationMs, bool Corrupt)
+	void Observe(double ArrivalMs, int64_t DurationTicks, double DurationMs, bool Corrupt, bool Reordered = false)
 	{
 		++Packets;
 		if (Corrupt) ++CorruptPackets;
+		if (Reordered) ++ReorderedPackets;
 		if (LastArrivalMs >= 0 && ArrivalMs >= LastArrivalMs)
 		{
 			const double Gap = ArrivalMs - LastArrivalMs;

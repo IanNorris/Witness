@@ -351,6 +351,9 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
         Value["timestampDeliveryInvalidDurations"] = Diag.TimestampDelivery.InvalidDurations;
         Value["timestampDeliveryDeclarationChanges"] = Diag.TimestampDelivery.DeclarationChanges;
         Value["timestampDeliveryCorruptPackets"] = Diag.TimestampDelivery.CorruptPackets;
+        Value["timestampDeliveryReorderedPackets"] = Diag.TimestampDelivery.ReorderedPackets;
+        Value["timestampArrivalRateAdjustments"] = Diag.TimestampArrivalRateAdjustments;
+        Value["timestampArrivalDurationMs"] = Diag.TimestampArrivalDurationMs;
 		Value["videoPhaseErrorMs"] = Diag.VideoPhaseErrorMs;
 		Value["videoCorrectionMs"] = Diag.VideoCorrectionMs;
 		Value["audioVideoSkewMs"] = Diag.HasAudioVideoSkew ?
@@ -885,6 +888,9 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
                     StreamData["timestampDeliveryInvalidDurations"] = Diag.TimestampDelivery.InvalidDurations;
                     StreamData["timestampDeliveryDeclarationChanges"] = Diag.TimestampDelivery.DeclarationChanges;
                     StreamData["timestampDeliveryCorruptPackets"] = Diag.TimestampDelivery.CorruptPackets;
+                    StreamData["timestampDeliveryReorderedPackets"] = Diag.TimestampDelivery.ReorderedPackets;
+                    StreamData["timestampArrivalRateAdjustments"] = Diag.TimestampArrivalRateAdjustments;
+                    StreamData["timestampArrivalDurationMs"] = Diag.TimestampArrivalDurationMs;
 					StreamData["videoPhaseErrorMs"] = Diag.VideoPhaseErrorMs;
 					StreamData["videoCorrectionMs"] = Diag.VideoCorrectionMs;
 					StreamData["audioVideoSkewMs"] = Diag.AudioVideoSkewMs;

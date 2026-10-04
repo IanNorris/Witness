@@ -221,6 +221,53 @@ int main()
 	Clock.StartArrival(100, 200);
 	Require(Clock.Target(-500, 110) == 210);
 	Require(Clock.WindowElapsed(-500, 110) == 10);
+	{
+		Witness::Camera::CadenceDeliveryEvidence Evidence;
+		Evidence.Packets = 2999; Evidence.DeclaredMs = 119960;
+		Evidence.MaxGapMs = 329; Evidence.LongGapExcessMs = 726;
+		Evidence.LastDurationMs = 40; Evidence.LastDurationTicks = 3600;
+		constexpr int64_t Declared = 120 * 90000LL;
+		constexpr int64_t Reference = 131284 * 90LL;
+		constexpr int64_t Minimum = 20 * 90000LL;
+		TimestampCadenceClock Learned;
+		Require(!Learned.LearnArrivalDuration(Reference, Declared, 3000, Minimum, Evidence));
+		Learned.StartArrival(0, 0);
+		Require(Learned.LearnArrivalDuration(Reference, Declared, 3000, Minimum, Evidence));
+		Require(Learned.LearnedDurationTicks == 0 && Learned.RateAdjustments == 0);
+		Require(Learned.LearnArrivalDuration(Reference, Declared, 3000, Minimum, Evidence));
+		Require(Learned.LearnedDurationTicks == 3939 && Learned.RateAdjustments == 1);
+		Require(!Learned.LearnArrivalDuration(Reference, Declared, 0, Minimum, Evidence));
+		Require(!Learned.LearnArrivalDuration(Reference, Declared, 3000, Reference + 1, Evidence));
+		for (int Kind = 0; Kind < 8; ++Kind) {
+			auto Bad = Evidence;
+			if (Kind == 0) Bad.InvalidDurations = 1;
+			if (Kind == 1) Bad.DeclarationChanges = 1;
+			if (Kind == 2) Bad.CorruptPackets = 1;
+			if (Kind == 3) Bad.ReorderedPackets = 1;
+			if (Kind == 4) Bad.MaxGapMs = 1000;
+			if (Kind == 5) Bad.LongGapExcessMs = 15000;
+			if (Kind == 6) Bad.Packets = 2900;
+			if (Kind == 7) Bad.DeclaredMs = std::numeric_limits<double>::quiet_NaN();
+			Require(!Learned.LearnArrivalDuration(Reference, Declared, 3000, Minimum, Bad));
+			Require(Learned.LearnedDurationTicks == 3939 && Learned.RateAdjustments == 1);
+		}
+		Learned.StartArrival(123, 456);
+		Require(Learned.LearnedDurationTicks == 0 && Learned.RateAdjustments == 0);
+		// Actual camera-8 first window: stable declarations, delivery ~12% slower.
+		Evidence.Packets = 500; Evidence.DeclaredMs = 20000; Evidence.MaxGapMs = 288;
+		Evidence.LongGapExcessMs = 490;
+		Require(Learned.LearnArrivalDuration(22404 * 90LL, 20000 * 90LL, 500, Minimum, Evidence));
+		Require(Learned.LearnedDurationTicks == 0);
+		Require(Learned.LearnArrivalDuration(22404 * 90LL, 20000 * 90LL, 500, Minimum, Evidence));
+		Require(Learned.LearnedDurationTicks == 4033 && Learned.RateAdjustments == 1);
+		Learned.StartArrival(0, 0);
+		Require(Learned.LearnArrivalDuration(22404 * 90LL, Declared, 500, Minimum, Evidence));
+		Require(Learned.LearnArrivalDuration(30000 * 90LL, Declared, 500, Minimum, Evidence));
+		Require(!Learned.LearnArrivalDuration(22404 * 90LL, Declared, 500, Minimum, Evidence));
+		Require(Learned.LearnedDurationTicks == 0); // alternating rates never become an estimate
+		Learned.StartArrival(0, 0);
+		Require(!Learned.LearnArrivalDuration(20 * 90000LL, Declared, 5000, Minimum, Evidence));
+	}
 
 	// Camera 9 capture: stable 4500-tick declarations, but bimodal source
 	// deltas keep resetting the source-derived qualification. Arrival evidence

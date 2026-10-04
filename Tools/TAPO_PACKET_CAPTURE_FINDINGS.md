@@ -661,3 +661,36 @@ drops and 47 corruption notifications. See
 8% synthetic case as sufficient camera coverage. The candidate remains
 experimental, not a deployable fix; simply moving the arbitrary percentage
 threshold would not establish safe adaptation across changing delivery rates.
+
+### Measured-rate consistency candidate: short live pass
+
+Candidate `80f201d75caa` replaces that declaration-relative limit with two clean,
+consistent 20-second delivery windows before adopting a frame-duration estimate.
+It applies only to already-qualified faulty source clocks on video-only,
+no-B-frame previews. Intact source clocks, audio and provider-profile streams
+retain their existing policy. Corruption, reordered/missing timestamps, changing
+duration declarations, substantial pauses and persistently inconsistent rates
+prevent learning; reconnect clears the learned estimate.
+
+Rebuilt guard, H.264/HEVC cadence/pause, timestamp recovery and H.264/AAC ownership
+tests all pass. Ten generated output files strictly decode with no missing,
+duplicate or regressing timestamps. These include 12% rate mismatch, pause/burst,
+inconsistent rate rejection and intact-clock controls. The credential-safe probe
+wrapper's four tests also pass. Build log: `artifacts/tapo-rate-consistency-build.log`.
+
+A fresh 180-second camera-8 run accepted 2,978 packets, repaired 153 timestamps,
+and had zero established drops, cadence rejection, retries, mux errors, FFmpeg
+errors or generation changes. One startup drop/corruption/recovery remained fixed.
+The delivered interval in this run was about 60 ms, rather than the earlier
+44.8 ms sample; seven estimate updates ended at 60.0222 ms with -34.8667 ms phase
+error. Maximum ProcessFrame was 209.334 ms. The finalized recording strictly
+decodes with 2,977 packet/frame timestamp samples and no diagnostics.
+
+Artifacts: `artifacts/tapo8-rate-consistency-candidate2-20261004.*` and
+`artifacts/tapo8-rate-consistency-candidate2-window*-report.txt`. Three 30-second
+captures were collected. Established windows 2 and 3 each write all 500 packet
+decisions, with zero payload/hash changes and one source-correlation gap at the
+lookahead capture boundary. Window 1 contains startup keyframe waiting. This is
+a short production-demux/mux check, not browser MSE, full server load or a claim
+of sustained production stability. Concurrent 15-minute camera-8/9 validation
+remains the next gate before producing a deployment package.
