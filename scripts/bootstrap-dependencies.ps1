@@ -63,7 +63,10 @@ Write-Host "This is the only supported command that installs or updates managed 
 
 Push-Location $repositoryRoot
 try {
-    & $cmake --preset $Preset -DWITNESS_BOOTSTRAP_DEPENDENCIES=ON
+    # VCPKG_ROOT alone does not override a valid cached CMAKE_TOOLCHAIN_FILE.
+    # Use the installation whose pinned executable we actually checked above.
+    $selectedToolchain = Join-Path $vcpkgRoot "scripts\buildsystems\vcpkg.cmake"
+    & $cmake --preset $Preset "-DCMAKE_TOOLCHAIN_FILE=$selectedToolchain" -DWITNESS_BOOTSTRAP_DEPENDENCIES=ON
     if ($LASTEXITCODE -ne 0) {
         throw "Dependency bootstrap failed with exit code $LASTEXITCODE."
     }

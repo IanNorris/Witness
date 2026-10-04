@@ -9,10 +9,8 @@ option(WITNESS_PROFILE_BUILD
 
 # Managed builds never mutate dependencies as a side effect of routine IDE or
 # command-line configuration. The bootstrap script opts into installation.
-if(WITNESS_MANAGED_DEPENDENCIES)
-    set(VCPKG_MANIFEST_INSTALL ${WITNESS_BOOTSTRAP_DEPENDENCIES}
-        CACHE BOOL "Install vcpkg manifest dependencies" FORCE)
-endif()
+include("${CMAKE_CURRENT_SOURCE_DIR}/Tools/WitnessDependencyPolicy.cmake")
+witness_prepare_managed_dependencies()
 
 # vcpkg does not yet auto-discover VS 2026 Insiders on this machine. Pin both
 # the project and dependency builds to it unless the caller explicitly selects
@@ -93,13 +91,6 @@ if(WITNESS_MANAGED_DEPENDENCIES)
     # Git may materialize these text files with CRLF in one worktree and LF in
     # another. Fingerprint their logical contents so an equivalent checkout
     # cannot spuriously invalidate the immutable dependency environment.
-    function(witness_normalized_text_sha256 output path)
-        file(READ "${path}" _WITNESS_HASH_CONTENT)
-        string(REPLACE "\r\n" "\n" _WITNESS_HASH_CONTENT "${_WITNESS_HASH_CONTENT}")
-        string(REPLACE "\r" "\n" _WITNESS_HASH_CONTENT "${_WITNESS_HASH_CONTENT}")
-        string(SHA256 _WITNESS_HASH "${_WITNESS_HASH_CONTENT}")
-        set(${output} "${_WITNESS_HASH}" PARENT_SCOPE)
-    endfunction()
     witness_normalized_text_sha256(_WITNESS_MANIFEST_SHA
         "${CMAKE_SOURCE_DIR}/vcpkg.json")
     witness_normalized_text_sha256(_WITNESS_REGISTRY_SHA
@@ -150,12 +141,8 @@ if(WITNESS_MANAGED_DEPENDENCIES)
             "${_WITNESS_EXPECTED_VCPKG_COMMIT}. Run "
             "scripts/bootstrap-vcpkg.ps1 or explicitly select a matching VCPKG_ROOT.")
     endif()
-    if(MSVC AND NOT CMAKE_CXX_COMPILER_VERSION MATCHES
-            "^${_WITNESS_EXPECTED_MSVC_FAMILY}(\\.|$)")
-        message(FATAL_ERROR
-            "The selected compiler ${CMAKE_CXX_COMPILER_VERSION} is outside the pinned "
-            "MSVC ${_WITNESS_EXPECTED_MSVC_FAMILY} ABI family. Review and update "
-            "build-environment.json plus the Witness triplet before rebuilding dependencies.")
+    if(MSVC)
+        witness_require_msvc_family("${CMAKE_CXX_COMPILER_VERSION}" "${_WITNESS_EXPECTED_MSVC_FAMILY}")
     endif()
 
     string(SHA256 _WITNESS_DEPENDENCY_SIGNATURE
@@ -178,24 +165,11 @@ if(WITNESS_MANAGED_DEPENDENCIES)
             "generator_toolset=${CMAKE_GENERATOR_TOOLSET}\n")
         message(STATUS "Bootstrapped managed dependency environment ${_WITNESS_DEPENDENCY_SIGNATURE}")
     else()
-        if(NOT EXISTS "${_WITNESS_DEPENDENCY_STAMP}")
-            message(FATAL_ERROR
-                "Managed dependencies have not been bootstrapped in this build directory. "
-                "Run scripts/bootstrap-dependencies.ps1, then configure again.")
-        endif()
-        file(STRINGS "${_WITNESS_DEPENDENCY_STAMP}" _WITNESS_STAMP_SIGNATURE
-            REGEX "^signature=")
-        if(NOT _WITNESS_STAMP_SIGNATURE STREQUAL
-                "signature=${_WITNESS_DEPENDENCY_SIGNATURE}")
-            message(FATAL_ERROR
-                "The pinned dependency environment changed. Ordinary configure will not "
-                "modify installed packages. Review vcpkg.json, vcpkg-configuration.json, "
-                "the Witness triplet, and vcpkg version, then explicitly run "
-                "scripts/bootstrap-dependencies.ps1 if the change is intended.")
-        endif()
+        witness_require_dependency_stamp("${_WITNESS_DEPENDENCY_STAMP}" "${_WITNESS_DEPENDENCY_SIGNATURE}" "${VCPKG_TARGET_TRIPLET}")
         message(STATUS
             "Using immutable managed dependency environment ${_WITNESS_DEPENDENCY_SIGNATURE}")
     endif()
+    witness_finish_managed_dependency_configuration()
 endif()
 
 # A Visual Studio or Ninja environment can still select a different cl.exe from

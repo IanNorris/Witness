@@ -262,3 +262,48 @@ do not establish production/MSE stability or concurrent shutdown safety while
 another caller is using the stream; its existing camera-worker ownership
 contract is unchanged. Because exported class layout changed, always deploy
 the rebuilt server and Camera DLL together.
+
+### Dependency-reuse validation (2026-10-04)
+
+Managed bootstrap permission is now one-shot: its cached flag is consumed
+before `project()` can invoke the vcpkg toolchain. Both successful and failed
+bootstrap configurations require a fresh explicit request before installation
+is allowed again. A stale `VCPKG_MANIFEST_INSTALL=ON` cannot authorize ordinary
+managed configuration. The bootstrap wrapper also passes the selected pinned
+toolchain explicitly; merely setting `VCPKG_ROOT` does not replace a previously
+cached, valid `CMAKE_TOOLCHAIN_FILE`.
+
+The shared production policy is exercised with real CMake and a synthetic
+installation marker, not real package installation. Tests cover success/failure
+followed by ordinary retries, compiler servicing within exactly `19.51`, rejected
+adjacent/malformed families, missing/mismatched/duplicate stamps, target-triplet
+identity, and LF/CRLF-equivalent logical fingerprints. Compiler-family dots are
+escaped, so `19x51` cannot accidentally match `19.51`.
+
+Complete installed-package content can be checked independently of the source
+fingerprint:
+
+```powershell
+python Tools/dependency_inventory.py capture build-vs2026/vcpkg_installed artifacts/dependencies-before.json
+# Configure/build with dependency installation explicitly disabled.
+python Tools/dependency_inventory.py capture build-vs2026/vcpkg_installed artifacts/dependencies-after.json
+python Tools/dependency_inventory.py compare artifacts/dependencies-before.json artifacts/dependencies-after.json
+python -m unittest discover -s Tools/Tests -p 'test_dependency_*.py'
+```
+
+Snapshots hash every regular installed file, including headers, binaries, and
+metadata; detect additions/removals/same-size content changes; refuse linked
+entries and files changing during hashing; and must be saved outside the
+package tree without overwriting an existing snapshot. They prove file-content
+reuse, not ACL/permission invariance or binary ABI compatibility by themselves.
+
+On this machine, successful no-install configuration of the current legacy
+`build-vs2026` tree retained all 3,078 vcpkg files (1,830,711,343 bytes) and all
+26 official ONNX package files (394,357,023 bytes) unchanged. The managed
+`build-vs2026-stable` tree rejected its pre-existing stale stamp and retained all
+2,673 installed files (759,367,637 bytes) unchanged. Its stamp predates logical
+fingerprinting and does not match today's manifest/registry hashes; it was not
+silently re-stamped or bootstrapped. A successful real managed migration remains
+unverified until its inputs are reviewed and explicitly reconciled. The positive
+managed retry behavior is proven by the isolated real-CMake policy tests, not by
+claiming that the stale real managed tree configured successfully.
