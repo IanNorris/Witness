@@ -195,6 +195,22 @@ if(MSVC)
     target_compile_options(PtzConfigurationTests PRIVATE /utf-8 /W3)
 endif()
 
+# Explicit telemetry limit/privacy regressions, with caller-owned temporary DBs.
+add_executable(ClientHealthPayloadTests EXCLUDE_FROM_ALL ../Tools/Tests/ClientHealthPayloadTests.cpp)
+target_include_directories(ClientHealthPayloadTests PRIVATE Source)
+target_link_libraries(ClientHealthPayloadTests PRIVATE Crow::Crow)
+foreach(health_test ClientHealthHistoryTests ClientHealthEndpointTests)
+    add_executable(${health_test} EXCLUDE_FROM_ALL
+        ../Tools/Tests/${health_test}.cpp Source/ClientHealthHistory.cpp)
+    target_include_directories(${health_test} PRIVATE Source)
+    target_link_libraries(${health_test} PRIVATE Crow::Crow unofficial::sqlite3::sqlite3 Threads::Threads)
+endforeach()
+if(MSVC)
+    foreach(health_test ClientHealthPayloadTests ClientHealthHistoryTests ClientHealthEndpointTests)
+        target_compile_options(${health_test} PRIVATE /utf-8 /W3)
+    endforeach()
+endif()
+
 # Copy models directory next to the executable
 add_custom_command(TARGET WitnessServer POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory

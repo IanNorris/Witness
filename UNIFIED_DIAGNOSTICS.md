@@ -264,3 +264,28 @@ out of scope until supported by measurements.
 - With 16 representative streams for 30 minutes, diagnostics add less than one
   percentage point of host CPU, stay within budget, increase processing p95 by
   less than 5%, and keep summary HTTP p95 below 100 ms.
+
+### Browser-history validation checkpoint (4 October)
+
+The existing native limit/privacy tests are now explicit `EXCLUDE_FROM_ALL`
+targets, rather than relying on ad-hoc compiler commands:
+
+```powershell
+cmake --build build-vs2026 --config RelWithDebInfo --target ClientHealthPayloadTests ClientHealthHistoryTests ClientHealthEndpointTests ClientHealthHttpFixture
+```
+
+All three focused tests passed against the current history implementation. They
+cover payload allowlisting and server-owned identity; invalid/oversized input;
+per-session/principal rate limits; 120 samples/session, eight sessions/user,
+64 global sessions, 2,048 records and 8 MiB retained sample-content bounds;
+24-hour expiry, durable reload and storage initialization failure. The endpoint
+test checks permission/CSRF rejection, method/body limits and administrator
+export. The separately rerun loopback HTTP fixture verifies actual production
+cookie authentication and persistence through a fixture process restart.
+
+The near-limit history export measured 16 ms and 9,393,620 serialized bytes in
+this one local run. Serialized export includes both latest-session summaries
+and history, so its size is not the retained-content byte bound. This is not a
+p95 measurement, a concurrent-server benchmark, or the 16-stream/30-minute
+overhead gate above. Real-browser multi-client reporting, Linux execution and
+full production-load validation remain unproven by these isolated tests.
