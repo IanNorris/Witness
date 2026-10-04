@@ -315,3 +315,54 @@ or remote push occurred. The user's backlog edits are untouched.
 The user has now authorized brief low-speed move-and-Stop checks on cameras 10
 and 12. No physical movement has yet been performed at this checkpoint; firmware
 acknowledgements, actual movement and physical Stop latency remain unverified.
+
+### Approved real-camera command checkpoint (2026-10-04)
+
+The user explicitly approved brief low-speed movement on cameras 10 and 12.
+`PtzPhysicalProbe` is a separate EXCLUDE_FROM_ALL manual target. Its wrapper
+requires `--confirm-physical-movement`, permits only those two camera IDs and
+loads only the requested camera's endpoint through a read-only database copy.
+Credentials are passed in environment variables and never relayed in output.
+Companion links are not followed. Wrapper regressions prove confirmation/scope
+checks occur before database access, links cannot redirect the selected endpoint,
+disabled PTZ is rejected, database bytes are unchanged and arbitrary transport
+output/credentials are suppressed. The native probe rejects missing confirmation.
+
+Both the authenticated HTTP backup Stop and Baichuan Stop must acknowledge
+before movement. An independent timer is armed first; it dispatches Stop after
+250 ms even if the low-speed Left command has not acknowledged. Failed Baichuan
+Stop invokes the authenticated HTTP fallback, with at most three attempts. The
+wrapper deliberately has no subprocess timeout that could kill this watchdog
+mid-movement. No presets, home positions, calibration, zoom or database settings
+are written. Do not invoke this target as an unattended regression test.
+
+The first camera-10 invocation rejected reciprocal companion links (10->11 and
+11->10) before any camera command. The wrapper's initial parent-only assumption
+was corrected: it now reads only the approved ID's own endpoint, never its linked
+feed. This also identifies a separate server audit item: one-hop `PtzDeviceId`
+maps reciprocal links to different lease lanes. The downloaded database proves
+that configuration exists in the copy, not that it is unchanged on production.
+
+Real command results, performed sequentially:
+
+| Camera | Move acknowledgement | Stop dispatch after start | Stop acknowledgement after start |
+|---|---|---|---|
+| 10 | Yes | 259 ms | 440 ms |
+| 12 | Yes | 253 ms | 454 ms |
+
+Both preflights and both Baichuan Stops acknowledged; HTTP fallback was not
+needed. These are real firmware replies, not successful socket writes. They do
+not prove exact physical motor stopping time or visually observed motion: no
+before/after images or valid absolute-position measurement were collected.
+No additional movement was attempted to restore framing or invoke home/presets.
+Logs: `artifacts/ptz-physical-camera10-confirmed.log`,
+`artifacts/ptz-physical-camera12-confirmed.log`, and
+`artifacts/ptz-physical-wrapper-tests.log`. Both probes exited zero and no probe
+remained running. Production service/authentication/database were not changed.
+
+Coherent combined build: `build-vs2026/deploy/ptz-physical-09a439986947`, native ID
+`09a439986947`, web ID `32a271a85d62`. All 96 files / 180,083,986 bytes match runtime
+output (`artifacts/ptz-physical-package-verification-20261004.json`); the manual
+probe is excluded. The build has no C++/linker warnings or dependency installation;
+existing third-party web warnings remain. No deployment, main merge or remote
+push was performed. The user's backlog edits are unchanged.

@@ -212,6 +212,15 @@ if(MSVC)
     target_compile_options(PtzTransportProbe PRIVATE /utf-8 /W3)
 endif()
 
+# Manual physical movement; requires explicit per-camera confirmation.
+add_executable(PtzPhysicalProbe EXCLUDE_FROM_ALL
+    ../Tools/Tests/PtzPhysicalProbe.cpp Source/ReolinkClient.cpp)
+target_include_directories(PtzPhysicalProbe PRIVATE Source ${CMAKE_SOURCE_DIR}/ThirdParty/httplib)
+target_link_libraries(PtzPhysicalProbe PRIVATE WitnessCamera WitnessCommon Crow::Crow OpenSSL::SSL OpenSSL::Crypto)
+if(MSVC)
+    target_compile_options(PtzPhysicalProbe PRIVATE /utf-8 /W3)
+endif()
+
 add_executable(ClientHealthPayloadTests EXCLUDE_FROM_ALL ../Tools/Tests/ClientHealthPayloadTests.cpp)
 target_include_directories(ClientHealthPayloadTests PRIVATE Source)
 target_link_libraries(ClientHealthPayloadTests PRIVATE Crow::Crow)
