@@ -166,6 +166,36 @@ replace the longer playback/processing performance gate.
 
 ## Existing and non-Windows builds
 
+### Isolated local server data
+
+Set `WITNESS_DATA_ROOT` in a **child process's environment** before launching
+Witness or its `/createdb`/`/setup` helpers to select an absolute, dedicated data
+directory instead of `%ProgramData%\Witness` (Windows) or `$HOME/.Witness`
+(non-Windows). Unset/empty keeps the existing default. Relative paths and volume
+roots are rejected; filenames cannot escape through separators, traversal or
+alternate data streams. Invalid roots fail before log/database initialization.
+The setting is process-local; it is not persisted into a Windows service's
+environment by the installer.
+
+The override selects `server.db`, `client-health.db` and logs. It does **not**
+redirect media caches, TLS files or absolute media paths stored in a copied
+database. For an isolated test, use a fresh database, a separate cache configured
+in that database, loopback listener/source URLs and fixture-owned authenticated
+sessions. Do not copy production clip rows and assume this setting protects
+their referenced files. It changes no authentication policy or camera setting.
+
+`ConfigPathsTests` exercises pure default/override resolution, malformed roots
+and leaf names, and the real environment-driven directory selection. The
+opt-in `Tools/Tests/test_server_data_root.py` additionally exercises the actual
+built server's `/createdb` helper, including a path containing spaces. It
+checks the expected native identity and override support before invoking the
+binary, creates a fresh fixture under `artifacts`, and never starts a listener.
+A relative override exits 1 without changing the private database. Logs:
+`artifacts/isolated-data-root-native-tests.log` and
+`artifacts/isolated-data-root-server-tests.log`. The final build has no native
+compiler/linker warnings. Windows execution is verified; non-Windows execution
+and non-ASCII SQLite/log paths were not validated here.
+
 Existing build trees and the legacy presets continue to behave as before. The
 managed policy is opt-in through `windows-vs2026-stable`, which avoids breaking
 the current known-good dependency installation while the new release-only

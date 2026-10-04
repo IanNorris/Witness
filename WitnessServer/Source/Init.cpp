@@ -11,6 +11,7 @@
 #include "TagHelpers.h"
 #include "ReolinkClient.h"
 #include "UrlHelpers.h"
+#include "ConfigPaths.h"
 
 #include <Log.h>
 #include <ONNXDetectionFilter.h>
@@ -24,32 +25,6 @@
 #ifdef _WIN32
 #include <windows.h>
 #endif
-
-std::filesystem::path GetConfigFilePath( std::string Filename )
-{
-#if defined( _WINDOWS )
-
-	size_t RequiredSize = MAX_PATH;
-	char ProfileRoot[ MAX_PATH ] = {};
-	errno_t Result = getenv_s( &RequiredSize, ProfileRoot, MAX_PATH, "ProgramData" );
-	
-	assert( Result == S_OK );
-
-	std::filesystem::path ConfigPath = ProfileRoot;
-	ConfigPath /= "Witness";
-
-	std::filesystem::create_directories( ConfigPath );
-#else
-	std::filesystem::path ConfigPath = getenv("HOME");
-	ConfigPath /= ".Witness";
-
-	std::filesystem::create_directories( ConfigPath );
-#endif
-
-	ConfigPath.append( Filename );
-
-	return ConfigPath;
-}
 
 bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 {

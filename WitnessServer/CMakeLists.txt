@@ -11,6 +11,7 @@ set(SERVER_SOURCES
     Source/AsyncWorker.cpp
     Source/AuthHelpers.cpp
     Source/ClipHelpers.cpp
+    Source/ConfigPaths.cpp
     Source/ClientHealthHistory.cpp
     Source/CpuUsage.cpp
     Source/DetectionAssetFiles.cpp
@@ -73,6 +74,7 @@ set(SERVER_HEADERS
     Source/ClientHealthHistory.h
     Source/ClientHealthPayload.h
     Source/ClientHealthEndpoint.h
+    Source/ConfigPaths.h
     Source/DetectionAssetFiles.h
     Source/DetectionCleanup.h
     Source/ClipReprocessWorker.h
@@ -242,6 +244,14 @@ if(MSVC)
     foreach(health_test ClientHealthPayloadTests ClientHealthHistoryTests ClientHealthEndpointTests)
         target_compile_options(${health_test} PRIVATE /utf-8 /W3)
     endforeach()
+endif()
+
+# Pure path validation and opt-in data-root isolation.
+add_executable(ConfigPathsTests EXCLUDE_FROM_ALL
+    ../Tools/Tests/ConfigPathsTests.cpp Source/ConfigPaths.cpp)
+target_include_directories(ConfigPathsTests PRIVATE Source)
+if(MSVC)
+    target_compile_options(ConfigPathsTests PRIVATE /utf-8 /W3)
 endif()
 
 # Copy models directory next to the executable

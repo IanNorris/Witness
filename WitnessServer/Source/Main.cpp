@@ -4,6 +4,7 @@
 #include "SetupConfig.h"
 #include "SetupServer.h"
 #include "TerminalDashboard.h"
+#include "ConfigPaths.h"
 #include "sodium.h"
 #include "ObservingMotionFilter.h"
 #include "Witness.h"
@@ -46,8 +47,6 @@ extern "C" {
 #define SERVICE_PASSWORD L""
 
 bool ContinueRunning = true;
-
-std::filesystem::path GetConfigFilePath(std::string Filename);
 
 bool UpdateService(wchar_t* Path, bool Install)
 {
@@ -329,11 +328,15 @@ int wmain( int argc, wchar_t* argv[] )
 	PlainConsoleLogLevel = ConsoleLogLevel;
 
 	// Initialize logging early (before any LOG_* calls).
-	{
+	try {
 		auto logDir = GetConfigFilePath( "logs" );
 		std::filesystem::create_directories( logDir );
 		Witness::LogInit( logDir.string(), UseTerminalDashboard ?
 			Witness::LogLevel::Off : ConsoleLogLevel );
+	}
+	catch (const std::exception& Error) {
+		std::cerr << "Cannot initialize Witness data/log directory: " << Error.what() << std::endl;
+		return 1;
 	}
 
 	if (argc >= 2)

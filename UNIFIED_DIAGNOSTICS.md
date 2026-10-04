@@ -504,3 +504,21 @@ actual per-item distributions, not reconstruction from cumulative means.
 Missing sources, unsupported decode, hidden-tab throttling, storage failures or
 unfinished phases must be reported as incomplete rather than a passing gate.
 No longer test has been started yet; there is no live job being waited on.
+
+### Data-root isolation prerequisite (5 October)
+
+The server now accepts an explicit `WITNESS_DATA_ROOT` process-environment
+override, with default locations unchanged when absent. Configuration path
+selection is a standalone, regression-tested module; invalid relative/volume
+roots or escaping filenames are rejected before filesystem writes. Early log
+initialization reports a clean exit instead of letting a malformed root produce
+an uncaught exception. Windows environment values are copied with the secure
+CRT API rather than retaining mutable environment pointers.
+
+Native selection/containment tests and a real `/createdb` subprocess test pass.
+The subprocess creates only a fresh private database/log directory and verifies
+that an invalid relative override fails before accessing that database. It does
+not start server workers, HTTP or camera connections. No global configuration,
+authentication or existing media is changed. See `BUILDING.md` for exact scope:
+cache/TLS/media-reference isolation still has to be configured and checked by
+the full-load harness. The 16-stream test has not been started by this change.
