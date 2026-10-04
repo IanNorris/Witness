@@ -93,6 +93,14 @@ int main(int Argc, char** Argv) {
         });
         CROW_ROUTE(App, "/fixture/stop").methods(crow::HTTPMethod::Post)
         ([&] { Stop = true; return crow::response(200); });
+        // A small authenticated response measures HTTP scheduling while full
+        // exports run. This is a fixture route, not production stream timing.
+        CROW_ROUTE(App, "/fixture/ping")
+        ([&](const crow::request& Req) {
+            if (CrowAuth::IsAuthenticated(Context, Req, nullptr, CrowAuth::Action::Read,
+                CrowAuth::Privilege::Administrator) < 0) return crow::response(403);
+            return crow::response(200, "ok");
+        });
         App.bindaddr("127.0.0.1").port(0).concurrency(2).signal_clear().loglevel(crow::LogLevel::Critical);
         auto Running = App.run_async();
         if (App.wait_for_server_start(std::chrono::seconds(5)) == std::cv_status::timeout) {

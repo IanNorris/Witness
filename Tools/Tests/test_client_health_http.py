@@ -28,13 +28,13 @@ class HealthHttpTests(unittest.TestCase):
                 """)
                 db.commit()
 
-            def request(base, port, token=None, body=None, cookie_port=None, method=None):
+            def request(base, port, token=None, body=None, cookie_port=None, method=None, path='/debug/client-health'):
                 headers = {}
                 if token is not None:
                     headers["Cookie"] = f"unrelated=value; SessionToken-{port if cookie_port is None else cookie_port}={token}"
                 if body is not None:
                     headers["Content-Type"] = "application/json"
-                req = urllib.request.Request(base + "/debug/client-health",
+                req = urllib.request.Request(base + path,
                     data=None if body is None else json.dumps(body).encode(), headers=headers, method=method)
                 try:
                     response = urllib.request.urlopen(req, timeout=5)
@@ -68,6 +68,9 @@ class HealthHttpTests(unittest.TestCase):
                             port = int(line.split("=", 1)[1])
                             base = f"http://127.0.0.1:{port}"
                     if not restart:
+                        self.assertEqual(request(base, port, path='/fixture/ping')[0], 403)
+                        self.assertEqual(request(base, port, 'alice-token', path='/fixture/ping')[0], 403)
+                        self.assertEqual(request(base, port, 'admin-token', path='/fixture/ping')[0], 200)
                         self.assertEqual(request(base, port)[0], 403)
                         self.assertEqual(request(base, port, body=payload)[0], 403)
                         self.assertEqual(request(base, port, "alice-token")[0], 403)

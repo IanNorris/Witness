@@ -323,3 +323,47 @@ timers, localStorage, fetch and cookies, but synthetic player snapshots rather
 than real MSE playback. The in-app browser reported both tabs visible, so hidden
 tab throttling and independently profiled browsers remain unverified. It is not
 the 16-stream/30-minute performance gate above.
+
+### Concurrent HTTP history-load checkpoint (4 October)
+
+`Tools/Tests/benchmark_client_health_http.py` launches the native cookie/CSRF
+fixture twice with disposable databases and two Crow workers: empty history,
+then 126 near-maximum-size records across 16 stable synthetic browser sessions.
+The latter starts with 9,321,687 serialized export bytes (history plus latest
+session summaries). Deliberate JSON padding models the storage/serialization
+bound; it is not representative real-player content. Synthetic reporters reuse
+seeded identities so large records remain retained, and an explicit final
+assertion requires more than 8 MB of sample content. The first exploratory run
+rotated identities and evicted the large records; its measurements do not prove
+near-limit performance and are superseded by the retained-identity run.
+
+```powershell
+python Tools/Tests/benchmark_client_health_http.py --fixture build-vs2026/bin/RelWithDebInfo/ClientHealthHttpFixture.exe --output artifacts/health-http-load-retained-20261004.json
+```
+
+Two concurrent export clients, one authenticated tiny-response probe every
+100 ms and one synthetic 16-player report every second run for 30 seconds in
+each case. Timings cover complete client HTTP responses, including transport
+and body reads, not isolated handler CPU. Nearest-rank quantiles in milliseconds:
+
+| Case | Operation | Samples | P50 | P95 | P99 | Maximum |
+|---|---|---:|---:|---:|---:|---:|
+| Initially empty | Export | 1903 | 2.097 | 25.971 | 26.689 | 27.727 |
+| Initially empty | Tiny authenticated probe | 266 | 14.008 | 24.085 | 25.982 | 26.865 |
+| Initially empty | Report POST | 30 | 11.620 | 25.541 | 25.676 | 25.676 |
+| Near-limit retained | Export | 870 | 47.356 | 71.613 | 88.224 | 100.703 |
+| Near-limit retained | Tiny authenticated probe | 231 | 28.697 | 57.385 | 77.315 | 91.719 |
+| Near-limit retained | Report POST | 30 | 26.022 | 79.559 | 91.555 | 91.555 |
+
+Near-limit history ends at 156 durable rows with no pending writes or storage
+failures. Baseline tiny-probe P95 before concurrent traffic is 25.133 ms (empty)
+and 15.714 ms (loaded), showing local scheduling variability. The fixture-only
+probe uses production administrator authentication; regressions reject anonymous
+and ordinary-user calls. Cookie/CSRF, deleted/disabled owner and durable restart
+tests also pass after the fixture extension. The isolated fixture builds without
+compiler warnings and performs no dependency installation.
+
+This demonstrates bounded HTTP responsiveness in this synthetic run, not the
+production summary endpoint, camera processing overhead, sustained browser
+reporting CPU or the 16-representative-stream/30-minute gate. No recording DB,
+authentication setting, camera worker or production runtime route is changed.
