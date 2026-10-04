@@ -1,22 +1,40 @@
 // Synthetic, loopback-only UI fixture. Never forwards a request to Witness or a camera.
 import { createServer } from 'node:http'
 import { createHash } from 'node:crypto'
-import { readFile } from 'node:fs/promises'
+import { readFile, appendFile } from 'node:fs/promises'
 import { extname, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { createInterface } from 'node:readline'
+import { createRequire } from 'node:module'
+import { loadMuxReplay, streamMuxReplay } from './muxReplay.mjs'
 
-export async function startPtzDashboard({ layout = false, automaticSlots = false } = {}) {
+export async function startPtzDashboard({ layout = false, automaticSlots = false, muxFile, seconds = 120, evidenceFile } = {}) {
+  const replay = muxFile ? await loadMuxReplay(muxFile, seconds) : null
   // Resolve from repository rather than the caller's current directory.
   const webRoot = resolve(fileURLToPath(new URL('../../../WitnessServer/Web', import.meta.url)))
   const cameras = (layout ? [10, 12, 13, 14, 15] : [10, 12]).map((id, index) => ({ id, name: `Fixture PTZ ${index + 1}`,
     groups: [], status: 'Connected', recording: layout && index < 2, ptzEnabled: 1, codec: 'h264', width: 1920, height: 1080 }))
   const commands = []
   const sockets = new Set()
+  const streamConnections = new Map()
+  const reports = []
   const json = (res, value) => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(value)) }
   const server = createServer(async (req, res) => {
     try {
       const path = new URL(req.url, 'http://localhost').pathname
+      if (replay && path === '/test/evidence' && req.method === 'POST') {
+        let body = ''
+        for await (const chunk of req) {
+          body += chunk
+          if (body.length > 256 * 1024) { res.statusCode = 413; return res.end() }
+        }
+        if (reports.length >= 400) { res.statusCode = 429; return res.end() }
+        reports.push(JSON.parse(body))
+        const evidence = { at: new Date().toISOString(), report: reports.at(-1), connections: Object.fromEntries(streamConnections) }
+        if (evidenceFile) await appendFile(evidenceFile, JSON.stringify(evidence) + '\n')
+        console.log(JSON.stringify(evidence))
+        return json(res, {})
+      }
       if (path === '/auth/profile') return json(res, { csrf: 'fixture-only', username: 'fixture', admin: false })
       if (path === '/camera/enum') return json(res, cameras)
       if (path === '/group/enum') return json(res, { groups: [] })
@@ -51,7 +69,17 @@ export async function startPtzDashboard({ layout = false, automaticSlots = false
             visibleCameraIds: [10, 12, 13], priorityCameraIds: [15, 14, 13, 12, 10], slotHoldSeconds: 6,
             automaticSlots: [{ anchorCameraId: 12, fallbackCameraId: 12 }, { anchorCameraId: 13, fallbackCameraId: 13 }],
           } : {}) }
-        const initial = `<script>localStorage.setItem('streamingMode','"jpeg"');localStorage.setItem('fullscreenMode','${layout ? 'false' : 'true'}');localStorage.setItem('witness-dashboard-activity-visible','${layout ? '1' : '0'}');${layout ? `localStorage.setItem('witness-dashboard-windowed-mode','layout');localStorage.setItem('witness-dashboard-layout-v1-all',${JSON.stringify(JSON.stringify(sampleLayout))});` : ''}</script>`
+        const initial = `<script>localStorage.setItem('streamingMode','"${replay ? 'mse' : 'jpeg'}"');localStorage.setItem('fullscreenMode','${layout ? 'false' : 'true'}');localStorage.setItem('witness-dashboard-activity-visible','${layout ? '1' : '0'}');${layout ? `localStorage.setItem('witness-dashboard-windowed-mode','layout');localStorage.setItem('witness-dashboard-layout-v1-all',${JSON.stringify(JSON.stringify(sampleLayout))});` : ''}
+          ${replay ? `setInterval(() => {
+            const players = Object.entries(window._witnessMseDiag || {}).map(([id, diag]) => {
+              const d = diag.snapshot(); return { id, startTime: d.startTime, stats: d.stats,
+                time: d.currentState?.currentTime, ready: d.currentState?.readyState, paused: d.currentState?.paused,
+                error: d.currentState?.error, queue: d.liveState?.appendQueueLength };
+            });
+            const tiles = [...document.querySelectorAll('.camera-grid-item')].map(tile => ({
+              text: tile.textContent?.trim().slice(0, 100), hidden: tile.getAttribute('aria-hidden') }));
+            fetch('/test/evidence', {method:'POST', body:JSON.stringify({players, tiles})}).catch(()=>{});
+          }, 5000);` : ''}</script>`
         return res.end((await readFile(resolve(webRoot, 'index.html'), 'utf8')).replace('<head>', '<head>' + initial))
       }
       res.statusCode = 404; res.end()
@@ -59,7 +87,20 @@ export async function startPtzDashboard({ layout = false, automaticSlots = false
   })
   // A quiet event connection avoids testing behind the real connection-loss
   // modal. No event or camera protocol is forwarded to a production service.
-  server.on('upgrade', (req, socket) => {
+  let wsServer
+  if (replay) {
+    const { wsServer: WebSocketServer } = createRequire(import.meta.url)('../../node_modules/playwright-core/lib/utilsBundle.js')
+    wsServer = new WebSocketServer({ server })
+    wsServer.on('connection', (socket, req) => {
+      if (req.url === '/ws/events') { sockets.add(socket); socket.on('close', () => sockets.delete(socket)); return }
+      const match = req.url.match(/^\/ws\/stream\/(?:sub\/)?(\d+)(?:\?|$)/)
+      if (!match || !cameras.some(camera => camera.id === Number(match[1]))) { socket.close(); return }
+      const id = Number(match[1]), evidence = streamConnections.get(id) ?? { opened: 0, closed: 0 }
+      evidence.opened++; streamConnections.set(id, evidence)
+      socket.on('close', () => evidence.closed++)
+      streamMuxReplay({ send: data => socket.readyState === 1 && socket.send(data), onClose: cb => socket.on('close', cb) }, replay)
+    })
+  } else server.on('upgrade', (req, socket) => {
     const key = req.headers['sec-websocket-key']
     if (req.url !== '/ws/events' || typeof key !== 'string') { socket.destroy(); return }
     const accept = createHash('sha1').update(key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11').digest('base64')
@@ -76,13 +117,24 @@ export async function startPtzDashboard({ layout = false, automaticSlots = false
       camera.motionActive = active
       const payload = Buffer.from(JSON.stringify({ event: 'camera:motion', data: { cameraID: cameraId, active } }))
       if (payload.length > 125) throw new Error('Fixture message too large')
-      for (const socket of sockets) socket.write(Buffer.concat([Buffer.from([0x81, payload.length]), payload]))
+      for (const socket of sockets) {
+        if (replay) socket.send(payload.toString())
+        else socket.write(Buffer.concat([Buffer.from([0x81, payload.length]), payload]))
+      }
     },
-    async close() { for (const socket of sockets) socket.destroy(); server.closeAllConnections(); await new Promise(done => server.close(done)) } }
+    async close() {
+      if (wsServer) { for (const socket of wsServer.clients) socket.terminate(); await new Promise(done => wsServer.close(done)) }
+      else for (const socket of sockets) socket.destroy()
+      server.closeAllConnections(); await new Promise(done => server.close(done))
+    } }
 }
 
 if (process.argv.includes('--serve')) {
-  const fixture = await startPtzDashboard({ layout: process.argv.includes('--layout'), automaticSlots: process.argv.includes('--auto-slots') })
+  const muxIndex = process.argv.indexOf('--mux')
+  const evidenceIndex = process.argv.indexOf('--evidence')
+  const fixture = await startPtzDashboard({ layout: process.argv.includes('--layout'), automaticSlots: process.argv.includes('--auto-slots'),
+    muxFile: muxIndex >= 0 ? process.argv[muxIndex + 1] : undefined,
+    evidenceFile: evidenceIndex >= 0 ? process.argv[evidenceIndex + 1] : undefined })
   console.log('PTZ fixture: ' + fixture.origin)
   const control = createInterface({ input: process.stdin })
   control.on('line', line => {
@@ -90,4 +142,5 @@ if (process.argv.includes('--serve')) {
     catch { console.log('Invalid fixture command') }
   })
   process.on('SIGINT', async () => { await fixture.close(); process.exit(0) })
+  setTimeout(async () => { await fixture.close(); control.close(); process.exit(0) }, 240000)
 }

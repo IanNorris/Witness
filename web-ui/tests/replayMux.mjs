@@ -6,67 +6,25 @@
 // --serve runs only the loopback fixture for computer-use browser inspection.
 // No browser process is launched in that mode. Optional --camera N labels the
 // replay with its actual source camera; the configured server is never contacted.
-import { readFile, mkdtemp, copyFile, rm, stat } from 'node:fs/promises'
+import { readFile, mkdtemp, copyFile, rm } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { join, resolve, extname, sep } from 'node:path'
 import { tmpdir } from 'node:os'
 import { createRequire } from 'node:module'
 import { spawn, spawnSync } from 'node:child_process'
 import { chromium } from 'playwright'
+import { loadMuxReplay, streamMuxReplay } from './fixtures/muxReplay.mjs'
 const { wsServer: WebSocketServer } = createRequire(import.meta.url)('../node_modules/playwright-core/lib/utilsBundle.js')
 
-const inputInfo = await stat(process.argv[2])
-if (!inputInfo.isFile() || inputInfo.size > 512 * 1024 * 1024) throw new Error('Replay requires a local file bounded to 512 MiB')
-const data = await readFile(process.argv[2])
 const seconds = Number(process.argv[3] ?? 90)
-if (!Number.isFinite(seconds) || seconds < 10 || seconds > 1800) throw new Error('Replay duration must be 10..1800 seconds')
-function binaryHash(buffer) {
-  let hash = 0x811c9dc5
-  for (const byte of buffer) hash = Math.imul((hash ^ byte) >>> 0, 0x01000193) >>> 0
-  return hash.toString(16).padStart(8, '0')
-}
-function boxes(buffer, from = 0, to = buffer.length) {
-  const result = []
-  for (let p = from; p + 8 <= to;) {
-    const size = buffer.readUInt32BE(p), type = buffer.toString('ascii', p + 4, p + 8)
-    if (size < 8 || p + size > to) break
-    result.push({ from: p, to: p + size, type }); p += size
-  }
-  return result
-}
-const top = boxes(data)
-const first = top.find(b => b.type === 'moof')?.from
-if (first === undefined) throw new Error('No fragments in mux capture')
-const init = data.subarray(0, first)
-const initHash = binaryHash(init)
-const fragments = []
-let lastVideoTime = 0
-for (let i = 0; i < top.length; i++) {
-  const moof = top[i]
-  if (moof.type !== 'moof' || top[i + 1]?.type !== 'mdat') continue
-  let at = null
-  for (const traf of boxes(data, moof.from + 8, moof.to).filter(b => b.type === 'traf')) {
-    const children = boxes(data, traf.from + 8, traf.to)
-    const tfhd = children.find(b => b.type === 'tfhd'), tfdt = children.find(b => b.type === 'tfdt')
-    if (tfhd && tfdt && data.readUInt32BE(tfhd.from + 12) === 1)
-      at = data[tfdt.from + 8] === 1 ? Number(data.readBigUInt64BE(tfdt.from + 12)) / 90000 : data.readUInt32BE(tfdt.from + 12) / 90000
-  }
-  // The muxer can emit audio-only moofs. They are real media, not padding;
-  // dropping one makes a fake audio gap that reliably stalls Firefox.
-  if (at !== null) lastVideoTime = at
-  const bytes = data.subarray(moof.from, top[i + 1].to)
-  fragments.push({ at: at ?? lastVideoTime, bytes, hash: binaryHash(bytes) })
-}
-if (!fragments.length) throw new Error('No video fragments in mux capture')
-if (fragments[fragments.length - 1].at - fragments[0].at < seconds + 2)
-  throw new Error('Capture is too short for the requested replay; avoid mistaking fixture EOF for a playback stall')
+const replay = await loadMuxReplay(process.argv[2], seconds)
+const { fragments, hasAudio } = replay
 const root = resolve('../WitnessServer/Web')
 const firefoxMode = process.argv[4] === 'firefox'
 const serveMode = process.argv.includes('--serve')
 const cameraOption = process.argv.indexOf('--camera')
 const cameraId = cameraOption < 0 ? 13 : Number(process.argv[cameraOption + 1])
 if (!Number.isSafeInteger(cameraId) || cameraId <= 0) throw new Error('Invalid replay camera ID')
-const hasAudio = init.includes(Buffer.from('mp4a'))
 const injectLag = process.argv.includes('--inject-lag')
 const blockAudio = process.argv.includes('--block-audio')
 if (serveMode && (firefoxMode || injectLag || blockAudio)) throw new Error('--serve uses external browser control, without automated injection modes')
@@ -168,22 +126,9 @@ function verifyPlayback(snapshot) {
 }
 const timers = new Set()
 function stream(socket) {
-    let closed = false
-    socket.onClose(() => { closed = true })
-    const later = (fn, ms) => { const timer = setTimeout(() => { timers.delete(timer); if (!closed) fn() }, ms); timers.add(timer) }
-    later(() => {
-      socket.send(JSON.stringify({ type: 'streamSelection', stream: 'sub', codec: 'h264', width: 896, height: 512 }))
-      socket.send(JSON.stringify({ type: 'initSegment', generation: 0, ...(hasAudio ? { audioCodec: 'mp4a.40.2' } : {}), bytes: init.length, hash: initHash }))
-      socket.send(init)
-      for (let i = 0; i < fragments.length; i++) {
-        const fragment = fragments[i]
-        later(() => {
-          socket.send(JSON.stringify({ type: 'partial', generation: 0, segmentIndex: Math.floor(fragment.at / 2), partIndex: i,
-            independent: i === 0, keyframeSeekSafe: false, duration: fragments[i + 1]?.at - fragment.at || .15, bytes: fragment.bytes.length, hash: fragment.hash }))
-          socket.send(fragment.bytes)
-        }, Math.max(0, fragment.at - fragments[0].at) * 1000)
-      }
-    }, 200)
+    const cancel = streamMuxReplay(socket, replay)
+    timers.add(cancel)
+    socket.onClose(() => timers.delete(cancel))
 }
 const sockets = new WebSocketServer({ server })
 sockets.on('connection', (socket, req) => {
@@ -264,7 +209,7 @@ try {
   }
   }
 } finally {
-  for (const timer of timers) clearTimeout(timer)
+  for (const cancel of timers) cancel()
   await browser?.close()
   if (firefoxProcess?.pid) spawnSync('taskkill', ['/PID', String(firefoxProcess.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' })
   for (const socket of sockets.clients) socket.terminate()
