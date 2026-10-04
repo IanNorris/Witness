@@ -98,6 +98,14 @@ endif()
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('Invalid pinned', result.stderr)
 
+    def test_executable_pin_validation(self):
+        expected = '1' * 40
+        result = self.script(f'witness_validate_vcpkg_version("vcpkg version {expected}" "{expected}")')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        result = self.script(f'witness_validate_vcpkg_version("vcpkg version {"2" * 40}" "{expected}")')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('executable does not match', result.stderr)
+
     def test_stamp_matching_missing_mismatch_and_duplicate(self):
         stamp = self.root / 'stamp.txt'
         check = f'witness_require_dependency_stamp("{stamp.as_posix()}" "expected" "fixture-triplet")'
@@ -119,6 +127,50 @@ endif()
         body = '\n'.join(f'witness_normalized_text_sha256({name} "{(self.root / name).as_posix()}")' for name in 'abc')
         result = self.script(body + '\nif(NOT a STREQUAL b OR a STREQUAL c)\nmessage(FATAL_ERROR "text fingerprint mismatch")\nendif()')
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def checkout(self):
+        root = self.root / 'vcpkg'
+        root.mkdir()
+        commands = [['init'], ['config', 'user.name', 'Witness Policy Fixture'],
+                    ['config', 'user.email', 'fixture@example.invalid']]
+        for command in commands:
+            subprocess.run(['git', '-C', str(root), *command], capture_output=True, check=True)
+        (root / 'toolchain.cmake').write_text('# pinned toolchain\n')
+        subprocess.run(['git', '-C', str(root), 'add', 'toolchain.cmake'], capture_output=True, check=True)
+        subprocess.run(['git', '-C', str(root), '-c', 'commit.gpgsign=false', 'commit', '-m', 'fixture'], capture_output=True, check=True)
+        head = subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()
+        return root, head
+
+    @unittest.skipUnless(shutil.which('git'), 'Git required')
+    def test_checkout_identity_and_tracked_state(self):
+        root, head = self.checkout()
+        command = f'witness_require_vcpkg_checkout("{root.as_posix()}" "{head}")'
+        self.assertEqual(self.script(command).returncode, 0)
+        (root / 'downloads').mkdir() # untracked package/cache files are allowed
+        self.assertEqual(self.script(command).returncode, 0)
+        wrong = self.script(f'witness_require_vcpkg_checkout("{root.as_posix()}" "{"0" * 40}")')
+        self.assertNotEqual(wrong.returncode, 0)
+        self.assertIn('checkout does not match', wrong.stderr)
+        child = root / 'downloads'
+        nested = self.script(f'witness_require_vcpkg_checkout("{child.as_posix()}" "{head}")')
+        self.assertNotEqual(nested.returncode, 0) # parent-repository discovery is not identity
+        (root / 'toolchain.cmake').write_text('# modified scripts\n')
+        changed = self.script(command)
+        self.assertNotEqual(changed.returncode, 0)
+        self.assertIn('tracked changes', changed.stderr)
+
+    @unittest.skipUnless(shutil.which('git'), 'Git required')
+    def test_wrong_checkout_rejected_before_toolchain_with_bootstrap_requested(self):
+        root, head = self.checkout()
+        build, configure = self.project()
+        source = self.root / 'source' / 'CMakeLists.txt'
+        source.write_text(source.read_text().replace('project(PolicyFixture LANGUAGES NONE)',
+            f'witness_require_vcpkg_checkout("{root.as_posix()}" "{"0" * 40}")\nproject(PolicyFixture LANGUAGES NONE)'))
+        result = configure('-DWITNESS_BOOTSTRAP_DEPENDENCIES=ON')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('checkout does not match', result.stderr)
+        self.assertFalse((self.root / 'install-intent.txt').exists())
+        self.assertIn('WITNESS_BOOTSTRAP_DEPENDENCIES:BOOL=OFF', (build / 'CMakeCache.txt').read_text())
 
 
 if __name__ == '__main__':

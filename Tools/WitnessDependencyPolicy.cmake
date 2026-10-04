@@ -27,6 +27,61 @@ function(witness_normalized_text_sha256 output path)
     set(${output} "${digest}" PARENT_SCOPE)
 endfunction()
 
+function(witness_require_vcpkg_checkout root expected)
+    string(LENGTH "${expected}" commit_length)
+    if(NOT commit_length EQUAL 40 OR NOT expected MATCHES "^[0-9a-f]+$")
+        message(FATAL_ERROR "Invalid pinned vcpkg commit")
+    endif()
+    find_program(WITNESS_GIT_EXECUTABLE git REQUIRED)
+    execute_process(COMMAND "${WITNESS_GIT_EXECUTABLE}" -C "${root}" rev-parse --show-toplevel
+        RESULT_VARIABLE root_result OUTPUT_VARIABLE checkout_root OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    execute_process(COMMAND "${WITNESS_GIT_EXECUTABLE}" -C "${root}" rev-parse HEAD
+        RESULT_VARIABLE head_result OUTPUT_VARIABLE head OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    file(REAL_PATH "${root}" actual_root)
+    file(REAL_PATH "${checkout_root}" reported_root)
+    if(CMAKE_HOST_WIN32)
+        string(TOLOWER "${actual_root}" actual_root)
+        string(TOLOWER "${reported_root}" reported_root)
+    endif()
+    if(NOT root_result EQUAL 0 OR NOT head_result EQUAL 0 OR
+            NOT actual_root STREQUAL reported_root OR NOT head STREQUAL expected)
+        message(FATAL_ERROR
+            "The vcpkg toolchain checkout does not match pinned commit ${expected}. "
+            "The executable version alone does not pin its scripts. "
+            "Run scripts/bootstrap-vcpkg.ps1 or select a clean matching checkout.")
+    endif()
+    execute_process(COMMAND "${WITNESS_GIT_EXECUTABLE}" -C "${root}" status --porcelain --untracked-files=no
+        RESULT_VARIABLE status_result OUTPUT_VARIABLE tracked_changes OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    if(NOT status_result EQUAL 0 OR NOT tracked_changes STREQUAL "")
+        message(FATAL_ERROR "The pinned vcpkg checkout has tracked changes; review them before bootstrap/configure.")
+    endif()
+endfunction()
+
+function(witness_validate_vcpkg_version version expected)
+    string(FIND "${version}" "${expected}" commit_position)
+    if(commit_position EQUAL -1)
+        message(FATAL_ERROR "The vcpkg executable does not match pinned commit ${expected}.")
+    endif()
+endfunction()
+
+function(witness_require_vcpkg_version root expected output)
+    if(CMAKE_HOST_WIN32)
+        set(executable "${root}/vcpkg.exe")
+    else()
+        set(executable "${root}/vcpkg")
+    endif()
+    if(NOT EXISTS "${executable}")
+        message(FATAL_ERROR "Cannot fingerprint vcpkg at ${executable}")
+    endif()
+    execute_process(COMMAND "${executable}" version OUTPUT_VARIABLE version
+        OUTPUT_STRIP_TRAILING_WHITESPACE RESULT_VARIABLE result)
+    if(NOT result EQUAL 0)
+        message(FATAL_ERROR "Could not query the selected vcpkg version.")
+    endif()
+    witness_validate_vcpkg_version("${version}" "${expected}")
+    set(${output} "${version}" PARENT_SCOPE)
+endfunction()
+
 function(witness_require_msvc_family actual expected)
     if(NOT expected MATCHES "^[0-9]+\\.[0-9]+$")
         message(FATAL_ERROR "Invalid pinned MSVC ABI family: ${expected}")

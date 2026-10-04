@@ -307,3 +307,26 @@ silently re-stamped or bootstrapped. A successful real managed migration remains
 unverified until its inputs are reviewed and explicitly reconciled. The positive
 managed retry behavior is proven by the isolated real-CMake policy tests, not by
 claiming that the stale real managed tree configured successfully.
+
+Managed configuration also verifies the **Git checkout**, not just `vcpkg.exe
+version`, before loading its toolchain. The checkout root must match the selected
+tool root, HEAD must equal the pinned commit, and tracked files must be clean.
+Untracked package/download caches are permitted. The executable version is
+checked before `project()` too, preventing an explicitly requested bootstrap
+from running with mismatched scripts or a stale binary and only noticing later.
+
+The 2026-10-04 global installation illustrates why both checks matter: its
+executable reported the expected `98d7cb0...` commit while Git HEAD was
+`a1cae005...`. The managed build correctly rejects this installation before
+toolchain execution. No Git checkout, fetch, reset, or package bootstrap was
+performed as part of validation. The existing legacy build remains available;
+it does not gain the full managed policy merely because its packages were
+hash-verified.
+
+The dependency wrapper requires a matching clean checkout as well as binary,
+and still explicitly selects that toolchain over an old cache entry. The pinned
+vcpkg bootstrap helper refuses tracked modifications instead of carrying them
+through a checkout, fetches the exact commit from the official repository rather
+than trusting an existing `origin`, and validates the commit argument first.
+These network/bootstrap paths were not executed during this pass; policy tests
+use temporary local Git repositories and a synthetic installation marker.

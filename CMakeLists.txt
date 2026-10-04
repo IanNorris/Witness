@@ -67,6 +67,18 @@ else()
     endif()
 endif()
 
+# Validate scripts before project() can execute the selected toolchain or install
+# packages during an explicitly authorized bootstrap invocation.
+if(WITNESS_MANAGED_DEPENDENCIES)
+    file(READ "${CMAKE_SOURCE_DIR}/build-environment.json" _WITNESS_PREFLIGHT_ENVIRONMENT)
+    string(JSON _WITNESS_PREFLIGHT_COMMIT GET "${_WITNESS_PREFLIGHT_ENVIRONMENT}" vcpkgCommit)
+    get_filename_component(_WITNESS_PREFLIGHT_ROOT "${CMAKE_TOOLCHAIN_FILE}" DIRECTORY)
+    get_filename_component(_WITNESS_PREFLIGHT_ROOT "${_WITNESS_PREFLIGHT_ROOT}" DIRECTORY)
+    get_filename_component(_WITNESS_PREFLIGHT_ROOT "${_WITNESS_PREFLIGHT_ROOT}" DIRECTORY)
+    witness_require_vcpkg_checkout("${_WITNESS_PREFLIGHT_ROOT}" "${_WITNESS_PREFLIGHT_COMMIT}")
+    witness_require_vcpkg_version("${_WITNESS_PREFLIGHT_ROOT}" "${_WITNESS_PREFLIGHT_COMMIT}" _WITNESS_PREFLIGHT_VERSION)
+endif()
+
 project(Witness LANGUAGES CXX C)
 
 if(WIN32)
