@@ -522,3 +522,20 @@ at `build-vs2026/deploy/tapo-extended-capture-830b8380f811`. The server and Came
 DLL SHA-256 hashes and all 48 web files match the built output. This validation
 does not establish long-running production or browser/MSE stability, nor resolve
 the raw-input codec error around the controlled processing pause.
+
+`Tools/Tests/check_preview_decode.py <local-recording.mp4>` now makes this
+validation repeatable. It combines strict `-xerror` decoding with a microsecond
+output timebase and separate packet DTS / decoded presentation timestamp checks.
+Missing, duplicate, regressing or empty timestamp evidence cannot produce a pass;
+neither can decoder diagnostic lines despite an exit zero. It only opens local
+files (512 MiB limit), disallows network protocols, bounds each subprocess to
+120 seconds, and emits structured counts rather than relaying arbitrary raw
+decoder text. Its three unit tests pass.
+
+The native timestamp guard and packet-capture tests pass. The actual mux pause
+test was rerun with its required 140-second H.264 and HEVC fixtures (a no-argument
+invocation is not a test pass). Both control/pause cases pass while the deliberate
+10% slower-delivery case remains rejected. Requalification also passes. All six
+saved control/pause recordings and both requalification generations pass the
+new strict decode/timestamp checker. These are offline mux/codec tests, not
+browser integration or physical-camera stability tests.
