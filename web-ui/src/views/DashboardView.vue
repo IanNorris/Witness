@@ -15,6 +15,7 @@ import {
   normaliseDashboardLayout,
   generatedDashboardTiles,
   dashboardAreasOverlap,
+  resolveAutomaticDashboardTiles,
   type ActivityDock,
   type DashboardMode,
   type DashboardPreset,
@@ -40,6 +41,48 @@ const focusPreviewCameraId = ref<number | null>(null)
 const dashboardLayout = ref<DashboardLayout>(createDefaultDashboardLayout([]))
 const stageRef = ref<HTMLElement | null>(null)
 const layoutMessage = ref('')
+const heldActiveCameraIds = ref<number[]>([])
+const slotReleaseTimers = new Map<number, ReturnType<typeof setTimeout>>()
+const automaticTiles = computed(() => resolveAutomaticDashboardTiles(dashboardLayout.value, new Set(heldActiveCameraIds.value)))
+const automaticCandidateIds = computed(() => {
+  const anchors = new Set(dashboardLayout.value.automaticSlots.map(slot => slot.anchorCameraId))
+  const fixed = new Set(dashboardLayout.value.visibleCameraIds.filter(id => !anchors.has(id)))
+  return dashboardLayout.value.priorityCameraIds.filter(id => !fixed.has(id))
+})
+function clearAutomaticSlots() {
+  for (const timer of slotReleaseTimers.values()) clearTimeout(timer)
+  slotReleaseTimers.clear()
+  heldActiveCameraIds.value = []
+}
+function updateAutomaticSlots() {
+  const active = new Set(heldActiveCameraIds.value.filter(id => currentCameraIds.value.includes(id)))
+  for (const camera of currentCameras.value) {
+    if (camera.motionActive) {
+      const timer = slotReleaseTimers.get(camera.id)
+      if (timer) clearTimeout(timer)
+      slotReleaseTimers.delete(camera.id)
+      active.add(camera.id)
+    } else if (active.has(camera.id) && !slotReleaseTimers.has(camera.id)) {
+      slotReleaseTimers.set(camera.id, setTimeout(() => {
+        slotReleaseTimers.delete(camera.id)
+        heldActiveCameraIds.value = heldActiveCameraIds.value.filter(id => id !== camera.id)
+      }, Math.max(3, Math.min(120, Number(dashboardLayout.value.slotHoldSeconds) || 15)) * 1000))
+    }
+  }
+  heldActiveCameraIds.value = [...active]
+}
+function toggleAutomaticSlot(cameraId: number) {
+  const slots = dashboardLayout.value.automaticSlots
+  const index = slots.findIndex(slot => slot.anchorCameraId === cameraId)
+  dashboardLayout.value.automaticSlots = index >= 0 ? slots.filter((_, i) => i !== index)
+    : [...slots, { anchorCameraId: cameraId, fallbackCameraId: cameraId }]
+}
+function moveAutomaticSlot(index: number, direction: number) {
+  const slots = [...dashboardLayout.value.automaticSlots], next = index + direction
+  if (next < 0 || next >= slots.length) return
+  ;[slots[index], slots[next]] = [slots[next]!, slots[index]!]
+  dashboardLayout.value.automaticSlots = slots
+}
 const rectangleRequested = computed(() => canvasMode.value && showRecentActivity.value && dashboardLayout.value.activityPlacement === 'rectangle')
 const regularTiles = computed(() => dashboardLayout.value.preset === 'custom'
   ? dashboardLayout.value.tiles.filter(tile => dashboardLayout.value.visibleCameraIds.includes(tile.cameraId))
@@ -165,9 +208,9 @@ const editorTiles = computed(() =>
     ? focusEditorTiles.value
     : dashboardLayout.value.preset !== 'custom' && !editingLayout.value
       ? generatedDashboardTiles(dashboardLayout.value.preset, dashboardLayout.value.priorityCameraIds)
-      : dashboardLayout.value.tiles,
+      : editingLayout.value ? dashboardLayout.value.tiles : automaticTiles.value,
 )
-const displayedCameraIds = computed(() => dashboardLayout.value.preset === 'custom' || editingLayout.value
+const displayedCameraIds = computed(() => editingLayout.value
   ? dashboardLayout.value.visibleCameraIds : editorTiles.value.map(tile => tile.cameraId))
 function changePreset(event: Event) {
   const select = event.target as HTMLSelectElement
@@ -207,6 +250,7 @@ function cloneLayout(layout: DashboardLayout): DashboardLayout {
 }
 
 function loadLayout() {
+  clearAutomaticSlots()
   if (focusReleaseTimer) { clearTimeout(focusReleaseTimer); focusReleaseTimer = null }
   let saved: Partial<DashboardLayout> | null = null
   try {
@@ -218,6 +262,7 @@ function loadLayout() {
   dashboardLayout.value = normaliseDashboardLayout(saved, currentCameraIds.value)
   focusedCameraId.value = null
   manuallyFocused.value = false
+  updateAutomaticSlots()
 }
 
 function persistLayout() {
@@ -241,6 +286,7 @@ function openLayoutEditor() {
 
 function saveLayout() {
   if (!canSaveLayout.value) return
+  dashboardLayout.value.slotHoldSeconds = Math.max(3, Math.min(120, Number(dashboardLayout.value.slotHoldSeconds) || 15))
   stopActivityDrag()
   persistLayout()
   layoutBeforeEditing = null
@@ -469,9 +515,11 @@ watch(
     () => dashboardLayout.value.priorityCameraIds.join(','), focusAllowed],
   updateAutomaticFocus,
 )
+watch(() => cameraStore.cameras.map(camera => `${camera.id}:${camera.motionActive ? 1 : 0}`).join(','), updateAutomaticSlots)
 
 onUnmounted(() => {
   stopActivityDrag()
+  clearAutomaticSlots()
   if (focusReleaseTimer) clearTimeout(focusReleaseTimer)
   if (fullscreenControlsTimer) clearTimeout(fullscreenControlsTimer)
   window.removeEventListener('pointermove', showFullscreenControls)
@@ -718,6 +766,25 @@ onMounted(async () => {
           <span>{{ rank + 1 }}. {{ cameraStore.getCameraById(cameraId)?.name ?? cameraId }}</span>
           <button :disabled="rank === 0" :aria-label="`Raise priority of camera ${cameraId}`" @click="moveCameraPriority(cameraId, -1)">↑</button>
           <button :disabled="rank === dashboardLayout.priorityCameraIds.length - 1" :aria-label="`Lower priority of camera ${cameraId}`" @click="moveCameraPriority(cameraId, 1)">↓</button>
+        </div>
+      </details>
+      <details class="priority-editor"><summary>Automatic slots</summary>
+        <p class="mb-1">Custom layout only. Fixed cameras stay visible; motion fills numbered slots in camera-priority order.</p>
+        <label>Hold after motion (seconds)
+          <input v-model.number="dashboardLayout.slotHoldSeconds" type="number" min="3" max="120" aria-label="Automatic slot hold seconds">
+        </label>
+        <div v-for="camera in currentCameras" :key="camera.id">
+          <span>{{ camera.name }}</span>
+          <button @click="toggleAutomaticSlot(camera.id)">{{ dashboardLayout.automaticSlots.some(slot => slot.anchorCameraId === camera.id) ? 'Automatic' : 'Fixed' }}</button>
+        </div>
+        <div v-for="(slot, index) in dashboardLayout.automaticSlots" :key="slot.anchorCameraId">
+          <span>Auto {{ index + 1 }} · {{ cameraStore.getCameraById(slot.anchorCameraId)?.name }} region</span>
+          <select v-model.number="slot.fallbackCameraId" :aria-label="`Auto ${index + 1} fallback camera`">
+            <option :value="null">Priority fallback</option>
+            <option v-for="cameraId in automaticCandidateIds" :key="cameraId" :value="cameraId">{{ cameraStore.getCameraById(cameraId)?.name }}</option>
+          </select>
+          <button :disabled="index === 0" :aria-label="`Raise automatic slot ${index + 1}`" @click="moveAutomaticSlot(index, -1)">↑</button>
+          <button :disabled="index === dashboardLayout.automaticSlots.length - 1" :aria-label="`Lower automatic slot ${index + 1}`" @click="moveAutomaticSlot(index, 1)">↓</button>
         </div>
       </details>
     </div>

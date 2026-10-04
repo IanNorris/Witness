@@ -55,3 +55,43 @@ test('preset restoration preserves custom layout and clamps activity rectangles'
   assert.equal(restored.preset, 'hero7')
   assert.equal(layout.normaliseDashboardLayout({ ...custom, preset: 'bad' }, [8, 9]).preset, 'custom')
 })
+
+test('automatic slot migration removes stale and duplicate anchors without reordering slots', () => {
+  const restored = layout.normaliseDashboardLayout({ ...layout.createDefaultDashboardLayout([1, 2, 3]),
+    automaticSlots: [null, { anchorCameraId: 2, fallbackCameraId: 3 }, { anchorCameraId: 2, fallbackCameraId: 1 },
+      { anchorCameraId: 99, fallbackCameraId: 1 }, { anchorCameraId: 1, fallbackCameraId: 99 }],
+    slotHoldSeconds: 999 }, [1, 2, 3])
+  assert.deepEqual(restored.automaticSlots, [{ anchorCameraId: 2, fallbackCameraId: 3 }, { anchorCameraId: 1, fallbackCameraId: null }])
+  assert.equal(restored.slotHoldSeconds, 120)
+  assert.deepEqual(layout.normaliseDashboardLayout(null, [1]).automaticSlots, [])
+})
+
+test('automatic slots rank motion, retain fixed cameras, and use fallbacks without duplicating players', () => {
+  const config = layout.createDefaultDashboardLayout([1, 2, 3, 4, 5])
+  config.visibleCameraIds = [1, 2, 3]
+  config.priorityCameraIds = [5, 4, 3, 2, 1]
+  config.automaticSlots = [{ anchorCameraId: 2, fallbackCameraId: 2 }, { anchorCameraId: 3, fallbackCameraId: 3 }]
+  const ids = active => layout.resolveAutomaticDashboardTiles(config, new Set(active)).map(tile => tile.cameraId)
+  assert.deepEqual(ids([]), [1, 2, 3])
+  assert.deepEqual(ids([4]), [1, 4, 3])
+  assert.deepEqual(ids([1, 4, 5]), [1, 5, 4]) // fixed 1 is never stolen
+  assert.deepEqual(ids([3]), [1, 3, 5]) // fallback 3 already in higher slot
+  const promoted = layout.resolveAutomaticDashboardTiles(config, new Set([4, 5]))
+  assert.deepEqual(promoted[1], { ...config.tiles[1], cameraId: 5, automaticSlotNumber: 1 })
+  assert.equal(new Set(promoted.map(tile => tile.cameraId)).size, promoted.length)
+  assert.equal(config.tiles[1].cameraId, 2)
+  config.visibleCameraIds = [1, 2]
+  assert.deepEqual(ids([4, 5]), [1, 5]) // hidden anchor removes its slot
+})
+
+test('overlap with hidden camera storage does not erase a saved visible custom layout', () => {
+  const config = layout.createDefaultDashboardLayout([1, 2, 3])
+  config.visibleCameraIds = [1, 2]
+  config.tiles[0] = { cameraId: 1, x: 0, y: 0, width: 8, height: 12 }
+  config.tiles[1] = { cameraId: 2, x: 8, y: 0, width: 4, height: 12 }
+  const restored = layout.normaliseDashboardLayout(config, [1, 2, 3])
+  assert.deepEqual(restored.tiles, config.tiles)
+  const malformed = { ...config, tiles: [...config.tiles, config.tiles[2]] }
+  assert.deepEqual(layout.normaliseDashboardLayout(malformed, [1, 2, 3]).tiles,
+    layout.createDefaultDashboardLayout([1, 2, 3]).tiles)
+})

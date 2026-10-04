@@ -171,7 +171,10 @@ function onPointerMove(event: PointerEvent) {
     next.width = Math.max(1, Math.min(12 - next.x, originalTile.width + dx))
     next.height = Math.max(1, Math.min(12 - next.y, originalTile.height + dy))
   }
-  invalidPlacement.value = originalTiles.some(tile => tile.cameraId !== next.cameraId && overlaps(next, tile))
+  const collidable = (cameraId: number) => props.editingLayoutMode === 'focus' ||
+    (props.visibleCameraIds?.includes(cameraId) ?? true)
+  invalidPlacement.value = collidable(next.cameraId) && originalTiles.some(tile =>
+    tile.cameraId !== next.cameraId && collidable(tile.cameraId) && overlaps(next, tile))
   emit('updateFullscreenLayout', originalTiles.map(tile => tile.cameraId === next.cameraId ? next : tile))
 }
 
@@ -275,6 +278,8 @@ onUnmounted(() => {
         @open-stream="openStream"
         @open-clips="openClips"
       />
+      <span v-if="canvasMode && !editingLayout && focusedCameraId == null && tileFor(camera.id)?.automaticSlotNumber"
+        class="automatic-slot-label">Auto {{ tileFor(camera.id)?.automaticSlotNumber }}</span>
       <div
         v-if="canvasMode && editingLayout"
         class="layout-move-shield"
@@ -314,3 +319,8 @@ onUnmounted(() => {
     </div>
   </div>
 </template>
+
+<style scoped>
+.automatic-slot-label { position: absolute; top: 8px; left: 8px; z-index: 4; pointer-events: none;
+  padding: 2px 6px; border-radius: 4px; background: rgba(13, 110, 253, .8); color: #fff; font-size: .7rem; }
+</style>

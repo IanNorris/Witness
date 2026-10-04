@@ -8,9 +8,14 @@ export interface DashboardTileLayout {
   y: number
   width: number
   height: number
+  automaticSlotNumber?: number
 }
 
 export type DashboardGridArea = Omit<DashboardTileLayout, 'cameraId'>
+export interface DashboardAutomaticSlot {
+  anchorCameraId: number
+  fallbackCameraId: number | null
+}
 
 export interface DashboardLayout {
   version: 1
@@ -24,6 +29,8 @@ export interface DashboardLayout {
   activityDirection: 'horizontal' | 'vertical'
   preset: DashboardPreset
   priorityCameraIds: number[]
+  automaticSlots: DashboardAutomaticSlot[]
+  slotHoldSeconds: number
   autoFocusEnabled: boolean
   focusHoldSeconds: number
   focusEligibleCameraIds: number[]
@@ -91,6 +98,8 @@ export function createDefaultDashboardLayout(cameraIds: number[]): DashboardLayo
     activityDirection: 'horizontal',
     preset: 'custom',
     priorityCameraIds: [...cameraIds],
+    automaticSlots: [],
+    slotHoldSeconds: 15,
     autoFocusEnabled: false,
     focusHoldSeconds: 15,
     focusEligibleCameraIds: [...cameraIds],
@@ -124,8 +133,9 @@ export function normaliseDashboardLayout(
   }))
 
   const seen = new Set(validTiles.map(tile => tile.cameraId))
-  const hasEveryCamera = seen.size === cameraIds.length
-  const hasOverlap = validTiles.some((tile, index) => validTiles.slice(index + 1).some(other =>
+  const hasEveryCamera = seen.size === cameraIds.length && validTiles.length === cameraIds.length
+  const visibleTiles = validTiles.filter(tile => !Array.isArray(candidate.visibleCameraIds) || candidate.visibleCameraIds.includes(tile.cameraId))
+  const hasOverlap = visibleTiles.some((tile, index) => visibleTiles.slice(index + 1).some(other =>
     tile.x < other.x + other.width && tile.x + tile.width > other.x &&
     tile.y < other.y + other.height && tile.y + tile.height > other.y,
   ))
@@ -171,6 +181,8 @@ export function normaliseDashboardLayout(
     preset: ['hero7', 'balanced8', 'grid16'].includes(candidate.preset ?? '')
       ? candidate.preset as DashboardPreset : 'custom',
     priorityCameraIds: normaliseCameraPriority(candidate.priorityCameraIds, cameraIds),
+    automaticSlots: normaliseAutomaticSlots(candidate.automaticSlots, cameraIds),
+    slotHoldSeconds: Math.max(3, Math.min(120, Number(candidate.slotHoldSeconds) || 15)),
     autoFocusEnabled: candidate.autoFocusEnabled === true,
     focusHoldSeconds: Math.max(3, Math.min(120, Number(candidate.focusHoldSeconds) || 15)),
     focusEligibleCameraIds: Array.isArray(candidate.focusEligibleCameraIds)
@@ -215,4 +227,40 @@ export function generatedDashboardTiles(preset: DashboardPreset, cameraIds: numb
 
 export function dashboardAreasOverlap(a: DashboardGridArea, b: DashboardGridArea): boolean {
   return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y
+}
+
+export function normaliseAutomaticSlots(candidate: unknown, cameraIds: number[]): DashboardAutomaticSlot[] {
+  if (!Array.isArray(candidate)) return []
+  const allowed = new Set(cameraIds), anchors = new Set<number>()
+  return candidate.flatMap(slot => {
+    if (!slot || !allowed.has(slot.anchorCameraId) || anchors.has(slot.anchorCameraId)) return []
+    anchors.add(slot.anchorCameraId)
+    return [{ anchorCameraId: slot.anchorCameraId,
+      fallbackCameraId: allowed.has(slot.fallbackCameraId) ? slot.fallbackCameraId as number : null }]
+  })
+}
+
+// Slot numbering is array order, independent of rectangle size or source ID.
+// Fixed cameras are never stolen or duplicated. Geometry stays tied to the
+// anchor while the one existing, keyed player moves into its assigned region.
+export function resolveAutomaticDashboardTiles(layout: DashboardLayout, activeIds: ReadonlySet<number>): DashboardTileLayout[] {
+  const visible = new Set(layout.visibleCameraIds)
+  const slots = layout.automaticSlots.filter(slot => visible.has(slot.anchorCameraId))
+  const anchors = new Set(slots.map(slot => slot.anchorCameraId))
+  const fixed = layout.tiles.filter(tile => visible.has(tile.cameraId) && !anchors.has(tile.cameraId))
+  const used = new Set(fixed.map(tile => tile.cameraId))
+  const candidates = layout.priorityCameraIds.filter(id => !used.has(id))
+  const active = candidates.filter(id => activeIds.has(id))
+  const result = [...fixed]
+  for (const slot of slots) {
+    const area = layout.tiles.find(tile => tile.cameraId === slot.anchorCameraId)
+    if (!area) continue
+    const cameraId = active.find(id => !used.has(id)) ??
+      (slot.fallbackCameraId !== null && candidates.includes(slot.fallbackCameraId) && !used.has(slot.fallbackCameraId) ? slot.fallbackCameraId : undefined) ??
+      candidates.find(id => !used.has(id))
+    if (cameraId === undefined) continue
+    used.add(cameraId)
+    result.push({ ...area, cameraId, automaticSlotNumber: layout.automaticSlots.indexOf(slot) + 1 })
+  }
+  return result
 }

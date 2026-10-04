@@ -31,12 +31,12 @@ function fixture() {
   const cleanup = [], recording = [], events = []
   const settings = Vue.reactive({ fullscreenMode: true, streamingMode: 'jpeg',
     toggleFullscreen() { this.fullscreenMode = !this.fullscreenMode } })
-  const cameras = [10, 12].map(id => ({ id, name: 'Fixture', status: 'Connected', ptzEnabled: true }))
+  const cameras = Vue.reactive([10, 12].map(id => ({ id, name: 'Fixture', status: 'Connected', ptzEnabled: true })))
   globalThis.__fullscreenVue = { ...Vue, onMounted() {}, onUnmounted(fn) { cleanup.push(fn) } }
   globalThis.__fullscreenImports = {
     ...layoutFunctions,
     useRouter: () => ({ push() {} }), useSettingsStore: () => settings,
-    useCameraStore: () => ({ cameras, toggleRecording(id) { recording.push(id) } }),
+    useCameraStore: () => ({ cameras, getCameraById: id => cameras.find(camera => camera.id === id), toggleRecording(id) { recording.push(id) } }),
     useGroupStore: () => ({ groups: [], activeGroups: [], camerasInGroup: () => cameras }),
     useClipStore: () => ({ recentClips: [] }),
     useLiveAudio: () => ({ mode: Vue.ref('off'), enabled: Vue.ref(false), toggleAudio() {}, toggleMotionAudio() {} }),
@@ -260,5 +260,54 @@ test('cancelling a camera drag cannot write its stale layout after the editor cl
     await Vue.nextTick()
     assert.equal(f.events.length, count)
     assert.equal(state.activeCameraId.value, null)
+  } finally { f.close() }
+})
+
+test('automatic slots hold stopped motion without unrelated updates extending the deadline', async t => {
+  const f = fixture()
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const state = f.setup(await component('DashboardView'), {})
+  try {
+    state.dashboardLayout.value.visibleCameraIds = [10]
+    state.dashboardLayout.value.priorityCameraIds = [12, 10]
+    state.dashboardLayout.value.automaticSlots = [{ anchorCameraId: 10, fallbackCameraId: 10 }]
+    state.dashboardLayout.value.slotHoldSeconds = 3
+    assert.deepEqual(state.displayedCameraIds.value, [10])
+    f.cameras[1].motionActive = true
+    await Vue.nextTick()
+    assert.deepEqual(state.displayedCameraIds.value, [12])
+    assert.equal(state.editorTiles.value[0].x, state.dashboardLayout.value.tiles[0].x)
+    f.cameras[1].motionActive = false
+    await Vue.nextTick()
+    t.mock.timers.tick(1000)
+    f.cameras[0].motionActive = true
+    await Vue.nextTick()
+    assert.deepEqual(state.displayedCameraIds.value, [12])
+    t.mock.timers.tick(2000)
+    assert.deepEqual(state.displayedCameraIds.value, [10])
+    assert.equal(f.cameras.length, 2) // assignment never mutates the mounted source set
+    state.beginLayoutEdit()
+    assert.deepEqual(state.editorTiles.value.map(tile => tile.cameraId), [10, 12])
+    state.cancelLayoutEdit()
+    state.clearAutomaticSlots()
+    assert.equal(state.slotReleaseTimers.size, 0)
+    assert.deepEqual(state.heldActiveCameraIds.value, [])
+  } finally { f.close(); t.mock.timers.reset() }
+})
+
+test('a hidden camera rectangle does not prevent arranging the visible layout', async () => {
+  const f = fixture()
+  const props = Vue.reactive({ editingLayout: true, visibleCameraIds: [10], fullscreenLayout: [
+    { cameraId: 10, x: 0, y: 0, width: 6, height: 6 },
+    { cameraId: 12, x: 6, y: 0, width: 6, height: 6 },
+  ] })
+  const state = f.setup(await component('CameraGrid'), props)
+  try {
+    state.gridRef.value = { getBoundingClientRect: () => ({ width: 1200, height: 600 }) }
+    state.startPointer({ clientX: 0, clientY: 0, preventDefault() {}, stopPropagation() {} }, 10, 'move')
+    state.onPointerMove({ clientX: 600, clientY: 0 })
+    assert.equal(state.invalidPlacement.value, false)
+    state.finishPointer()
+    assert.equal(f.events.at(-1)[1][0].x, 6)
   } finally { f.close() }
 })
