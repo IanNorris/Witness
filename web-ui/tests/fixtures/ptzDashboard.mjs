@@ -4,8 +4,9 @@ import { createHash } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { extname, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { createInterface } from 'node:readline'
 
-export async function startPtzDashboard({ layout = false } = {}) {
+export async function startPtzDashboard({ layout = false, automaticSlots = false } = {}) {
   // Resolve from repository rather than the caller's current directory.
   const webRoot = resolve(fileURLToPath(new URL('../../../WitnessServer/Web', import.meta.url)))
   const cameras = (layout ? [10, 12, 13, 14, 15] : [10, 12]).map((id, index) => ({ id, name: `Fixture PTZ ${index + 1}`,
@@ -46,7 +47,10 @@ export async function startPtzDashboard({ layout = false } = {}) {
         const sampleLayout = { version: 1, tiles: cameras.map((camera, i) => ({ cameraId: camera.id,
           x: (i % 3) * 4, y: Math.floor(i / 3) * 6, width: 4, height: 6 })),
           activityPlacement: 'rectangle', activityRegion: { x: 8, y: 6, width: 4, height: 6 },
-          activityDirection: 'vertical' }
+          activityDirection: 'vertical', ...(automaticSlots ? {
+            visibleCameraIds: [10, 12, 13], priorityCameraIds: [15, 14, 13, 12, 10], slotHoldSeconds: 6,
+            automaticSlots: [{ anchorCameraId: 12, fallbackCameraId: 12 }, { anchorCameraId: 13, fallbackCameraId: 13 }],
+          } : {}) }
         const initial = `<script>localStorage.setItem('streamingMode','"jpeg"');localStorage.setItem('fullscreenMode','${layout ? 'false' : 'true'}');localStorage.setItem('witness-dashboard-activity-visible','${layout ? '1' : '0'}');${layout ? `localStorage.setItem('witness-dashboard-windowed-mode','layout');localStorage.setItem('witness-dashboard-layout-v1-all',${JSON.stringify(JSON.stringify(sampleLayout))});` : ''}</script>`
         return res.end((await readFile(resolve(webRoot, 'index.html'), 'utf8')).replace('<head>', '<head>' + initial))
       }
@@ -66,11 +70,24 @@ export async function startPtzDashboard({ layout = false } = {}) {
   })
   await new Promise(done => server.listen(0, '127.0.0.1', done))
   return { server, cameras, commands, origin: `http://127.0.0.1:${server.address().port}`,
+    setMotion(cameraId, active) {
+      const camera = cameras.find(camera => camera.id === cameraId)
+      if (!camera || typeof active !== 'boolean') throw new Error('Invalid synthetic motion')
+      camera.motionActive = active
+      const payload = Buffer.from(JSON.stringify({ event: 'camera:motion', data: { cameraID: cameraId, active } }))
+      if (payload.length > 125) throw new Error('Fixture message too large')
+      for (const socket of sockets) socket.write(Buffer.concat([Buffer.from([0x81, payload.length]), payload]))
+    },
     async close() { for (const socket of sockets) socket.destroy(); server.closeAllConnections(); await new Promise(done => server.close(done)) } }
 }
 
 if (process.argv.includes('--serve')) {
-  const fixture = await startPtzDashboard({ layout: process.argv.includes('--layout') })
+  const fixture = await startPtzDashboard({ layout: process.argv.includes('--layout'), automaticSlots: process.argv.includes('--auto-slots') })
   console.log('PTZ fixture: ' + fixture.origin)
+  const control = createInterface({ input: process.stdin })
+  control.on('line', line => {
+    try { const command = JSON.parse(line); fixture.setMotion(command.cameraId, command.active); console.log('Synthetic motion updated') }
+    catch { console.log('Invalid fixture command') }
+  })
   process.on('SIGINT', async () => { await fixture.close(); process.exit(0) })
 }
