@@ -539,3 +539,37 @@ invocation is not a test pass). Both control/pause cases pass while the delibera
 saved control/pause recordings and both requalification generations pass the
 new strict decode/timestamp checker. These are offline mux/codec tests, not
 browser integration or physical-camera stability tests.
+
+### Fifteen-minute natural-delivery confirmation (4 October)
+
+The matched `830b8380f811` Camera DLL/probe then ran cameras 8 and 9 concurrently
+for 900 seconds each, without injected pauses. Both completed with exit zero:
+
+| Camera | Accepted / repaired | Established drops / mux errors | End phase | Max ProcessFrame |
+| --- | --- | --- | --- | --- |
+| 8 | 14,970 / 757 | 0 / 0 | -9.2 ms | 273.8 ms |
+| 9 | 17,440 / 790 | 0 / 0 | +190.4 ms | 257.3 ms |
+
+Both stayed normalized, with zero cadence rejection, retries or pause resets;
+neither had a processing call over one second. Startup counters stayed fixed
+(one drop for camera 8; 16 for camera 9, including six before-epoch/nine
+non-monotonic input). Eight bounded captures per camera started every 120 seconds
+from time zero. This leaves 90-second uncaptured intervals and is not continuous
+transport capture. Artifacts are `tapo8-natural-15minute-20261004.mp4` and
+`tapo9-natural-15minute-20261004.mp4`, plus the capture directory families starting
+`camera-8-preview-1791076823075-1` / `camera-9-preview-1791076806958-1` and ending
+`camera-8-preview-1791077663103-8` / `camera-9-preview-1791077647002-8`.
+
+Both complete recordings pass the strict decoder/timestamp checker with no
+codec diagnostics, missing timestamps, duplicate timestamps or regressions.
+Camera 8 has 14,968 finalized packet/frame samples; camera 9 has 17,440. The
+two camera-8 packets still in fragment assembly at probe termination are not
+evidence of a timestamp-policy drop. Camera 9's one very short step (4.93 ms)
+and all four steps below 40 ms occur within the first two seconds of startup,
+not throughout the established stream; its maximum packet step is 413.9 ms.
+
+This provides a measured 15-minute two-camera demux/mux pass and does not
+reproduce the earlier input stall. It does not prove full production-load or
+browser/MSE stability, attribute the intermittent input issue, or eliminate the
+raw-input codec error seen in the separate artificial-pause test. No server
+restart, production database mutation or production deployment occurred.
