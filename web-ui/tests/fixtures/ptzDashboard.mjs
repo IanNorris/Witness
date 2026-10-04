@@ -5,11 +5,11 @@ import { readFile } from 'node:fs/promises'
 import { extname, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-export async function startPtzDashboard() {
+export async function startPtzDashboard({ layout = false } = {}) {
   // Resolve from repository rather than the caller's current directory.
   const webRoot = resolve(fileURLToPath(new URL('../../../WitnessServer/Web', import.meta.url)))
-  const cameras = [10, 12].map((id, index) => ({ id, name: `Fixture PTZ ${index + 1}`,
-    groups: [], status: 'Connected', ptzEnabled: 1, codec: 'h264', width: 1920, height: 1080 }))
+  const cameras = (layout ? [10, 12, 13, 14, 15] : [10, 12]).map((id, index) => ({ id, name: `Fixture PTZ ${index + 1}`,
+    groups: [], status: 'Connected', recording: layout && index < 2, ptzEnabled: 1, codec: 'h264', width: 1920, height: 1080 }))
   const commands = []
   const sockets = new Set()
   const json = (res, value) => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(value)) }
@@ -43,7 +43,11 @@ export async function startPtzDashboard() {
       }
       if (path === '/' || path === '/dvr') {
         res.setHeader('Content-Type', 'text/html')
-        const initial = `<script>localStorage.setItem('streamingMode','"jpeg"');localStorage.setItem('fullscreenMode','true');localStorage.setItem('witness-dashboard-activity-visible','0');</script>`
+        const sampleLayout = { version: 1, tiles: cameras.map((camera, i) => ({ cameraId: camera.id,
+          x: (i % 3) * 4, y: Math.floor(i / 3) * 6, width: 4, height: 6 })),
+          activityPlacement: 'rectangle', activityRegion: { x: 8, y: 6, width: 4, height: 6 },
+          activityDirection: 'vertical' }
+        const initial = `<script>localStorage.setItem('streamingMode','"jpeg"');localStorage.setItem('fullscreenMode','${layout ? 'false' : 'true'}');localStorage.setItem('witness-dashboard-activity-visible','${layout ? '1' : '0'}');${layout ? `localStorage.setItem('witness-dashboard-windowed-mode','layout');localStorage.setItem('witness-dashboard-layout-v1-all',${JSON.stringify(JSON.stringify(sampleLayout))});` : ''}</script>`
         return res.end((await readFile(resolve(webRoot, 'index.html'), 'utf8')).replace('<head>', '<head>' + initial))
       }
       res.statusCode = 404; res.end()
@@ -66,7 +70,7 @@ export async function startPtzDashboard() {
 }
 
 if (process.argv.includes('--serve')) {
-  const fixture = await startPtzDashboard()
+  const fixture = await startPtzDashboard({ layout: process.argv.includes('--layout') })
   console.log('PTZ fixture: ' + fixture.origin)
   process.on('SIGINT', async () => { await fixture.close(); process.exit(0) })
 }

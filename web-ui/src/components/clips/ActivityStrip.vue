@@ -453,10 +453,14 @@ onUnmounted(() => {
 .activity-strip.fill:not(.vertical) .strip-items {
   flex: 1;
   min-height: 0;
+  container-type: size;
 }
 .activity-strip.fill:not(.vertical) .strip-thumb {
-  width: auto;
-  height: 100%;
+  /* Fit either dimension without pushing a whole card off-screen when a
+     horizontal strip is placed in a tall, narrow region. */
+  width: min(100cqw, calc(100cqh * 16 / 9));
+  height: auto;
+  align-self: flex-start;
 }
 .activity-strip.vertical .strip-header {
   flex-wrap: wrap;

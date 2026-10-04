@@ -584,6 +584,7 @@ onMounted(async () => {
       <div><div class="ui-eyebrow">LIVE OVERVIEW</div><h1>{{ selectedGroupId === null ? 'Your cameras' : groupStore.getGroupById(selectedGroupId)?.displayName ?? 'Your cameras' }}</h1><p>Keep an eye on what matters. Open a camera for a closer look.</p></div>
       <span class="ui-count-pill">{{ currentCameras.length }} cameras · {{ currentCameras.filter(camera => camera.status === 'Connected').length }} connected</span>
     </section>
+    <div id="dashboard-layout-editor-host" />
     <p v-if="layoutMessage || (!editingLayout && regularActivityConflict)" class="layout-notice" role="status">
       {{ layoutMessage || 'Activity is docked because the current cameras occupy its saved rectangle. Use Arrange to adjust it.' }}
     </p>
@@ -661,10 +662,11 @@ onMounted(async () => {
       </select>
     </div>
 
+    <Teleport to="#dashboard-layout-editor-host" :disabled="settings.fullscreenMode" defer>
     <div
       v-if="canvasMode && editingLayout"
       class="layout-editor-toolbar fullscreen-fading-controls"
-      :class="{ visible: !settings.fullscreenMode || fullscreenControlsVisible }"
+      :class="{ visible: !settings.fullscreenMode || fullscreenControlsVisible, 'windowed-layout-editor': !settings.fullscreenMode }"
     >
       <button :class="{ active: editingLayoutMode === 'regular' }" @click="setLayoutEditorMode('regular')">Regular</button>
       <button :class="{ active: editingLayoutMode === 'focus' }" @click="setLayoutEditorMode('focus')">Auto-focus</button>
@@ -698,7 +700,7 @@ onMounted(async () => {
         <label v-for="field in (['x', 'y', 'width', 'height'] as const)" :key="field" class="activity-coordinate">
           {{ field }}<input type="number" :aria-label="`Activity ${field}`" :min="field === 'x' || field === 'y' ? 0 : 1"
             :max="field === 'x' || field === 'y' ? 11 : 12" :value="dashboardLayout.activityRegion[field]"
-            @change="setActivityCoordinate(field, $event)">
+            @input="setActivityCoordinate(field, $event)">
         </label>
       </template>
       <span class="layout-editor-separator" />
@@ -719,6 +721,7 @@ onMounted(async () => {
         </div>
       </details>
     </div>
+    </Teleport>
 
     <ClipPlayer v-if="playingClip" :clip="playingClip" @close="playingClip = null" />
   </AppLayout>
@@ -833,6 +836,7 @@ onMounted(async () => {
 .layout-editor-toolbar button.active { background: rgba(13, 110, 253, 0.65); color: #fff; }
 .layout-editor-toolbar button.primary { background: #0d6efd; color: #fff; }
 .layout-editor-toolbar button:disabled { opacity: .4; cursor: not-allowed; }
+.layout-editor-toolbar.windowed-layout-editor { position: relative; top: auto; left: auto; transform: none; margin-bottom: 12px; width: 100%; max-width: 100%; z-index: 5; }
 .layout-editor-label { margin: 0 2px; color: rgba(255, 255, 255, 0.65); }
 .layout-editor-separator { width: 1px; height: 18px; margin: 0 3px; background: rgba(255, 255, 255, 0.25); }
 
