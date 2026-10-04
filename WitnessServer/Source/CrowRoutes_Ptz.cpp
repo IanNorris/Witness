@@ -8,10 +8,9 @@
 #include "PtzMovementLease.h"
 #include "PtzConfiguration.h"
 
-static int PtzDeviceId(GlobalContext& ctx, int cameraId)
+static int PtzLaneId(GlobalContext& ctx, int cameraId)
 {
-    const int linkedId = ReadPtzLinkedCameraId(ctx.Database, cameraId);
-    return linkedId > 0 ? linkedId : cameraId;
+    return ReadPtzLaneId(ctx.Database, cameraId);
 }
 
 // Try to lazily initialize a PTZ client if it wasn't created at startup
@@ -177,13 +176,15 @@ void CrowListener::HandlePtzCommand(const crow::request& req, crow::response& re
 
 	// Do not run HTTP discovery before a healthy Baichuan command (especially Stop).
 	std::shared_ptr<ReolinkClient> client;
-	const int deviceId = PtzDeviceId(*m_GlobalContext, cameraId);
+	const int deviceId = PtzLaneId(*m_GlobalContext, cameraId);
 	const auto lease = m_GlobalContext->PtzMovement;
 	if (!lease) { res.code = 503; res.end(); return; }
 
 	// Try Baichuan client: direct camera first, then linked camera
 	auto bcClient = m_GlobalContext->GetBaichuanClient(cameraId);
-	if (!bcClient && deviceId != cameraId) bcClient = m_GlobalContext->GetBaichuanClient(deviceId);
+	// Safety-lane identity is separate from the existing linked transport fallback.
+	const int linkedId = ReadPtzLinkedCameraId(m_GlobalContext->Database, cameraId);
+	if (!bcClient && linkedId > 0) bcClient = m_GlobalContext->GetBaichuanClient(linkedId);
 
 	// Parse speed from body if present
 	int speed = 32;
@@ -379,7 +380,7 @@ void CrowListener::HandlePtzZoomSet(const crow::request& req, crow::response& re
 	int zoomPos = (int)body["zoom"].i();
 	const auto lease = m_GlobalContext->PtzMovement;
 	if (!lease) { res.code = 503; res.end(); return; }
-	bool ok = lease->Position(PtzDeviceId(*m_GlobalContext, cameraId), [client, zoomPos] { return client->SetZoomPos(zoomPos); });
+	bool ok = lease->Position(PtzLaneId(*m_GlobalContext, cameraId), [client, zoomPos] { return client->SetZoomPos(zoomPos); });
 
 	crow::json::wvalue result;
 	result["success"] = ok;

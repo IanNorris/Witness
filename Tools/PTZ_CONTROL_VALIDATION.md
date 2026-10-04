@@ -366,3 +366,62 @@ output (`artifacts/ptz-physical-package-verification-20261004.json`); the manual
 probe is excluded. The build has no C++/linker warnings or dependency installation;
 existing third-party web warnings remain. No deployment, main merge or remote
 push was performed. The user's backlog edits are unchanged.
+
+### Linked-view safety lanes (2026-10-04)
+
+The editor describes Linked Camera as a dual-lens PTZ link, not a guaranteed
+one-way parent pointer. Previously the route chose the immediate linked ID as
+its movement lease ID. Reciprocal links therefore gave the two views different
+lanes, allowing a new movement or preset to bypass another view's pending Stop.
+
+`GetPtzLaneId` now selects the minimum existing ID in the linked component. Its
+recursive SQL traverses both directions, using UNION deduplication to terminate
+cycles. Only links to existing camera rows are edges; dangling pointers cannot
+merge two cameras through a nonexistent target. The identity query returns an
+owned integer and releases its query lock before camera transport calls.
+
+This identity is used only for safety-lane ordering. Baichuan transport selection
+remains direct camera first, then its original linked ID; HTTP client discovery
+and per-camera authentication checks are unchanged. The canonical ID does not
+grant access or choose a different physical endpoint. The change adds a prepared
+query, not a schema or configuration migration.
+
+Read-only evaluation of the production query against the downloaded database:
+
+| View | Previous lane | Canonical lane |
+|---|---|---|
+| 10 | 11 | 10 |
+| 11 | 10 | 10 |
+| 12 | 12 | 12 |
+| 13 | 12 | 12 |
+
+Evidence: `artifacts/ptz-linked-lanes-database-copy.log`. No database rows were
+changed. This copy alone does not prove the current production configuration.
+
+The native regression consumes the exact production SQL and the actual
+PtzMovementLease implementation. It covers incoming-only links, reciprocal links,
+chains, three-node cycles, self-links, missing/dangling targets and independent
+linked groups. Resolved reciprocal IDs enforce old Stop before replacement move;
+a failed Stop prevents a move/preset from any alias; an independent linked group
+remains usable; a Stop from another alias retains the original moving transport.
+Owned configuration snapshots and query-lock concurrency regressions still pass.
+Logs: `artifacts/ptz-linked-lanes-config-final.log` and
+`artifacts/ptz-linked-lanes-lease-final.log`.
+
+All eight Baichuan transport methods / 30 cases pass again (18.666 seconds), and
+all 44 client regressions pass. Logs: `artifacts/ptz-linked-lanes-baichuan-transport.log`
+and `artifacts/ptz-linked-lanes-ui-tests.log`. The combined build has no C++/linker
+warnings or dependency installation; existing third-party web warnings remain.
+
+Verified package: `build-vs2026/deploy/ptz-linked-lanes-a823ac8aa757`, native ID
+`a823ac8aa757`, web ID `867b4a18817a`, 96 files / 180,093,202 bytes. Report:
+`artifacts/ptz-linked-lanes-package-verification-20261004.json`. No additional
+camera movements, production deployment, main merge or remote push occurred.
+The user's backlog edits remain untouched.
+
+Limits: lane-ordering checks use synthetic callbacks, not simultaneous physical
+camera movements. Camera-link edits while a motor lease is already active and
+end-to-end permissions/HTTP routing under concurrent reconfiguration were not
+exercised. Incorrectly linking separate physical cameras would serialize their
+controls but does not redirect their transports; users should keep dual-lens
+links limited to the intended shared PTZ device.

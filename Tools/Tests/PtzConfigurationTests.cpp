@@ -1,4 +1,6 @@
 #include "PtzConfiguration.h"
+#include "PtzMovementLease.h"
+#include <atomic>
 #include <chrono>
 #include <future>
 #include <iostream>
@@ -31,14 +33,14 @@ int main(int Argc, char** Argv)
             "(11,10,0,NULL,0,NULL,NULL,NULL),(12,0,1,'host-b',80,'user-b','secret-b','rtsp-b');",
             true, [](const std::string&) { throw std::runtime_error("fixture database failure"); });
         const auto Source = ReadFileToString(Argv[1]);
-        for (const char* Name : {"GetCameraPtzConfig", "GetLinkedCameraId"})
+        for (const char* Name : {"GetCameraPtzConfig", "GetLinkedCameraId", "GetPtzLaneId"})
             Database->CreateQuery(Name, ProductionQuery(Source, Name));
         const auto Snapshot = ReadPtzConfiguration(Database, 10);
         Check(Snapshot.Enabled && Snapshot.Port == 443 && Snapshot.Host == "host-a" &&
             Snapshot.Username == "user-a" && Snapshot.Password == "secret-a" && Snapshot.RtspPath == "rtsp-a",
             "incorrect owned config snapshot");
         // Probe the actual query mutex, not a substitute lock in a mock.
-        for (const char* Name : {"GetCameraPtzConfig", "GetLinkedCameraId"}) {
+        for (const char* Name : {"GetCameraPtzConfig", "GetLinkedCameraId", "GetPtzLaneId"}) {
             std::unique_lock<std::mutex> Lock(Database->GetQuery(Name)->PrepareQueryMutex(), std::try_to_lock);
             Check(Lock.owns_lock(), "returned snapshot retained query lock");
         }
@@ -77,6 +79,53 @@ int main(int Argc, char** Argv)
         Check(Independent, "stalled transport blocked another camera's config query");
         Check(Snapshot.Host == "host-a" && Snapshot.Password == "secret-a", "saved snapshot changed after update");
         Check(ReadPtzConfiguration(Database, 10).Host == "changed", "query did not reset after update");
-        std::cout << "PASS: production SQL, owned config, NULL/missing/linked cameras and concurrent discovery\n";
+        Check(ReadPtzLaneId(Database, 10) == 10 && ReadPtzLaneId(Database, 11) == 10,
+            "incoming-only parent and child did not share lane");
+        Check(ReadPtzLaneId(Database, 12) == 12, "independent camera merged into lane");
+        Check(ReadPtzLaneId(Database, 999) == 999, "missing camera acquired another lane");
+        Check(sqlite3_exec(Database->GetDatabase(),
+            "UPDATE Camera SET LinkedCameraId=11 WHERE CameraUID=10;"
+            "INSERT INTO Camera VALUES(13,12,0,NULL,0,NULL,NULL,NULL),"
+            "(14,11,0,NULL,0,NULL,NULL,NULL),(15,14,0,NULL,0,NULL,NULL,NULL),"
+            "(20,21,0,NULL,0,NULL,NULL,NULL),(21,22,0,NULL,0,NULL,NULL,NULL),"
+            "(22,20,0,NULL,0,NULL,NULL,NULL),(30,30,0,NULL,0,NULL,NULL,NULL),"
+            "(40,999,0,NULL,0,NULL,NULL,NULL),(41,999,0,NULL,0,NULL,NULL,NULL);",
+            nullptr, nullptr, nullptr) == SQLITE_OK, "graph fixture update failed");
+        for (int Camera : {10, 11, 14, 15}) Check(ReadPtzLaneId(Database, Camera) == 10, "reciprocal/chain lane mismatch");
+        Check(ReadPtzLinkedCameraId(Database, 10) == 11 && ReadPtzLinkedCameraId(Database, 11) == 10,
+            "fixture did not reproduce old reciprocal lane disagreement");
+        for (int Camera : {12, 13}) Check(ReadPtzLaneId(Database, Camera) == 12, "independent linked pair mismatch");
+        for (int Camera : {20, 21, 22}) Check(ReadPtzLaneId(Database, Camera) == 20, "cycle lane mismatch");
+        Check(ReadPtzLaneId(Database, 30) == 30, "self-link did not terminate");
+        Check(ReadPtzLaneId(Database, 40) == 40 && ReadPtzLaneId(Database, 41) == 41,
+            "dangling links merged independent cameras");
+        { // Exercise the actual lease with IDs returned by the production SQL.
+            std::string Order;
+            PtzMovementLease Lease({}, 10s, 10ms);
+            Check(Lease.Move(ReadPtzLaneId(Database, 10), [&] { Order += 'L'; return true; },
+                [&] { Order += 'S'; return true; }), "first reciprocal move failed");
+            Check(Lease.Move(ReadPtzLaneId(Database, 11), [&] { Order += 'R'; return true; },
+                [&] { Order += 'T'; return true; }), "replacement reciprocal move failed");
+            Check(Lease.Stop(ReadPtzLaneId(Database, 14), [] { return false; }), "linked stop missed moving transport");
+            Check(Order == "LSRT", "reciprocal moves did not stop previous transport first");
+        }
+        { std::unique_lock<std::mutex> Lock(Database->GetQuery("GetPtzLaneId")->PrepareQueryMutex(), std::try_to_lock);
+          Check(Lock.owns_lock(), "lane identity retained query lock"); }
+        {
+            std::atomic<bool> AllowStop{false};
+            int Commands = 0;
+            PtzMovementLease Lease({}, 10s, 10ms);
+            Check(Lease.Move(ReadPtzLaneId(Database, 10), [] { return true; }, [&] { return AllowStop.load(); }), "guarded move failed");
+            Check(!Lease.Move(ReadPtzLaneId(Database, 11), [&] { ++Commands; return true; }, [] { return true; }),
+                "reciprocal alias bypassed failing Stop");
+            Check(!Lease.Position(ReadPtzLaneId(Database, 15), [&] { ++Commands; return true; }),
+                "linked preset bypassed failing Stop");
+            Check(Commands == 0, "command executed behind failed Stop");
+            Check(Lease.Move(ReadPtzLaneId(Database, 13), [&] { ++Commands; return true; }, [] { return true; }),
+                "independent linked camera was blocked");
+            AllowStop = true;
+            Check(Lease.Stop(ReadPtzLaneId(Database, 14), [] { return false; }), "linked Stop did not retain original transport");
+        }
+        std::cout << "PASS: production SQL, owned snapshots, graph lane identities, linked Stop guards and concurrent discovery\n";
     } catch (const std::exception& Error) { std::cerr << Error.what() << '\n'; return 1; }
 }

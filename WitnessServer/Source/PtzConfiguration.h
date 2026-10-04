@@ -39,3 +39,18 @@ inline int ReadPtzLinkedCameraId(const std::shared_ptr<SQLiteDatabase>& Database
     });
     return Result;
 }
+
+// Linked dual-lens views share a safety lane, including reciprocal links and
+// incoming-only links. This identity never selects a transport or grants access.
+inline int ReadPtzLaneId(const std::shared_ptr<SQLiteDatabase>& Database, int CameraId)
+{
+    int Result = CameraId;
+    SQLiteDatabaseQueryInstance Query(Database, "GetPtzLaneId");
+    Query->Bind("@CameraId", CameraId);
+    Query->Execute([&](const SQLiteDatabaseQuery& Row) {
+        const int Canonical = Row.GetColumnValueInt(0);
+        if (Canonical > 0) Result = Canonical;
+        return true;
+    });
+    return Result;
+}

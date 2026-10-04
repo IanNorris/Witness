@@ -553,6 +553,21 @@ namespace Database
 		SELECT PtzEnabled, PtzApiHost, PtzApiPort, PtzUsername, PtzPassword, CameraString FROM Camera WHERE CameraUID = @CameraId
 	)RAW";
 
+	std::string GetPtzLaneId = R"RAW(
+		WITH RECURSIVE Edges(FromId, ToId) AS (
+			SELECT C.CameraUID, T.CameraUID FROM Camera C
+			INNER JOIN Camera T ON C.LinkedCameraId = T.CameraUID
+			UNION
+			SELECT T.CameraUID, C.CameraUID FROM Camera C
+			INNER JOIN Camera T ON C.LinkedCameraId = T.CameraUID
+		), Linked(CameraUID) AS (
+			SELECT CameraUID FROM Camera WHERE CameraUID = @CameraId
+			UNION
+			SELECT E.ToId FROM Edges E INNER JOIN Linked L ON E.FromId = L.CameraUID
+		)
+		SELECT MIN(CameraUID) FROM Linked
+	)RAW";
+
 	std::string CreateClip = R"RAW(
 		INSERT INTO Clip (Timestamp,Camera,MotionTimestamp,ActiveDuration,Duration,RecordMode,MaxMotion,Description,Save,Tags)
 		VALUES(@Timestamp,@Camera,@MotionTimestamp,@ActiveDuration,@Duration,@RecordMode,@MaxMotion,@Description,@Save,@Tags);
@@ -1408,6 +1423,7 @@ namespace Database
 		CREATE_QUERY( GetLinkedCameraId );
 		CREATE_QUERY( GetCamerasWithMotionSource );
 		CREATE_QUERY( GetCameraPtzConfig );
+		CREATE_QUERY( GetPtzLaneId );
 		CREATE_QUERY( DeleteCamera );
 
 		CREATE_QUERY( CreateClip );

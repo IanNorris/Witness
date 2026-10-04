@@ -186,7 +186,7 @@ find_package(Threads REQUIRED)
 add_executable(PtzMovementLeaseTests EXCLUDE_FROM_ALL
     ../Tools/PtzMovementLeaseTests.cpp Source/PtzMovementLease.cpp)
 add_executable(PtzConfigurationTests EXCLUDE_FROM_ALL
-    ../Tools/Tests/PtzConfigurationTests.cpp Source/SQLite.cpp Source/Common.cpp)
+    ../Tools/Tests/PtzConfigurationTests.cpp Source/SQLite.cpp Source/Common.cpp Source/PtzMovementLease.cpp)
 target_include_directories(PtzConfigurationTests PRIVATE Source)
 target_link_libraries(PtzMovementLeaseTests PRIVATE Threads::Threads)
 target_link_libraries(PtzConfigurationTests PRIVATE WitnessCommon unofficial::sqlite3::sqlite3 Threads::Threads)
