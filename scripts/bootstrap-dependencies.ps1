@@ -9,8 +9,10 @@ param(
 $ErrorActionPreference = "Stop"
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $environment = Get-Content (Join-Path $repositoryRoot "build-environment.json") -Raw | ConvertFrom-Json
-if ($environment.vcpkgCommit -cnotmatch '^[0-9a-f]{40}$') {
-    throw "build-environment.json must contain a full lowercase vcpkg commit hash."
+if ($environment.schema -ne 2 -or
+    $environment.vcpkgCheckoutCommit -cnotmatch '^[0-9a-f]{40}$' -or
+    $environment.vcpkgToolCommit -cnotmatch '^[0-9a-f]{40}$') {
+    throw "build-environment.json schema 2 must contain independent full lowercase vcpkg checkout/tool commit hashes."
 }
 $localVcpkgRoot = Join-Path $repositoryRoot ".build-tools\vcpkg"
 $vcpkgCandidates = @($localVcpkgRoot)
@@ -28,7 +30,7 @@ foreach ($candidate in $vcpkgCandidates | Select-Object -Unique) {
         continue
     }
     $checkoutHead = (& git -C $candidate rev-parse HEAD 2>$null | Out-String).Trim()
-    if ($LASTEXITCODE -ne 0 -or $checkoutHead -ne $environment.vcpkgCommit) { continue }
+    if ($LASTEXITCODE -ne 0 -or $checkoutHead -ne $environment.vcpkgCheckoutCommit) { continue }
     $checkoutRoot = (& git -C $candidate rev-parse --show-toplevel 2>$null | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or
         [System.IO.Path]::GetFullPath($checkoutRoot).TrimEnd('\', '/') -ne
@@ -36,13 +38,13 @@ foreach ($candidate in $vcpkgCandidates | Select-Object -Unique) {
     $trackedChanges = (& git -C $candidate status --porcelain --untracked-files=no 2>$null | Out-String).Trim()
     if ($LASTEXITCODE -ne 0 -or $trackedChanges) { continue }
     $version = (& $executable version | Out-String).Trim()
-    if ($LASTEXITCODE -eq 0 -and $version.Contains($environment.vcpkgCommit)) {
+    if ($LASTEXITCODE -eq 0 -and $version.Contains($environment.vcpkgToolCommit)) {
         $vcpkgRoot = $candidate
         break
     }
 }
 if (-not $vcpkgRoot) {
-    throw "No clean vcpkg checkout and executable match pinned commit $($environment.vcpkgCommit). Run scripts/bootstrap-vcpkg.ps1 first."
+    throw "No clean vcpkg checkout matches $($environment.vcpkgCheckoutCommit) with executable $($environment.vcpkgToolCommit). Run scripts/bootstrap-vcpkg.ps1 first."
 }
 $env:VCPKG_ROOT = $vcpkgRoot
 $bundledCmake = Join-Path $env:ProgramFiles "Microsoft Visual Studio\18\Insiders\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"

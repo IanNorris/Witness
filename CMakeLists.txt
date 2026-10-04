@@ -71,12 +71,13 @@ endif()
 # packages during an explicitly authorized bootstrap invocation.
 if(WITNESS_MANAGED_DEPENDENCIES)
     file(READ "${CMAKE_SOURCE_DIR}/build-environment.json" _WITNESS_PREFLIGHT_ENVIRONMENT)
-    string(JSON _WITNESS_PREFLIGHT_COMMIT GET "${_WITNESS_PREFLIGHT_ENVIRONMENT}" vcpkgCommit)
+    witness_read_vcpkg_pins("${_WITNESS_PREFLIGHT_ENVIRONMENT}"
+        _WITNESS_PREFLIGHT_COMMIT _WITNESS_PREFLIGHT_TOOL_COMMIT)
     get_filename_component(_WITNESS_PREFLIGHT_ROOT "${CMAKE_TOOLCHAIN_FILE}" DIRECTORY)
     get_filename_component(_WITNESS_PREFLIGHT_ROOT "${_WITNESS_PREFLIGHT_ROOT}" DIRECTORY)
     get_filename_component(_WITNESS_PREFLIGHT_ROOT "${_WITNESS_PREFLIGHT_ROOT}" DIRECTORY)
     witness_require_vcpkg_checkout("${_WITNESS_PREFLIGHT_ROOT}" "${_WITNESS_PREFLIGHT_COMMIT}")
-    witness_require_vcpkg_version("${_WITNESS_PREFLIGHT_ROOT}" "${_WITNESS_PREFLIGHT_COMMIT}" _WITNESS_PREFLIGHT_VERSION)
+    witness_require_vcpkg_version("${_WITNESS_PREFLIGHT_ROOT}" "${_WITNESS_PREFLIGHT_TOOL_COMMIT}" _WITNESS_PREFLIGHT_VERSION)
 endif()
 
 project(Witness LANGUAGES CXX C)
@@ -110,8 +111,8 @@ if(WITNESS_MANAGED_DEPENDENCIES)
     witness_normalized_text_sha256(_WITNESS_ENVIRONMENT_SHA
         "${CMAKE_SOURCE_DIR}/build-environment.json")
     file(READ "${CMAKE_SOURCE_DIR}/build-environment.json" _WITNESS_ENVIRONMENT_JSON)
-    string(JSON _WITNESS_EXPECTED_VCPKG_COMMIT GET
-        "${_WITNESS_ENVIRONMENT_JSON}" vcpkgCommit)
+    witness_read_vcpkg_pins("${_WITNESS_ENVIRONMENT_JSON}"
+        _WITNESS_EXPECTED_VCPKG_CHECKOUT_COMMIT _WITNESS_EXPECTED_VCPKG_COMMIT)
     string(JSON _WITNESS_EXPECTED_MSVC_FAMILY GET
         "${_WITNESS_ENVIRONMENT_JSON}" msvcCompilerFamily)
     set(_WITNESS_TRIPLET_FILE

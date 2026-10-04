@@ -71,11 +71,45 @@ the others make build reports diagnosable without making harmless IDE/CMake
 updates mutate installed packages.
 
 [`build-environment.json`](build-environment.json) is the reviewed source of
-truth for the dependency ABI epoch, vcpkg commit, and supported MSVC family.
+truth for the dependency ABI epoch, separate vcpkg checkout and executable
+commits, and supported MSVC family.
 The dependency bootstrap accepts a matching `VCPKG_ROOT` or integrated vcpkg,
 but prefers the ignored repository-local `.build-tools/vcpkg` installed by the
 vcpkg bootstrap helper. A machine-wide vcpkg update therefore cannot silently
 alter the managed environment.
+
+The two vcpkg pins are deliberately independent. `vcpkgCheckoutCommit` pins
+the scripts in `microsoft/vcpkg`; `vcpkgToolCommit` pins the executable reported
+by `vcpkg version`, built from `microsoft/vcpkg-tool`. They are not interchangeable:
+the [upstream bootstrap script](https://github.com/microsoft/vcpkg/blob/master/scripts/bootstrap.sh)
+reads its tool-release metadata and obtains a separate executable release.
+Schema 2 makes this distinction explicit. The current checkout pin records
+the clean toolchain already used on this machine; it does not change the
+separately pinned package registry baseline in `vcpkg-configuration.json`.
+
+### Independent-pin validation (2026-10-04)
+
+The previous schema incorrectly required the executable's commit to also be
+the toolchain checkout's HEAD, making a valid bootstrap impossible for the
+installed upstream release. Configuration and both bootstrap helpers now
+validate each identity against its own pin. The tool bootstrap verifies the
+resulting executable before reporting success; it never installs dependencies.
+
+Twelve isolated policy regressions passed, including a read-only check of the
+actual clean checkout and executable. An ordinary managed configure reached
+the dependency-stamp check and rejected the stale stamp, as intended. SHA-256
+inventories before and after verified that all 2,673 installed files
+(759,367,637 bytes) were unchanged. Evidence is retained locally in
+`artifacts/dependency-independent-pins-tests.log`,
+`artifacts/dependency-independent-pins-managed-configure.log`, and
+`artifacts/dependency-pins-managed-{before,after}.json`.
+
+This does **not** prove a successful release-only dependency migration. The
+schema change invalidates the old managed stamp; do not manually restamp or
+copy the legacy dependency installation to bypass that check. An explicit
+bootstrap, followed by managed configure/build and another unchanged-package
+inventory, remains necessary to validate that migration. Existing legacy
+builds remain available meanwhile.
 
 ## Existing and non-Windows builds
 

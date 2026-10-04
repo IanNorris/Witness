@@ -1,5 +1,6 @@
 """Exercise production policy with real CMake, never real package installation."""
 import os
+import json
 from pathlib import Path
 import shutil
 import subprocess
@@ -105,6 +106,39 @@ endif()
         result = self.script(f'witness_validate_vcpkg_version("vcpkg version {"2" * 40}" "{expected}")')
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('executable does not match', result.stderr)
+
+    def test_independent_checkout_and_tool_pins(self):
+        environment = {'schema': 2, 'vcpkgCheckoutCommit': '1' * 40,
+                       'vcpkgToolCommit': '2' * 40}
+        body = f'''witness_read_vcpkg_pins([=[{json.dumps(environment)}]=] checkout tool)
+if(NOT checkout STREQUAL "{'1' * 40}" OR NOT tool STREQUAL "{'2' * 40}")
+    message(FATAL_ERROR "Independent pins were conflated")
+endif()
+witness_validate_vcpkg_version("version {'2' * 40}" "${{tool}}")
+'''
+        result = self.script(body)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        for invalid in ({'schema': 1, 'vcpkgCommit': '1' * 40},
+                        {**environment, 'vcpkgCheckoutCommit': '1' * 39},
+                        {**environment, 'vcpkgToolCommit': 'A' * 40},
+                        {**environment, 'vcpkgToolCommit': None},
+                        {'schema': 2, 'vcpkgCheckoutCommit': '1' * 40}):
+            with self.subTest(environment=invalid):
+                result = self.script(f'witness_read_vcpkg_pins([=[{json.dumps(invalid)}]=] checkout tool)')
+                self.assertNotEqual(result.returncode, 0, result.stdout)
+
+    @unittest.skipUnless(os.environ.get('WITNESS_TEST_VCPKG_ROOT'),
+                         'Set WITNESS_TEST_VCPKG_ROOT for read-only real installation validation')
+    def test_real_pinned_checkout_and_executable_without_installation(self):
+        environment = MODULE.parent.parent / 'build-environment.json'
+        root = Path(os.environ['WITNESS_TEST_VCPKG_ROOT']).resolve().as_posix()
+        result = self.script(f'''
+file(READ "{environment.as_posix()}" environment)
+witness_read_vcpkg_pins("${{environment}}" checkout tool)
+witness_require_vcpkg_checkout("{root}" "${{checkout}}")
+witness_require_vcpkg_version("{root}" "${{tool}}" version)
+''')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_stamp_matching_missing_mismatch_and_duplicate(self):
         stamp = self.root / 'stamp.txt'

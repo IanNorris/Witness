@@ -1,7 +1,8 @@
 {
-  "schema": 1,
+  "schema": 2,
   "dependencyAbiEpoch": 1,
-  "vcpkgCommit": "98d7cb0cf1f4686a3e43aa5672b6230c1d56bce8",
+  "vcpkgCheckoutCommit": "a1cae005c39be7b18ba319fced856b68d7276271",
+  "vcpkgToolCommit": "98d7cb0cf1f4686a3e43aa5672b6230c1d56bce8",
   "vcpkgVersion": "2026-07-27",
   "msvcCompilerFamily": "19.51",
   "msvcToolsetFamily": "14.51"
