@@ -26,6 +26,13 @@ Branch: `codex/ptz-selection-controls`.
 - Explicit fullscreen control selection is independent of automatic camera focus
   and layout dragging. Show an outline/dismiss label; Escape deselects first.
   Close PTZ when its camera is deselected, hidden, disabled or disconnected.
+- Fullscreen camera clicks select controls without toggling recording. An
+  explicit labelled Record/Stop recording action replaces that hidden shortcut;
+  normal tile-view recording shortcuts remain unchanged. Accept both pointer
+  and click-based selection (including accessibility-generated clicks).
+- Fullscreen PTZ uses a named floating panel outside the clipped media tile.
+  Pointer interaction with that panel retains its owner selection. Camera
+  changes and Escape still close it; small tile sizes do not clip the controls.
 - Server-side movement leases arm before dispatch, expire after ten seconds and
   retry failed stops once per second, logging the first and every tenth failure.
   Linked views share their parent camera's lane. Each device has an independent
@@ -54,10 +61,18 @@ separate backlog item and is not triggered here. Live camera capability/motor
 validation remains outstanding. Do not claim the PTZ goal complete yet.
 
 The query-lock fix has build validation but no isolated concurrency regression
-test yet. Fullscreen selection still needs visual/keyboard testing in a browser.
+test yet. Computer-use browser checks against the built UI on a loopback-only
+synthetic fixture verified selection, switching camera/closing the prior panel,
+saved-position selection, and two-stage Escape dismissal. No physical camera,
+real authentication session or production database was involved. The visual
+check exposed the fullscreen recording side effect and in-tile panel clipping,
+which were repaired. The test fixture cannot forward camera commands.
 Existing Sass, DLL-interface and incremental-link warnings are not fixed here.
 
 Component-script tests exercise read-only preset discovery, filtering disabled
 positions, actual preset POST selection, stale replies after switching away and
 back, stale zoom polls, and zoom following Stop. These execute compiled Vue setup
 code with mocked HTTP and lifecycle hooks, not browser-rendering or hardware.
+Additional fullscreen component tests cover selection independent of focus,
+Escape ordering, outside clicks, floating-panel ownership, layout-editor mode,
+no fullscreen click-to-record, preserving tile-view recording, and PTZ dismissal.

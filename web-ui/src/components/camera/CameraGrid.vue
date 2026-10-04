@@ -61,6 +61,9 @@ function selectControls(cameraId: number) {
 }
 function onOutsidePointer(event: PointerEvent) {
   const target = event.target
+  // Fullscreen PTZ is teleported outside the tile to avoid clipping in small
+  // slots. Interacting with its owning panel must not dismiss that selection.
+  if (target instanceof Element && Number(target.closest('[data-ptz-controls-camera]')?.getAttribute('data-ptz-controls-camera')) === selectedControlsCameraId.value) return
   if (!(target instanceof Element) || !gridRef.value?.contains(target) || !target.closest('.camera-grid-item')) {
     selectedControlsCameraId.value = null
   }
@@ -246,6 +249,7 @@ onUnmounted(() => {
       }"
       :style="tileStyle(camera.id)"
       @pointerdown.capture="selectControls(camera.id)"
+      @click.capture="selectControls(camera.id)"
       @focusin="selectControls(camera.id)"
     >
       <CameraCard

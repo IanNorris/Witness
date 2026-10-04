@@ -103,8 +103,10 @@ function onJpegError() {
   }
 }
 
-// Single click = toggle recording, double click = open stream / exit fullscreen
+// Fullscreen clicks select controls; recording is explicit there. Tile-view
+// single click retains its existing recording shortcut.
 function onSingleClick() {
+  if (settings.fullscreenMode) return
   if (clickTimer) { clearTimeout(clickTimer); clickTimer = null }
   clickTimer = setTimeout(() => {
     clickTimer = null
@@ -287,6 +289,12 @@ onUnmounted(() => {
           @click.stop="emit('dismissControls')" title="Dismiss camera controls (Esc)">
           Controls selected · ×
         </button>
+        <button v-if="settings.fullscreenMode && controlsSelected" class="fullscreen-record-toggle"
+          :class="{ recording: camera.isRecording }" @click.stop="cameraStore.toggleRecording(camera.id)"
+          :aria-label="camera.isRecording ? 'Stop recording' : 'Start recording'"
+          :aria-pressed="camera.isRecording" :title="camera.isRecording ? 'Stop manual recording' : 'Start manual recording'">
+          {{ camera.isRecording ? '■ Stop recording' : '● Record' }}
+        </button>
 
         <!-- Latency overlay -->
         <div v-if="latencyLabel && effectiveMode !== 'jpeg'" class="latency-overlay">
@@ -352,9 +360,17 @@ onUnmounted(() => {
         </button>
 
         <!-- PTZ controls overlay -->
-        <div v-if="showPtzControls && camera.ptzEnabled" class="ptz-overlay" @click.stop>
-          <PtzControls :camera-id="camera.id" />
-        </div>
+        <Teleport to="body" :disabled="!settings.fullscreenMode">
+          <div v-if="showPtzControls && camera.ptzEnabled" class="ptz-overlay"
+            :class="{ 'ptz-floating-panel': settings.fullscreenMode }"
+            :data-ptz-controls-camera="camera.id" @click.stop>
+            <div v-if="settings.fullscreenMode" class="ptz-panel-heading">
+              <span>{{ camera.name }}</span>
+              <button aria-label="Close PTZ controls" @click="showPtzControls = false">×</button>
+            </div>
+            <PtzControls :camera-id="camera.id" />
+          </div>
+        </Teleport>
       </div>
     </div>
 
@@ -392,12 +408,31 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.camera-card-fullscreen.controls-selected { outline: 2px solid #67b5ff; outline-offset: -2px; }
+.camera-card-fullscreen.controls-selected { position: relative; }
+.camera-card-fullscreen.controls-selected::after {
+  content: ''; position: absolute; inset: 0; border: 2px solid #67b5ff;
+  z-index: 25; pointer-events: none;
+}
 .control-selection-label {
   position: absolute; top: 8px; left: 8px; z-index: 10;
   border: 1px solid #67b5ff; border-radius: 5px; background: #142940e8;
   color: #e8f3ff; padding: 3px 7px; font-size: 11px;
 }
+.fullscreen-record-toggle {
+  position: absolute; top: 8px; right: 8px; z-index: 10;
+  border: 1px solid #bdcedf; border-radius: 5px; background: #142940e8;
+  color: #e8f3ff; padding: 3px 7px; font-size: 11px;
+}
+.fullscreen-record-toggle.recording { border-color: #ff7e83; color: #ffb5b8; }
+.ptz-floating-panel {
+  position: fixed; bottom: 24px; right: 24px; left: auto; z-index: 2000;
+  max-height: calc(100dvh - 48px); max-width: calc(100vw - 48px); overflow: auto;
+  background: #142235; border: 1px solid #61758e; border-radius: 8px;
+  box-shadow: 0 8px 30px #0009;
+}
+.ptz-panel-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 7px 10px; color: #e8f3ff; font-size: 12px; }
+.ptz-panel-heading span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ptz-panel-heading button { color: #e8f3ff; border: none; border-radius: 4px; background: #34465d; font-size: 18px; line-height: 20px; }
 .camera-card-fullscreen:not(.controls-selected):not(:hover) :is(.audio-toggle, .motion-audio-toggle, .detection-toggle, .ptz-toggle) {
   opacity: 0; pointer-events: none;
 }
