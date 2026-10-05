@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Long-GOP MSE eviction audit</title>
+<style>body{background:#111820;color:#e8eff6;font:15px system-ui;margin:20px}button{padding:10px}.players{display:flex;gap:16px}article{width:32%}video{width:100%;background:black}pre{white-space:pre-wrap;font:12px monospace;max-height:360px;overflow:auto}</style>
+<h1>Long-GOP MSE eviction audit</h1>
+<p>Synthetic H.264/AAC, five-second keyframe spacing. All players seek to 7 seconds before removal. This is not the production player or a quota reproduction.</p>
+<button id="run">Run eviction comparison</button><p id="status" role="status">Ready</p>
+<div class="players"><article><h2>No removal</h2><video id="control" muted playsinline></video></article><article><h2>Retain 5 seconds</h2><video id="normal" muted playsinline></video></article><article><h2>Retain 1 second</h2><video id="aggressive" muted playsinline></video></article></div>
+<pre id="report" aria-label="Eviction report"></pre>
+<script type="module">
+const status=document.querySelector('#status'), report=document.querySelector('#report'), button=document.querySelector('#run')
+let pipelines=[], evidence
+const ranges=b=>Array.from({length:b.length},(_,i)=>[b.start(i),b.end(i)])
+const show=()=>{report.textContent=JSON.stringify(evidence,null,2)}
+function once(target,event){return new Promise((resolve,reject)=>{
+  const done=error=>{clearTimeout(timer);target.removeEventListener(event,ok);target.removeEventListener('error',bad);error?reject(error):resolve()}
+  const ok=()=>done(),bad=()=>done(Error('Media event failure: '+event)),timer=setTimeout(()=>done(Error('Timeout: '+event)),10000)
+  target.addEventListener(event,ok,{once:true});target.addEventListener('error',bad,{once:true})
+})}
+function snapshot(p){const v=p.video;return {id:p.id,currentTime:v.currentTime,readyState:v.readyState,paused:v.paused,seeking:v.seeking,presentedCallbacks:p.presentedCallbacks,lastPresentedTime:p.lastPresentedTime,videoFrames:v.getVideoPlaybackQuality().totalVideoFrames,buffered:ranges(v.buffered),sourceBuffered:ranges(p.buffer.buffered),timestampOffset:p.buffer.timestampOffset,error:v.error?{code:v.error.code,message:v.error.message}:null}}
+function cleanup(){for(const p of pipelines){p.video.pause();p.video.removeAttribute('src');p.video.load();URL.revokeObjectURL(p.url)}pipelines=[]}
+async function open(id,bytes){const video=document.querySelector('#'+id),media=new MediaSource(),url=URL.createObjectURL(media),opened=once(media,'sourceopen');video.src=url;video.muted=true;await opened
+  const buffer=media.addSourceBuffer('video/mp4; codecs="avc1.42c00a,mp4a.40.2"');buffer.mode='sequence'
+  const p={id,video,media,buffer,url,presentedCallbacks:0,lastPresentedTime:null};pipelines.push(p)
+  if(video.requestVideoFrameCallback){const frame=(_now,metadata)=>{p.presentedCallbacks++;p.lastPresentedTime=metadata.mediaTime;if(pipelines.includes(p))video.requestVideoFrameCallback(frame)};video.requestVideoFrameCallback(frame)}
+  const appended=once(buffer,'updateend');buffer.appendBuffer(bytes);await appended
+  const seeked=once(video,'seeked');video.currentTime=7;await seeked;return p
+}
+button.onclick=async()=>{button.disabled=true;cleanup();evidence={scope:'Finite synthetic fMP4; actual browser removal at fixed boundaries; no production socket/watchdog or quota-pressure claim.',fixtureSha256:'a132adc277cfb202bfae620cac72471430b0a9e25c10eb66bbfe9d166382021c',before:[],after:[],playback:[]};status.textContent='Appending and seeking';show()
+  try{const response=await fetch('/fixture.mp4');if(!response.ok)throw Error('Fixture unavailable');const bytes=await response.arrayBuffer()
+    await Promise.all(['control','normal','aggressive'].map(id=>open(id,bytes)))
+    evidence.before=pipelines.map(snapshot)
+    for(const p of pipelines){if(p.id==='control')continue;const removeTo=p.video.currentTime-(p.id==='normal'?5:1),completed=once(p.buffer,'updateend');p.buffer.remove(0,removeTo);await completed; evidence.after.push({...snapshot(p),removeTo})}
+    status.textContent='Observing playback for 3 seconds';show();await Promise.all(pipelines.map(p=>p.video.play()))
+    const started=performance.now(),sample=()=>({elapsedMs:performance.now()-started,players:pipelines.map(snapshot)})
+    evidence.playback.push(sample());for(let i=0;i<12;i++){await new Promise(r=>setTimeout(r,250));evidence.playback.push(sample())}
+    pipelines.forEach(p=>p.video.pause());status.textContent='Eviction comparison complete'
+  }catch(error){evidence.error=String(error);status.textContent='Eviction comparison failed'}
+  show();button.disabled=false
+}
+window.addEventListener('pagehide',cleanup)
+</script></html>

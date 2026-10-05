@@ -2359,3 +2359,49 @@ The original long verifier was polled by its live owned process handle and
 observed at camera 14 frame-timestamp inspection during this work. This is
 progress through inspection, not a terminal success or a per-recording verdict;
 the full test is still pending.
+
+### Real-browser long-GOP eviction silently freezes video (2026-10-05)
+
+`codex/mse-long-gop-eviction-audit` adds a loopback-only, fixed-asset browser
+comparison (`Tools/Tests/serve_mse_long_gop_eviction.py` and its HTML page).
+It serves exactly the page and one synthetic 160x96 H.264 Baseline/AAC-LC
+fragmented MP4, bounded to 16 MiB and frozen behind a SHA-256 check. It exposes
+no application data, sessions, directory listing or writes. Both allowed routes
+return 200; unlisted paths, query variants and traversal return 404. The reused
+fixture hash/size guards pass two tests outside the sandbox; their first sandbox
+invocation failed on temporary-directory ACLs, not an assertion.
+
+Fixture SHA-256: `a132adc277cfb202bfae620cac72471430b0a9e25c10eb66bbfe9d166382021c`.
+The fixed file is `artifacts/mse-long-gop-eviction-input.mp4`, generated using:
+
+```text
+ffmpeg -hide_banner -nostdin -n -f lavfi -i testsrc2=size=160x96:rate=24 -f lavfi -i sine=frequency=440:sample_rate=48000 -t 12 -c:v libx264 -profile:v baseline -level:v 1.0 -pix_fmt yuv420p -g 120 -keyint_min 120 -sc_threshold 0 -bf 0 -c:a aac -ac 1 -b:a 48k -movflags +empty_moov+frag_keyframe+default_base_moof artifacts/mse-long-gop-eviction-input.mp4
+```
+
+The installed CLI reports Lavf63.1.100 / Lavc63.1.100; this synthetic CLI mux is
+not production mux output. Keyframe PTS verified by ffprobe are 0, 5.021403 and
+10.021403 seconds. Three actual browser sequence-mode MSE players append the
+same bytes and seek to seven seconds. No removal retains [0,12.021332]; removing
+[0,2] (five-second back buffer) retains [5.021402,12.021332]; removing [0,6]
+(one-second aggressive back buffer) instead retains [10.021402,12.021332].
+
+The first run observed clocks advancing but did not measure presentation, so it
+could not establish whether video froze. The second run adds actual
+requestVideoFrameCallback counts/mediaTime and getVideoPlaybackQuality counters.
+After 3.011 seconds, all clocks are near 9.9709 with readyState 4 and no media
+error. Control/normal have 61/62 presented callbacks and last mediaTime 9.979736;
+the aggressive player has only five callbacks, last mediaTime 7.146402 and five
+total video frames. Thus this short actual-browser fixture demonstrates silent
+video freeze despite an advancing clock, not merely a changed TimeRanges value.
+The current production watchdog's frozen-frame check only compares currentTime;
+that would not detect this mechanism. Evidence:
+`artifacts/mse-long-gop-eviction-presented-frames.json` and matching PNG.
+The first, clock-only report remains separate as
+`artifacts/mse-long-gop-eviction-browser.json`.
+
+This does not prove quota eviction occurred on a Tapo production stream, nor
+qualify all codecs, browser engines or long-GOP lengths. No real quota pressure,
+production websocket/watchdog, reconnect, network load or decoder-slot contention
+was involved. No production fix is claimed yet: safe removal boundaries and
+presentation-progress recovery now have a concrete reproduction to target.
+The native/web diagnostic package is unchanged.
