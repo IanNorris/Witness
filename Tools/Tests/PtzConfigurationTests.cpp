@@ -24,7 +24,10 @@ static std::string ProductionQuery(const std::string& Source, const char* Name)
 
 int main(int Argc, char** Argv)
 {
-    if (Argc != 2) return 2;
+    if (Argc != 2 && Argc != 3) return 2;
+    const bool ReconfigureDuringGesture = Argc == 3 &&
+        std::string(Argv[2]) == "--link-edit-release";
+    if (Argc == 3 && !ReconfigureDuringGesture) return 2;
     try {
         auto Database = std::make_shared<SQLiteDatabase>(":memory:",
             "CREATE TABLE Camera(CameraUID INTEGER, LinkedCameraId INTEGER, PtzEnabled INTEGER,"
@@ -98,6 +101,66 @@ int main(int Argc, char** Argv)
             "incoming-only parent and child did not share lane");
         Check(ReadPtzLaneId(Database, 12) == 12, "independent camera merged into lane");
         Check(ReadPtzLaneId(Database, 999) == 999, "missing camera acquired another lane");
+        if (ReconfigureDuringGesture) {
+            // No physical transport: retain a callback under the production SQL
+            // lane, change the linked graph, then use the route's release lookup.
+            int Stops = 0;
+            PtzMovementLease Lease({}, 10s, 10ms);
+            {
+                auto Control = Lease.AcquireControl();
+                Check(Lease.Move(ReadPtzLaneId(Database, 11), [] { return true; },
+                    [&] { ++Stops; return true; }), "fixture gesture failed");
+            }
+            Check(Lease.Reconfigure([&] {
+                return std::vector<int>{ReadPtzLaneId(Database, 11), ReadPtzLaneId(Database, 12)};
+            }, [&] {
+                Check(Stops == 1, "configuration changed before original transport stopped");
+                return sqlite3_exec(Database->GetDatabase(),
+                    "UPDATE Camera SET LinkedCameraId=12 WHERE CameraUID=11;",
+                    nullptr, nullptr, nullptr) == SQLITE_OK;
+            }), "fixture relink failed");
+            Check(ReadPtzLaneId(Database, 11) == 11,
+                "fixture did not change canonical lane after relink");
+            auto Control = Lease.AcquireControl();
+            Check(!Lease.StopExisting(ReadPtzLaneId(Database, 11)).has_value() && Stops == 1,
+                "relink left original movement pending or stopped it twice");
+            Control.unlock();
+            {
+                std::atomic<bool> StopAllowed{false};
+                bool Committed = false;
+                auto Guard = Lease.AcquireControl();
+                Check(Lease.Move(ReadPtzLaneId(Database, 11), [] { return true; },
+                    [&] { return StopAllowed.load(); }), "guarded fixture gesture failed");
+                Guard.unlock();
+                Check(!Lease.Reconfigure([&] { return std::vector<int>{ReadPtzLaneId(Database, 11)}; },
+                    [&] { Committed = true; return true; }), "failed Stop allowed reconfiguration");
+                Check(!Committed && ReadPtzLinkedCameraId(Database, 11) == 12,
+                    "failed Stop changed configuration");
+                StopAllowed = true;
+                Check(Lease.Reconfigure([&] { return std::vector<int>{ReadPtzLaneId(Database, 11)}; },
+                    [&] { Committed = true; return true; }) && Committed,
+                    "reconfiguration did not recover after Stop succeeded");
+            }
+            {
+                auto ActiveCommand = Lease.AcquireControl();
+                std::promise<void> Started;
+                std::atomic<bool> Resolved{false};
+                auto Update = std::async(std::launch::async, [&] {
+                    Started.set_value();
+                    return Lease.Reconfigure([&] {
+                        Resolved = true;
+                        return std::vector<int>{ReadPtzLaneId(Database, 11)};
+                    }, [] { return true; });
+                });
+                Started.get_future().wait();
+                const bool Waited = Update.wait_for(50ms) == std::future_status::timeout && !Resolved;
+                ActiveCommand.unlock(); // Release before any assertion/future destruction.
+                Check(Update.get() && Waited && Resolved,
+                    "configuration mutation crossed an active control guard");
+            }
+            std::cout << "PASS: link edit stops original transport before mutation\n";
+            return 0;
+        }
         Check(sqlite3_exec(Database->GetDatabase(),
             "UPDATE Camera SET LinkedCameraId=11 WHERE CameraUID=10;"
             "INSERT INTO Camera VALUES(13,12,0,NULL,0,NULL,NULL,NULL),"

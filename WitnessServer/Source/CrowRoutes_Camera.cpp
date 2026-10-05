@@ -4,6 +4,8 @@
 #include "CameraWorker.h"
 #include "Messages.h"
 #include "ReolinkClient.h"
+#include "PtzMovementLease.h"
+#include "PtzConfiguration.h"
 #include "UrlHelpers.h"
 #include <algorithm>
 #include <cmath>
@@ -638,20 +640,25 @@ void CrowListener::HandleCameraUpdate( const crow::request& req, crow::response&
 	double AudioConfidence = body.has("audioConfidence") ? body["audioConfidence"].d() : 0.5;
 	if( !std::isfinite( AudioConfidence ) ) AudioConfidence = 0.5;
 
-	// If no new password was provided, read the existing one from the DB
-	// so we don't wipe it out on every camera edit
-	if (!PtzPasswordProvided)
-	{
-		SQLiteDatabaseQueryInstance GetPtzConfig(m_GlobalContext->Database, "GetCameraPtzConfig");
-		GetPtzConfig->Bind("@CameraId", CameraID);
-		GetPtzConfig->Execute([&](const SQLiteDatabaseQuery& query)
-		{
-			const char* existingPass = query.GetColumnValueText(4);
-			if (existingPass && strlen(existingPass) > 0)
-				PtzPassword = existingPass;
-			return true;
-		});
-	}
+	const auto lease = m_GlobalContext->PtzMovement;
+	if (!lease) { res.code = 503; res.end(); return; }
+	PtzConfiguration Desired;
+	bool PtzChanged = false, SqlFailed = false;
+	const bool Updated = lease->Reconfigure([&] {
+		const auto Previous = ReadPtzConfiguration(m_GlobalContext->Database, CameraID);
+		if (!PtzPasswordProvided) PtzPassword = Previous.Password;
+		Desired.Enabled = PtzEnabled != 0; Desired.Port = PtzApiPort;
+		Desired.Host = PtzApiHost; Desired.Username = PtzUsername;
+		Desired.Password = PtzPassword; Desired.RtspPath = ConnectionString;
+		PtzChanged = !(Previous == Desired) ||
+			ReadPtzLinkedCameraId(m_GlobalContext->Database, CameraID) != LinkedCameraId;
+		std::vector<int> Affected;
+		if (PtzChanged) {
+			Affected.push_back(ReadPtzLaneId(m_GlobalContext->Database, CameraID));
+			if (LinkedCameraId > 0) Affected.push_back(ReadPtzLaneId(m_GlobalContext->Database, LinkedCameraId));
+		}
+		return Affected; // Owned IDs; every query guard ends before Stop I/O.
+	}, [&] {
 
 	// End the prepared-query scope before PTZ discovery below. AutoDetect can
 	// perform slow network I/O and must not hold the shared UpdateCamera mutex.
@@ -689,8 +696,24 @@ void CrowListener::HandleCameraUpdate( const crow::request& req, crow::response&
 			res.body = Data.dump();
 			res.code = 400;
 			res.end();
-			return;
+			SqlFailed = true;
+			return false;
 		}
+	}
+		if (PtzChanged) {
+			std::unique_lock<std::shared_mutex> lock(m_GlobalContext->Mutex);
+			m_GlobalContext->PtzClients.erase(CameraID);
+		}
+		return true;
+	});
+	if (!Updated) {
+		if (!SqlFailed) {
+			res.code = 409;
+			res.set_header("Content-Type", "application/json");
+			res.body = "{\"errorMessage\":\"Could not stop active PTZ movement before changing camera configuration; retrying\"}";
+			res.end();
+		}
+		return;
 	}
 
 	// Update in-memory setting so it takes effect immediately
@@ -727,20 +750,17 @@ void CrowListener::HandleCameraUpdate( const crow::request& req, crow::response&
 
 			auto ptzClient = ReolinkClient::AutoDetect(
 				ptzHost, ptzPort > 0 ? ptzPort : 443, ptzUser, ptzPass);
-			std::unique_lock<std::shared_mutex> lock(m_GlobalContext->Mutex);
-			if (ptzClient)
-				m_GlobalContext->PtzClients[CameraID] = ptzClient;
-			else
-				m_GlobalContext->PtzClients.erase(CameraID);
+			// Discovery is outside the update fence. A newer edit must not be
+			// overwritten by this result; lazy discovery may also have won first.
+			auto Control = lease->AcquireControl();
+			if (ptzClient && ReadPtzConfiguration(m_GlobalContext->Database, CameraID) == Desired &&
+				ReadPtzLinkedCameraId(m_GlobalContext->Database, CameraID) == LinkedCameraId) {
+				std::unique_lock<std::shared_mutex> lock(m_GlobalContext->Mutex);
+				m_GlobalContext->PtzClients.try_emplace(CameraID, ptzClient);
+			}
 		}
 	}
-	else if (!PtzEnabled)
-	{
-		// Only erase PTZ client if PTZ was explicitly disabled
-		std::unique_lock<std::shared_mutex> lock(m_GlobalContext->Mutex);
-		m_GlobalContext->PtzClients.erase(CameraID);
-	}
-	// If PtzEnabled but credentials are incomplete, keep existing client
+	// Relevant changes invalidate the old client even with incomplete credentials.
 
 	m_GlobalContext->LongPoll->NotifyAll();
 

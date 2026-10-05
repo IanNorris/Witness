@@ -5,7 +5,7 @@ import json
 import threading
 
 
-def check_update_scope(request, csrf, inputs, observation_seconds=1):
+def check_update_scope(request, csrf, inputs, observation_seconds=1, verify_stale_discovery=False):
     if len(inputs) < 2:
         raise ValueError('PTZ update scope fixture needs two disposable cameras')
     entered = threading.Event()
@@ -70,6 +70,10 @@ def check_update_scope(request, csrf, inputs, observation_seconds=1):
                 except TimeoutError:
                     second_result = None
                     unblocked = False
+                if verify_stale_discovery:
+                    disabled = {**first, 'ptzEnabled': 0}
+                    if request('/camera/admin_update', body=disabled)[0] != 200:
+                        raise AssertionError('Concurrent camera disable did not complete')
             finally:
                 # Always free the transport before awaiting futures, including
                 # failures. No worker or fake camera may leak into another test.
@@ -79,11 +83,18 @@ def check_update_scope(request, csrf, inputs, observation_seconds=1):
                 second_result = independent.result(timeout=5)
         if first_result[0] != 200 or second_result[0] != 200:
             raise AssertionError('Fixture camera updates did not complete')
+        stale_rejected = None
+        if verify_stale_discovery:
+            position_status = request('/ptz/1/position')[0]
+            stale_rejected = position_status == 400
+            if not stale_rejected:
+                raise AssertionError(f'Stale discovery client rejection failed: position status {position_status}')
         if not commands or any(command != 'Login' for command in commands):
             raise AssertionError('Fixture was not limited to discovery login')
         return {'passed': unblocked, 'slowUpdateStatus': first_result[0],
                 'independentUpdateStatus': second_result[0], 'observationSeconds': observation_seconds,
                 'loginRequests': len(commands), 'motorCommands': 0,
+                'staleDiscoveryRejected': stale_rejected,
                 'scope': 'Loopback-only stalled PTZ login during actual camera updates; no physical transport'}
     finally:
         release.set()

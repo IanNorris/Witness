@@ -348,7 +348,7 @@ class FullServerIsolationTests(unittest.TestCase):
                     db.execute('INSERT INTO Camera(CameraName,CameraString,CameraStringSub,Enabled,SkipFrames,MDFrameHeight,MDThreshold,MotionFilter,BlackoutMaskPath,FocusMaskPath,ContinuousRecording) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
                                (f'Fixture {index + 1}', url, '', 1, 1, 400,
                                 0.01 if active_detection else 0.99, 'motion_vectors', '', '', int(active_recording)))
-                if browser_hold or active_recording or ptz_guard:
+                if browser_hold or active_recording or ptz_guard or ptz_update_scope:
                     db.execute('INSERT INTO CameraGroup(DisplayName,Description) VALUES(?,?)', ('Isolated replay', 'Test only'))
                     db.execute('INSERT INTO UserGroupMapping VALUES(?,?)', (1, 1))
                     db.executemany('INSERT INTO CameraGroupMapping VALUES(?,?)', [(index + 1, 1) for index in range(len(inputs))])
@@ -397,7 +397,8 @@ class FullServerIsolationTests(unittest.TestCase):
                         self.assertEqual(request('/debug/health', False)[0], 403)
                         self.assertEqual(request('/debug/client-health', False)[0], 403)
                         if ptz_update_scope:
-                            report = check_update_scope(request, csrf, urls)
+                            report = check_update_scope(request, csrf, urls,
+                                verify_stale_discovery=os.environ.get('WITNESS_TEST_PTZ_STALE_DISCOVERY') == '1')
                             with (artifacts / f'full-server-ptz-update-scope-run-{run}.json').open('x', encoding='utf8') as output:
                                 json.dump({'nativeBuildId': identity, **report}, output, indent=2)
                             self.assertTrue(report['passed'], 'Stalled PTZ discovery retained UpdateCamera query mutex')

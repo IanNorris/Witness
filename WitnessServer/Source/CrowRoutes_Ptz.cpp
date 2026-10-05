@@ -174,6 +174,9 @@ void CrowListener::HandlePtzCommand(const crow::request& req, crow::response& re
 		return;
 	}
 
+	const auto lease = m_GlobalContext->PtzMovement;
+	if (!lease) { res.code = 503; res.end(); return; }
+	auto Control = lease->AcquireControl();
 	// Do not run HTTP discovery before a healthy Baichuan command (especially Stop).
 	if (!PtzControlAllowed(m_GlobalContext->Database, cameraId, command == "stop"))
 	{
@@ -182,8 +185,6 @@ void CrowListener::HandlePtzCommand(const crow::request& req, crow::response& re
 	}
 	std::shared_ptr<ReolinkClient> client;
 	const int deviceId = PtzLaneId(*m_GlobalContext, cameraId);
-	const auto lease = m_GlobalContext->PtzMovement;
-	if (!lease) { res.code = 503; res.end(); return; }
 
 	// Try Baichuan client: direct camera first, then linked camera
 	auto bcClient = m_GlobalContext->GetBaichuanClient(cameraId);
@@ -317,6 +318,9 @@ void CrowListener::HandlePtzPosition(const crow::request& req, crow::response& r
 		return;
 	}
 
+	const auto lease = m_GlobalContext->PtzMovement;
+	if (!lease) { res.code = 503; res.end(); return; }
+	auto Control = lease->AcquireControl();
 	auto client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
 	if (!client)
 	{
@@ -345,6 +349,9 @@ void CrowListener::HandlePtzZoomGet(const crow::request& req, crow::response& re
 		return;
 	}
 
+	const auto lease = m_GlobalContext->PtzMovement;
+	if (!lease) { res.code = 503; res.end(); return; }
+	auto Control = lease->AcquireControl();
 	auto client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
 	if (!client)
 	{
@@ -391,6 +398,9 @@ void CrowListener::HandlePtzZoomSet(const crow::request& req, crow::response& re
 		return;
 	}
 
+	const auto lease = m_GlobalContext->PtzMovement;
+	if (!lease) { res.code = 503; res.end(); return; }
+	auto Control = lease->AcquireControl();
 	if (!PtzControlAllowed(m_GlobalContext->Database, cameraId, false))
 	{
 		RespondNoPtz(res);
@@ -404,8 +414,6 @@ void CrowListener::HandlePtzZoomSet(const crow::request& req, crow::response& re
 	}
 
 	int zoomPos = (int)body["zoom"].i();
-	const auto lease = m_GlobalContext->PtzMovement;
-	if (!lease) { res.code = 503; res.end(); return; }
 	bool ok = lease->Position(PtzLaneId(*m_GlobalContext, cameraId), [client, zoomPos] { return client->SetZoomPos(zoomPos); });
 
 	crow::json::wvalue result;
@@ -427,6 +435,9 @@ void CrowListener::HandlePtzPresets(const crow::request& req, crow::response& re
 		return;
 	}
 
+	const auto lease = m_GlobalContext->PtzMovement;
+	if (!lease) { res.code = 503; res.end(); return; }
+	auto Control = lease->AcquireControl();
 	auto client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
 	if (!client)
 	{
@@ -472,6 +483,9 @@ void CrowListener::HandlePtzPresetSet(const crow::request& req, crow::response& 
 		return;
 	}
 
+	const auto lease = m_GlobalContext->PtzMovement;
+	if (!lease) { res.code = 503; res.end(); return; }
+	auto Control = lease->AcquireControl();
 	if (!PtzControlAllowed(m_GlobalContext->Database, cameraId, false))
 	{
 		RespondNoPtz(res);
@@ -515,6 +529,9 @@ void CrowListener::HandlePtzPresetDelete(const crow::request& req, crow::respons
 		return;
 	}
 
+	const auto lease = m_GlobalContext->PtzMovement;
+	if (!lease) { res.code = 503; res.end(); return; }
+	auto Control = lease->AcquireControl();
 	if (!PtzControlAllowed(m_GlobalContext->Database, cameraId, false))
 	{
 		RespondNoPtz(res);

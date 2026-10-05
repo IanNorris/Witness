@@ -8,6 +8,11 @@ struct PtzConfiguration
     bool Enabled = false;
     int Port = 443;
     std::string Host, Username, Password, RtspPath;
+    bool operator==(const PtzConfiguration& Other) const
+    {
+        return Enabled == Other.Enabled && Port == Other.Port && Host == Other.Host &&
+            Username == Other.Username && Password == Other.Password && RtspPath == Other.RtspPath;
+    }
 };
 
 inline PtzConfiguration ReadPtzConfiguration(const std::shared_ptr<SQLiteDatabase>& Database, int CameraId)

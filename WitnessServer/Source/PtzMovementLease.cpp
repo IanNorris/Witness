@@ -18,6 +18,7 @@ struct PtzMovementLease::Impl
         std::thread Worker;
     };
     std::mutex Mutex;
+    std::shared_mutex ConfigurationMutex;
     std::unordered_map<int, std::shared_ptr<Lane>> Lanes;
     Notice Notify;
     std::chrono::milliseconds Duration, Retry;
@@ -147,4 +148,22 @@ bool PtzMovementLease::Position(int device, Send command)
         lane->Changed.notify_all();
     }
     return Impl::Call(command);
+}
+
+std::shared_lock<std::shared_mutex> PtzMovementLease::AcquireControl()
+{
+    return std::shared_lock<std::shared_mutex>(m_Impl->ConfigurationMutex);
+}
+
+bool PtzMovementLease::Reconfigure(const std::function<std::vector<int>()>& affected, Send commit)
+{
+    if (!affected || !commit) return false;
+    std::unique_lock<std::shared_mutex> fence(m_Impl->ConfigurationMutex);
+    // The resolver returns owned IDs and releases all query guards before I/O.
+    const auto devices = affected();
+    for (const int device : devices) {
+        const auto stopped = StopExisting(device);
+        if (stopped.has_value() && !*stopped) return false;
+    }
+    return Impl::Call(commit);
 }

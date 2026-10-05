@@ -3275,3 +3275,90 @@ remote history. The media objects present are notification sounds; `.ts` matches
 are TypeScript sources, not transport recordings. Real replay media remains in
 ignored `artifacts/`; build packages are untracked. This checked local reachable
 history and cached remote refs, not a new remote fetch or unreachable Git objects.
+
+### Remaining PTZ link-edit release: reproduced, not yet fixed
+
+On separate `codex/ptz-link-edit-release`, the opt-in native configuration test
+`PtzConfigurationTests.exe WitnessServer/Source/Database.cpp --link-edit-release`
+now exercises production lane SQL and actual retained callbacks. It starts a
+gesture through view 11 linked to 10, changes view 11's link to 12, and checks
+that release immediately stops the original transport. Current code fails with
+`release after link edit missed original moving transport` (exit 1), confirming
+the inspected gap without moving any camera. The ordinary configuration suite
+still passes. This reproduction is uncommitted; the production fix/design and
+concurrent reconfiguration coverage remain outstanding.
+
+The current OFF phase summary is saved as
+`artifacts/matched-cached-health-off-v2-summary.json`: native2213c5ef8142,
+webb301018e1023, 16 replay streams, 1,744 samples, 1,800.944 seconds, maximum
+sample gap 1.230 seconds. Ordinary authenticated cached-summary HTTP timings
+exclude raw sample collection and parsing: P50 1.782 ms, P95 23.460 ms,
+P99 26.209 ms. Witness host-capacity CPU P50/P95 are 28.192/38.459 percent.
+All sixteen exact task distributions are present. These are descriptive OFF
+results, not a passed matched overhead or production stability gate. Handle
+58671 remains live auditing the 128 recorded outputs; ON has not started.
+
+### PTZ configuration-fence prototype (unintegrated)
+
+The lease now has a prototype shared control guard and exclusive `Reconfigure`
+operation. Under the exclusive fence it resolves owned old lane IDs, ends all
+query scopes, stops retained transports, then invokes the configuration commit.
+A failed Stop prevents mutation and preserves retry. Independent control readers
+remain concurrent; configuration mutation waits for all active guarded commands.
+The callback-only relink test now passes using this primitive, including refusal
+to commit after failed Stop, successful retry, and an update waiting for an active
+control guard. Existing production-SQL configuration and movement-lease tests
+also pass. No physical camera command was issued.
+
+IMPORTANT: Crow camera-update/PTZ handlers do not yet use the new primitive.
+The running server behavior is therefore not fixed by this prototype. HTTP-route
+integration must guard lookup through dispatch, stop both affected old components
+before link mutation, release the fence before slow discovery, invalidate stale
+clients and reject stale discovery publication after a concurrent update. It must
+retain the query-scope responsiveness regression. Normal unrelated metadata edits
+should not unnecessarily stop motors. The prototype/source/tests remain uncommitted
+on `codex/ptz-link-edit-release`; no deployable server was rebuilt from this work.
+
+### PTZ configuration fence: HTTP integrated and stale discovery tested
+
+The prototype is now integrated into camera updates and seven PTZ handlers
+(movement/presets, position, zoom read/write and preset list/edit/delete).
+After authentication, PTZ configuration lookup and transport dispatch share a
+read guard. Camera updates exclusively resolve owned configuration/lane snapshots,
+stop affected old components before relevant PTZ changes, execute the scoped SQL
+update and invalidate the changed camera's cached client. Failed Stop returns 409
+without mutating configuration. Unrelated metadata changes do not stop motors.
+The exclusive fence is released before discovery; client publication subsequently
+checks current owned settings and link identity under a shared guard and cannot
+overwrite a newer edit or a valid lazy-discovery client. Incomplete new credentials
+no longer retain an old client after a relevant change. Query locks do not span
+Stop or discovery I/O. PTZ readers remain concurrent across independent lanes;
+configuration writers can wait for active guarded PTZ transport calls.
+
+Pinned native build `c6994318de6c` completed successfully with reused dependencies;
+frontend Sass/chunk advisories remain. Native production-SQL relink/fence tests,
+ordinary configuration tests and movement-lease tests pass. Actual Crow regression
+`run-ptz-reconfigure-after-20261005-v2` passed in 23.160 seconds: another camera's
+update completes during a held discovery Login, concurrent disable completes,
+and the delayed client is not published (subsequent position read returns 400).
+The old `94d7d02b84d4` build fails the same fixture, returning 200 from the stale
+position client (`run-ptz-stale-discovery-before-20261005-v2`). Initial attempts
+were invalid because the fixture omitted camera permissions; those failures are
+not product evidence. The fixture now installs the normal camera mapping. One
+Login and zero motor commands were sent by the passing run; authentication and
+invalid-CSRF rejection precede discovery. Relink during an actual HTTP motor
+command, all physical transports, timing under concurrent configuration writes,
+and production stability remain unproven; callback tests are not substitutes.
+
+Verified separate package:
+`build-vs2026-stable/deploy/ptz-reconfigure-c6994318de6c-web-c18f088c51d8`,
+94 files / 178,127,741 bytes; manifest `artifacts/ptz-reconfigure-package-verified.json`.
+No private media, databases or configuration is packaged or staged. No main merge,
+remote push, production deployment or user backlog edit occurred. Frozen matched
+load candidate 2213c5ef8142/webb301018e1023 is unchanged; recording audit handle
+58671 is still live and the ON phase has not started.
+
+The packaged candidate also passed the actual disabled-camera PTZ/configured
+policy fixture across two shutdown/restart lifecycles in 39.004 seconds:
+`artifacts/run-ptz-reconfigure-disabled-guard-20261005/`. This verifies denied
+movement/preset/zoom routes and authentication, not active physical transport.
