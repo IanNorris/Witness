@@ -1,7 +1,7 @@
 import { ref, onUnmounted, type Ref } from 'vue'
 import type { DriftSample } from './driftDiagnostics'
 import { createPlaybackGuard, blockedAudioCameras } from './playbackGuard'
-import { MSE_BACK_BUFFER_SECONDS, playbackBufferTrimTarget, playbackRecoveryEnabled } from './msePlaybackVisibility'
+import { MSE_BACK_BUFFER_SECONDS, playbackBufferTrimTarget, playbackRecoveryEnabled, playbackBufferPosition } from './msePlaybackVisibility'
 
 // ── Constants ─────────────────────────────────────────────────────────
 const MSE_WATCHDOG_INTERVAL_MS = 250
@@ -384,6 +384,7 @@ export function useMseStream(
       partialIndependent: lastDiagnosticPartial?.independent, partialSeekSafe: lastDiagnosticPartial?.keyframeSeekSafe,
       muted: video?.muted, volume: video?.volume, sourceBufferMode: sourceBuffer?.mode,
       timestampOffsetSeconds: sourceBuffer?.timestampOffset,
+      ...playbackBufferPosition(video?.buffered, currentTime),
       videoFrames: quality?.totalVideoFrames, droppedVideoFrames: quality?.droppedVideoFrames,
     }
   }

@@ -46,6 +46,19 @@ int main() {
               ErrorSnapshot["intentionalClose"].b(), "error transport context lost");
         Check(ErrorSnapshot["drift"]["lagMs"].d() == 99000, "error scalar evidence lost");
         Check(ErrorValue.Json.find("secret") == std::string::npos && !ErrorSnapshot["drift"].has("buffered"), "error secrets or arrays persisted");
+        auto GapBody = crow::json::load(R"({"players":[{"id":"8_mse","driftSamples":[{
+          "t":"2026-10-05T10:00:00Z","bufferedRangeCount":2,"playheadBuffered":false,
+          "nextBufferedStartSeconds":13,"playheadGapMs":1600,"headroomInCurrentRangeMs":0,
+          "hasAudio":true,"sourceBufferMode":"sequence","timestampOffsetSeconds":-3,
+          "buffered":[[1,2],[13,14]],"url":"secret"}]}]})");
+        auto GapValue = Sanitize(GapBody, 7, "server-user");
+        auto GapClean = crow::json::load(GapValue.Json);
+        const auto& Gap = GapClean["players"][0]["driftSamples"][0];
+        Check(!Gap["playheadBuffered"].b() && Gap["playheadGapMs"].d() == 1600 &&
+              Gap["nextBufferedStartSeconds"].d() == 13 && Gap["headroomInCurrentRangeMs"].d() == 0 &&
+              Gap["bufferedRangeCount"].d() == 2, "bounded buffer gap evidence lost");
+        Check(Gap["hasAudio"].b() && Gap["timestampOffsetSeconds"].d() == -3, "audio timeline context lost");
+        Check(!Gap.has("buffered") && GapValue.Json.find("secret") == std::string::npos, "gap metadata escaped allowlist");
         auto Bad = crow::json::load(R"({"players":"wrong"})");
         bool Rejected = false;
         try { Sanitize(Bad, 7, "server-user"); } catch (const std::invalid_argument&) { Rejected = true; }

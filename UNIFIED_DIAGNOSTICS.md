@@ -2173,3 +2173,45 @@ production-player handling. The remux test consumes the captured file offline;
 it does not reproduce live wall-clock arrival or sixteen-player resource load.
 The long recording-verifier handle remains live and was observed at camera 7
 strict decode; overall endurance recording assertions remain pending.
+
+### Bounded playhead-position evidence retained across client/server health
+
+`codex/mse-buffer-gap-evidence` adds passive scalar evidence identifying whether
+the media element's playhead is inside a buffered range, usable headroom in that
+range, or the next buffered start and distance across a hole. This supplements
+the final buffered-end latency value: a large end-minus-currentTime alone cannot
+distinguish a hole from playable media. Exact range-end exhaustion is not marked
+buffered, and invalid/disappearing/overlapping or more than 64 ranges leave
+position unknown rather than inventing a gap. No seek, restart, append mode,
+buffer trimming or other playback decision changes.
+
+The fields survive the TypeScript allowlist, rich sixteen-player POST compaction
+and native authenticated-history scalar allowlist. Compaction also retains AAC
+presence, SourceBuffer mode and timestamp offset, without transmitting URLs,
+arbitrary JSON or full unbounded range lists. These are observed media-element
+intersection ranges, not separate audio/video decoder readiness. Sparse history
+can still miss a transient between samples, and old stored samples cannot be
+retroactively classified.
+
+Nineteen MSE/health tests pass; one optional external-export test is skipped.
+Coverage includes true holes versus playable headroom/tails, malformed ranges,
+the actual composable's one-second snapshot path, hidden recovery, rich payload
+budget and causal snapshots. An initial test incorrectly compared a one-second
+snapshot with the final tick's buffer end; it was corrected to compare values
+from the same snapshot. The native payload test passes, including false/zero
+gap fields, audio timeline context and exclusion of URLs/range arrays.
+
+Pinned RelWithDebInfo build completed with native `648a3dfc9a0c`, web
+`7c71d142b7f3`; no C/C++ or linker warnings appeared in this incremental log.
+Existing Bootstrap/Sass deprecations and bundle-size warnings remain. No vcpkg
+package rebuild was requested. Frozen package:
+`build-vs2026-stable/deploy/mse-buffer-gap-native-648a3dfc9a0c`, 94 files,
+177,843,662 bytes, with PDBs but no private DB/config/session. Evidence:
+`artifacts/mse-buffer-gap-evidence-build.log` and
+`artifacts/mse-buffer-gap-package-verified.json`.
+
+Package verification proves byte/identity coherence, not runtime/ABI or stream
+stability. A fresh authenticated stream smoke and actual browser-to-server
+history collection with these new fields remain to be run. The old thirty-minute
+candidate stays isolated in its original package and its recording-verifier
+handle remains live; its measured phase cannot be attributed to this new build.

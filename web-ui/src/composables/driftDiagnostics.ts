@@ -6,9 +6,10 @@ const numericFields = ['currentTime', 'bufferedEnd', 'lagMs', 'playbackRate', 'r
   'appendQueueOldestAgeMs', 'appendOperationAgeMs', 'safeKeyframes', 'futureSafeKeyframes',
   'highLatencyMs', 'schedulingDelayMs', 'maxFragmentGapMs', 'fragmentsSinceSample',
   'maxAppendDurationMs', 'lastAppendDurationMs', 'lastBufferAdvanceMs', 'lastPartialDurationMs',
-  'segmentIndex', 'partIndex', 'timestampOffsetSeconds', 'volume', 'videoFrames', 'droppedVideoFrames'] as const
+  'segmentIndex', 'partIndex', 'timestampOffsetSeconds', 'volume', 'videoFrames', 'droppedVideoFrames',
+  'bufferedRangeCount', 'nextBufferedStartSeconds', 'playheadGapMs', 'headroomInCurrentRangeMs'] as const
 const booleanFields = ['paused', 'seeking', 'catchUpActive', 'hasAudio', 'sourceBufferUpdating',
-  'partialIndependent', 'partialSeekSafe', 'muted'] as const
+  'partialIndependent', 'partialSeekSafe', 'muted', 'playheadBuffered'] as const
 export type DriftSample = Partial<Record<typeof numericFields[number], number>> &
   Partial<Record<typeof booleanFields[number], boolean>> & {
     t: string

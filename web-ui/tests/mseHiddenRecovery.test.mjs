@@ -120,6 +120,22 @@ async function fixture() {
   }
 }
 
+test('real composable records bounded playhead buffer-position evidence', async () => {
+  const f = await fixture()
+  try {
+    f.video.currentTime = .5
+    for (let i = 0; i < 4; i++) f.tick()
+    const sample = f.diag().driftSamples.at(-1)
+    assert.equal(sample.playheadBuffered, true)
+    assert.equal(sample.bufferedRangeCount, 1)
+    assert.equal(sample.playheadGapMs, 0)
+    // Drift samples are one-second snapshots, not necessarily the final tick.
+    assert.equal(sample.headroomInCurrentRangeMs, (sample.bufferedEnd - sample.currentTime) * 1000)
+    assert.ok(sample.headroomInCurrentRangeMs > 0)
+    assert.equal(sample.nextBufferedStartSeconds, undefined)
+  } finally { f.restore() }
+})
+
 test('real watchdog preserves ingest during a 90-second hidden frozen-playhead interval', async () => {
   const f = await fixture()
   try {

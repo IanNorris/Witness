@@ -55,8 +55,9 @@ inline crow::json::wvalue Drift(const crow::json::rvalue& Source) {
         "appendQueueLength", "appendQueueBytes", "appendQueueOldestAgeMs", "appendOperationAgeMs", "safeKeyframes",
         "futureSafeKeyframes", "highLatencyMs", "schedulingDelayMs", "maxFragmentGapMs", "fragmentsSinceSample",
         "maxAppendDurationMs", "lastAppendDurationMs", "lastBufferAdvanceMs", "lastPartialDurationMs", "segmentIndex",
-        "partIndex", "timestampOffsetSeconds", "volume", "videoFrames", "droppedVideoFrames"});
-    Booleans(Source, Result, {"paused", "seeking", "catchUpActive", "hasAudio", "sourceBufferUpdating", "partialIndependent", "partialSeekSafe", "muted"});
+        "partIndex", "timestampOffsetSeconds", "volume", "videoFrames", "droppedVideoFrames",
+        "bufferedRangeCount", "nextBufferedStartSeconds", "playheadGapMs", "headroomInCurrentRangeMs"});
+    Booleans(Source, Result, {"paused", "seeking", "catchUpActive", "hasAudio", "sourceBufferUpdating", "partialIndependent", "partialSeekSafe", "muted", "playheadBuffered"});
     return Result;
 }
 inline Sample Sanitize(const crow::json::rvalue& Source, int UserUID, std::string Username) {
