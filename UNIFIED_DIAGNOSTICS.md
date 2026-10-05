@@ -4642,3 +4642,32 @@ and no missing/duplicate/regressing timestamps. These are separate short files,
 not completion evidence for the128-output audit or isolated throughput proof.
 Production source, deployment package, authentication and user BACKLOG remain
 unchanged; this improves repeatable future validation without weakening gates.
+
+Consolidated regression review (2026-10-05): all16 non-browser-launching frontend
+test files run against merged source:90 pass, zero fail, one optional export
+fixture skipped. This includes the production-composable hidden/resume controls,
+dashboard persistence/visibility/rectangle/automatic-slot policies, PTZ ordering,
+health sanitization and playback guards. The initial sandboxed invocation could
+not spawn test workers (EPERM); only the corrected normal-process invocation is
+qualified. `dvrPlayback.test.mjs` is explicitly excluded because it launches its
+own browser; this is not a claim that every frontend integration test was run.
+
+The frozen16-camera OFF phase contains1742 server samples /27,872 camera
+snapshots. Every observed camera is Connected with its main stream available.
+Accepted video packet deltas per camera range29,581..44,990; dropped, corrupt
+and missing-DTS deltas are zero on every camera, with no counter reset detected.
+Normalization-rejected and retry-exhausted flags are known booleans throughout
+and false in all snapshots. This separates the genuine hidden-client recovery
+incident from observed backend input health; it does not exclude transient
+between-snapshot events or prove uninterrupted visible playback. Inputs are
+repeated saved/synthetic workloads, not16 independent physical cameras. The
+128-output strict recording audit remains live and incomplete.
+
+Fresh deployment coherence recheck:
+`artifacts/merged-review-package-recheck-20261005.json` confirms the unchanged
+native d63a3532fc76/web42f16c90ef9a package,94 files /178,030,751 bytes.
+Integration changes relative to origin/master add no media/database/dump files;
+artifacts/deployment/validation trees are untracked, and review screenshots and
+reports are ignored. Only source/docs/tests are merged; existing user BACKLOG
+edits remain unstaged. Nothing is pushed or deployed, and separate PTZ credential
+confirmation remains outstanding. Overall goal completion is not claimed.
