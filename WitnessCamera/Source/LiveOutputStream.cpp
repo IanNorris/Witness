@@ -618,6 +618,7 @@ uint64_t LiveOutputStream::RecordFFmpegLog( int Level, const char* Phase,
 
 void LiveOutputStream::Shutdown()
 {
+	_LiveData->_AudioBitstreamFilter.Reset();
 	if (_LiveData->_FormatContext)
 	{
 		if (_LiveData->_FormatContext->pb)
@@ -654,6 +655,7 @@ void LiveOutputStream::Shutdown()
 
 void LiveOutputStream::ResetForReconnect(InputStream* NewInputStream)
 {
+	_LiveData->_AudioBitstreamFilter.Reset();
 	// Tear down FFmpeg state but keep segments/init so HLS.js doesn't lose its reference
 	if (_LiveData->_FormatContext)
 	{
@@ -921,6 +923,11 @@ CameraStreamError LiveOutputStream::InitFormatContext()
 		}
 		AudioOutStream->codecpar->codec_tag = 0;
 		AudioOutStream->time_base = AudioInStream->time_base;
+		Result = _LiveData->_AudioBitstreamFilter.Initialize(AudioInStream->codecpar, AudioInStream->time_base);
+		if (Result < 0)
+		{
+			STREAM_ERROR(DecoderReceiverError, Result);
+		}
 		_LiveData->_HasAudioStream = true;
 		_LiveData->_AudioInputStreamIndex = InID.ChosenAudioStreamIndex;
 		if (_LiveData->_AllowTimestampNormalization && AudioInStream->codecpar->codec_id == AV_CODEC_ID_AAC &&
@@ -1328,6 +1335,26 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 		++_LiveData->_SegmentDroppedVideoPackets;
 		RecordPacket("missingVideoDts");
 		NotifyDecodeCorruption(0);
+		return CameraStreamError::Success;
+	}
+
+	// MPEG-TS may supply ADTS with no ASC even after find_stream_info. An
+	// empty_moov must already contain the configuration: derive it from an
+	// actual audio packet, then start on the next video RAP. No guessed AAC
+	// profile, unbounded startup buffering, or mutation of input codecpar.
+	if (!_LiveData->_HeaderWritten && _LiveData->_HasAudioStream &&
+		_LiveData->_FormatContext->streams[1]->codecpar->extradata_size == 0)
+	{
+		if (IsAudio)
+		{
+			const int ConfigResult = _LiveData->_AudioBitstreamFilter.PrimeConfiguration(
+				_LiveData->_FormatContext->streams[1]->codecpar, Packet);
+			if (ConfigResult < 0)
+			{
+				STREAM_ERROR(WriteFailed, ConfigResult);
+			}
+		}
+		RecordPacket("waitingForAudioConfig");
 		return CameraStreamError::Success;
 	}
 
@@ -1972,6 +1999,19 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 	const int64_t TraceOutputDuration = PacketCopy.duration;
 	av_packet_rescale_ts(&PacketCopy, InputTimebase,
 		_LiveData->_FormatContext->streams[PacketCopy.stream_index]->time_base);
+	if (IsAudio)
+	{
+		// empty_moov deliberately disables FFmpeg's automatic ADTS conversion.
+		// Convert only our reference, leaving raw input/capture/recording intact.
+		Result = _LiveData->_AudioBitstreamFilter.Convert(&PacketCopy);
+		if (Result < 0)
+		{
+			av_packet_unref(&PacketCopy);
+			RecordPacket("muxError", true, TraceOutputDts, TraceOutputPts,
+				TraceOutputDuration, TraceSegmentIndex, TracePartialIndex);
+			STREAM_ERROR(WriteFailed, Result);
+		}
+	}
 	// Multi-track fMP4 needs FFmpeg's interleaver to emit a valid fragment.
 	Result = av_interleaved_write_frame(_LiveData->_FormatContext, &PacketCopy);
 	av_packet_unref(&PacketCopy);

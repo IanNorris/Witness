@@ -1781,3 +1781,58 @@ flags and empty media feeds were asserted. Evidence:
 `artifacts/media-event-trace-disabled-three-stream-{replay,workload}-{0,1}.json`.
 Detection and browser playback were off. This validates the diagnostics work
 piece's video path, not AAC transport, long-run stability or the full load gate.
+
+### ADTS AAC live remux correction (2026-10-05)
+
+Separate branch `codex/adts-aac-live-remux` resolves the four-source AAC failure
+above. Exact pinned FFmpeg 8.1.2 `libavformat/movenc.c` disables AUTO_BSF when
+EMPTY_MOOV is enabled. Our live `empty_moov+frag_custom+dash` output therefore
+cannot rely on the automatic `aac_adtstoasc` used by ordinary MP4 recording.
+
+An explicit, private per-live-output AAC bitstream filter converts referenced
+packets without modifying shared input, recording, or capture payloads. Raw AAC
+passes through unchanged. Filter state is freed on shutdown and reconnect.
+When probing supplies no AudioSpecificConfig, a referenced actual ADTS packet
+provides the configuration before empty_moov is emitted; presentation begins on
+the next usable video RAP. There is no startup packet queue or guessed profile.
+On the fixture this starts one second later (220 rather than 240 video frames).
+Sources advertising AAC but never supplying configuration-bearing audio are not
+covered: they remain waiting for configuration. No timeout/fallback for that
+case is claimed by this change.
+
+`LiveAacRemuxTests` exercises the production live mux with both ADTS MPEG-TS
+(no probed ASC) and raw AAC MP4, verifies conversion payloads and packet metadata,
+checks that input bytes remain unchanged, rejects malformed short ADTS, and
+exercises filter reinitialization and live reconnect teardown. Both passed:
+564 audio / 240 input video packets; 77 ADTS and 84 raw-AAC emitted partials.
+Expected malformed-packet errors appear in the test log, not the positive media.
+Strict video decode/timestamps passed (220 ADTS / 240 raw-AAC output frames,
+no missing/duplicate/regressing timestamps), and separate strict audio decodes
+passed without diagnostics. Output AAC is 48 kHz mono with 2-byte ADTS-derived
+and 5-byte original raw extradata respectively. Evidence:
+`artifacts/{adts,raw}-aac-remux-test.log`,
+`artifacts/{adts,raw}-aac-remux-{video,audio}-inspection.json`.
+The HEVC video-only optional-history/duplicate-decision regression also passed
+(`artifacts/adts-fix-video-only-regression.log`).
+
+The formerly failing normal-authenticated four-source replay now passes both
+lifecycle phases in 128.609 seconds, including ten sampled seconds per phase,
+continued ingest, manual clips/DVR, persisted authenticated health/history, and
+clean shutdown. All 16 recorded video outputs passed strict decode/timestamp
+inspection. Packet, mux, media, HTTP and SQLite observers were disabled and their
+coverage asserted. Evidence: `artifacts/adts-aac-remux-four-stream-full-server.log`
+and `artifacts/adts-aac-remux-{replay,workload}-{0,1}.json`.
+
+Deployable candidate:
+`build-vs2026-stable/deploy/adts-aac-remux-native-b3075dc3052e`, native
+`b3075dc3052e`, web `47b30f8f2649`, verified 94 files / 177,825,108 bytes.
+Manifest: `artifacts/adts-aac-remux-package-verified.json` (byte/identity coherence,
+not runtime/ABI/stability proof). Builds reused the immutable dependency
+environment; no package reinstall. Native compiler/linker warnings absent;
+existing Sass/chunk warnings remain. No UI source changed.
+
+Limits: positive AAC fixtures are AAC-LC mono / CRC-absent ADTS; HE-AAC, PCE,
+multi-RDB/CRC framing, silent advertised audio, real RTSP reconnect timing,
+browser playback, detection load, and long-run off/on overhead gates remain
+unqualified. Four saved sources are not sixteen independent physical cameras.
+This fixes a reproduced pre-existing failure, not all production Tapo stalls.

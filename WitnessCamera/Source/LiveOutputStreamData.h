@@ -7,6 +7,7 @@
 #include "TimestampPauseRecovery.h"
 #include "RecentWrittenVideoPackets.h"
 #include "FFmpegLogClusters.h"
+#include "AacMp4BitstreamFilter.h"
 #include <mutex>
 
 namespace Witness::Camera {
@@ -32,6 +33,7 @@ struct LiveOutputStreamData
 
 	// Single persistent format context for the entire live stream
 	AVFormatContext* _FormatContext;
+    AacMp4BitstreamFilter _AudioBitstreamFilter;
 	AVIOContext* _AVIOContext;
 	uint8_t* _AVIOBuffer;
 
