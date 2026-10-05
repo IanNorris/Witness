@@ -3516,3 +3516,23 @@ Audit58671 remains live and has completed nine of 128 recording inspections;
 matched ON still awaits its terminal result. No dependency/toolchain change,
 main merge, remote push, production deployment, real-media tracking or
 user-owned backlog edit occurred.
+
+### Genuine hidden-tab validation tooling limit (2026-10-05)
+
+On `codex/browser-visibility-validation`, a read-only browser-native Page
+Visibility probe used the fixed loopback synthetic recovery page, without
+starting playback or overriding browser state. Only the in-app browser and MCP
+Apps surface were available. The recovery tab reported document.hidden=false /
+visibilityState=visible before and after another temporary tab was opened.
+Hiding the browser panel is a presentation capability, not proof of a hidden
+document. No genuine hidden transition was observed, so this does not validate
+hidden/resume behavior or independent browser profiles. Do not replace the open
+gate with the already-passing simulated visibility/watchdog regression tests.
+The computer-use check ended at this tooling limitation; temporary tabs and
+the synthetic fixture were closed. Ignored evidence:
+`artifacts/iab-hidden-visibility-probe-20261005.json`.
+
+Audit handle58671 was confirmed live again and its progress reached 10/128
+recordings. The matched ON phase remains unstarted while recording inspection
+is active. This evidence-only branch changes no runtime/package, main, remote,
+production configuration, physical camera, private-media tracking or user backlog.
