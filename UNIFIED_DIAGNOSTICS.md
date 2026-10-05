@@ -4684,3 +4684,32 @@ above prove the immediate reconnect fallback, not a decoder-qualified RAP seek.
 Inspection found no reason to weaken those guards; direct real-decoder seek
 acceptance remains a separate validation gap. No application or package changes
 are made by this inspection.
+
+### Completed frozen sixteen-camera recording audit (2026-10-06)
+
+The original session5476 has now exited0: its complete test passes in
+15,626.688 seconds, including the already-finished thirty-minute measured phase
+and subsequent single-thread full-frame inspections. This is the frozen native
+d63a3532fc76/web48906d0cd45a OFF workload, not a new run of web42f16c90ef9a.
+The final progress and workload reports in
+`artifacts/run-final-master-16-mse-observers-off-20261005/` agree:128/128 outputs
+pass, comprising16 long manual clips and112 DVR segments (seven per camera).
+All1,227,456 decoded video frames and their packet/frame timestamp inspections
+have zero missing, duplicate or regressing timestamps, with zero strict-decode
+diagnostics. The sixteen manual clips account for611,181 of those frames.
+
+The final workload retains388 deduplicated completed-inference evidence windows
+covering every fixture camera1..16; these are log windows, not lifetime totals.
+Final clip-duration/motion metadata and graceful server shutdown assertions pass.
+The private fixture root has been removed by successful harness cleanup; exported
+reports remain ignored. No real media/database/session/dump is tracked, no user
+BACKLOG edits are staged, and no remote push or deployment is performed.
+
+This closes the128-output recording-integrity gate and confirms real inference
+on all sixteen repeated saved/synthetic sources. It does not prove automatic MV
+activation, perceptual smoothness, sixteen independent physical cameras, latest
+bundle uninterrupted-visible endurance, or matched observer OFF/ON overhead.
+The previously disclosed58 hidden browser samples remain part of this workload.
+Latest-package H.264/AAC and HEVC reconnect acceptance is separate evidence;
+real safe-RAP seek and physical PTZ acceptance remain open. Overall goal
+completion is not inferred from this successful recording audit.
