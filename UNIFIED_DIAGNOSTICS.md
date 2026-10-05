@@ -1947,3 +1947,34 @@ camera-phases retained complete exact task distributions. Evidence:
 `artifacts/processing-sample-export-auth-smoke.log`,
 `artifacts/processing-sample-export-auth-{replay,workload}-{0,1}.json` and
 `artifacts/processing-sample-export-auth-raw-{0,1}.json.gz`.
+
+### Bounded streaming inspection for long fixture recordings
+
+Branch `codex/bounded-long-recording-validation` adds explicit harness opt-in
+`WITNESS_TEST_LONG_RECORDING_INSPECTION=1`. It still validates fresh private-cache
+ownership before inspection and retains the existing 512 MiB failure-copy cap.
+The default small-probe inspector is unchanged. Long mode allows a local file
+up to 8 GiB, fully decodes its first video stream with `-xerror` and a microsecond
+output timebase, and independently streams every packet DTS and decoded-frame
+timestamp. It does not sample windows or skip sections to achieve a pass.
+Network demux protocols remain prohibited.
+
+Each subprocess has a 1,800-second deadline, stdout lines at most 4,096 bytes
+and at most two million records. Stderr is drained concurrently, retaining only
+16 KiB while counting all diagnostic lines. Timestamp summaries use constant
+memory instead of accumulating a full ffprobe JSON report. Missing timestamps,
+duplicates, regressions, malformed output, decoder diagnostics, limits and
+timeouts remain failures. Timed-out or malformed-output children are killed and
+reaped using their owned process handles.
+
+Eight tests pass, including timeout cleanup, stderr flood, strict failure cases,
+a mocked 600 MiB input guard and a real 250,000-row timestamp subprocess. The
+streaming inspector matches the existing strict inspector's timestamp evidence
+on the actual H264/AAC fixture. Normal-auth four-source replay passed two
+lifecycles in 121.622 seconds with all sixteen fresh video outputs inspected by
+streaming mode. Evidence: `artifacts/long-recording-streaming-four-source-smoke.log`
+and `artifacts/streaming-recording-{replay,workload}-{0,1}.json`.
+Nine ownership/workload validators and four original small-probe tests also
+pass. Candidate binaries and package identities are unchanged; this is test
+harness work only. Actual >512 MiB/30-minute media, continuous browser rendering,
+and the full matched observer overhead gate still require a new endurance run.

@@ -22,6 +22,7 @@ import unittest
 import urllib.error
 import urllib.request
 from check_preview_decode import inspect as inspect_recording
+from check_long_recording import inspect_long
 from owned_process_dump import capture_owned_process_dump
 from processing_sample_collector import ProcessingSampleCollector
 
@@ -139,7 +140,8 @@ def verify_recordings(db, cache, previous_clip_uid, previous_segment_uid):
         if not path.is_relative_to(cache.resolve()) or not path.is_file():
             raise ValueError('Recording is outside the private cache')
         try:
-            result = inspect_recording(path)
+            result = (inspect_long(path) if os.environ.get('WITNESS_TEST_LONG_RECORDING_INSPECTION') == '1'
+                      else inspect_recording(path))
         except (ValueError, OSError, subprocess.TimeoutExpired) as error:
             # Keep only this already validated, fixture-owned bounded recording.
             # Never preserve a live DB/session, external path, or raw command line.
