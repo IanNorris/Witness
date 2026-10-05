@@ -621,7 +621,11 @@ void LiveOutputStream::Shutdown()
 	_LiveData->_AudioBitstreamFilter.Reset();
 	if (_LiveData->_FormatContext)
 	{
-		if (_LiveData->_FormatContext->pb)
+		// Allocating the context/custom IO does not initialize the muxer's
+		// interleaver. EOF or an error before the first usable keyframe can
+		// leave it without a successful header; flushing then calls through
+		// an uninitialized FFmpeg interleave function during teardown.
+		if (_LiveData->_HeaderWritten && _LiveData->_FormatContext->pb)
 		{
 			av_interleaved_write_frame(_LiveData->_FormatContext, nullptr);
 			av_write_frame(_LiveData->_FormatContext, nullptr);
@@ -634,6 +638,7 @@ void LiveOutputStream::Shutdown()
 		avformat_free_context(_LiveData->_FormatContext);
 		_LiveData->_FormatContext = nullptr;
 	}
+	_LiveData->_HeaderWritten = false;
 
 	if (_LiveData->_AVIOContext)
 	{

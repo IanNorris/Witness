@@ -23,12 +23,62 @@ static uint64_t Hash(const SegmentBuffer& buffer)
     return result;
 }
 
+static void TestPreheaderEof(const char* path)
+{
+    for (int mode = 0; mode < 4; ++mode)
+    {
+        bool unwound = false;
+        try
+        {
+            InputStreamSetup setup;
+            setup.GetTimestamp = []() -> uint64_t {
+                return std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::system_clock::now().time_since_epoch()).count();
+            };
+            setup.PassthroughOnly = true;
+            setup.ExportMotionVectors = false;
+            setup.HistoricalPacketBufferSeconds = 0;
+            InputStream input(setup, 8, nullptr, path);
+            Require(input.Initialize() == CameraStreamError::Success, "short fixture initialization");
+            LiveOutputStream live("", &input, 1);
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+            CameraStreamError result = CameraStreamError::Success;
+            int packets = 0;
+            do
+            {
+                Require(++packets <= 5000 && std::chrono::steady_clock::now() < deadline,
+                    "short fixture did not reach EOF within bounds");
+                result = input.ProcessFrame(nullptr, nullptr, &live);
+            } while (result == CameraStreamError::Success);
+            Require(result == CameraStreamError::EndOfFile, "short fixture expected EOF");
+            Require(!live.GetInitSegment(), "short fixture unexpectedly wrote a header");
+            std::cout << "preheader EOF mode=" << mode << " packets=" << packets << std::endl;
+            if (mode == 0) { live.Shutdown(); live.Shutdown(); }
+            if (mode == 2) throw mode;
+            if (mode == 3) { live.ResetForReconnect(&input); live.Shutdown(); }
+            // Mode 1 exercises ordinary destructor-only shutdown.
+        }
+        catch (int modeThrown)
+        {
+            Require(mode == 2 && modeThrown == mode, "unexpected unwind sentinel");
+            unwound = true;
+        }
+        Require(unwound == (mode == 2), "exception unwind teardown missing");
+    }
+    std::cout << "4 cross-DLL preheader EOF teardown paths passed\n";
+}
+
 int main(int argc, char** argv)
 {
-    if (argc != 2 && (argc != 3 || std::string(argv[2]) != "audio")) return 2;
-    const bool expectAudio = argc == 3;
+    if (argc != 2 && (argc != 3 || (std::string(argv[2]) != "audio" && std::string(argv[2]) != "preheader"))) return 2;
+    const bool expectAudio = argc == 3 && std::string(argv[2]) == "audio";
     try
     {
+        if (argc == 3 && std::string(argv[2]) == "preheader")
+        {
+            TestPreheaderEof(argv[1]);
+            return 0;
+        }
         {
             LiveOutputStream idle("", nullptr, 1);
             Require(!idle.GetInitSegment(), "idle init");
@@ -40,7 +90,10 @@ int main(int argc, char** argv)
             std::vector<SegmentBuffer> retained;
             std::vector<uint64_t> hashes;
             LiveStreamInitSnapshot retainedInit;
+            uint64_t retainedInitHash = 0;
             std::vector<LiveStreamSegment> retainedSegments;
+            std::vector<SegmentBuffer> segmentBuffers;
+            std::vector<uint64_t> segmentHashes;
             int discontinuities = 0;
             {
                 InputStreamSetup setup;
@@ -62,18 +115,49 @@ int main(int argc, char** argv)
                 });
                 for (int generation = 0; generation < 2; ++generation)
                 {
-                    for (int frame = 0; frame < 100; ++frame)
-                        Require(input.ProcessFrame(nullptr, nullptr, &live) == CameraStreamError::Success, "packet processing");
+                    // Audio packets and GOP length make a fixed packet count
+                    // insufficient: the backlog includes an unfinished entry.
+                    // Keep the original minimum work, but require actual
+                    // completed media before testing its retained ownership.
+                    std::vector<LiveStreamSegment> currentSegments;
+                    const auto Complete = [](const auto& segment) {
+                        return segment.Ready && segment.Data && !segment.Data->empty();
+                    };
+                    const auto Deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+                    int packets = 0;
+                    do
+                    {
+                        Require(packets < 5000 && std::chrono::steady_clock::now() < Deadline,
+                            "fixture did not produce a completed segment within bounds");
+                        Require(input.ProcessFrame(nullptr, nullptr, &live) == CameraStreamError::Success,
+                            "packet processing before completed segment");
+                        ++packets;
+                        live.GetSegments(currentSegments);
+                    } while (packets < 100 || !std::any_of(currentSegments.begin(), currentSegments.end(), Complete));
                     const auto snapshot = live.GetInitSnapshot();
                     Require(snapshot.Data && snapshot.Generation == generation, "init generation");
                     if (expectAudio) Require(!snapshot.AudioCodec.empty(), "init audio codec");
                     Require(live.GetInitGeneration() == generation, "generation getter");
                     Require(Hash(live.GetInitSegment()) == Hash(snapshot.Data), "atomic init snapshot");
-                    live.GetSegments(retainedSegments);
-                    Require(!retainedSegments.empty(), "segment backlog");
+                    std::cout << "cycle=" << cycle << " generation=" << generation
+                        << " packets=" << packets << " complete="
+                        << std::count_if(currentSegments.begin(), currentSegments.end(), Complete) << '\n';
+                    for (const auto& segment : currentSegments) if (Complete(segment))
+                    {
+                        retainedSegments.push_back(segment);
+                        segmentBuffers.push_back(segment.Data);
+                        segmentHashes.push_back(Hash(segment.Data));
+                        for (const auto& partial : segment.Partials)
+                        {
+                            Require(partial.Data && !partial.Data->empty(), "completed segment partial missing media");
+                            segmentBuffers.push_back(partial.Data);
+                            segmentHashes.push_back(Hash(partial.Data));
+                        }
+                    }
                     if (generation == 0)
                     {
                         retainedInit = snapshot;
+                        retainedInitHash = Hash(snapshot.Data);
                         live.ResetForReconnect(&input);
                     }
                 }
@@ -95,6 +179,10 @@ int main(int argc, char** argv)
             for (size_t index = 0; index < retained.size(); ++index)
                 Require(Hash(retained[index]) == hashes[index], "published buffer changed or lost after destruction");
             Require(!retainedSegments.empty() && retainedSegments.front().Data, "retained segment ownership");
+            Require(Hash(retainedInit.Data) == retainedInitHash, "retained init changed after reconnect/destruction");
+            Require(!segmentBuffers.empty() && segmentBuffers.size() == segmentHashes.size(), "completed media snapshots missing");
+            for (size_t index = 0; index < segmentBuffers.size(); ++index)
+                Require(Hash(segmentBuffers[index]) == segmentHashes[index], "completed segment/partial changed after destruction");
         }
         std::cout << "8 cross-DLL media ownership/reconnect/shutdown cycles passed\n";
     }

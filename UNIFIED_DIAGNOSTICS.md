@@ -4005,3 +4005,56 @@ unchanged; a clean link changes binary/symbol bytes, so prior package sizes are
 not expected to match. Frozen OFF audit58671 is confirmed live at 72/128,
 with zero inspected failures; overall inspection and matched ON remain open.
 No push, main merge, production deployment, media tracking or backlog edit.
+
+### Completed-media ownership and pre-header EOF teardown (2026-10-05)
+
+Branch `codex/live-ownership-completed-segments` resolves the AAC ownership
+test's fixed-packet-count assumption. With the previous 100-packet window,
+the AAC fixture had one unfinished backlog entry and zero completed segments;
+the updated consumer waits for actual ready, nonempty media, with a 5-second /
+5,000-packet bound and the original minimum 100 packets. AAC requires 137
+packets for its first completed segment. Full segments, their published
+partials, callback buffers and the retained init are hashed across reconnect
+and destruction, rather than accepting an unfinished backlog entry.
+
+A synthetic 0.5-second copy of that fixture exposed a separate native crash:
+EOF before the first usable keyframe leaves an allocated MP4 context/custom IO
+without a written header. Shutdown previously flushed it unconditionally;
+FFmpeg called a null interleave function. The debugger stack is retained only
+locally in `artifacts/live-ownership-incomplete-eof-cdb-20261005.log`.
+Shutdown now flushes only after a successful header and clears the header flag
+when freeing the context. This does not change normal established-stream muxing.
+
+The new `preheader` consumer mode reaches EOF and verifies no init was written,
+then exercises explicit repeated shutdown, ordinary destruction, exception
+unwinding, and reconnect teardown. Against the previous native90c DLL control,
+the same consumer hits an access violation in mode 0 after 35 packets, through
+`avformat_62!interleaved_write_packet` and `LiveOutputStream::Shutdown`.
+Debugger exit zero means the debugger quit, NOT a passing application test.
+Log: `artifacts/live-preheader-eof-old-dll-cdb-20261005.log`.
+Against native `cbbf475693c1`, all four paths pass. The original short-fixture
+qualification also now exits normally with code 1 instead of crashing; only
+that exact exit is accepted as the expected negative result.
+
+The freshly built DLL passes eight completed-media ownership/reconnect cycles
+each with H264, H264+AAC and HEVC 1080p20 fixtures. Logs are
+`artifacts/live-preheader-valid-{h264,aac,hevc}-20261005.log` and
+`artifacts/live-preheader-eof-regression-20261005.log`. The HEVC fixture has
+protected local file access and required a scoped elevated test. The pinned
+native/frontend build passes with no native compiler/linker warning lines;
+existing Sass/chunk advisories remain.
+
+Separate package
+`build-vs2026-stable/deploy/preheader-eof-cbbf475693c1-web-0bc79b105145`
+passes byte/identity verification (94 files / 177,889,086 bytes;
+`artifacts/preheader-eof-package-verified-20261005.json`). Actual authenticated
+zero-camera two-lifecycle multi-client history checks pass in 18.481 seconds,
+under `artifacts/run-preheader-eof-runtime-20261005/`. These are offline codec
+and isolated runtime checks, not production endurance or proof that this
+teardown bug explains an observed camera stall.
+
+Frozen OFF audit58671 remains live: 88/128 full recordings inspected, with zero
+inspected failures; its immutable candidate predates this fix. Matched ON,
+latest-candidate endurance, real hidden/resume and independent browser-profile
+validation remain open. No private fixture/capture is tracked, and no push,
+main merge, production deployment or user backlog edit was performed.
