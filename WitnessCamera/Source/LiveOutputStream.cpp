@@ -16,6 +16,8 @@
 #include <filesystem>
 #include <format>
 #include <atomic>
+#include <cstdlib>
+#include <string_view>
 
 namespace Witness{
 namespace Camera{
@@ -23,6 +25,22 @@ namespace Camera{
 static const int AVIOBufferSize = 64 * 1024;
 static const uint64_t Fnv1aOffsetBasis = 14695981039346656037ULL;
 static const uint64_t Fnv1aPrime = 1099511628211ULL;
+
+// Fail open to evidence collection for absent/invalid values. This is only an
+// optional packet-observer switch, never a general stream-validation bypass.
+static bool RetainPacketTraceFromEnvironment()
+{
+#ifdef _WIN32
+	char* Value = nullptr;
+	size_t Required = 0;
+	const auto Error = _dupenv_s(&Value, &Required, "WITNESS_PACKET_TRACE");
+	const std::unique_ptr<char, decltype(&std::free)> Owned(Value, &std::free);
+	return Error != 0 || !Value || std::string_view(Value) != "0";
+#else
+	const char* Value = std::getenv("WITNESS_PACKET_TRACE");
+	return !Value || std::string_view(Value) != "0";
+#endif
+}
 
 struct PacketCaptureState
 {
@@ -353,6 +371,7 @@ LiveOutputStreamData::LiveOutputStreamData(const std::string& LiveCachePath, Inp
 {
     _PendingVideoPacket = av_packet_alloc();
     _PacketCaptureState = new PacketCaptureState();
+    _RetainPacketTrace = RetainPacketTraceFromEnvironment();
 }
 
 LiveOutputStreamData::~LiveOutputStreamData()
@@ -1174,56 +1193,62 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 		int SegmentIndex = -1, int PartialIndex = -1)
 	{
 		PacketDiagEntry Entry;
-		Entry.Sequence = PacketSequence;
-		Entry.Generation = _LiveData->_InitGeneration;
-		Entry.SegmentIndex = SegmentIndex >= 0 ? SegmentIndex : _LiveData->_CurrentSegmentIndex;
-		Entry.PartialIndex = PartialIndex >= 0 ? PartialIndex : _LiveData->_CurrentPartialIndex;
-		Entry.Audio = IsAudio;
-		Entry.Keyframe = IsVideoKeyframe;
-		Entry.Corrupt = (Packet->flags & AV_PKT_FLAG_CORRUPT) != 0;
-		Entry.DtsSynthesized = DtsSynthesized;
-		Entry.PtsSynthesized = PtsSynthesized;
-		Entry.DurationSynthesized = DurationSynthesized;
-		Entry.TimestampNormalized = TimestampNormalized;
-		Entry.TimestampRepaired = TimestampRepaired;
-		Entry.CorrectionSaturated = CorrectionSaturated;
-		Entry.Size = Packet->size;
-		Entry.Flags = Packet->flags;
-		Entry.SourceDtsUs = SourceDtsUs;
-		Entry.SourcePtsUs = SourcePtsUs;
-		Entry.SourceDurationUs = SourceDurationUs;
-		Entry.HasSourceDts = SourceHasDts;
-		Entry.HasSourcePts = SourceHasPts;
-		Entry.HasOutputDts = HasOutput;
-		Entry.HasOutputPts = HasOutput;
-		if (HasOutput)
-		{
-			Entry.OutputDtsUs = av_rescale_q(OutputDts, InputTimebase, AV_TIME_BASE_Q);
-			Entry.OutputPtsUs = av_rescale_q(OutputPts, InputTimebase, AV_TIME_BASE_Q);
-			Entry.OutputDurationUs = av_rescale_q(OutputDuration, InputTimebase, AV_TIME_BASE_Q);
-		}
-		Entry.PayloadHash = PayloadHash;
-		Entry.ArrivalMs = ArrivalMs;
-		Entry.Packetization = Structure.Packetization;
-		Entry.CodecUnitCount = Structure.UnitCount;
-		Entry.PrimaryCodecUnitType = Structure.PrimaryUnitType;
-		Entry.PayloadPrefixLength = (std::min)(
-			(std::max)(Packet->size, 0), (int)sizeof(Entry.PayloadPrefix));
-		if (Packet->data && Entry.PayloadPrefixLength > 0)
-			memcpy(Entry.PayloadPrefix, Packet->data, Entry.PayloadPrefixLength);
 		const std::string DispositionText = Disposition ? Disposition : "unknown";
-		Entry.Disposition = DispositionText;
-		if (auto Capture = ActivePacketCapture())
-			Capture->AddMetadata(std::format(
-				"{{\"type\":\"decision\",\"activityId\":{},\"packetSequence\":{},\"generation\":{},\"segment\":{},\"part\":{},\"audio\":{},\"disposition\":\"{}\",\"hashFnv64\":\"{:016x}\",\"sourceDtsUs\":{},\"sourcePtsUs\":{},\"sourceDurationUs\":{},\"hasOutput\":{},\"outputDtsUs\":{},\"outputPtsUs\":{},\"outputDurationUs\":{},\"normalized\":{},\"timestampRepaired\":{},\"muxObservedSteadyUs\":{},\"decisionSteadyUs\":{}",
-				_LiveData->_CurrentDiagnosticActivity, PacketSequence, Entry.Generation,
-				Entry.SegmentIndex, Entry.PartialIndex, Entry.Audio, DispositionText,
-				Entry.PayloadHash, Entry.SourceDtsUs, Entry.SourcePtsUs,
-				Entry.SourceDurationUs, HasOutput, Entry.OutputDtsUs,
-				Entry.OutputPtsUs, Entry.OutputDurationUs,
-				Entry.TimestampNormalized, Entry.TimestampRepaired, MuxObservedSteadyUs,
-				std::chrono::duration_cast<std::chrono::microseconds>(
-					std::chrono::steady_clock::now().time_since_epoch()).count()));
+		auto Capture = ActivePacketCapture();
+		// Explicit authenticated capture remains usable with passive tracing off.
+		// Avoid filling/converting packet observer fields in the baseline path.
+		if (_LiveData->_RetainPacketTrace || Capture)
+		{
+			Entry.Sequence = PacketSequence;
+			Entry.Generation = _LiveData->_InitGeneration;
+			Entry.SegmentIndex = SegmentIndex >= 0 ? SegmentIndex : _LiveData->_CurrentSegmentIndex;
+			Entry.PartialIndex = PartialIndex >= 0 ? PartialIndex : _LiveData->_CurrentPartialIndex;
+			Entry.Audio = IsAudio;
+			Entry.Keyframe = IsVideoKeyframe;
+			Entry.Corrupt = (Packet->flags & AV_PKT_FLAG_CORRUPT) != 0;
+			Entry.DtsSynthesized = DtsSynthesized;
+			Entry.PtsSynthesized = PtsSynthesized;
+			Entry.DurationSynthesized = DurationSynthesized;
+			Entry.TimestampNormalized = TimestampNormalized;
+			Entry.TimestampRepaired = TimestampRepaired;
+			Entry.CorrectionSaturated = CorrectionSaturated;
+			Entry.Size = Packet->size;
+			Entry.Flags = Packet->flags;
+			Entry.SourceDtsUs = SourceDtsUs;
+			Entry.SourcePtsUs = SourcePtsUs;
+			Entry.SourceDurationUs = SourceDurationUs;
+			Entry.HasSourceDts = SourceHasDts;
+			Entry.HasSourcePts = SourceHasPts;
+			Entry.HasOutputDts = HasOutput;
+			Entry.HasOutputPts = HasOutput;
+			if (HasOutput)
+			{
+				Entry.OutputDtsUs = av_rescale_q(OutputDts, InputTimebase, AV_TIME_BASE_Q);
+				Entry.OutputPtsUs = av_rescale_q(OutputPts, InputTimebase, AV_TIME_BASE_Q);
+				Entry.OutputDurationUs = av_rescale_q(OutputDuration, InputTimebase, AV_TIME_BASE_Q);
+			}
+			Entry.PayloadHash = PayloadHash;
+			Entry.ArrivalMs = ArrivalMs;
+			Entry.Packetization = Structure.Packetization;
+			Entry.CodecUnitCount = Structure.UnitCount;
+			Entry.PrimaryCodecUnitType = Structure.PrimaryUnitType;
+			Entry.PayloadPrefixLength = (std::min)(
+				(std::max)(Packet->size, 0), (int)sizeof(Entry.PayloadPrefix));
+			if (Packet->data && Entry.PayloadPrefixLength > 0)
+				memcpy(Entry.PayloadPrefix, Packet->data, Entry.PayloadPrefixLength);
+			Entry.Disposition = DispositionText;
+			if (Capture)
+				Capture->AddMetadata(std::format(
+					"{{\"type\":\"decision\",\"activityId\":{},\"packetSequence\":{},\"generation\":{},\"segment\":{},\"part\":{},\"audio\":{},\"disposition\":\"{}\",\"hashFnv64\":\"{:016x}\",\"sourceDtsUs\":{},\"sourcePtsUs\":{},\"sourceDurationUs\":{},\"hasOutput\":{},\"outputDtsUs\":{},\"outputPtsUs\":{},\"outputDurationUs\":{},\"normalized\":{},\"timestampRepaired\":{},\"muxObservedSteadyUs\":{},\"decisionSteadyUs\":{}",
+					_LiveData->_CurrentDiagnosticActivity, PacketSequence, Entry.Generation,
+					Entry.SegmentIndex, Entry.PartialIndex, Entry.Audio, DispositionText,
+					Entry.PayloadHash, Entry.SourceDtsUs, Entry.SourcePtsUs,
+					Entry.SourceDurationUs, HasOutput, Entry.OutputDtsUs,
+					Entry.OutputPtsUs, Entry.OutputDurationUs,
+					Entry.TimestampNormalized, Entry.TimestampRepaired, MuxObservedSteadyUs,
+					std::chrono::duration_cast<std::chrono::microseconds>(
+						std::chrono::steady_clock::now().time_since_epoch()).count()));
+		}
 		const std::lock_guard<std::mutex> guard(*_LiveData->_SegmentsMutex);
 		_LiveData->_RecentWrittenVideoPackets.Record(!IsAudio && DispositionText == "written", PayloadHash);
 		if( DispositionText == "waitingForKeyframe" ) ++_LiveData->_DiagWaitingForKeyframePackets;
@@ -1234,6 +1259,9 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 		else if( DispositionText == "noMuxBuffer" ) ++_LiveData->_DiagNoMuxBufferPackets;
 		else if( DispositionText == "nonMonotonicOutput" ) ++_LiveData->_DiagNonMonotonicOutputPackets;
 		else if( DispositionText == "muxError" ) ++_LiveData->_DiagMuxErrorPackets;
+		// Keep functional evidence and cheap disposition totals in both phases.
+		// Only the optional packet ring and derived packet-detail events stop here.
+		if (!_LiveData->_RetainPacketTrace) return;
 		_LiveData->_PacketDiagRing[_LiveData->_PacketDiagRingPos % _LiveData->PACKET_DIAG_RING_SIZE] = std::move(Entry);
 		++_LiveData->_PacketDiagRingPos;
 		if (_LiveData->_PacketDiagRingCount < _LiveData->PACKET_DIAG_RING_SIZE)
@@ -2363,6 +2391,7 @@ LiveOutputStream::StreamingDiagnostics LiveOutputStream::GetStreamingDiagnostics
 {
 	StreamingDiagnostics Diag;
 	const std::lock_guard<std::mutex> guard(*_LiveData->_SegmentsMutex);
+	Diag.PacketTraceEnabled = _LiveData->_RetainPacketTrace;
 	Diag.TotalSegments = _LiveData->_DiagTotalSegments;
 	Diag.ReconnectCount = _LiveData->_InitGeneration;
 	Diag.TotalDtsDuration = _LiveData->_DiagTotalDtsDuration;

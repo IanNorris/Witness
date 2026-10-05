@@ -211,6 +211,9 @@ struct LiveOutputStreamData
 	static const int PACKET_DIAG_RING_SIZE = 1024;
 	static_assert(PACKET_DIAG_RING_SIZE == RecentWrittenVideoPackets::PacketHorizon);
 	RecentWrittenVideoPackets _RecentWrittenVideoPackets;
+	// Optional observer only. Functional payload history, clocks and corruption
+	// handling remain active. Read once when this stream instance is created.
+	bool _RetainPacketTrace = true;
 	PacketDiagEntry _PacketDiagRing[PACKET_DIAG_RING_SIZE] = {};
 	int _PacketDiagRingPos = 0;
 	int _PacketDiagRingCount = 0;

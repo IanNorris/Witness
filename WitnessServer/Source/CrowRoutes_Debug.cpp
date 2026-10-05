@@ -298,6 +298,7 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 			return Value;
 
 		auto Diag = Stream->GetStreamingDiagnostics( false );
+		Value["packetTraceEnabled"] = Diag.PacketTraceEnabled;
 		Value["initGeneration"] = Diag.InitGeneration;
 		Value["segmentIndex"] = Diag.CurrentSegmentIndex;
 		Value["retainedSegments"] = Diag.BacklogSize;
@@ -837,6 +838,7 @@ void CrowListener::HandleDebugStreamingDiag( const crow::request& req, crow::res
 				auto Diag = Snapshot.LiveStream->GetStreamingDiagnostics();
 
 					crow::json::wvalue StreamData;
+					StreamData["packetTraceEnabled"] = Diag.PacketTraceEnabled;
 					auto StructureErrorName = []( int Error )
 					{
 						switch( Error )

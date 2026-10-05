@@ -173,6 +173,8 @@ class FullServerIsolationTests(unittest.TestCase):
     def test_authenticated_health_and_history_survive_graceful_restart(self):
         server = Path(os.environ['WITNESS_TEST_DATA_ROOT_SERVER']).resolve(strict=True)
         identity = os.environ.get('WITNESS_TEST_DATA_ROOT_NATIVE_ID', '')
+        expected_packet_trace = os.environ.get('WITNESS_TEST_PACKET_TRACE_MODE')
+        self.assertIn(expected_packet_trace, (None, '0', '1'))
         self.assertRegex(identity, '^[0-9a-f]{12}$')
         binary = server.read_bytes()
         self.assertIn(identity.encode(), binary)
@@ -411,6 +413,10 @@ class FullServerIsolationTests(unittest.TestCase):
                                     self.assertEqual(request(f'/camera/record/{camera_id}',
                                         body={'csrf': csrf, 'record': False})[0], 200)
                             for camera in health['cameras']:
+                                if expected_packet_trace is not None:
+                                    self.assertIs(camera['streams'][0]['packetTraceEnabled'],
+                                                  expected_packet_trace == '1',
+                                                  'health coverage does not match requested packet-trace mode')
                                 self.assertGreater(camera['streams'][0]['acceptedVideoPackets'], initial[camera['cameraId']],
                                                    f"camera {camera['cameraId']} stopped advancing")
                                 self.assertGreater(camera['processing']['completedFrames'], initial_processing[camera['cameraId']],

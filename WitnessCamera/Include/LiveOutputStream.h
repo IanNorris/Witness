@@ -338,6 +338,7 @@ public:
 		uint64_t InitErrorOffset = 0;
 		std::vector<SegmentDiagEntry> RecentSegments; // last 30
 		std::vector<FragmentDiagEntry> RecentFragments; // last 180 MSE partials
+		bool PacketTraceEnabled = true;
 		std::vector<PacketDiagEntry> RecentPackets; // last 1024 audio/video access units
 		std::vector<MediaDiagnosticEvent> RecentMediaEvents; // last 48 warnings/errors/actions
 		struct AnomalyCapture

@@ -1519,3 +1519,61 @@ intent, not a passed hide/resume assertion). Detection and recording were off;
 client regressions ran concurrently, so this is not an overhead benchmark.
 Fixture processes/data were cleaned up and both owned tabs closed; browser
 visibility was restored to background mode. No wake lock was taken.
+
+### Optional packet-observer baseline preparation (2026-10-05)
+
+Branch `codex/packet-trace-baseline` adds `WITNESS_PACKET_TRACE=0`, read once per
+new live-stream instance. Absence, `1`, or any invalid value keeps the existing
+default-on behavior. This is not a general diagnostics-off mode and must not
+be labelled as satisfying the full overhead gate. Only filling/retaining the
+1,024-packet observer ring and its derived packet-detail events are skipped.
+Cheap disposition counters remain available in both phases. Summary and detailed
+administrator exports expose `packetTraceEnabled` rather than representing an
+empty disabled trace as complete evidence.
+
+Payload hashes and independent recent-written history, sequence/activity IDs,
+arrival/cadence clocks, source structure inspection, decode-corruption signals,
+timestamp repair/requalification, fMP4 validation and transport integrity remain
+active. Explicit authenticated packet capture still constructs and records its
+decision metadata even with passive packet retention off; capture authorization
+is unchanged. Actual capture under this mode has not yet been exercised.
+
+The extended production-mux test writes 40 input packets and compares exact
+emitted init/fragment/segment bytes with packet history retained, cleared, or
+disabled before ingest. Every mode rejects the same bounded-DTS repeated payload;
+clearing functional history instead must accept/repair it as a negative control.
+H.264 and HEVC pass with the environment absent, `0`, `1`, and `invalid` (eight
+fixture invocations; each includes all four scenarios). The disabled mode must
+retain no detailed packets, report its disabled coverage, and preserve accepted,
+dropped and repaired counts. Log: `artifacts/packet-trace-on-off-media-regressions.log`.
+These are short video-only offline fixtures, not network, audio, broader cadence
+or performance qualification.
+
+Matched native `30fb4d0dc7ce` / web `f76c1d4fa36f` built successfully against the
+same pinned dependencies, with manifest installation/bootstrap disabled. No
+native compiler/linker warnings appeared; existing Sass/chunk warnings remain.
+The exported streaming snapshot adds a coverage flag, so consumers must use
+matching rebuilt binaries. The new private live-stream field also means internal
+state-access regression executables must be rebuilt against this Camera DLL.
+Separate package `build-vs2026-stable/deploy/packet-trace-baseline-native-30fb4d0dc7ce`
+verifies at 94 files / 177,730,464 bytes including matching symbols; output:
+`artifacts/packet-trace-baseline-native-30fb4d0dc7ce-package-verified.json`.
+
+HTTP/SQLite timing traces, fragment/segment/media-event observers, FFmpeg log
+retention, host sampling, browser event/reporting/storage work and processing
+histograms are still enabled. Their functional dependencies must be mapped before
+the complete matched off/on comparison. Turning off only this packet observer
+cannot support a claim about total diagnostics overhead. No production
+configuration, main merge, remote push or user-owned backlog edits were made.
+
+Normal-authenticated full-server tests passed for both environment modes:
+38.228 seconds with packet tracing off and 38.304 seconds with tracing on. Each
+mode runs two fresh-process lifecycle phases sharing its private test database,
+with three paced prerecorded sources and 10 seconds of sampled ingest per
+phase. The fixture asserts the actual summary coverage flag, continued accepted
+packet/processing progress, normal authentication/history durability and clean
+shutdown. Detection/recording/browser playback were not enabled. Evidence:
+`artifacts/packet-trace-mode-{0,1}-full-server.log` and
+`artifacts/packet-trace-mode-{0,1}-full-server-run-{0,1}.json`.
+No claim about long-run stability, full diagnostics overhead, or representative
+16-camera load follows from these short lifecycle tests.
