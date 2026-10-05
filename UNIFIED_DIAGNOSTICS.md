@@ -2981,3 +2981,57 @@ remains the verified deployable candidate. No main merge/push/deployment or
 production setting changed; user backlog edits remain untouched. The independent
 recording audit handle 71718 remains live at the latest poll with no terminal
 result; the overall goal and broad gates remain open.
+
+### Scalar stream collection and completed recording audit (2026-10-05)
+
+Branch `codex/scalar-stream-health-snapshot` introduces
+`LiveOutputStream::GetStreamingSummary()`. It copies the existing scalar counters
+and configuration under the stream mutex, then returns before allocating,
+sorting or copying media-event, packet, fragment, segment and anomaly rings.
+The terminal operational-status collector uses this path. Both existing
+`GetStreamingDiagnostics()` modes retain their previous behavior, including
+the media feed in the legacy `false` mode; HTTP incident exports are unchanged.
+This is groundwork for a cheap cached sampler, not that sampler's completion.
+No stream timestamps, packet bytes, presentation controls or authentication
+behavior change. The exported Camera method requires the matched server and
+Camera DLL package; no class data layout was changed.
+
+The actual-mux `MediaTraceObserverTests` additionally require empty summary
+rings, matching scalar counters/configuration and a subsequent unchanged legacy
+media feed. H.264 and HEVC pass with `WITNESS_MEDIA_TRACE=0` and `1`; each compares
+retained/disabled byte output, durations and corruption/recovery controls.
+Sandboxed HEVC fixture initialization failed before exercising this change;
+the unchanged four invocations pass outside the sandbox. Both logs are retained
+as `artifacts/scalar-stream-summary-regressions*.log`.
+
+The native server and regression target build completed successfully without
+native compile/link warnings. Existing frontend Sass deprecation and chunk
+advisories remain. The actual authenticated loopback server test passes two
+10-second H.264 replay/lifecycle phases in 33.315 seconds, with fresh private
+state, raw processing samples, ordinary HTTP timing and history after restart.
+Evidence: `artifacts/run-scalar-stream-summary-20261005/`. This short functional
+test is not evidence of a measured performance improvement or production
+stability. Manifest/bootstrap remain disabled and dependencies were reused.
+
+Verified deployable package:
+`build-vs2026-stable/deploy/scalar-summary-e7df4d7f9adf-web-477ce480fde8`, native
+`e7df4d7f9adf`, web `477ce480fde8`, 94 files / 177,848,691 bytes. Manifest:
+`artifacts/scalar-stream-summary-package-verified.json`. It contains matching
+binaries, symbols, web assets and models, not private databases or credentials.
+
+The earlier 16-source OFF recording audit (handle 71718) has now terminated
+successfully: one test in 15,605.887 seconds, including its 30-minute measured
+phase and subsequent whole-recording inspection. Its preserved workload is
+`artifacts/presented-browser-16stream-off-30minute-workload.json`: 16 manually
+triggered clips and 112 continuous recordings (128 inspections), all strict
+decode, packet DTS and decoded-frame PTS checks passed, with completed inference
+evidence for every source. Continuous row evidence is aggregated by camera;
+the inspection list identifies individual recordings. The disposable fixture
+directory was cleaned up by the successful test. The measured candidate remains
+native `6753258e104f`, not this new candidate. Recorded-output integrity does not
+prove perceptual smoothness, real-camera capacity or zero live presentation
+stalls. The separate browser evidence and corrected HTTP timing limitations
+still apply; new matched same-candidate OFF/ON phases remain required.
+
+No main merge, remote push, production change or user backlog edit/staging was
+performed. The overall goal remains active.

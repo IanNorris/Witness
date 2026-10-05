@@ -101,7 +101,7 @@ OperationalStatus WitnessServer::GetOperationalStatus() const
 			auto Live = Copy.Worker->GetLiveStream();
 			if( Live )
 			{
-				auto Diag = Live->GetStreamingDiagnostics( false );
+				auto Diag = Live->GetStreamingSummary();
 				Camera.MainAvailable = true;
 				Camera.MainEstablished = Diag.StreamEstablished;
 				Camera.Codec = Diag.VideoCodec;

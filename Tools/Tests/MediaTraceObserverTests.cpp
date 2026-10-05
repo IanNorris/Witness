@@ -108,6 +108,23 @@ static Output Run(const char* Fixture, bool Retain, bool ExpectedEnvironment) {
     }
     Check(Frames == 240, "insufficient fixture packets");
     const auto Stats = Live.GetStreamingDiagnostics();
+    const auto Summary = Live.GetStreamingSummary();
+    Check(Summary.RecentMediaEvents.empty() && Summary.RecentSegments.empty() &&
+          Summary.RecentFragments.empty() && Summary.RecentPackets.empty() && Summary.Anomalies.empty(),
+          "summary must not copy incident rings");
+    Check(Summary.MediaTraceEnabled == Stats.MediaTraceEnabled &&
+          Summary.PacketTraceEnabled == Stats.PacketTraceEnabled &&
+          Summary.MuxTraceEnabled == Stats.MuxTraceEnabled &&
+          Summary.AcceptedVideoPackets == Stats.AcceptedVideoPackets &&
+          Summary.DroppedVideoPackets == Stats.DroppedVideoPackets &&
+          Summary.CorruptVideoPackets == Stats.CorruptVideoPackets &&
+          Summary.TotalSegments == Stats.TotalSegments &&
+          Summary.VideoCodec == Stats.VideoCodec &&
+          Summary.VideoWidth == Stats.VideoWidth && Summary.VideoHeight == Stats.VideoHeight &&
+          Summary.InitGeneration == Stats.InitGeneration,
+          "summary scalar evidence changed");
+    Check(Live.GetStreamingDiagnostics(false).RecentMediaEvents.size() == Stats.RecentMediaEvents.size(),
+          "summary read altered legacy media feed");
     Check(Stats.MediaTraceEnabled == Retain && Stats.RecentMediaEvents.empty() != Retain,
           "media history retention mismatch");
     if (Retain) {

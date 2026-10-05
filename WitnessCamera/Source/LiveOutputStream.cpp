@@ -2454,6 +2454,16 @@ CameraStreamError LiveOutputStream::FinishCurrentSegment(int64_t NextKeyframeDTS
 
 LiveOutputStream::StreamingDiagnostics LiveOutputStream::GetStreamingDiagnostics( bool IncludeHistory ) const
 {
+	return GetStreamingDiagnosticsImpl( IncludeHistory, true );
+}
+
+LiveOutputStream::StreamingDiagnostics LiveOutputStream::GetStreamingSummary() const
+{
+	return GetStreamingDiagnosticsImpl( false, false );
+}
+
+LiveOutputStream::StreamingDiagnostics LiveOutputStream::GetStreamingDiagnosticsImpl( bool IncludeHistory, bool IncludeMediaEvents ) const
+{
 	StreamingDiagnostics Diag;
 	const std::lock_guard<std::mutex> guard(*_LiveData->_SegmentsMutex);
 	Diag.PacketTraceEnabled = _LiveData->_RetainPacketTrace;
@@ -2554,6 +2564,10 @@ LiveOutputStream::StreamingDiagnostics LiveOutputStream::GetStreamingDiagnostics
 	const int count = _LiveData->_DiagRingCount;
 	if( _LiveData->_DiagTotalSegments > 0 )
 		Diag.TimestampNormalizationActive = _LiveData->_LastCompletedSegmentNormalizationActive;
+	// Return before allocating, ranking or copying the incident rings. Legacy
+	// diagnostic callers still receive the exact same detailed observations.
+	if( !IncludeHistory && !IncludeMediaEvents )
+		return Diag;
 	// A repeated FFmpeg cluster keeps its original ring slot. Rank by its last
 	// occurrence so a still-active cluster remains visible in the health export.
 	std::vector<const MediaDiagnosticEvent*> RecentMediaEvents;

@@ -357,12 +357,15 @@ public:
 	};
 
 	StreamingDiagnostics GetStreamingDiagnostics( bool IncludeHistory = true ) const;
+	// Counters/configuration only: no packet, fragment, segment or media-event rings.
+	StreamingDiagnostics GetStreamingSummary() const;
 	void CaptureDiagnosticAnomaly(const std::string& Reason);
 	uint64_t BeginDiagnosticActivity();
 	uint64_t RecordFFmpegLog( int Level, const char* Phase, const char* Component,
 		const char* Message, uint64_t ActivityID );
 
 private:
+	StreamingDiagnostics GetStreamingDiagnosticsImpl( bool IncludeHistory, bool IncludeMediaEvents ) const;
 	LiveOutputStreamData* const _LiveData;
 };
 
