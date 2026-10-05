@@ -724,3 +724,34 @@ fields, so consumers must deploy the rebuilt matching server/Camera DLL together
 this does not claim binary compatibility with an older consumer. Native build
 has no C++/linker warnings or vcpkg installation; frontend chunk advisories remain.
 All private-fixture processes stopped, and the user's backlog edits remain intact.
+
+### Qualified mixed-resolution replay media (2026-10-05)
+
+`Tools/Tests/prepare_replay_media.py` creates new video-only constant-cadence
+workload copies of local H.264/HEVC media with an explicitly reported absence of
+B-frames. It never edits the source. Publication requires strict decoding with
+no error diagnostics, exact ordered SHA-256 equality of every encoded video
+packet, and exact requested frame-rate metadata. Existing outputs are rejected;
+same-volume hard-link publication also refuses to replace a concurrently created
+output. Four regression tests cover stream guards, existing-output preservation,
+decode/payload/cadence validation failures and publication races. They passed in
+0.033 seconds. Fixture temporaries reside under repository artifacts.
+
+Qualification of the original saved Reolink media distinguishes payload faults
+from timing faults. `1789571245.mp4` decodes all 522 video packets/frames without
+diagnostics, but actual DTS gaps range from approximately 6 to 590 ms (median
+36 ms, P95 107 ms). Its advertised r_frame_rate 90000/1 alone is not proof of
+bad media: the measured intervals establish uneven pacing. `1789602807.mp4`
+and `1789601697.mp4` report respectively 209 and 248 strict decoder diagnostic
+lines and fewer decoded frames than packets, despite decoder process exit code
+zero. They are fault fixtures, not clean load inputs. Qualification evidence:
+`artifacts/replay-qualification-<original filename>.json`.
+
+Two payload-preserving copies passed strict decoding: 1920×1080 HEVC at 20 fps
+(522 packets/frames, from `1789571245.mp4`) and 3840×2160 HEVC at 25 fps (968
+packets/frames, from `Sound2_1789650188.mp4`). Evidence and generated media:
+`artifacts/replay-qualified-hevc-1080p20.{json,mp4}` and
+`artifacts/replay-qualified-hevc-2160p25.{json,mp4}`. These deliberately replace
+the captured video clock and remove audio. They qualify decoder/load workloads,
+not original camera pacing, original network transport, or A/V synchronization.
+The saved Tapo workload is also an accepted-output capture, not a raw RTSP feed.
