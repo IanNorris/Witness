@@ -27,7 +27,7 @@ const source = originalSource
   .replace("'./msePresentationProgress'", JSON.stringify(presentationUrl))
 let fixtureNumber = 0
 
-async function fixture({ gopSeconds = .25, presentationEnabled = false, viewportWrapped = false } = {}) {
+async function fixture({ gopSeconds = .25, presentationEnabled = false, viewportWrapped = false, keyframeSeekSafe = false } = {}) {
   // In-memory browser primitives only. No sockets, credentials, media files or
   // browser automation: the production composable handles every control/tick.
   const saved = Object.fromEntries(['window', 'document', 'location', 'WebSocket', 'MediaSource',
@@ -116,7 +116,7 @@ async function fixture({ gopSeconds = .25, presentationEnabled = false, viewport
     const feed = () => {
       const partIndex = feedIndex++ % (gopSeconds * 4)
       socket.message({type: 'partial', generation: 0, duration: .25, independent: partIndex === 0,
-        keyframeSeekSafe: false, segmentIndex: 1, partIndex})
+        keyframeSeekSafe, segmentIndex: 1, partIndex})
       const bytes = new ArrayBuffer(8); new DataView(bytes).setFloat64(0, .25)
       socket.message(bytes)
     }
@@ -164,7 +164,7 @@ test('real composable records bounded playhead buffer-position evidence', async 
   } finally { f.restore() }
 })
 
-test('real watchdog preserves ingest during a 90-second hidden frozen-playhead interval', async () => {
+test('real watchdog preserves hidden ingest then immediately recovers an evicted unsafe playhead', async () => {
   const f = await fixture()
   try {
     f.hide(); const plays = f.playCalls(), fragments = f.diag().stats.totalFragments
@@ -180,10 +180,47 @@ test('real watchdog preserves ingest during a 90-second hidden frozen-playhead i
     assert.ok(f.video.buffered.end(0) - f.video.buffered.start(0) <= 30.01)
     f.video.paused = true
     f.show(); f.tick(); await Promise.resolve()
-    assert.ok(f.playCalls() > plays)
-    assert.equal(f.diag().stats.restartCount, 0, 'returning visible must not inherit a hidden drift timer')
+    assert.equal(f.diag().stats.restartCount, 1, 'evicted unsafe playback must recover on the first visible tick')
+    assert.equal(f.diag().lastDriftRestart.type, 'hiddenBufferEvictedRestart')
+    assert.equal(f.diag().lastDriftRestart.drift.playheadBuffered, false)
+    assert.ok(f.diag().lastDriftRestart.drift.playheadGapMs > 0)
     for (let i = 0; i < 17; i++) { f.video.currentTime += .25; f.tick() }
-    assert.equal(f.diag().stats.restartCount, 1, 'visible stale playback must still recover')
+    assert.equal(f.diag().stats.restartCount, 1, 'the same eviction must not trigger repeated restarts')
+  } finally { f.restore() }
+})
+
+test('real watchdog resumes a briefly hidden playable buffer without reconnecting', async () => {
+  const f = await fixture()
+  try {
+    f.video.currentTime = f.video.buffered.end(0) - 1
+    f.hide(); const plays = f.playCalls()
+    for (let i = 0; i < 4; i++) f.tick()
+    f.show(); f.tick(); await Promise.resolve()
+    assert.ok(f.playCalls() > plays)
+    assert.equal(f.diag().stats.restartCount, 0)
+    assert.ok(f.diag().importantEvents.some(e => e.type === 'hiddenPlaybackRecoveryResumed'))
+    assert.ok(!f.diag().importantEvents.some(e => e.type === 'hiddenBufferEvictedRestart'))
+  } finally { f.restore() }
+})
+
+test('real watchdog seeks to a verified retained RAP instead of reconnecting after hidden eviction', async () => {
+  // A long GOP leaves only one verified RAP in the retained range. Ordinary
+  // two-keyframe catch-up cannot rescue this evicted playhead on resume.
+  const f = await fixture({gopSeconds:60, keyframeSeekSafe:true})
+  try {
+    f.hide()
+    for (let i = 0; i < 960; i++) f.tick()
+    assert.ok(f.video.buffered.start(0) > f.video.currentTime)
+    f.show(); f.tick(); await Promise.resolve()
+    assert.equal(f.diag().stats.restartCount, 0)
+    assert.ok(f.video.currentTime >= f.video.buffered.start(0),
+      'the first visible tick must rescue the evicted playhead with the single retained RAP')
+    const seek = f.diag().importantEvents.find(e => e.type === 'hiddenBufferEvictedSeek')
+    assert.ok(seek)
+    assert.equal(f.video.currentTime, seek.to)
+    assert.ok(seek.to >= f.video.buffered.start(0) && seek.to < f.video.buffered.end(0))
+    assert.equal(f.diag().liveState.wsReadyState, 1)
+    assert.ok(f.video.playbackRate >= 1 && f.video.playbackRate <= 1.08)
   } finally { f.restore() }
 })
 

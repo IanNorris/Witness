@@ -4485,3 +4485,16 @@ Ten focused visibility/eviction policy tests pass. Type-check, rebuilt bundle
 and genuine hidden/resume runtime acceptance remain pending; the running frozen
 fixture and master package are unchanged. No production/session mutation,
 private recording commit or user BACKLOG edit.
+
+Resume control-path regression follow-up: 29 focused tests now pass, including
+the actual production composable running with in-memory browser primitives.
+The long-hidden unsafe case recovers on the first visible tick, a long-GOP case
+with only one verified retained RAP seeks without reconnecting, and a briefly
+hidden playable buffer resumes normally. Against old implementation7e27bdd,
+17 of19 composable tests pass and precisely the two new behavioural assertions
+fail (immediate unsafe recovery and actual single-RAP playhead rescue).
+Vue/TypeScript build-mode type-check exits0 using installed dependencies.
+These are simulated control-path and compilation proofs, not genuine browser
+decoder acceptance of the new branch. The original session5476 remains live;
+its package is unchanged and its hidden intervals exclude it from a strictly
+visible matched observer comparison. Bundle build/runtime retest remain pending.
