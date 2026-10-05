@@ -29,6 +29,7 @@ from processing_sample_collector import ProcessingSampleCollector
 from health_request_timing import sample_health
 from replay_profiles import qualify_profiles, validate_live_profiles
 from ptz_update_scope_fixture import check_update_scope
+from ptz_http_relink_fixture import check_http_relink
 
 RECORDING_FAILURE_ROOT = Path(__file__).resolve().parents[2] / 'artifacts'
 
@@ -296,6 +297,9 @@ class FullServerIsolationTests(unittest.TestCase):
         cached_health = os.environ.get('WITNESS_TEST_CACHED_HEALTH') == '1'
         ptz_guard = os.environ.get('WITNESS_TEST_PTZ_CONFIGURED_GUARD') == '1'
         ptz_update_scope = os.environ.get('WITNESS_TEST_PTZ_UPDATE_SCOPE') == '1'
+        ptz_http_relink = os.environ.get('WITNESS_TEST_PTZ_HTTP_RELINK') == '1'
+        self.assertTrue(not ptz_http_relink or len(inputs) >= 3,
+                        'HTTP PTZ relink checks need three disposable cameras')
         self.assertTrue(not ptz_update_scope or len(inputs) >= 2,
                         'PTZ update scope checks need two disposable replay cameras')
         self.assertTrue(not ptz_guard or inputs, 'PTZ guard checks require a configured synthetic camera')
@@ -348,7 +352,7 @@ class FullServerIsolationTests(unittest.TestCase):
                     db.execute('INSERT INTO Camera(CameraName,CameraString,CameraStringSub,Enabled,SkipFrames,MDFrameHeight,MDThreshold,MotionFilter,BlackoutMaskPath,FocusMaskPath,ContinuousRecording) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
                                (f'Fixture {index + 1}', url, '', 1, 1, 400,
                                 0.01 if active_detection else 0.99, 'motion_vectors', '', '', int(active_recording)))
-                if browser_hold or active_recording or ptz_guard or ptz_update_scope:
+                if browser_hold or active_recording or ptz_guard or ptz_update_scope or ptz_http_relink:
                     db.execute('INSERT INTO CameraGroup(DisplayName,Description) VALUES(?,?)', ('Isolated replay', 'Test only'))
                     db.execute('INSERT INTO UserGroupMapping VALUES(?,?)', (1, 1))
                     db.executemany('INSERT INTO CameraGroupMapping VALUES(?,?)', [(index + 1, 1) for index in range(len(inputs))])
@@ -396,6 +400,11 @@ class FullServerIsolationTests(unittest.TestCase):
                             time.sleep(0.1)
                         self.assertEqual(request('/debug/health', False)[0], 403)
                         self.assertEqual(request('/debug/client-health', False)[0], 403)
+                        if ptz_http_relink:
+                            report = check_http_relink(request, csrf, urls, data / 'server.db')
+                            with (artifacts / f'full-server-ptz-http-relink-run-{run}.json').open('x', encoding='utf8') as output:
+                                json.dump({'nativeBuildId': identity, **report}, output, indent=2)
+                            self.assertTrue(report['passed'])
                         if ptz_update_scope:
                             report = check_update_scope(request, csrf, urls,
                                 verify_stale_discovery=os.environ.get('WITNESS_TEST_PTZ_STALE_DISCOVERY') == '1')

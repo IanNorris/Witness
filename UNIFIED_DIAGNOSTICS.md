@@ -3362,3 +3362,28 @@ The packaged candidate also passed the actual disabled-camera PTZ/configured
 policy fixture across two shutdown/restart lifecycles in 39.004 seconds:
 `artifacts/run-ptz-reconfigure-disabled-guard-20261005/`. This verifies denied
 movement/preset/zoom routes and authentication, not active physical transport.
+
+### Actual HTTP motor-mock relink regression (2026-10-05)
+
+Separate `codex/ptz-http-relink-regression` adds an opt-in three-camera fixture
+using only loopback media and two local Reolink HTTP mock endpoints. It invokes
+real authenticated Crow movement and admin-update routes and actual HTTP clients.
+The mock accepts Login and Left/Right/Stop only; it never reaches a physical motor.
+Anonymous and bad-CSRF movement must fail before either endpoint receives a command.
+Both old components are moving when the view is relinked; the test requires
+`A.Left, B.Right, A.Stop, B.Stop` before checking the stored new link. A rejected
+Stop must return 409 and preserve the old link; a successful retry commits. A
+held HTTP Left command must prevent a concurrent admin relink from changing the
+database until the transport acknowledgement is released, after which its
+original transport must receive Stop. All waits/releases/fixture shutdowns are
+bounded; retained mock movements are stopped before endpoints close.
+
+Actual old native94d7d02b84d4 fails because relink did not stop both old components
+(`run-ptz-http-relink-before-20261005`, 15.949 seconds). Packaged nativec6994318de6c
+passes the same full fixture in 23.550 seconds, with saved event-order/identity
+proof in `artifacts/run-ptz-http-relink-after-20261005/`. This proves actual-handler
+HTTP mock transport integration, not physical motor behavior or Baichuan transport.
+The package itself is unchanged; only test sources/evidence notes are added.
+No private clip was tracked/staged, no user backlog edit or main merge/push/deploy
+occurred. Recording-audit handle58671 remains live; 3/128 outputs completed so far.
+The matched OFF/ON overhead gate remains open.
