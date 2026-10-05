@@ -2012,3 +2012,40 @@ unanchored reports and single-row gap evidence remain unavailable, not guessed.
 Eight summary tests pass, including a retained tail that misses twenty minutes
 of a thirty-minute phase. This changes only post-processing, not the running
 fixture or production history limits.
+
+### Presented-browser 30-minute phase completed; recording inspection pending
+
+The presented run completed its measured phase on native `6753258e104f`, web
+`cd53d3d7d020`: 1,759 samples over 1,800.957 seconds, maximum gap 1.346 seconds.
+All sixteen camera snapshots stayed Connected with main initGeneration 0 and no
+timestamp-normalization rejection. Exact task collection is complete for every
+camera. Filter-stage P95 spans 0.0172--0.0781 ms, explicitly excluding decode and
+queue waits. Witness CPU P50/P95 (host capacity) was 29.035/38.372%; summary HTTP
+wall-time P50/P95/P99 19.305/40.399/50.371 ms. These are descriptive, not a matched
+off/on overhead result; the raw-sample request itself adds work to HTTP snapshots.
+
+The eligible browser export retains 119 snapshots spanning 1,773.527 seconds,
+starting 14.115 seconds into the phase and ending 13.316 seconds before its end;
+maximum receipt gap 15.135 seconds. Every player's restart/stall/error delta is
+zero, with no observed counter decreases. Independent DOM samples also show
+advancing playheads without pause/media errors. This contrasts with the earlier
+offscreen run, but does not establish causality: candidate instrumentation and
+layout/presentation differ. Four 4K HEVC players dropped approximately 4.7--4.9%
+of frames. Four AAC players show sampled latency P95 3.859--3.983 seconds and
+occasional readyState below 3, despite no counted persistent stall or restart.
+No claim of flawless presentation or production stability is made.
+
+Completed-phase evidence was copied before further tests could overwrite it:
+`artifacts/presented-browser-16stream-off-30minute-{replay,history,summary}.json`
+and `artifacts/presented-browser-16stream-off-30minute-raw.json.gz`.
+`artifacts/presented-browser-persisted-progress-23minute.json` is a bounded,
+read-only inspection of this fixture's telemetry DB, not a production DB/session
+copy. Default sandbox access hit private temporary-directory ACL errors; the
+same explicitly owned read-only check succeeded with appropriate access.
+
+The overall test is still running strict full-recording inspection. An owned
+ffprobe process was observed after the harness's clean server-shutdown checks;
+the finished browser tab was closed. Final recording/inference assertions and
+the overall test result remain pending. No new fixture, build, wake lock or
+production configuration change was introduced. The server/sample phase cannot
+be relabeled as a passed full test until its remaining inspections complete.
