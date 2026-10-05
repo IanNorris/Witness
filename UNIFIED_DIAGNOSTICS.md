@@ -2644,3 +2644,28 @@ failure with the actual client composable. It is not a production WebSocket/
 server test, quota-exhaustion reproduction, all-codec qualification or a long-term
 stability/observer-overhead gate. The separately packaged healthy native replay
 and earlier actual safe-eviction prevention evidence remain complementary.
+
+### Concurrent cross-user diagnostic identity collision (2026-10-05)
+
+`codex/client-health-owner-collision-regression` strengthens the actual HTTP
+integration fixture: two different normal authenticated users concurrently submit
+exactly the same browser/session identifiers and forged administrator ownership.
+Both POSTs return 202; an immediate repeat by the first user returns 429 without
+the second user sharing that limit. Administrator export contains both reports
+with their independently authenticated user UID/username and the colliding
+diagnostic labels intact. Revoking the second user's session denies further
+submission without removing its evidence. Both owned reports survive a clean
+fixture-process restart. Thus supplied diagnostic identifiers are not treated as
+authentication principals or used to overwrite another user's history.
+
+The current presented-frame fields (generation, clock, presented mediaTime/count,
+runnable stall time and geometric visibility) also survive sanitization, durable
+export and restart; arbitrary URLs/array ranges and forged ownership are excluded.
+The pinned incremental ClientHealthHttpFixture rebuild completes without
+dependency installation or compiler/linker warnings. The native real-cookie,
+CSRF, disabled/missing-user, normal/admin and cookie-port tests pass in 0.606
+seconds including the concurrent identity collision and process restart.
+Log: `artifacts/client-health-colliding-owner-http-test.log`. Tests use disposable
+loopback-only auth/history databases, not production sessions or cameras. These
+are independent HTTP clients, not two actual browser profiles, and do not prove
+the full live-server UI reporting/login/HTTPS path or browser throttling behavior.

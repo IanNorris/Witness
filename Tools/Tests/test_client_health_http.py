@@ -1,5 +1,6 @@
 """Exercise the native loopback fixture; set WITNESS_HEALTH_HTTP_FIXTURE to opt in."""
 import contextlib
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from pathlib import Path
@@ -49,6 +50,9 @@ class HealthHttpTests(unittest.TestCase):
                         "playheadBuffered": False, "nextBufferedStartSeconds": 13,
                         "playheadGapMs": 1600, "headroomInCurrentRangeMs": 0,
                         "hasAudio": True, "sourceBufferMode": "sequence", "timestampOffsetSeconds": -3,
+                        "generation": 4, "currentTime": 13.5, "presentedMediaTime": 10.4,
+                        "presentedFrames": 268, "presentationStallMs": 3006,
+                        "presentationVisible": True,
                         "buffered": [[1, 2], [13, 14]], "url": "https://fixture-secret@camera"}]}]}}
             for restart in (False, True):
                 process = subprocess.Popen([os.environ["WITNESS_HEALTH_HTTP_FIXTURE"], str(root),
@@ -84,10 +88,16 @@ class HealthHttpTests(unittest.TestCase):
                         self.assertEqual(request(base, port, "missing-user-token")[0], 403)
                         self.assertEqual(request(base, port, "alice-token", {**payload, "csrf": "wrong"})[0], 403)
                         self.assertEqual(request(base, port, "alice-token", {"snapshot": payload["snapshot"]})[0], 400)
-                        self.assertEqual(request(base, port, "alice-token", payload)[0], 202)
+                        # Browser/tab identifiers are untrusted diagnostic labels,
+                        # not principals. An authenticated second user must neither
+                        # overwrite the first user's samples nor share its rate limit
+                        # even when it submits exactly the same labels/forged owner.
+                        bob = {"csrf": "bob-csrf", "snapshot": {**payload["snapshot"]}}
+                        with ThreadPoolExecutor(max_workers=2) as clients:
+                            submissions = [clients.submit(request, base, port, token, body)
+                                           for token, body in [("alice-token", payload), ("bob-token", bob)]]
+                            self.assertEqual([result.result()[0] for result in submissions], [202, 202])
                         self.assertEqual(request(base, port, "alice-token", payload)[0], 429)
-                        bob = {"csrf": "bob-csrf", "snapshot": {**payload["snapshot"], "browserId": "browser-b", "sessionId": "tab-b"}}
-                        self.assertEqual(request(base, port, "bob-token", bob)[0], 202)
                         # A deleted/disabled session cannot write, but retained evidence
                         # must still be included for a different administrator client.
                         with contextlib.closing(sqlite3.connect(root / "auth.db")) as db:
@@ -105,7 +115,8 @@ class HealthHttpTests(unittest.TestCase):
                         self.assertLess(time.monotonic(), until, "history was not durably exported")
                         time.sleep(0.02)
                     owners = {(row["userUid"], row["username"], row["browserId"]) for row in export["history"]}
-                    self.assertEqual(owners, {(7, "alice", "browser-a"), (8, "bob", "browser-b")})
+                    self.assertEqual(owners, {(7, "alice", "browser-a"), (8, "bob", "browser-a")})
+                    self.assertEqual({row["sessionId"] for row in export["history"]}, {"tab-a"})
                     self.assertNotIn("forged-admin", body.decode())
                     self.assertNotIn("fixture-secret", body.decode())
                     for row in export["history"]:
@@ -118,6 +129,12 @@ class HealthHttpTests(unittest.TestCase):
                         self.assertIs(sample["hasAudio"], True)
                         self.assertEqual(sample["sourceBufferMode"], "sequence")
                         self.assertEqual(sample["timestampOffsetSeconds"], -3)
+                        self.assertEqual(sample["generation"], 4)
+                        self.assertEqual(sample["currentTime"], 13.5)
+                        self.assertEqual(sample["presentedMediaTime"], 10.4)
+                        self.assertEqual(sample["presentedFrames"], 268)
+                        self.assertEqual(sample["presentationStallMs"], 3006)
+                        self.assertIs(sample["presentationVisible"], True)
                         self.assertNotIn("buffered", sample)
                         self.assertNotIn("url", sample)
                 finally:
