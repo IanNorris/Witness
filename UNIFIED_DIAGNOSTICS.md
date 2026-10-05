@@ -1355,3 +1355,49 @@ Python child produced an `MDMP` file, overwrite was refused, the child stayed li
 after capture, and an exited child was rejected. This required elevated execution
 because the runner could not access its own newly created temporary directory.
 Reproduction of the server hang and inspection of its new dump remain pending.
+
+### Current matched candidate and loaded lifecycle checks (2026-10-05)
+
+Native `263bb28c9d9c` and web `e86cf29a7b1e` rebuilt successfully using the
+existing pinned VS2026 dependency cache (manifest install/bootstrap still off).
+Sass deprecation and large-chunk warnings remain. The separate package
+`build-vs2026-stable/deploy/client-error-evidence-native-263bb28c9d9c` includes
+matching symbols and verifies at 94 files / 177,697,489 bytes; verifier output is
+`artifacts/client-error-evidence-native-263bb28c9d9c-package-verified.json`.
+Older native `369a82b441e1` symbols are preserved separately under
+`artifacts/native-369a82b441e1-shutdown-symbols`.
+
+The rebuilt production duplicate-history regression passed both H.264 and HEVC,
+including the negative control and clearing only optional traces. Cadence/pause
+regressions passed for both codecs with newly generated 150-second 20fps no-B
+synthetic fixtures. The initial H.264 cadence attempt used a 29-second replay
+window and was not a valid pass; the subsequent adequately long fixtures are the
+evidence. All eight cadence outputs strictly decode with no missing, duplicate or
+regressing packet/frame timestamps (`artifacts/native-263bb28c9d9c-cadence-decode.json`).
+Paced timestamp-rejection recovery and eight cross-DLL ownership/shutdown cycles
+also passed for each codec. All four saved recovery generations pass the same
+strict inspection (`artifacts/native-263bb28c9d9c-recovery-decode.json`). These small
+synthetic tests do not cover network jitter, every audio codec, B-frames or
+perceptual smoothness on physical cameras.
+
+The real normal-authenticated endpoint/storage/restart fixture passed in 14.943
+seconds, including the new structured last-error allowlist and anonymous denial.
+Two 90-second 16-stream recording/CPU-detection lifecycles then passed in 214.048
+seconds total with graceful exits; each has 16 recording rows, 16 continuous
+segment rows and 16 completed-inference windows. Evidence is preserved in
+`artifacts/owned-shutdown-263bb28c9d9c-{16stream-run,workload}-{0,1}.json` and its
+90-second test log. Strict recorded-output inspection was not enabled; rows prove
+creation, not playback quality. Four paced input recordings repeated four times
+are not 16 independent cameras. Inference includes the sparse no-motion baseline
+and has a 1fps ceiling; this is not proof of sustained active 1fps inference.
+No browser was attached during these two short cycles, so they do not resolve the
+previous longer browser-connected shutdown failure.
+
+A new 30-minute, 16-stream browser-connected run has passed its authenticated
+positive-playback readiness gate using this immutable package, with all 16 actual
+videos visible, readyState 4, unpaused and without media errors at initial
+inspection. It is still running; completion/shutdown and continuous visibility
+remain unproven. Startup proof: `artifacts/client-error-evidence-16stream-start.jpg`;
+live test log: `artifacts/client-error-evidence-263bb28c9d9c-16stream-30minute.log`.
+No compilations are planned during its measured phase. This still is not the
+required diagnostics-off/on comparison; the full overhead gate remains open.
