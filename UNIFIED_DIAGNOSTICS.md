@@ -3484,3 +3484,35 @@ the check. Its first six of 128 outputs have passed; remaining recordings,
 matched ON overhead and true hidden/resume/independent-profile validation remain
 outstanding. No main merge, push, deployment, real-media tracking or user backlog
 edit occurred.
+
+### Client telemetry final wire-budget fallback (2026-10-05)
+
+Separate `codex/client-health-post-budget` reproduces a client compaction gap:
+64 bounded player records with worst-case UTF-8 strings and finite numeric
+scalars can still exceed the 60KiB target after event/drift details are stripped.
+The new regression failed on the unchanged reporter, then passed with the final
+fallback. It retains a stable prefix of player records fitting the actual
+UTF-8 JSON budget, sets `playersTruncated`, and leaves the input snapshot intact.
+The byte accounting is a linear pass over records, including comma overhead;
+ordinary rich 16-player reports retain their existing causal evidence. This is
+explicit partial coverage, not silent loss of the entire over-budget POST.
+
+Reporter, hidden recovery, presentation, visibility and eviction suites pass
+31 tests with one optional offline fixture skipped. Type checking and the
+pinned server/frontend build pass; Sass/Bootstrap deprecations and chunk-size
+advisories remain. A sandbox Node worker launch failed with EPERM, not a test
+failure; in-process tests ran successfully. The actual authenticated three-stream
+loopback server/history shutdown/restart fixture passes two lifecycles in
+39.427s (`artifacts/run-health-budget-runtime-20261005/`). That fixture exercises
+the packaged native lifecycle and history routes; it does not render the new
+64-player browser report, prove true browser hide/resume, or establish stability.
+
+Separate verified package:
+`build-vs2026-stable/deploy/health-budget-07bf7a9a88f8-web-ae5c875b236a`,
+94 files / 178,128,485 bytes; `artifacts/health-budget-package-verified.json`.
+Native identity stays 07bf7a9a88f8 because only web/test code changed; the web
+identity is ae5c875b236a. The frozen matched-load package remains unchanged.
+Audit58671 remains live and has completed nine of 128 recording inspections;
+matched ON still awaits its terminal result. No dependency/toolchain change,
+main merge, remote push, production deployment, real-media tracking or
+user-owned backlog edit occurred.

@@ -36,6 +36,30 @@ test('compact report bounds event/drift history without losing players or core h
   assert.ok(new TextEncoder().encode(JSON.stringify(bounded)).length < 64 * 1024)
 })
 
+test('worst-case bounded Unicode scalar reports cannot exceed the POST budget', () => {
+  const text = count => '😀'.repeat(count / 2)
+  const original = { browserId: 'browser', sessionId: 'tab', sampledAtUtc: '2026-10-05T00:00:00Z',
+    buildHash: text(80), userAgent: text(512), path: text(256),
+    visibilityState: 'visible', playersTruncated: false,
+    players: Array.from({length: 64}, (_, index) => ({id: `${index}_${text(76)}`,
+      selectedStream: text(32), mediaSourceState: text(32), sourceBufferOperation: text(64),
+      lastEventType: text(64), lastRestartReason: text(64),
+      ...Object.fromEntries(['latencyMs', 'readyState', 'wsReadyState', 'wsOpenAgeMs',
+        'reconnectPendingMs', 'lastFragAge', 'appendQueueLength', 'appendQueueBytes',
+        'appendQueueOldestAgeMs', 'sourceBufferGeneration', 'sourceBufferOperationAgeMs',
+        'pipelineAgeMs', 'lastAppendAgeMs', 'totalVideoFrames', 'droppedVideoFrames',
+        'corruptedVideoFrames', 'restartCount', 'stallCount', 'errorCount', 'totalFragments',
+        'integrityMismatchCount', 'decodeCorruptionCount', 'renderSuppressionCount']
+        .map(key => [key, Number.MAX_VALUE]))})) }
+  const report = health.compactHealthReport(original)
+  assert.ok(new TextEncoder().encode(JSON.stringify(report)).length <= 60 * 1024)
+  assert.ok(report.players.length > 0, 'retain usable per-player evidence')
+  assert.ok(report.players.length < original.players.length)
+  assert.equal(report.playersTruncated, true, 'make omitted players explicit')
+  assert.equal(original.players.length, 64)
+  assert.equal(original.playersTruncated, false)
+})
+
 test('a rich 16-player report retains suspension and restart evidence under the POST budget', () => {
   const t = '2026-10-05T01:53:51Z'
   const drift = { t, currentTime: 11.4, bufferedEnd: 152.5, lagMs: 141100,

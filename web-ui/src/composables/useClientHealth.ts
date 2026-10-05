@@ -369,7 +369,9 @@ export function compactHealthReport(session: ClientHealthSession): ClientHealthS
     mediaSourceState: event.mediaSourceState, wsReadyState: event.wsReadyState,
     intentionalClose: event.intentionalClose, drift: compactDrift(event.drift),
   } : undefined
-  const overBudget = () => new TextEncoder().encode(JSON.stringify(report)).length > 60 * 1024
+  const encoder = new TextEncoder()
+  const maxReportBytes = 60 * 1024
+  const overBudget = () => encoder.encode(JSON.stringify(report)).length > maxReportBytes
   const report = { ...session, players: session.players.map(player => ({ ...player,
     recentEvents: player.recentEvents?.slice(-8).map(event => ({ ...event, message: undefined, driftSamples: undefined, drift: undefined })),
     driftSamples: player.driftSamples?.slice(-4), lastDriftRestart: compactRestart(player.lastDriftRestart),
@@ -386,6 +388,21 @@ export function compactHealthReport(session: ClientHealthSession): ClientHealthS
       player.recentEvents = undefined; player.driftSamples = undefined; player.lastDriftRestart = undefined
       player.lastError = undefined
     }
+  }
+  if (overBudget()) {
+    // Even bounded strings/numbers can exceed the wire budget across 64
+    // players (UTF-8 bytes are not JS character counts). Retain a stable prefix
+    // with explicit incomplete coverage instead of losing the entire POST.
+    report.playersTruncated = true
+    let bytes = encoder.encode(JSON.stringify({ ...report, players: [] })).length
+    const retained: typeof report.players = []
+    for (const player of report.players) {
+      const playerBytes = encoder.encode(JSON.stringify(player)).length + (retained.length ? 1 : 0)
+      if (bytes + playerBytes > maxReportBytes) break
+      retained.push(player)
+      bytes += playerBytes
+    }
+    report.players = retained
   }
   return report
 }
