@@ -1,5 +1,4 @@
-#include "WatchdogWorker.h"
-#include "Messages.h"
+#include "WorkerBase.h"
 
 #include <windows.h>
 

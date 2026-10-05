@@ -3925,3 +3925,39 @@ HTTP/session/storage behavior, not independent browser-profile collection or
 real hidden/resume playback. Frozen OFF audit58671 is still live and now has
 58/128 outputs inspected; the overall stream/performance gates remain open.
 No main merge, remote push, deployment, media tracking or backlog edit.
+
+### Real held timer callback lifetime regression (2026-10-05)
+
+Branch `codex/worker-held-callback-regression` strengthens the earlier normal
+shutdown ordering evidence. The Windows WorkerShutdownDelayTests target now
+links the real WorkerBase and TimerWorker implementations, not a fake worker
+loop. A real timer callback signals entry, holds shared callback state, and
+waits for release while shutdown is requested. A separate join stays blocked
+for the observed 100ms hold, completes within two seconds after release, and
+timer teardown then releases the last callback-state owner. A five-second
+callback failsafe bounds cleanup if a preceding assertion fails. This is not
+proof that arbitrary production callbacks are interruptible or bounded.
+
+Real held-callback and existing idle cancellation tests pass, as does the
+production RequestShutdown source-order guard. Their combined coverage verifies
+native Join behavior and explicit production join placement; the test does not
+invoke WitnessServer::RequestShutdown with an injected timer. Linux retains
+the existing idle tests, with the Windows-only dynamic callback case explicitly
+reported as untested there. WorkerBase.cpp now includes its own header rather
+than WatchdogWorker/Messages; TimerWorker.cpp also drops unnecessary Messages.
+The isolated no-server-PCH target builds these real implementations without the
+broader message/media dependencies.
+
+Pinned incremental full native/frontend build passes using immutable dependency
+fingerprint `6b27239cefa9921f3d82643ccc48e50ce241b30f5ea7ce1761240cb59532dc61`.
+The first sandbox full-build attempt exited in MSBuild without diagnostics;
+the scoped build retry completed successfully. Existing Sass deprecations and
+frontend chunk advisories remain; this is not a clean full warning/ABI audit.
+Package `build-vs2026-stable/deploy/worker-callback-c96b97f1c1b9-web-30cc8de26b50`
+passes byte/inventory/identity verification (94 files / 178,200,382 bytes;
+`artifacts/worker-callback-package-verified.json`). The packaged native build
+passes the actual authenticated zero-camera two-lifecycle multi-client history
+fixture in 16.106s, under `artifacts/run-worker-callback-multi-client-20261005/`.
+Live-stream endurance, physical PTZ and Linux compilation remain open. Frozen
+OFF audit58671 is still live: 63/128 outputs inspected, none failed so far;
+matched ON is not started. No push, production deployment or backlog edit.

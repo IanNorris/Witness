@@ -2,6 +2,9 @@
 #include <future>
 #include <iostream>
 #include <stdexcept>
+#ifdef _WIN32
+#include "TimerWorker.h"
+#endif
 
 using namespace std::chrono_literals;
 
@@ -53,6 +56,42 @@ int main()
             Check(Waiter.wait_for(500ms) == std::future_status::ready, "stop did not interrupt idle wait");
             Check(Waiter.get(), "interrupted idle wait reported a timeout");
         }
+#ifdef _WIN32
+        // A stop request cannot cancel an in-flight callback. Joining must
+        // remain blocked until it returns, before its owning timer is destroyed.
+        std::promise<void> CallbackEntered, CallbackReleased, JoinEntered;
+        auto Entered = CallbackEntered.get_future();
+        auto Release = CallbackReleased.get_future().share();
+        auto JoinStarted = JoinEntered.get_future();
+        std::atomic<bool> CallbackFinished{false};
+        auto Timer = std::make_unique<TimerWorker>(std::make_shared<MessageBus>());
+        auto Lifetime = std::make_shared<int>(42);
+        std::weak_ptr<int> CallbackLifetime = Lifetime;
+        Timer->AddTimer([&, Release, Lifetime] {
+            CallbackEntered.set_value();
+            Release.wait_for(5s); // Bound cleanup even if an earlier assertion fails.
+            Check(*Lifetime == 42, "callback state died before completion");
+            CallbackFinished = true;
+        }, 3600);
+        Lifetime.reset();
+        Timer->Start(WorkerBase::Priority::Normal);
+        Check(Entered.wait_for(2s) == std::future_status::ready, "timer callback did not start");
+        Timer->RequestShutdown();
+        auto Joined = std::async(std::launch::async, [&] { JoinEntered.set_value(); Timer->Join(); });
+        Check(JoinStarted.wait_for(2s) == std::future_status::ready, "join thread did not start");
+        const bool JoinedTooSoon = Joined.wait_for(100ms) == std::future_status::ready;
+        const bool StateStillOwned = !CallbackLifetime.expired();
+        CallbackReleased.set_value(); // Always release before reporting failure.
+        Check(Joined.wait_for(2s) == std::future_status::ready, "released callback did not join");
+        Joined.get();
+        Check(!JoinedTooSoon, "Join returned while callback was still running");
+        Check(StateStillOwned && CallbackFinished, "held callback state was not retained");
+        Timer.reset();
+        Check(CallbackLifetime.expired(), "callback state survived timer teardown");
+        std::cout << "Real held timer callback join test passed\n";
+#else
+        std::cout << "Held timer callback test requires the Windows worker implementation\n";
+#endif
         std::cout << "Worker idle cancellation tests passed\n";
         return 0;
     }
