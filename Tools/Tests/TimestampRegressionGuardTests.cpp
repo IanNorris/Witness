@@ -213,6 +213,15 @@ int main()
 	Require(TimestampCadenceClock::CadenceDrifted(110 * 90000, 120 * 90000));
 	Require(!TimestampCadenceClock::CadenceDrifted(114 * 90000, 120 * 90000));
 	Require(!TimestampCadenceClock::CadenceDrifted(126 * 90000, 120 * 90000));
+	Require(TimestampCadenceClock::CadenceDrifted(126 * 90000 + 1, 120 * 90000));
+	Require(TimestampCadenceClock::CadenceDrifted(114 * 90000 - 1, 120 * 90000));
+	Require(!TimestampCadenceClock::CadenceDrifted(21, 20));
+	Require(!TimestampCadenceClock::CadenceDrifted(19, 20));
+	Require(TimestampCadenceClock::CadenceDrifted(20, 19));
+	Require(!TimestampCadenceClock::CadenceDrifted(INT64_MAX, INT64_MAX));
+	Require(!TimestampCadenceClock::CadenceDrifted(INT64_MAX - INT64_MAX / 20, INT64_MAX));
+	Require(TimestampCadenceClock::CadenceDrifted(INT64_MAX - INT64_MAX / 20 - 1, INT64_MAX));
+	Require(TimestampCadenceClock::CadenceDrifted(INT64_MIN, INT64_MAX));
 	Require(TimestampCadenceClock::CadenceDrifted(0, 0));
 	Clock.Reset();
 	Require(!Clock.UseArrival);

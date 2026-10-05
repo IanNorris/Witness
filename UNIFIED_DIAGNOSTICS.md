@@ -4175,3 +4175,65 @@ This is component portability validation, not a complete Linux server build.
 The additional Linux timestamp policy executable exposed an exact upper 5%
 boundary rounding failure at TimestampRegressionGuardTests.cpp:215; that finding
 must be resolved separately before the integration review is closed.
+
+### Integration manual review and release candidate (2026-10-05)
+
+User requested consolidation after manual review. The repository's mainline is
+`master`, not `main`. The combined branch already contains the five ordered work
+areas; this review does not blindly merge abandoned or unrelated branches.
+The older cleanup lock commit is patch-equivalent to a change already retained.
+Motion-calibration groundwork and the historical audio-first-pass branch are
+not part of this integration and are left intact.
+
+Review focused on the authentication/CSRF and telemetry ownership boundaries,
+bounded asynchronous history storage, health cache freshness and shutdown,
+PTZ original-transport Stop ordering and configuration fencing, worker lifetime
+and cancellation, live mux/AAC packet ownership and pre-header teardown,
+dependency-safe MSE eviction/presented-frame recovery, layout normalization and
+group-scoped browser persistence, and managed dependency bootstrap guards.
+No additional blocker was found in this pass beyond the timestamp policy's
+cross-platform exact-boundary rounding. CadenceDrifted now compares the positive
+integer difference against Duration/20, avoiding both floating-point boundary
+differences and overflowing multiplication. Tests include both inclusive 5%
+boundaries, adjacent rejected ticks, non-divisible durations and INT64 extrema.
+This preserves the intended threshold rather than widening it.
+
+Fresh checks on this candidate:
+
+- Linux timestamp policy: GCC C++20, Wall/Wextra/Werror, pass.
+- Pinned Windows server/UI and native regression targets: build pass.
+- Windows timestamp, actual worker callback/idle cancellation, 20 cross-DLL
+  Baichuan lifetime cycles, eight AAC media ownership/reconnect cycles, and four
+  pre-header EOF teardown paths: pass.
+- Policy/harness Python suites: 78 tests pass, two opt-in checks skipped. The
+  first attempt used incorrect import paths and sandbox-restricted temp paths;
+  only the corrected invocation is the qualified result.
+- Frontend non-DVR suites: 86 pass, one optional offline export skipped. The
+  broad invocation's DVR fixture initially could not launch its FFmpeg child;
+  its isolated rerun passed. Existing Sass/chunk advisories remain.
+- The frozen OFF candidate's 128-output strict decode/timestamp audit is now
+  complete with all outputs passing, and its owning process exited zero. This
+  is evidence for that frozen candidate, not latest-candidate endurance or a
+  completed matched observer OFF/ON comparison.
+- Fresh authenticated multi-client history/revocation/restart checks pass for
+  both zero-camera server lifecycles in 18.334 seconds.
+- Installed dependency inventory remains byte-identical to the baseline:
+  2,673 files / 759,367,637 bytes; zero added, removed or changed files.
+
+Separate byte/identity-verified release candidate:
+`build-vs2026-stable/deploy/integration-reviewed-ba0ad903383b-web-430ccda99640`,
+94 files / 178,003,926 bytes. Evidence is in
+`artifacts/integration-reviewed-package-20261005.json`,
+`artifacts/integration-review-build-20261005.log`,
+`artifacts/integration-review-unit-tests-qualified-20261005.log`, and
+`artifacts/run-integration-reviewed-runtime-20261005/`.
+No new clip/image/database/dump assets occur in the integration diff, and neither
+artifacts nor deployment directories are tracked. User BACKLOG.md edits remain
+unstaged and unchanged. No production deployment or remote push was performed.
+
+Remaining validation limits: no complete Linux server build, full latest-candidate
+endurance, matched observer ON measurement, independently profiled browser
+hidden/resume test, physical PTZ movement acceptance, or compiler-servicing ABI
+comparison. Layouts remain group-scoped browser preferences, not shared server
+configuration. These limits remain open after consolidation; do not mark the
+overall goal complete or infer production stability from this release candidate.

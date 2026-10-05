@@ -83,9 +83,14 @@ struct TimestampCadenceClock
 	}
 	static bool CadenceDrifted(int64_t Reference, int64_t Duration)
 	{
-		// Compare without overflowing integer products for fine timebases.
-		return Duration <= 0 || Reference < static_cast<long double>(Duration) * 0.95L ||
-			Reference > static_cast<long double>(Duration) * 1.05L;
+		// An inclusive 5% boundary must be identical for MSVC's double-sized
+		// long double and GCC's extended precision. Both operands are positive,
+		// so subtraction is safe; dividing the allowance avoids products and
+		// floating-point rounding, including at INT64_MAX.
+		if (Duration <= 0 || Reference < 0) return true;
+		const int64_t Difference = Reference >= Duration ?
+			Reference - Duration : Duration - Reference;
+		return Difference > Duration / 20;
 	}
 };
 }
