@@ -583,3 +583,44 @@ byte-for-byte against the build runtime by
 `artifacts/shutdown-order-package-verified.json`. Native build completed without
 C++/linker warnings or dependency installation; frontend chunk-size advisories
 remain. The full multi-stream performance gate and overall goal remain open.
+
+### Camera-loaded lifecycle replay harness (2026-10-05)
+
+The same full-server test now accepts `WITNESS_TEST_REPLAY_INPUTS`, a JSON array
+of up to 16 existing local media filenames, and `WITNESS_TEST_REPLAY_SECONDS`
+(10–3600 seconds per run; default 20). Without inputs it retains the zero-camera
+lifecycle test. Each input gets its own numeric-loopback FFmpeg MPEG-TS HTTP
+sender, paced with `-re`, looped and packet-copied. The fixture creates enabled
+camera rows in its new database, leaves PTZ/substreams disabled, enables motion
+vector extraction, and uses a valid high motion threshold (0.99) so this smoke
+does not intentionally trigger clip/AI work. Replay processes are stopped by
+their owned process handles and the private database/cache is removed afterwards.
+
+Readiness requires packets on every camera. During each run the test samples the
+authenticated real health handler once per second, then asserts both accepted
+packets and completed processing jobs advanced for every camera. It stops the
+server while its camera workers are active, restarts fresh replay senders and
+the same isolated server database, and verifies persisted browser history.
+HTTP samples and actual host/process CPU readings are retained in
+`artifacts/full-server-replay-run-{0,1}.json`; these are not processing latency
+distributions or an instrumentation baseline comparison.
+
+The first successful 16-input run pair used eight copies of saved Tapo H.264
+1280×720 media and eight copies of a synthetic HEVC 160×96 fixture. Both phases
+were 20 seconds, all 16 cameras stayed connected and completed processing jobs
+advanced; sampled cumulative packet drops and mux errors were zero. This proves
+camera-loaded lifecycle behavior only: it is not 16 independent cameras, not
+representative HEVC resolution, not the original RTSP/arrival-clock network path,
+not browser playback, and not the required 30-minute baseline/enabled gate.
+The initial harness failures were an invalid threshold of 1.0 and an incorrect
+health JSON nesting assumption; no product fix was made to accommodate them.
+
+The deployable server remains the verified `shutdown-order-866a4420204d`
+package above; this work piece changes the test harness only. The overall goal
+stays active until the remaining representative workload/browser/performance
+requirements have actual evidence.
+
+Finalized harness regression: `artifacts/camera-loaded-server-regression-final.log`
+passed in 68.117 seconds with both phases and the explicit processing-advancement
+assertions enabled. All fixture-owned server/sender processes ended. The user's
+unrelated `BACKLOG.md` edits are preserved and excluded from this commit.
