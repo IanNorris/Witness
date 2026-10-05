@@ -675,3 +675,52 @@ contained nine history samples, durableThroughSequence 9, storageFailures 0.
 The private server and all sixteen sender processes stopped cleanly; both test
 browser tabs were closed. This branch modifies only the validation harness/docs
 and continues to use the verified deployable shutdown-fix package above.
+
+### Bounded completed-task processing work percentiles (2026-10-05)
+
+Inspection found `FilterStat_Process_Total` exposed to consumers but never
+populated by a processing scope. The queue worker now measures steady-clock
+nanoseconds spent within each filter `DoWork` call and accumulates them in the
+task's existing frame stats. Finalized tasks with measured work feed a private
+1024-sample ring per source; admission is O(1). `GetStats` copies the ring under
+the existing locks, releases them, then sorts only the copy. No sorting or window
+allocation occurs in `AddFrame`. The public DLL snapshot exposes only scalar
+results, not the ring or its STL layout.
+
+The authenticated health response now includes `processing.workLatency` with
+P50/P95/P99/max milliseconds, sample count, samples since reset, capacity,
+nearest-rank method, explicit scope and a profiling-reset epoch. An empty window
+returns null percentiles rather than claiming zero latency. Reset clears the
+window and advances its epoch while preserving live queue gauges. The window is
+the last 1024 finalized tasks, not a fixed elapsed-time interval or lifetime
+distribution. Its storage bound is per source (8 KiB of sample values); no new
+global camera-count limit is claimed.
+
+This is **filter-stage wall work**, not thread CPU, input-to-result latency or
+queue residence. Work can include blocking/DB/enqueue operations executed inside
+the filter call. Input decode and time waiting for dispatch remain separate.
+Existing finalization also counts optional-AI candidates whose essential work
+finished but whose inference was coalesced away; their measured work is included,
+not fabricated inference latency. Comparisons must use like-for-like workloads
+and the same completion population. Tasks completing after a profiling reset
+enter the new completion epoch even if an earlier stage ran before the reset.
+
+`ProcessingLatencyWindowTests` passed empty/zero/negative cases, exact rank
+selection, 1024-sample wraparound, copy isolation and reset/gauge preservation.
+The real-server 16-replay test with `WITNESS_TEST_PROCESSING_LATENCY=1` passed both
+phases and clean restart, positive bounded ordered percentiles for every camera,
+and actual authenticated `/camera/admin_reset_stats` epoch/window resets.
+Evidence: `artifacts/processing-latency-server-regression-final.log` (68.725 s),
+`artifacts/processing-latency-15b2da5f9014-run-{0,1}.json`, and native test/build
+logs. These short mixed 720p H.264/tiny HEVC inputs are not the representative
+load gate. No CPU-overhead or less-than-5% P95-overhead claim is made yet.
+
+Coherent deployable build:
+`build-vs2026-stable/deploy/processing-latency-15b2da5f9014`, native
+`15b2da5f9014`, web `e2d8fb683d50`, 94 files / 177,658,844 bytes. Package verifier
+`artifacts/processing-latency-package-verified.json` confirms exact runtime
+matches and excludes test binaries/private data. `SourceStats` gained scalar
+fields, so consumers must deploy the rebuilt matching server/Camera DLL together;
+this does not claim binary compatibility with an older consumer. Native build
+has no C++/linker warnings or vcpkg installation; frontend chunk advisories remain.
+All private-fixture processes stopped, and the user's backlog edits remain intact.

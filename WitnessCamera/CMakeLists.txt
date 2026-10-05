@@ -169,6 +169,12 @@ if(MSVC)
     target_compile_options(BaichuanCommandReplyTests PRIVATE /utf-8 /W3)
 endif()
 
+add_executable(ProcessingLatencyWindowTests EXCLUDE_FROM_ALL ../Tools/Tests/ProcessingLatencyWindowTests.cpp)
+target_include_directories(ProcessingLatencyWindowTests PRIVATE Source Include)
+if(MSVC)
+    target_compile_options(ProcessingLatencyWindowTests PRIVATE /utf-8 /W3)
+endif()
+
 add_executable(BaichuanLifetimeTests EXCLUDE_FROM_ALL ../Tools/Tests/BaichuanLifetimeTests.cpp)
 add_executable(BaichuanPtzProbe EXCLUDE_FROM_ALL ../Tools/Tests/BaichuanPtzProbe.cpp)
 target_link_libraries(BaichuanPtzProbe PRIVATE WitnessCamera)

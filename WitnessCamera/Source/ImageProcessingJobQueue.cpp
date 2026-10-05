@@ -429,8 +429,9 @@ void ImageProcessingJobQueue::CompletedBackgroundAIJob()
 SourceStats ImageProcessingJobQueue::GetStats(int SourceID)
 {
 	auto& ID = *m_InternalData;
-	std::lock_guard<std::mutex> QueueLock(ID.QueueMutex);
-	SourceStats Result = ID.GetStatsForSource(SourceID);
+	std::unique_lock<std::mutex> QueueLock(ID.QueueMutex);
+	ProcessingLatencyWindow Window;
+	SourceStats Result = ID.GetStatsForSource(SourceID, &Window);
 	const int64_t NowNS = QueueClockNowNS();
 
 	auto RecordOldestAge = [SourceID, NowNS](const std::vector<SharedClassificationTask>& Queue)
@@ -457,6 +458,14 @@ SourceStats ImageProcessingJobQueue::GetStats(int SourceID)
 	Result.ActiveAISources = ID.ActiveAISources.size();
 	Result.ActiveBackgroundAIJobs = ID.ActiveBackgroundAIJobs;
 	Result.MaximumConcurrentAIJobs = ID.MaximumConcurrentAIJobs;
+	QueueLock.unlock();
+	Window.Sort();
+	Result.ProcessingWorkSamples = Window.Count;
+	Result.ProcessingWorkSamplesSinceReset = Window.Total;
+	Result.ProcessingWorkP50NS = Window.Percentile(50);
+	Result.ProcessingWorkP95NS = Window.Percentile(95);
+	Result.ProcessingWorkP99NS = Window.Percentile(99);
+	Result.ProcessingWorkMaxNS = Window.Percentile(100);
 	return Result;
 }
 
@@ -501,7 +510,11 @@ void ImageProcessingJobQueue::WorkerThreadMain()
 			auto StateInternal = ID.GetStateForSource(TaskSourceID);
 			Job->Frame.WantFullSizeOutput = StateInternal->HasViewerFullSize;
 			Job->Frame.WantSmallOutput = StateInternal->HasViewerPreviewSize;
+			const int64_t WorkStartNS = QueueClockNowNS();
 			Job->Next->DoWork(Job);
+			Job->Frame.Stats.WasHit[FilterStat_Process_Total] = true;
+			Job->Frame.Stats.Stats[FilterStat_Process_Total] +=
+				(std::max)(int64_t{0}, QueueClockNowNS() - WorkStartNS);
 			StateInternal->HasViewerFullSize = Job->Frame.WantFullSizeOutput;
 			StateInternal->HasViewerPreviewSize = Job->Frame.WantSmallOutput;
 		}
@@ -536,6 +549,8 @@ void ImageProcessingJobQueueData::AddFrame(int Source, int64_t Timestamp, const 
 	// Optional AI can finish after a newer essential frame has already been
 	// accounted for, so a late completion must not move source progress back.
 	Ref.LastTimestamp = (std::max)(Ref.LastTimestamp, Timestamp);
+	if (StatsIn.WasHit[FilterStat_Process_Total])
+		ProcessingWork[Source].Add(StatsIn.Stats[FilterStat_Process_Total]);
 	for (unsigned int Stat = 0; Stat < FilterStat_Max; Stat++)
 	{
 		Ref.Stats.Stats[Stat] += StatsIn.Stats[Stat];
@@ -547,6 +562,7 @@ void ImageProcessingJobQueueData::ResetStats(int Source)
 {
 	std::lock_guard<std::mutex> Lock(StatsMutex);
 	Stats[Source].Reset();
+	ProcessingWork[Source].Reset();
 }
 
 SourceState::SourceState()

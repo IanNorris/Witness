@@ -237,6 +237,27 @@ class FullServerIsolationTests(unittest.TestCase):
                                                    f"camera {camera['cameraId']} stopped advancing")
                                 self.assertGreater(camera['processing']['completedFrames'], initial_processing[camera['cameraId']],
                                                    f"camera {camera['cameraId']} processing stopped advancing")
+                                if os.environ.get('WITNESS_TEST_PROCESSING_LATENCY') == '1':
+                                    work = camera['processing']['workLatency']
+                                    self.assertTrue(0 < work['samples'] <= work['capacity'] == 1024)
+                                    self.assertGreater(work['samplesSinceReset'], 0)
+                                    self.assertTrue(0 <= work['p50Ms'] <= work['p95Ms'] <= work['p99Ms'] <= work['maxMs'])
+                                    self.assertGreater(work['maxMs'], 0)
+                                    self.assertEqual(work['scope'], 'filterStageWallTimeExcludingQueueWaitAndDecode')
+                            if os.environ.get('WITNESS_TEST_PROCESSING_LATENCY') == '1':
+                                before_work = {camera['cameraId']: camera['processing']['workLatency'] for camera in health['cameras']}
+                                self.assertEqual(request('/camera/admin_reset_stats', body={'csrf': csrf})[0], 200)
+                                code, reset_body = request('/debug/health')
+                                self.assertEqual(code, 200)
+                                reset_health = json.loads(reset_body)
+                                for camera in reset_health['cameras']:
+                                    work = camera['processing']['workLatency']
+                                    before = before_work[camera['cameraId']]
+                                    self.assertEqual(work['epoch'], before['epoch'] + 1)
+                                    self.assertLess(work['samplesSinceReset'], before['samplesSinceReset'])
+                                    self.assertLessEqual(work['samples'], work['samplesSinceReset'])
+                                    if not work['samples']:
+                                        self.assertIsNone(work['p95Ms'])
                             (repository / f'artifacts/full-server-replay-run-{run}.json').write_text(
                                 json.dumps({'nativeBuildId': identity, 'cameraCount': len(inputs),
                                     'limits': 'Paced loopback packet-copy replay; browser attachment is externally verified; no baseline phase; not the full load gate',

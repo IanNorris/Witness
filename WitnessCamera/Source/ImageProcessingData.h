@@ -8,6 +8,7 @@
 
 #include "RecordFilter.h"
 #include "SourceStats.h"
+#include "ProcessingLatencyWindow.h"
 
 struct SwsContext;
 
@@ -53,6 +54,7 @@ struct ImageProcessingJobQueueData
 
 	std::mutex											StatsMutex;
 	std::unordered_map<int, SourceStats>				Stats;
+	std::unordered_map<int, ProcessingLatencyWindow> ProcessingWork;
 
 	bool												WantExit;
 
@@ -72,9 +74,13 @@ struct ImageProcessingJobQueueData
 		return State;
 	}
 
-	SourceStats GetStatsForSource(int Source)
+	SourceStats GetStatsForSource(int Source, ProcessingLatencyWindow* Window = nullptr)
 	{
 		std::lock_guard<std::mutex> Lock(StatsMutex);
+		if (Window) {
+			auto Found = ProcessingWork.find(Source);
+			if (Found != ProcessingWork.end()) *Window = Found->second;
+		}
 
 		return Stats[Source];
 	}

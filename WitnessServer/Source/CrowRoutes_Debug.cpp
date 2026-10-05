@@ -421,6 +421,18 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 			Processing["ingressFrames"] = Stats.IngressFrames;
 			Processing["startedFrames"] = Stats.StartedFrames;
 			Processing["completedFrames"] = Stats.FrameCount;
+			crow::json::wvalue Work;
+			Work["epoch"] = Stats.ProcessingWorkEpoch;
+			Work["samples"] = Stats.ProcessingWorkSamples;
+			Work["samplesSinceReset"] = Stats.ProcessingWorkSamplesSinceReset;
+			Work["capacity"] = 1024;
+			Work["method"] = "nearestRankLastCompletedTasks";
+			Work["scope"] = "filterStageWallTimeExcludingQueueWaitAndDecode";
+			Work["p50Ms"] = Stats.ProcessingWorkSamples ? crow::json::wvalue((double)Stats.ProcessingWorkP50NS / 1000000.0) : crow::json::wvalue(nullptr);
+			Work["p95Ms"] = Stats.ProcessingWorkSamples ? crow::json::wvalue((double)Stats.ProcessingWorkP95NS / 1000000.0) : crow::json::wvalue(nullptr);
+			Work["p99Ms"] = Stats.ProcessingWorkSamples ? crow::json::wvalue((double)Stats.ProcessingWorkP99NS / 1000000.0) : crow::json::wvalue(nullptr);
+			Work["maxMs"] = Stats.ProcessingWorkSamples ? crow::json::wvalue((double)Stats.ProcessingWorkMaxNS / 1000000.0) : crow::json::wvalue(nullptr);
+			Processing["workLatency"] = std::move(Work);
 			Processing["coalescedFrames"] = Stats.CoalescedFrames;
 			Processing["coalescedAIFrames"] = Stats.CoalescedAIFrames;
 			Processing["pendingEssential"] = Stats.PendingEssentialJobs;

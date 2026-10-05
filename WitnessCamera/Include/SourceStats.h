@@ -134,6 +134,7 @@ struct SourceStats
 	SourceStats()
 	: PendingEssentialJobs( 0 )
 	, PendingAIJobs( 0 )
+	, ProcessingWorkEpoch( 0 )
 	{
 		Reset();
 	}
@@ -163,6 +164,17 @@ struct SourceStats
 	int64_t ContinuationQueueWaitMaxNS;
 	int64_t AIQueueWaitTotalNS;
 	int64_t AIQueueWaitMaxNS;
+
+	// Exact nearest-rank percentiles over the last 1024 completed processing
+	// tasks with measured filter work. Work is steady-clock wall time executing
+	// filter stages, excluding queue wait and input decoding, not thread CPU.
+	uint64_t ProcessingWorkEpoch;
+	uint64_t ProcessingWorkSamples;
+	uint64_t ProcessingWorkSamplesSinceReset;
+	int64_t ProcessingWorkP50NS;
+	int64_t ProcessingWorkP95NS;
+	int64_t ProcessingWorkP99NS;
+	int64_t ProcessingWorkMaxNS;
 
 	// Live queue gauges, populated when GetStats() takes its snapshot.
 	int64_t OldestPendingEssentialAgeNS;
@@ -201,6 +213,9 @@ struct SourceStats
 		ContinuationQueueWaitMaxNS = 0;
 		AIQueueWaitTotalNS = 0;
 		AIQueueWaitMaxNS = 0;
+		++ProcessingWorkEpoch;
+		ProcessingWorkSamples = ProcessingWorkSamplesSinceReset = 0;
+		ProcessingWorkP50NS = ProcessingWorkP95NS = ProcessingWorkP99NS = ProcessingWorkMaxNS = 0;
 		OldestPendingEssentialAgeNS = 0;
 		OldestPendingAIAgeNS = 0;
 		ActiveJobAgeNS = 0;
