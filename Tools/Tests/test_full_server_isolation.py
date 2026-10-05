@@ -21,6 +21,7 @@ import unittest
 import urllib.error
 import urllib.request
 from check_preview_decode import inspect as inspect_recording
+from owned_process_dump import capture_owned_process_dump
 
 
 def sample_coverage(samples, duration, max_gap=10):
@@ -456,13 +457,17 @@ class FullServerIsolationTests(unittest.TestCase):
                             for source in (data / 'logs').glob('*.log'):
                                 shutil.copyfile(source, repository / 'artifacts/full-server-isolation-failed-server.log')
                             debugger = Path('C:/Program Files (x86)/Windows Kits/10/Debuggers/x64/cdb.exe')
-                            if process.poll() is None and debugger.is_file():
+                            if process.poll() is None:
                                 try:
-                                    subprocess.run([str(debugger), '-pv', '-p', str(process.pid),
-                                        '-y', str(server.parent), '-logo', str(repository / 'artifacts/full-server-shutdown-hang-stacks.log'),
-                                        '-c', '~* kb; .detach; q'], stdout=subprocess.DEVNULL,
-                                        stderr=subprocess.DEVNULL, timeout=20,
-                                        creationflags=subprocess.CREATE_NO_WINDOW)
+                                    dump = repository / 'artifacts' / f'owned-shutdown-{secrets.token_hex(8)}.dmp'
+                                    capture_owned_process_dump(process, dump)
+                                    print(f'Owned shutdown dump: {dump}', flush=True)
+                                    if debugger.is_file():
+                                        subprocess.run([str(debugger), '-z', str(dump),
+                                            '-y', str(server.parent), '-logo', str(dump.with_suffix('.stacks.log')),
+                                            '-c', '~* kb; q'], stdout=subprocess.DEVNULL,
+                                            stderr=subprocess.DEVNULL, timeout=20,
+                                            creationflags=subprocess.CREATE_NO_WINDOW)
                                 except (OSError, subprocess.TimeoutExpired):
                                     pass  # Diagnostics never prevent test-owned process cleanup.
                             raise

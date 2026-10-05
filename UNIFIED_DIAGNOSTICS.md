@@ -1338,3 +1338,20 @@ so do not claim a diagnosed deadlock. Evidence is preserved in
 `artifacts/client-health-recovery-30minute-hang-stacks.log` (the latter records
 only the failed capture). Fixture-owned processes/data were cleaned up. Native
 playback samples must be audited separately from this failed lifecycle gate.
+
+### Owned-process shutdown dump capture (2026-10-05)
+
+The isolation fixture now captures a normal/thread-info minidump using its
+retained `subprocess.Popen` CreateProcess handle before terminating a hung child.
+It never opens an arbitrary PID or captures a production process. Dump filenames
+are exclusive and random; no full-process-memory flag is requested. Offline CDB
+stack extraction replaces the denied live attachment. Matching PDBs still need
+to be supplied for useful native symbols; a successful dump is evidence capture,
+not a diagnosis. Capture failure must not mask the original lifecycle failure or
+prevent owned-process cleanup.
+
+`python Tools/Tests/test_owned_process_dump.py` passed on Windows: a newly spawned
+Python child produced an `MDMP` file, overwrite was refused, the child stayed live
+after capture, and an exited child was rejected. This required elevated execution
+because the runner could not access its own newly created temporary directory.
+Reproduction of the server hang and inspection of its new dump remain pending.
