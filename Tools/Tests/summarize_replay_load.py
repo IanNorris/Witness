@@ -129,6 +129,12 @@ def summarize(replay, history):
     cpu = [sample['server']['host'].get('processCpuPercent') for sample in samples]
     host = [sample['server']['host'].get('cpuPercent') for sample in samples]
     requests = [sample.get('httpMs') for sample in samples]
+    summary_scope = 'authenticatedHealthWithoutRawWorkSamplesRequestAndResponseBodyOnly'
+    summary_requests = [sample.get('summaryHttpMs') for sample in samples
+                        if sample.get('summaryHttpScope') == summary_scope and
+                        type(sample.get('summaryHttpMs')) in (int, float) and
+                        math.isfinite(sample['summaryHttpMs']) and sample['summaryHttpMs'] >= 0]
+    summary_complete = len(summary_requests) == len(samples)
     camera_ids = sorted(camera['cameraId'] for camera in samples[0]['cameras'])
     if any(sorted(camera['cameraId'] for camera in sample['cameras']) != camera_ids
            for sample in samples):
@@ -214,8 +220,13 @@ def summarize(replay, history):
         'browserHistoryScope': 'serverReceiptWithinMeasurementWindow' if window else 'legacyUnanchoredHistory',
         'processCpuHostCapacityPercent': {'p50': quantile(cpu, .5), 'p95': quantile(cpu, .95)},
         'hostCpuPercent': {'p50': quantile(host, .5), 'p95': quantile(host, .95)},
-        'summaryHttpWallMs': {'p50': quantile(requests, .5), 'p95': quantile(requests, .95),
-                              'p99': quantile(requests, .99)},
+        'healthCollectionWallMs': {'p50': quantile(requests, .5), 'p95': quantile(requests, .95),
+                                  'p99': quantile(requests, .99),
+                                  'scope': 'perSampleHealthHttpScopeOrLegacyCollectionIncludingParsing'},
+        'summaryHttpTiming': {'scope': summary_scope, 'availableSamples': len(summary_requests),
+                              'totalSamples': len(samples), 'complete': summary_complete},
+        'summaryHttpWallMs': {name: quantile(summary_requests, percentile) if summary_complete else None
+                              for name, percentile in (('p50', .5), ('p95', .95), ('p99', .99))},
         'processing': processing, 'browserSessions': browser,
         'processingTaskDistributions': replay.get('processingTaskDistributions', []),
         'limits': ['Rolling filter P95 summaries are not the full-phase processing P95.',

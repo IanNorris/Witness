@@ -90,6 +90,35 @@ class ReplaySummaryTests(unittest.TestCase):
         self.assertIsNone(quantile([None, float('nan'), True], .95))
         self.assertEqual(quantile([1, 3, 2], .95), 3)
 
+    def test_legacy_http_collection_is_not_relabelled_as_summary_latency(self):
+        replay, row = self.fixture()
+        result = summarize(replay, {'history': [row]})
+        self.assertEqual(result['healthCollectionWallMs']['p95'], 5)
+        self.assertEqual(result['summaryHttpWallMs'], {'p50': None, 'p95': None, 'p99': None})
+        self.assertFalse(result['summaryHttpTiming']['complete'])
+        self.assertEqual(result['summaryHttpTiming']['availableSamples'], 0)
+
+    def test_separate_summary_timing_requires_all_samples_and_explicit_scope(self):
+        replay, row = self.fixture()
+        scope = 'authenticatedHealthWithoutRawWorkSamplesRequestAndResponseBodyOnly'
+        for index, sample in enumerate(replay['samples']):
+            sample['httpMs'] = 100 + index
+            sample['summaryHttpMs'] = 10 + index
+            sample['summaryHttpScope'] = scope
+        result = summarize(replay, {'history': [row]})
+        self.assertEqual(result['healthCollectionWallMs']['p95'], 101)
+        self.assertEqual(result['summaryHttpWallMs']['p95'], 11)
+        self.assertTrue(result['summaryHttpTiming']['complete'])
+        for invalid in [None, -1, True, float('nan'), float('inf')]:
+            replay['samples'][1]['summaryHttpMs'] = invalid
+            result = summarize(replay, {'history': [row]})
+            self.assertFalse(result['summaryHttpTiming']['complete'])
+            self.assertIsNone(result['summaryHttpWallMs']['p95'])
+            self.assertEqual(result['summaryHttpTiming']['availableSamples'], 1)
+        replay['samples'][1]['summaryHttpMs'] = 11
+        replay['samples'][1]['summaryHttpScope'] = 'raw-export'
+        self.assertIsNone(summarize(replay, {'history': [row]})['summaryHttpWallMs']['p95'])
+
     def test_synthetic_other_build_and_hidden_rows_are_excluded(self):
         replay, row = self.fixture()
         invalid = []

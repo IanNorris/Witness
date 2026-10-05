@@ -2928,3 +2928,56 @@ candidate. No main merge/push/deployment or dependency mutation occurred. The
 recording audit handle 71718 is still live, with its owned Python PID42428 and
 child timestamp-inspection ffprobe PID10200 observed after the prior decode
 stage; this is verified continued work, not a terminal pass.
+
+### Load harness HTTP timing scope correction (2026-10-05)
+
+Inspection found the replay harness's `httpMs` timer stopped after JSON parsing,
+raw processing-sample collection and sample sanitization. When raw work export
+was enabled it also timed the larger `workSamples=1` response, yet the summarizer
+labelled the result `summaryHttpWallMs`. This is not suitable evidence for the
+ordinary summary HTTP P95 gate.
+
+`health_request_timing.sample_health` now explicitly requests authenticated
+`/debug/health?workSamples=0`; raw phases separately fetch `workSamples=1` and
+`workSamples=0`. Both timers stop immediately after the request wrapper returns
+the fully read response body, before any JSON parsing or collector work. Plain
+phases make one request. The helper rejects HTTP failures, invalid intervals,
+changed build/camera membership between paired responses and raw work samples
+unexpectedly present in the ordinary response. The raw processing collector and
+its sequence/epoch/overrun qualification remain unchanged. Two requests per raw
+sample increase measurement traffic and must be kept identical in both phases
+of a future paired observer test; they are not a free probe.
+
+Samples carry explicit HTTP scope labels and separate summary latency. The
+summarizer emits ordinary-summary P50/P95/P99 only when every sample has a
+valid, finite, nonnegative value with the exact ordinary-summary scope. Missing,
+partial, nonfinite, boolean or mis-scoped data remain unqualified/null, not zero
+or partial-window percentiles. Existing `httpMs` is preserved under
+`healthCollectionWallMs`, with its legacy collection ambiguity stated. Historical
+exports are not retroactively relabelled as clean request-only measurements.
+
+Regressions: 5 timing-helper, 15 replay-summary, 12 workload-evidence and 7
+processing-collector tests pass. Timing tests verify clock reads precede JSON
+decoding, one-versus-two request behavior and fail-closed errors. Workload tests
+required an escalated rerun after sandbox Temp-directory ACL errors; unchanged
+tests then passed. A real full-server fixture with one paced H.264 source,
+raw collection and two 10-second lifecycle phases passes in 33.880 seconds.
+Evidence: `artifacts/run-http-timing-isolation-20261005/`. First-phase ten samples
+all carry the ordinary scope; summary request latency ranges 1.109..15.833 ms,
+raw request latency 1.542..23.960 ms and the exact processing distribution is
+complete. These are functional short-run checks while another inspection is
+active, not a controlled load, playback or overhead gate.
+
+A corrected descriptive summary of the earlier 16-source OFF run is preserved
+separately as
+`artifacts/presented-browser-16stream-off-30minute-summary-http-scope-corrected.json`.
+Its 1,759 legacy samples have zero qualifying summary timings. The old 40.399 ms
+P95 belongs to health collection (including raw export/parsing/collection), not
+the ordinary-summary P95. Original evidence files are unchanged. This reinforces
+the need for new matched same-candidate observer phases with correct timing.
+
+No runtime source or packaged bytes changed; native3d9183607607/web99d827777842
+remains the verified deployable candidate. No main merge/push/deployment or
+production setting changed; user backlog edits remain untouched. The independent
+recording audit handle 71718 remains live at the latest poll with no terminal
+result; the overall goal and broad gates remain open.

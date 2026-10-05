@@ -26,6 +26,7 @@ from check_preview_decode import inspect as inspect_recording
 from check_long_recording import inspect_long
 from owned_process_dump import capture_owned_process_dump
 from processing_sample_collector import ProcessingSampleCollector
+from health_request_timing import sample_health
 
 RECORDING_FAILURE_ROOT = Path(__file__).resolve().parents[2] / 'artifacts'
 
@@ -554,17 +555,14 @@ class FullServerIsolationTests(unittest.TestCase):
                             measurement_started_monotonic = time.monotonic()
                             until = measurement_started_monotonic + duration
                             while time.monotonic() < until:
-                                started = time.monotonic()
-                                code, body = request('/debug/health')
-                                self.assertEqual(code, 200)
-                                health = json.loads(body)
+                                health, http_timing = sample_health(request, raw_processing)
                                 if work_collector is not None:
                                     work_collector.add(health)
                                     for camera in health['cameras']:
                                         camera['processing']['workLatency'].pop('rawSamplesNS', None)
                                 samples.append({'receivedUnixMs': int(time.time() * 1000),
                                     'elapsedSeconds': duration - max(0, until - time.monotonic()),
-                                    'httpMs': (time.monotonic() - started) * 1000,
+                                    **http_timing,
                                     'server': health['server'], 'cameras': health['cameras']})
                                 self.assertTrue(all(sender.poll() is None for sender in senders), 'replay sender exited')
                                 time.sleep(1)
