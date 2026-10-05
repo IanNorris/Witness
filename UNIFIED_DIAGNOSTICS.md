@@ -4408,3 +4408,28 @@ The persisted-recording gate also rejects missing, negative and excessive active
 motion durations per clip; seventeen pure tests pass. Native policy tests and
 the final rebuilt server runtime remain pending. No production deployment,
 remote push, master merge or user BACKLOG mutation.
+
+The final native d63a3532fc76/web48906d0cd45a build and package pass coherence
+verification:94 files /178,030,038 bytes
+(`artifacts/recording-metadata-package-20261005.json`). The actual native queue,
+held-callback shutdown and ClipTiming policy tests run successfully on Windows
+and existing Ubuntu GCC with C++20,-Wall,-Wextra,-Werror,-pthread,-latomic; no
+Linux packages were installed. This is not full-server Linux validation.
+
+The two-camera metadata regression now passes both20-second recording lifecycles
+in79.878s: all8 clip/DVR files strictly inspected, positive total durations21/21
+then20/20, no invalid motion durations, and clean shutdown/restart. The previous
+binary demonstrably failed the same two-camera duration gate with20/0. Evidence:
+`artifacts/run-recording-metadata-two-camera-green-20261005/`.
+Authenticated multi-client health history, revocation and restart persistence also
+pass on this final package in13.316s under
+`artifacts/run-recording-metadata-history-final-20261005/`.
+
+Final review covers finalization before camera state teardown, bounded queue
+snapshot ownership, dispatch/drain serialization, preservation of a shutdown wake,
+no new camera actions during drain, unsigned timestamp seeds and motion-duration
+clamping. The earlier native3b7916dff6bd mixed H264/HEVC/AAC two-lifecycle media
+pass is retained as narrower evidence, not mislabeled as latest-candidate mixed
+load/MSE playback acceptance. Genuine hidden/resume, physical PTZ and matched
+full-load observer overhead remain open. No private recordings, DBs or dumps are
+tracked; user BACKLOG edits and production remain untouched.
