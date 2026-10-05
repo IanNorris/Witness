@@ -27,7 +27,7 @@ from check_long_recording import inspect_long
 from owned_process_dump import capture_owned_process_dump
 from processing_sample_collector import ProcessingSampleCollector
 from health_request_timing import sample_health
-from replay_profiles import qualify_profiles, validate_live_profiles
+from replay_profiles import qualify_profiles, validate_live_profiles, validate_browser_layout_proof
 from ptz_update_scope_fixture import check_update_scope
 from ptz_http_relink_fixture import check_http_relink
 from multi_client_history_fixture import check_multi_client_history
@@ -302,6 +302,13 @@ class FullServerIsolationTests(unittest.TestCase):
         replay_seconds = int(os.environ.get('WITNESS_TEST_REPLAY_SECONDS', '20'))
         self.assertTrue(10 <= replay_seconds <= 3600)
         browser_hold = int(os.environ.get('WITNESS_TEST_BROWSER_HOLD_SECONDS', '0'))
+        viewport_option = os.environ.get('WITNESS_TEST_BROWSER_GATE_VIEWPORT')
+        browser_gate_viewport = json.loads(viewport_option) if viewport_option else None
+        if browser_gate_viewport is not None:
+            self.assertTrue(browser_hold and profiles is not None)
+            self.assertEqual(set(browser_gate_viewport), {'width', 'height'})
+            self.assertTrue(all(type(value) is int and 1 <= value <= 10000
+                                for value in browser_gate_viewport.values()))
         self.assertTrue(browser_hold == 0 or 60 <= browser_hold <= 3600)
         self.assertTrue(not browser_hold or inputs, 'Browser mode requires replay inputs')
         active_detection = os.environ.get('WITNESS_TEST_ACTIVE_DETECTION') == '1'
@@ -637,6 +644,18 @@ class FullServerIsolationTests(unittest.TestCase):
                                     self.assertTrue(all(sender.poll() is None for sender in senders), 'replay sender exited')
                                     code, history = request('/debug/client-health')
                                     self.assertEqual(code, 200)
+                                    if browser_gate_viewport is not None:
+                                        proof_path = artifacts / 'full-server-browser-gate-proof.json'
+                                        try:
+                                            if proof_path.stat().st_size > 65536:
+                                                raise ValueError('Browser proof exceeds the bounded size')
+                                            proof = json.loads(proof_path.read_text(encoding='utf8'))
+                                            validate_browser_layout_proof(proof, profiles, browser_gate_viewport,
+                                                                          int(time.time() * 1000))
+                                        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+                                            self.assertLess(time.monotonic(), deadline, 'Browser layout proof timeout')
+                                            time.sleep(1)
+                                            continue
                                     if browser_playback_ready(json.loads(history), initial.keys(),
                                             health['server']['webBuildHash'], int(time.time() * 1000),
                                             os.environ.get('WITNESS_TEST_PRESENTATION_MONITOR') == '1'):

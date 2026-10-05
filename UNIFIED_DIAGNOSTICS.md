@@ -4237,3 +4237,60 @@ hidden/resume test, physical PTZ movement acceptance, or compiler-servicing ABI
 comparison. Layouts remain group-scoped browser preferences, not shared server
 configuration. These limits remain open after consolidation; do not mark the
 overall goal complete or infer production stability from this release candidate.
+
+### Genuine visibility evidence and measured-start gate (2026-10-05)
+
+Separate branch `codex/real-browser-visibility-validation` adds actual document
+visibilityState to the production-composable fixture's observations, and a
+bounded 16-entry visibilitychange transition list. Computer-use skill and the
+supported CUA browser APIs tested the fixed synthetic H264/AAC asset. Opening
+another tab while the in-app browser was not visually presented did not produce
+a hidden document: every observed state was visible and the transition list
+remained empty. This is NOT a hidden/resume pass, and no property was mocked to
+manufacture one. Ignored evidence:
+`artifacts/real-visibility-attempt-20261005.json` and `.png`.
+The finite 35-second fixture's expected tail watchdog restart remains disclosed.
+The fixture compiled/type-checked; no production player source changed.
+
+The completed frozen OFF audit made a matched ON attempt possible. First ON
+attempt used the same package and sources but independent DOM inspection found
+1280x720 viewport instead of the baseline 2172x1550. It was excluded, and only
+verified disposable server process group20936 was gracefully signalled. Harness
+22748 then exited1 with expected connection-refused cleanup; this is not a
+spontaneous server crash or a measured comparison result.
+
+An opt-in WITNESS_TEST_BROWSER_GATE_VIEWPORT now prevents measurement until an
+independent recent DOM proof in the fresh run directory confirms exact viewport,
+visible fullscreen layout, no activity strip, exact source dimensions, every
+player inside the viewport, nonzero media time, unpaused readyState3/4 and no
+media error. Proofs expire after60 seconds; malformed, incomplete or incorrect
+proof cannot qualify. Eight profile/proof tests and twenty additional workload,
+shutdown deadline and comparison tests pass (28 total). A sandbox temp-access
+failure was rerun with scoped access; it is not counted as a code regression.
+
+Corrected attempt94145 used the frozen native2213c5ef8142/webb301018e1023 package
+and all five observersON, sixteen qualified repeated sources, one-fps CPU
+inference/manual clips/DVR, scoped cached-summary timing and whole-recording
+inspection. Its viewport was verified at2172x1550 BEFORE any proof was accepted.
+The current platform applies the override to an existing test tab, not a future
+tab; independent DOM checks caught and corrected that distinction. No proof was
+accepted: startup playback deteriorated from5/16 initialized ready players to
+0/16 readyState3/4, and the bounded five-minute gate timed out. No measured phase
+was started. The owning handle exited1; cleanup also captured a slow-shutdown
+dump. A complete latest-server shutdown regression is not inferred from this
+older frozen candidate's resource-contended failure.
+
+The fresh fixture's authenticated health snapshot shows hostCPU100%, RAM87%,
+processCPU36.39% of host logical capacity, and all16 input streams connected,
+accepting packets without reported video corruption/drops/cadence rejection.
+Aggregate OS counters independently showed substantial CPU/memory consumption
+from non-test applications. This run therefore cannot be compared with the
+quieter OFF phase to attribute a CPU increment to diagnostic observers. It also
+does not prove that external load is the only cause of the stalled playback.
+Ignored evidence is under `artifacts/run-matched-cached-health-on-20261005-v2/`,
+`artifacts/matched-cached-health-on-v2-startup-health-20261005.json`, and
+`artifacts/matched-cached-health-on-v2-unready-dom-20261005.json`.
+No other applications were stopped. All new owned browser tabs/fixture servers
+are closed, and the temporary viewport override was reset. The matched ON gate
+and genuine hidden/resume validation remain open; master/runtime/dependencies,
+remote, production and user BACKLOG edits are unchanged by this validation piece.

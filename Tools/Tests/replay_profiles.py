@@ -1,5 +1,7 @@
 """Fail closed when an endurance replay uses a different codec/resolution workload."""
 import json
+import math
+from datetime import datetime
 from pathlib import Path
 import subprocess
 
@@ -48,3 +50,31 @@ def validate_live_profiles(cameras, profiles):
         streams = [row for row in camera['streams'] if row.get('tier') == 'main' and row.get('available')]
         if len(streams) != 1 or any(streams[0].get(key) != value for key, value in profiles[uid - 1].items()):
             raise ValueError(f'Live replay profile mismatch for camera {uid}')
+
+
+def validate_browser_layout_proof(proof, profiles, viewport, now_ms):
+    """Require recent independently captured DOM evidence before load timing.
+
+    Browser-side capture is performed through the approved browser UI tools,
+    not this harness. Visible layout evidence cannot qualify hidden/resume.
+    """
+    if not isinstance(proof, dict) or proof.get('viewport') != viewport:
+        raise ValueError('Browser viewport does not match the measured baseline')
+    if (proof.get('visibility') != 'visible' or proof.get('fullscreen') is not True or
+            proof.get('activityVisible') is not False):
+        raise ValueError('Browser layout is not the required visible fullscreen grid')
+    captured = datetime.fromisoformat(proof['capturedUtc'].replace('Z', '+00:00'))
+    if captured.tzinfo is None or not 0 <= now_ms - captured.timestamp() * 1000 <= 60000:
+        raise ValueError('Browser DOM proof is stale or has no timezone')
+    players = proof.get('players')
+    if not isinstance(players, list) or len(players) != len(profiles):
+        raise ValueError('Browser player membership does not match the replay')
+    for player, profile in zip(players, profiles):
+        if (not isinstance(player, dict) or player.get('insideViewport') is not True or
+                player.get('paused') is not False or player.get('error') is not None or
+                type(player.get('readyState')) is not int or player['readyState'] < 3 or
+                player['readyState'] > 4 or player.get('width') != profile['width'] or
+                player.get('height') != profile['height'] or
+                type(player.get('currentTime')) not in (int, float) or
+                not math.isfinite(player['currentTime']) or player['currentTime'] <= 0):
+            raise ValueError('Browser player is not initialized, visible and playing')

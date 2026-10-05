@@ -1,7 +1,44 @@
 import json
 from types import SimpleNamespace
 import unittest
-from replay_profiles import qualify_profiles, validate_live_profiles
+from replay_profiles import qualify_profiles, validate_live_profiles, validate_browser_layout_proof
+from copy import deepcopy
+from datetime import datetime, timezone
+
+
+class BrowserLayoutProofTests(unittest.TestCase):
+    def setUp(self):
+        self.now = 1791210000000
+        self.profiles = [{'width': 1280, 'height': 720}]
+        self.viewport = {'width': 2172, 'height': 1550}
+        self.proof = {'capturedUtc': datetime.fromtimestamp(self.now / 1000, timezone.utc).isoformat(),
+                      'viewport': dict(self.viewport), 'visibility': 'visible', 'fullscreen': True,
+                      'activityVisible': False, 'players': [{'width': 1280, 'height': 720,
+                          'insideViewport': True, 'paused': False, 'readyState': 4,
+                          'error': None, 'currentTime': 10.0}]}
+
+    def test_matching_recent_playback_is_accepted(self):
+        validate_browser_layout_proof(self.proof, self.profiles, self.viewport, self.now)
+
+    def test_viewport_visibility_layout_age_and_membership_fail_closed(self):
+        for key, value in [('viewport', {'width': 1280, 'height': 720}),
+                           ('visibility', 'hidden'), ('fullscreen', False),
+                           ('activityVisible', True), ('players', []),
+                           ('capturedUtc', '2020-01-01T00:00:00Z'),
+                           ('capturedUtc', '2030-01-01T00:00:00Z'),
+                           ('capturedUtc', '2026-10-05T00:00:00')]:
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                proof = deepcopy(self.proof); proof[key] = value
+                validate_browser_layout_proof(proof, self.profiles, self.viewport, self.now)
+
+    def test_player_state_must_be_observed_not_assumed(self):
+        for key, value in [('insideViewport', False), ('paused', True), ('readyState', 2),
+                           ('readyState', True), ('width', 256), ('height', 144),
+                           ('currentTime', 0), ('currentTime', float('nan')),
+                           ('currentTime', True), ('error', {'code': 3})]:
+            with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                proof = deepcopy(self.proof); proof['players'][0][key] = value
+                validate_browser_layout_proof(proof, self.profiles, self.viewport, self.now)
 
 
 class ReplayProfileTests(unittest.TestCase):

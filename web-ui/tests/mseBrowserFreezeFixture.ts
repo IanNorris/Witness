@@ -11,6 +11,7 @@ const faultButton = document.querySelector<HTMLButtonElement>('#fault')!
 const evidence: Record<string, unknown> = {
   scope: 'Actual production composable and browser MSE; synthetic transport, deliberate unsafe removal; not native server/network validation.',
   observations: [],
+  visibilityTransitions: [],
 }
 const NativeMediaSource = window.MediaSource
 let activeBuffer: SourceBuffer | null = null
@@ -82,6 +83,7 @@ function observe() {
   if (completed) return evidence.latest
   const diagnostic = (window as any)._witnessMseDiag?.['1_mse']?.snapshot()
   const observation = {t: new Date().toISOString(), currentTime: video.currentTime,
+    visibilityState: document.visibilityState,
     readyState: video.readyState, paused: video.paused, seeking: video.seeking,
     buffered: ranges(video.buffered), error: video.error ? {code: video.error.code, message: video.error.message} : null,
     drift: diagnostic?.driftSamples?.at(-1), stats: diagnostic?.stats}
@@ -162,3 +164,9 @@ faultButton.onclick = () => {
   status.textContent = 'Fault armed; automatic injection at media time 11 seconds'
 }
 window.addEventListener('pagehide', () => { app?.unmount(); for (const socket of sockets) socket.close() })
+document.addEventListener('visibilitychange', () => {
+  const transitions = evidence.visibilityTransitions as unknown[]
+  transitions.push({t: new Date().toISOString(), visibilityState: document.visibilityState})
+  if (transitions.length > 16) transitions.shift()
+  observe()
+})
