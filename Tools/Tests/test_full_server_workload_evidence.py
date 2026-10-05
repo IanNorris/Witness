@@ -3,11 +3,34 @@ import unittest
 import sqlite3
 from pathlib import Path
 from unittest.mock import patch
+from copy import deepcopy
 
-from test_full_server_isolation import inference_evidence, recording_evidence, sample_coverage, verify_recordings
+from test_full_server_isolation import browser_playback_ready, inference_evidence, recording_evidence, sample_coverage, verify_recordings
 
 
 class WorkloadEvidenceTests(unittest.TestCase):
+    def test_browser_phase_requires_fresh_matching_playing_players(self):
+        player = {'id': '1_mse', 'readyState': 4, 'wsReadyState': 1, 'lastEventType': 'media:playing',
+                  'totalVideoFrames': 10, 'errorCount': 0, 'hasInitialBuffer': True,
+                  'waitingForKeyframe': False, 'awaitingInit': False}
+        healthy = {'history': [{'userUid': 1, 'username': 'fixture-admin', 'receivedUnixMs': 100000,
+                              'snapshot': {'buildHash': 'test-build', 'path': '/',
+                                           'visibilityState': 'visible', 'players': [player]}}]}
+        self.assertTrue(browser_playback_ready(healthy, [1], 'test-build', 100500))
+        for field, value in [('players', []), ('buildHash', 'old-build'), ('path', '/health-monitor'),
+                             ('visibilityState', 'hidden'), ('visibilityState', None)]:
+            export = deepcopy(healthy)
+            export['history'][0]['snapshot'][field] = value
+            self.assertFalse(browser_playback_ready(export, [1], 'test-build', 100500))
+        for field, value in [('readyState', 2), ('wsReadyState', 0), ('lastEventType', 'media:waiting'),
+                             ('totalVideoFrames', 0), ('errorCount', 1), ('id', '2_mse'), ('awaitingInit', True)]:
+            export = deepcopy(healthy)
+            export['history'][0]['snapshot']['players'][0][field] = value
+            self.assertFalse(browser_playback_ready(export, [1], 'test-build', 100500))
+        self.assertFalse(browser_playback_ready(healthy, [1, 2], 'test-build', 100500))
+        self.assertFalse(browser_playback_ready(healthy, [1], 'test-build', 116000))
+        self.assertFalse(browser_playback_ready(healthy, [1], 'test-build', 98000))
+
     def test_continuous_sampling(self):
         report = sample_coverage([{'elapsedSeconds': value} for value in range(1, 91)], 90)
         self.assertEqual(report['maximumGapSeconds'], 1)

@@ -35,6 +35,38 @@ def sample_coverage(samples, duration, max_gap=10):
             'maximumGapSeconds': max(gaps), 'maximumAllowedGapSeconds': max_gap}
 
 
+def browser_playback_ready(export, camera_ids, build_id, now_ms):
+    """A fresh, authenticated real-player heartbeat, not synthetic setup telemetry."""
+    expected_ids = {f'{camera_id}_mse' for camera_id in camera_ids}
+    if not expected_ids:
+        return False
+    for row in export.get('history', []):
+        if row.get('userUid') != 1 or row.get('username') != 'fixture-admin':
+            continue
+        received = row.get('receivedUnixMs')
+        if type(received) is not int or not -1000 <= now_ms - received <= 15000:
+            continue
+        snapshot = row.get('snapshot', {})
+        if (snapshot.get('buildHash') != build_id or snapshot.get('path') != '/' or
+                snapshot.get('visibilityState') != 'visible'):
+            continue
+        players = snapshot.get('players', [])
+        if not isinstance(players, list) or len(players) != len(expected_ids):
+            continue
+        if any(not isinstance(player, dict) for player in players):
+            continue
+        if {player.get('id') for player in players} != expected_ids:
+            continue
+        if all(type(player.get('readyState')) is int and player['readyState'] >= 3 and
+               player.get('wsReadyState') == 1 and player.get('lastEventType') == 'media:playing' and
+               type(player.get('totalVideoFrames')) is int and player['totalVideoFrames'] > 2 and
+               player.get('errorCount') == 0 and player.get('hasInitialBuffer') is True and
+               player.get('waitingForKeyframe') is False and player.get('awaitingInit') is False
+               for player in players):
+            return True
+    return False
+
+
 def inference_evidence(text):
     """Export only numeric completed-inference stats, never raw log/session data."""
     pattern = re.compile(r'ONNX Camera (\d+) stats: (\d+)/(\d+) detected '
@@ -296,6 +328,28 @@ class FullServerIsolationTests(unittest.TestCase):
                                         body={'csrf': csrf, 'record': True})[0], 200)
                             if browser_hold:
                                 print(f'isolatedBrowserUrl=http://127.0.0.1:{port}/', flush=True)
+                                # Do not count browser attachment/startup as measured playback.
+                                # Independent DOM observations remain required in addition to this gate.
+                                deadline = time.monotonic() + 300
+                                while True:
+                                    self.assertIsNone(process.poll(), 'server exited before browser playback')
+                                    self.assertTrue(all(sender.poll() is None for sender in senders), 'replay sender exited')
+                                    code, history = request('/debug/client-health')
+                                    self.assertEqual(code, 200)
+                                    if browser_playback_ready(json.loads(history), initial.keys(),
+                                            health['server']['webBuildHash'], int(time.time() * 1000)):
+                                        print('browserPlaybackReady=true', flush=True)
+                                        break
+                                    self.assertLess(time.monotonic(), deadline, 'browser playback readiness timeout')
+                                    time.sleep(1)
+                                code, phase_body = request('/debug/health')
+                                self.assertEqual(code, 200)
+                                phase_health = json.loads(phase_body)
+                                self.assertEqual(len(phase_health['cameras']), len(inputs))
+                                initial = {camera['cameraId']: camera['streams'][0]['acceptedVideoPackets']
+                                           for camera in phase_health['cameras']}
+                                initial_processing = {camera['cameraId']: camera['processing']['completedFrames']
+                                                      for camera in phase_health['cameras']}
                             samples = []
                             duration = browser_hold or replay_seconds
                             until = time.monotonic() + duration
@@ -348,6 +402,7 @@ class FullServerIsolationTests(unittest.TestCase):
                                 json.dumps({'nativeBuildId': identity, 'cameraCount': len(inputs),
                                     'limits': 'Paced loopback packet-copy replay; browser attachment is externally verified; no baseline phase; not the full load gate',
                                     'coverage': coverage,
+                                    'browserReadyBeforePhase': bool(browser_hold),
                                     'workload': {'objectDetection': active_detection, 'provider': 'cpu' if active_detection else None,
                                                  'maximumMotionInferenceFps': 1 if active_detection else None,
                                                  'recording': 'continuous DVR plus authenticated manual clips' if active_recording else 'disabled',

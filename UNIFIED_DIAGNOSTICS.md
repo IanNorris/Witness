@@ -981,3 +981,47 @@ including rejection of external DB paths before decoding and removal of private
 paths from exported inspection evidence. All fixture processes stopped and
 private runtime/database/cache folders were removed. No main merge, remote push,
 production deployment, camera movement or wake lock occurred.
+
+### Browser measurement-window readiness (2026-10-05)
+
+The earlier browser fixture started its sampling clock immediately after printing
+the loopback URL. Browser attachment and initialization were therefore part of
+that window: a 1,800-second **server** phase did not establish a full 1,800-second
+browser-playing phase. The currently running mixed-recording endurance job uses
+that earlier code and will retain this limitation; editing the harness does not
+retroactively alter or restart its loaded process.
+
+Future browser phases now wait up to five minutes for an authenticated fixture
+user heartbeat from the expected web build and dashboard path, received within
+15 seconds, from a visible dashboard. It must contain exactly the expected MSE camera IDs, with playing
+events, readyState >= 3, open sockets, actual rendered-frame counters, initialized
+buffers, no initialization/keyframe wait, and no reported media errors. Synthetic
+setup telemetry with an empty player list cannot satisfy it. The measured timer
+starts only afterward, with refreshed server packet/frame baselines. Independent
+DOM/visual observation remains necessary; telemetry alone is not proof of
+perceptually smooth rendering.
+
+Seven pure validator tests pass. A replay-clock check against the preserved real
+16-player heartbeat also accepted its actual exported schema. The new live
+five-minute startup/wait integration has not yet run. This gate uses the normal
+authenticated history endpoint during warmup; a future baseline configuration
+that disables that endpoint/history must provide an independently validated
+readiness signal rather than silently removing the gate. No native builds or
+other CPU-heavy tests were run during the active endurance measurement.
+
+The ongoing endurance run has already exposed a browser-suspension/recovery
+case, not uninterrupted healthy playback. A normal UI export saved as
+`C:/Users/icsta/Downloads/witness-full-debug-2026-10-05T01-54-02-445Z.json`
+contains watchdog delays of 34–60 seconds, paused media while fresh fragments
+continued appending, and a visibility transition back to visible followed by
+drift recovery. Camera 1's playhead was about 11.4 seconds with buffered media
+ending at 152.5 seconds on that transition; after recovery it returned to roughly
+1.2 seconds of headroom. No manual reload or playback seek was performed.
+Native inputs remained connected at the captured health snapshot. The fixture's
+authenticated history is preserved in
+`artifacts/mixed-recording-30minute-midpoint-history.json`; DOM observations are
+in `artifacts/mixed-recording-30minute-{third-media,bad-client}.json`.
+This evidence does not establish a server transport failure or production
+stability, and the final server measurement must not be labeled a full browser
+playback acceptance pass. Visibility at startup alone cannot guarantee that a
+browser stays scheduled/rendering throughout a long phase.
