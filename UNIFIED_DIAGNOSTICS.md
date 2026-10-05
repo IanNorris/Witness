@@ -1401,3 +1401,60 @@ remain unproven. Startup proof: `artifacts/client-error-evidence-16stream-start.
 live test log: `artifacts/client-error-evidence-263bb28c9d9c-16stream-30minute.log`.
 No compilations are planned during its measured phase. This still is not the
 required diagnostics-off/on comparison; the full overhead gate remains open.
+
+### Completed visible endurance and queue-stop regression (2026-10-05)
+
+The native `263bb28c9d9c` / web `e86cf29a7b1e` browser-connected test passed,
+including graceful shutdown and owned fixture cleanup (1,919.318 seconds total).
+Its 1,800-second measurement has 1,778 samples, maximum observation gap 1.165
+seconds. All 16 cameras were connected at the end. There are 120 real-player
+history rows covering 1,788.763 seconds; every retained session reports visible,
+and final player counters total zero restarts, stalls or errors. Periodic DOM
+checks also found all 16 videos playing. The heartbeat span is not an exact
+1,800-second continuous compositor trace. Storage failures are zero.
+
+Health-request wall time P50/P95/P99/max was 7.90/30.03/43.21/165.09 ms. Final
+rolling HTTP handler P95 was 4.528 ms and event-loop occupancy P95 5.575 ms.
+Host CPU P50/P95 was 66.28/82.81%; process CPU normalized to host capacity was
+34.47/44.23%. These are enabled-phase measurements, not overhead deltas. Final
+per-camera rolling processing P95 ranged 2.72–15.55 ms, excluding queue wait and
+decode. Browser presentation drops remained: about 0.2% on the first H.264
+fixture, 1.7% on the second, 0.01–0.02% on 1080p HEVC and 4.7–4.8% on 4K HEVC.
+Zero error/restart counters do not prove flawless presentation or identify the
+cause of those drops. No compilation ran during measurement.
+
+Final evidence: `artifacts/client-error-evidence-30minute-final-{run-0,history,workload}.json`
+and compact audit `artifacts/client-error-evidence-30minute-audit.json`. The run
+does not reproduce or establish the cause of the earlier shutdown hang. Four
+paced recordings repeated four times do not replace independent physical camera
+or broader codec/audio/protocol validation. The genuine diagnostics-off/on load
+comparison and its CPU/processing-P95 thresholds remain unproven.
+
+Independent source inspection found that image queue worker entry reset its
+shared stop flag and shutdown wrote that flag outside the waiter's mutex. The
+queue-stop change removes that reset, explicitly initializes the flag and updates
+it under QueueMutex before notifying all waiters. It is a permanent stop for the
+queue instance, not a change to frame scheduling, queue priorities or public DLL
+layout. No attribution to the previous server hang is claimed.
+
+The public-API `ImageQueueShutdownTests` executable covers a fresh waiting worker,
+late entry after repeated stop requests, and eight concurrent waiters. The same
+executable was run with the frozen legacy DLL in a private temporary runtime and
+the fixed DLL: it verifies each actually loaded native identity, requires the
+legacy negative control to lose the late-entry stop request, and requires the
+fixed DLL to pass. This check passed in 10.134 seconds. Legacy failure is safely
+unblocked using a sentinel; child processes also have 15-second timeouts.
+
+The fixed native `58d250ffc32a` / web `6c558bdd9d9e` rebuilt without native compiler
+warnings or dependency installation (Sass/chunk warnings remain). Two 90-second
+16-stream recording/CPU-detection lifecycles passed with clean shutdown in
+214.511 seconds total; both produced 16 clip rows, 16 continuous segment rows and
+16 completed-inference windows. Saved evidence:
+`artifacts/processing-queue-58d250ffc32a-{replay,workload}-{0,1}.json` and
+`artifacts/processing-queue-shutdown-baseline-fixed.log`. Strict recorded-output
+inspection was not enabled; these short, browserless runs are not the full load
+gate. The separate `build-vs2026-stable/deploy/processing-queue-shutdown-native-58d250ffc32a`
+package verifies at 94 files / 177,697,489 bytes with matching symbols; output:
+`artifacts/processing-queue-58d250ffc32a-package-verified.json`. Longer validation
+of this queue-fixed native build and rendered last-error UI verification remain
+pending.

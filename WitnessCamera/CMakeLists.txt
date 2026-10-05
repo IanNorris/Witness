@@ -207,3 +207,10 @@ foreach(test_name LiveTimestampRecoveryTests LiveCadencePauseTests LiveStreamOwn
         target_compile_options(${test_name} PRIVATE /utf-8 /W3)
     endif()
 endforeach()
+
+add_executable(ImageQueueShutdownTests EXCLUDE_FROM_ALL ../Tools/Tests/ImageQueueShutdownTests.cpp)
+target_include_directories(ImageQueueShutdownTests PRIVATE ${FFMPEG_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
+target_link_libraries(ImageQueueShutdownTests PRIVATE WitnessCamera)
+if(MSVC)
+    target_compile_options(ImageQueueShutdownTests PRIVATE /utf-8 /W3)
+endif()

@@ -56,7 +56,8 @@ struct ImageProcessingJobQueueData
 	std::unordered_map<int, SourceStats>				Stats;
 	std::unordered_map<int, ProcessingLatencyWindow> ProcessingWork;
 
-	bool												WantExit;
+	// Protected by QueueMutex; shutdown is permanent for this queue instance.
+	bool												WantExit = false;
 
 	void AddFrame(int Source, int64_t Timestamp, const FilterFrameStats& StatsIn );
 	void ResetStats(int Source);

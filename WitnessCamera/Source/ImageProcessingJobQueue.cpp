@@ -497,7 +497,6 @@ void ImageProcessingJobQueue::CompletedJob(int SourceID, uint64_t Generation, bo
 void ImageProcessingJobQueue::WorkerThreadMain()
 {
 	auto& ID = *m_InternalData;
-	ID.WantExit = false;
 	SharedClassificationTask Job;
 	Pop(Job);
 
@@ -536,8 +535,13 @@ void ImageProcessingJobQueue::WorkerThreadMain()
 void ImageProcessingJobQueue::RequestShutdown()
 {
 	auto& ID = *m_InternalData;
-	ID.WantExit = true;
-	MemoryBarrier();
+	{
+		// Use the same mutex as Pop's predicate/check-and-wait sequence. A
+		// memory barrier alone neither protects this flag nor prevents a lost
+		// notification between the predicate check and entering the wait.
+		std::lock_guard<std::mutex> Lock(ID.QueueMutex);
+		ID.WantExit = true;
+	}
 	ID.Condition.notify_all();
 }
 
