@@ -1061,3 +1061,33 @@ uncompacted report was 1,610,149 bytes). Four reporter tests, including this
 optional offline export, three drift/privacy tests and four playback-guard tests
 passed. The tests confirm schema/bounds, not live persisted receipt of the new
 web bundle or resolution of the suspended-playback behavior.
+
+The frontend-only `SyncWebUI` build passed type checking and bundling; no native
+recompile or dependency installation was requested. Sass deprecation and large
+chunk warnings remain. Verified separate package:
+`build-vs2026-stable/deploy/client-health-evidence-a62e819-native-e6f74ec3f350`,
+native `e6f74ec3f350` / web `32faba58be9d`, 94 files / 177,676,403 bytes.
+Byte/identity verification is in
+`artifacts/client-health-evidence-package-verified.json`.
+
+A fresh normal-authenticated, loopback-only two-stream browser fixture using
+that package passed in 112.065 seconds including setup, externally attached
+browser readiness and clean shutdown. The new readiness gate actually accepted
+both expected players before starting 60 measured seconds (60 samples, maximum
+gap 1.028 seconds). Persisted real-browser records carry web identity
+`32faba58be9d`, both readyState 4 / media:playing, zero restarts/stalls, and four
+drift samples per player. Seven history rows persisted with zero pending,
+rejected or storage failures. Anonymous health/history requests remained denied
+by the fixture assertions. Native input and new web identities are intentionally
+independent; the Camera DLL and server native identity still match.
+
+Evidence: `artifacts/client-health-evidence-browser-{run-0,history}.json` and
+`artifacts/client-health-evidence-browser-readiness.log`. The live screenshot
+`artifacts/client-health-evidence-browser-live.jpg` was captured before fixture
+shutdown. A later empty/paused DOM observation occurred after its scheduled
+shutdown and is not a media regression. All test processes, private fixture
+folders and agent-created tabs have been cleaned up. This short two-player test
+verifies bundle startup, readiness timing and authenticated persisted telemetry;
+the 16-player compaction fallback is verified offline, not yet by a new live
+16-player run. Longer uninterrupted browser validation, representative active
+AI load, and a diagnostics-off/equivalent baseline remain outstanding.
