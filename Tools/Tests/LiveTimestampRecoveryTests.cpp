@@ -35,12 +35,14 @@ int main(int argc, char** argv) {
     Setup.HistoricalPacketBufferSeconds = 0;
     InputStream Input(Setup, 8, nullptr, argv[1]);
     if (Input.Initialize() != CameraStreamError::Success) return 3;
-    LiveOutputStream Live("", &Input, 1);
-    Live.SetObservedTimestampRegressionRepairAllowed(true);
     SegmentBuffer Init;
     std::ofstream Output;
     int Generation = -1, Discontinuities = 0, Samples = 0;
     bool Started = false;
+    // Destruction can flush media: its callback must not access a destroyed
+    // output stream, whether the test passes or returns early on a failure.
+    LiveOutputStream Live("", &Input, 1);
+    Live.SetObservedTimestampRegressionRepairAllowed(true);
     Live.SetEventCallback([&](const LiveStreamEvent& Event) {
         if (Event.EventType == LiveStreamEvent::Discontinuity) ++Discontinuities;
         if (Event.EventType == LiveStreamEvent::InitSegmentReady) {

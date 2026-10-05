@@ -4058,3 +4058,51 @@ inspected failures; its immutable candidate predates this fix. Matched ON,
 latest-candidate endurance, real hidden/resume and independent browser-profile
 validation remain open. No private fixture/capture is tracked, and no push,
 main merge, production deployment or user backlog edit was performed.
+
+### Current-DLL cadence harness lifetime and generation validation (2026-10-05)
+
+Branch `codex/cadence-harness-teardown-validation` changes test consumers only.
+LiveCadencePauseTests and LiveTimestampRecoveryTests now declare every captured
+output/counter before the live stream, so stream teardown cannot outlive that
+callback state on normal or early-error exits. The pause harness's normal
+callback clearing alone did not cover its exception paths. This is a lifetime
+ordering defect found by inspection, not a claimed reproduced production crash.
+The pause harness also emits numeric evidence for all six scenarios.
+
+Pinned builds of both real-Camera-DLL consumers and TimestampRegressionGuardTests
+pass. Both qualified offline fixtures are 256x144, 20fps, 150 seconds, no B-frames,
+one H264 and one HEVC stream. Native `cbbf475693c1` passes both codecs through
+the synthetic 15-second pause/burst, bounded learned delivery, intact-source-clock
+negative control, unstable-delivery rejection and cooldown/keyframe requalification.
+The replay epoch is virtual in the pause test, NOT a real 140-second live test;
+the separate requalification test uses actual 50ms paced input for 380 frames.
+
+For each codec the control accepts 2,799 packets with zero drops; pause accepts
+2,798 with zero timestamp drops, one reset, a 15,050ms observed gap and no retry
+budget consumed. The 56ms bounded-delivery case learns 56ms, has zero drops and
+0.333333ms final phase error. An intact source clock stays unnormalized; the
+unstable-delivery negative control records rejection and 546 drops. The exported
+TimestampNormalizationActive field describes the last completed segment, while
+rejection is retained evidence, so both can be true in the negative control;
+these reports must not be interpreted as a new current-state normalization API.
+
+All writers terminate before authoritative strict checks. The twelve original
+outputs (eight pause/control/bounded-rate generations and four cooldown/retry
+generations) pass full strict decode, with zero decoder diagnostics and no missing,
+duplicate or regressing packet/frame timestamps. Report:
+`artifacts/cadence-current-cbb-terminal-full-decode-20261005.json`.
+The rebuilt numeric reporter's eight fresh output generations pass again:
+`artifacts/cadence-current-cbb-numeric-terminal-decode-20261005.json`;
+per-scenario logs are `artifacts/cadence-current-cbb-numeric-{h264,hevc}-20261005.log`.
+An earlier broad-glob inspection included a still-running retry writer and is
+invalid qualification evidence (`artifacts/cadence-current-cbb-full-decode-20261005.json`);
+its transient failure disappeared after that writer closed normally. Saved
+partial generations omit buffered tails; decode cleanliness does not prove every
+accepted access unit was published or continuous browser presentation.
+
+There is no runtime/frontend source change or new deployable binary identity.
+The preceding verified preheader-eof package remains the deployable candidate.
+Frozen OFF audit58671 is still live with 90/128 inspected and zero inspected
+failures. Overall inspection, matched ON, latest-candidate endurance and physical
+camera/browser hidden-resume validation are still open. No private recording,
+user backlog edit, remote push or production configuration change is committed.

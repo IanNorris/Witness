@@ -34,12 +34,14 @@ static LiveOutputStream::StreamingDiagnostics Run(const char* Fixture, bool Paus
     // This harness replaces packet timestamps, so use the camera's 90kHz
     // clock rather than the fixture MP4's encoder-selected timebase.
     Input.GetData().FormatContext->streams[Input.GetData().ChosenStreamIndex]->time_base = {1, 90000};
-    LiveOutputStream Live("", &Input, 1);
-    Live.SetObservedTimestampRegressionRepairAllowed(true);
     std::ofstream Output;
     SegmentBuffer Init;
     bool Started = false;
     int Discontinuities = 0;
+    // Callback captures must outlive Live, including on an exception path
+    // before the normal explicit callback clearing below.
+    LiveOutputStream Live("", &Input, 1);
+    Live.SetObservedTimestampRegressionRepairAllowed(true);
     Live.SetEventCallback([&](const LiveStreamEvent& Event) {
         if (Event.EventType == LiveStreamEvent::Discontinuity) ++Discontinuities;
         if (Prefix.empty()) return;
@@ -100,6 +102,25 @@ int main(int argc, char** argv) {
     const auto BoundedRate = Run(argv[1], false, std::string(argv[2]) + "-bounded-rate", false, true);
     const auto StableClock = Run(argv[1], false, "", true, false, true);
     const auto UnstableRate = Run(argv[1], false, "", false, false, false, true);
+    const auto Report = [](const char* Scenario, const auto& Stats) {
+        std::cout << "scenario=" << Scenario
+                  << " accepted=" << Stats.AcceptedVideoPackets
+                  << " dropped=" << Stats.DroppedVideoPackets
+                  << " normalizationActive=" << Stats.TimestampNormalizationActive
+                  << " normalizationRejected=" << Stats.TimestampNormalizationRejected
+                  << " pauseResets=" << Stats.TimestampPauseResets
+                  << " lastPauseGapMs=" << Stats.TimestampLastPauseGapMs
+                  << " retryAttempts=" << Stats.TimestampRetryAttempts
+                  << " arrivalRateAdjustments=" << Stats.TimestampArrivalRateAdjustments
+                  << " arrivalDurationMs=" << Stats.TimestampArrivalDurationMs
+                  << " phaseErrorMs=" << Stats.VideoPhaseErrorMs << '\n';
+    };
+    Report("control", Control);
+    Report("pause", Paused);
+    Report("wrongNominalRate", Mismatched);
+    Report("boundedRate", BoundedRate);
+    Report("stableSourceClock", StableClock);
+    Report("unstableDelivery", UnstableRate);
     if (Control.TimestampNormalizationRejected || !Control.TimestampNormalizationActive ||
         Paused.TimestampNormalizationRejected || !Paused.TimestampNormalizationActive ||
         Control.TimestampPauseResets != 0 || Paused.TimestampPauseResets != 1 ||
