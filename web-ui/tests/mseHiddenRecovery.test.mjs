@@ -95,8 +95,8 @@ async function fixture() {
       const bytes = new ArrayBuffer(8); new DataView(bytes).setFloat64(0, .25)
       socket.message(bytes)
     }
-    const tick = (deliver = true) => {
-      now += 250
+    const tick = (deliver = true, elapsedMs = 250) => {
+      now += elapsedMs
       if (deliver && socket.readyState === 1) feed()
       for (const timer of [...intervals.values()]) timer.fn()
     }
@@ -193,5 +193,27 @@ test('transport errors during deliberate teardown remain distinguishable', async
     assert.equal(f.diag().lastError.type, 'wsError')
     assert.equal(f.diag().lastError.intentionalClose, true)
     assert.equal(f.diag().lastError.wsReadyState, 3)
+  } finally { f.restore() }
+})
+
+test('a single scheduling suspension defers recovery but does not disable later frozen-playback recovery', async () => {
+  const f = await fixture()
+  try {
+    f.tick(true, 60000)
+    assert.equal(f.diag().stats.restartCount, 0, 'elapsed suspended time is not runnable stall evidence')
+    assert.ok(f.diag().importantEvents.some(e => e.type === 'watchdogSchedulingDelay'))
+    for (let i = 0; i < 17; i++) f.tick()
+    assert.equal(f.diag().stats.restartCount, 1)
+    assert.ok(f.diag().importantEvents.some(e => e.type === 'frozenRestart'))
+  } finally { f.restore() }
+})
+
+test('repeated delayed ticks still accumulate runnable frozen-playback time', async () => {
+  const f = await fixture()
+  try {
+    for (let i = 0; i < 17; i++) f.tick(true, 25000)
+    assert.equal(f.diag().stats.restartCount, 1,
+      'scheduling grace must not reset the entire stall deadline on every tick')
+    assert.ok(f.diag().importantEvents.some(e => e.type === 'frozenRestart'))
   } finally { f.restore() }
 })

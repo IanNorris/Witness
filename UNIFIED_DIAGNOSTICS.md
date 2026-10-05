@@ -1978,3 +1978,28 @@ Nine ownership/workload validators and four original small-probe tests also
 pass. Candidate binaries and package identities are unchanged; this is test
 harness work only. Actual >512 MiB/30-minute media, continuous browser rendering,
 and the full matched observer overhead gate still require a new endurance run.
+
+### Scheduling-delay recovery regression and presented-browser run
+
+`codex/mse-scheduling-delay-regression` exercises the actual production MSE
+composable against one 60-second callback gap and repeated 25-second callback
+gaps. Both preserve suspension grace yet still recover a frozen visible playhead
+once runnable watchdog time exceeds its threshold. All ten hidden-recovery and
+visibility tests pass. This rules out permanent deadline erasure in these
+simulated scheduling cases; it does not explain the renderer freeze or establish
+how real browser throttling behaved. Large callback gaps can nevertheless stretch
+the runnable-time-based recovery threshold into minutes of wall time. No player
+source or running binary changed.
+
+A new 1,800-second observer-off replay is running on native `6753258e104f`, web
+`cd53d3d7d020`, with sixteen logical sources, CPU detection, manual clips/DVR,
+exact task samples and bounded full-recording inspection. The normally
+authenticated IAB is explicitly presented; its fixture-only layout was changed
+to a 4x4 fullscreen grid with activity hidden so all sixteen videos lie inside
+the viewport. Startup and independent subsequent DOM observations show all
+players advancing at readyState 4, unpaused and error-free. This is an in-progress
+test, not a completed endurance result. Evidence so far:
+`artifacts/presented-browser-16stream-observers-off-30minute.log`,
+`artifacts/presented-browser-16stream-grid.png`, and
+`artifacts/presented-browser-16stream-{start-dom,progress-1,progress-2}.json`.
+No wake lock, deployment mutation or production data/session was used.
