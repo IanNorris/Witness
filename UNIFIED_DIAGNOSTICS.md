@@ -1091,3 +1091,29 @@ verifies bundle startup, readiness timing and authenticated persisted telemetry;
 the 16-player compaction fallback is verified offline, not yet by a new live
 16-player run. Longer uninterrupted browser validation, representative active
 AI load, and a diagnostics-off/equivalent baseline remain outstanding.
+
+### Hidden-document MSE recovery candidate (2026-10-05)
+
+The endurance export showed browser pause/throttling while WebSocket fragments
+continued appending. The MSE watchdog nevertheless attempted playback resume,
+frozen/stuck recovery and drift restarts while the document was hidden. That
+cannot repair a browser-suspended decoder, and replacing its pipeline can abort
+pending play promises. The candidate defers only these playback-specific
+actions while hidden; connection/startup/append timeout checks above this guard
+remain active. It clears playback timers on hidden/resumed transitions, logs
+both transitions, and continues receiving/processing media.
+
+Because a hidden playhead can stop indefinitely, ordinary playhead-based
+back-buffer removal alone is insufficient. Hidden removal now follows the
+buffered live edge, retaining a 30-second time window (five seconds during
+aggressive quota recovery). Visible back-buffer behavior remains five seconds,
+or one second aggressively. This is a time-window policy, not a strict byte cap
+or a promise that the browser keeps decoding while hidden. The existing visible
+keyframe catch-up/drift recovery still applies on return; without safe keyframe
+evidence a large accumulated gap can require a pipeline restart. Cameras merely
+hidden by dashboard layout are not affected while their document stays visible.
+
+Three pure visibility/eviction tests pass, as do four playback-guard, three
+drift/privacy and three normal health-reporting tests (the optional offline
+fixture test was not selected in this invocation). Actual MSE hide/resume,
+buffer eviction and persisted transition evidence still require live validation.

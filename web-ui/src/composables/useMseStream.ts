@@ -1,6 +1,7 @@
 import { ref, onUnmounted, type Ref } from 'vue'
 import type { DriftSample } from './driftDiagnostics'
 import { createPlaybackGuard, blockedAudioCameras } from './playbackGuard'
+import { MSE_BACK_BUFFER_SECONDS, playbackBufferTrimTarget, playbackRecoveryEnabled } from './msePlaybackVisibility'
 
 // ── Constants ─────────────────────────────────────────────────────────
 const MSE_WATCHDOG_INTERVAL_MS = 250
@@ -11,7 +12,6 @@ const MSE_MAX_APPEND_QUEUE_ITEMS = 128
 const MSE_MAX_APPEND_QUEUE_BYTES = 32 * 1024 * 1024
 const MSE_SOCKET_CLOSE_TIMEOUT_MS = 3000
 const MSE_HEALTHY_PLAYBACK_RESET_MS = 5000
-const MSE_BACK_BUFFER_SECONDS = 5
 const MSE_TARGET_HEADROOM_SECONDS = 1.25
 const MSE_CATCH_UP_START_SECONDS = 1.75
 
@@ -416,6 +416,7 @@ export function useMseStream(
   }
 
   const driftMediaEvents = ['waiting', 'stalled', 'seeking', 'seeked', 'playing', 'pause', 'ratechange'] as const
+  let playbackWasHidden = false
   function recordDriftMediaEvent(event: Event) {
     if (!destroyed) diag.log(`media:${event.type}`, { drift: driftEvidence(Date.now()) })
   }
@@ -592,7 +593,9 @@ export function useMseStream(
     const video = videoRef.value
     if (!video) return false
 
-    const trimTo = video.currentTime - (aggressive ? 1 : MSE_BACK_BUFFER_SECONDS)
+    const ranges = sourceBuffer.buffered
+    const end = ranges.length ? ranges.end(ranges.length - 1) : 0
+    const trimTo = playbackBufferTrimTarget(video.currentTime, end, document.visibilityState, aggressive)
     if (trimTo > 0 && sourceBuffer.buffered.length > 0) {
       const bufferedStart = sourceBuffer.buffered.start(0)
       if (trimTo <= bufferedStart + 0.05 || trimTo <= lastTrimmedTo + 0.05) return false
@@ -748,7 +751,7 @@ export function useMseStream(
 
         // Periodically trim back buffer
         const video = videoRef.value
-        if (video && video.currentTime > MSE_BACK_BUFFER_SECONDS + 2) {
+        if (video && (document.visibilityState === 'hidden' || video.currentTime > MSE_BACK_BUFFER_SECONDS + 2)) {
           trimBuffer()
         }
 
@@ -1399,7 +1402,35 @@ export function useMseStream(
         return
       }
 
-      // Auto-resume videos paused by the browser (e.g. background tab suspension)
+      // Transport/connect/append progress checks above still apply to hidden
+      // tabs. Playback-only recovery cannot repair a browser-suspended decoder:
+      // repeatedly replacing MSE just interrupts its pending play() promises.
+      // Keep ingest/append alive, with a bounded live-edge buffer in trimBuffer.
+      if (!playbackRecoveryEnabled(document.visibilityState)) {
+        if (!playbackWasHidden) diag.log('hiddenPlaybackRecoverySuspended', { drift: driftEvidence(now) })
+        playbackWasHidden = true
+        lowReadyStateSince = 0
+        currentTimeStalledSince = 0
+        highLatencySince = 0
+        healthyPlaybackSince = 0
+        lastCurrentTime = video.currentTime
+        catchUpActive = false
+        if (video.playbackRate !== 1) video.playbackRate = 1
+        if (video.buffered.length)
+          latencyMs.value = Math.round((video.buffered.end(video.buffered.length - 1) - video.currentTime) * 1000)
+        return
+      }
+      if (playbackWasHidden) {
+        playbackWasHidden = false
+        lastCurrentTime = video.currentTime
+        lowReadyStateSince = 0
+        currentTimeStalledSince = 0
+        highLatencySince = 0
+        healthyPlaybackSince = 0
+        diag.log('hiddenPlaybackRecoveryResumed', { drift: driftEvidence(now) })
+      }
+
+      // Auto-resume only after the browser can actually schedule playback again.
       if (video.paused && hasFrags && hasInitialBuffer && !destroyed) {
         void playback.play('watchdogResume')
       }
