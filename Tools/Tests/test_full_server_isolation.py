@@ -211,7 +211,19 @@ def verify_recordings(db, cache, previous_clip_uid, previous_segment_uid, progre
     return reports
 
 
-def stop_console_process(process):
+def wait_for_console_exit(process, slow_shutdown=None):
+    """Keep the original deadline; optional evidence is captured while attached."""
+    deadline = time.monotonic() + 30
+    try:
+        process.wait(timeout=10 if slow_shutdown is not None else 30)
+    except subprocess.TimeoutExpired:
+        if slow_shutdown is None:
+            raise
+        slow_shutdown()
+        process.wait(timeout=max(0, deadline - time.monotonic()))
+
+
+def stop_console_process(process, slow_shutdown=None):
     """Signal only this fixture's hidden console process group, then await exit."""
     if process.poll() is not None:
         return
@@ -225,7 +237,7 @@ def stop_console_process(process):
     try:
         if not kernel.GenerateConsoleCtrlEvent(1, process.pid):  # CTRL_BREAK_EVENT
             raise ctypes.WinError(ctypes.get_last_error())
-        process.wait(timeout=30)
+        wait_for_console_exit(process, slow_shutdown)
     finally:
         kernel.FreeConsole()
 
@@ -246,7 +258,8 @@ def replay_senders(inputs, urls, root):
                 log = files.enter_context((root / f'replay-{index}.log').open('wb'))
                 processes.append(subprocess.Popen(['ffmpeg', '-nostdin', '-hide_banner', '-loglevel', 'warning',
                     '-re', '-stream_loop', '-1', '-i', str(source), '-map', '0:v:0', '-map', '0:a?',
-                    '-c', 'copy', '-f', 'mpegts', '-listen', '1', url], stdout=log, stderr=log,
+                    '-c', 'copy', '-f', 'mpegts', '-listen', '1', url], stdin=subprocess.DEVNULL,
+                    stdout=log, stderr=log,
                     creationflags=subprocess.CREATE_NO_WINDOW))
             yield processes
         finally:
@@ -383,7 +396,7 @@ class FullServerIsolationTests(unittest.TestCase):
                 startup.wShowWindow = 0  # Hidden dedicated console, not a user window.
                 with replay_senders(inputs, urls, root) as senders, (root / f'run-{run}.log').open('wb') as log:
                     process = subprocess.Popen([str(executable), '--plain-console'], cwd=root, env=environment,
-                        stdout=log, stderr=subprocess.STDOUT, startupinfo=startup,
+                        stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT, startupinfo=startup,
                         creationflags=subprocess.CREATE_NEW_CONSOLE | subprocess.CREATE_NEW_PROCESS_GROUP)
                     try:
                         deadline = time.monotonic() + 45
@@ -743,8 +756,18 @@ class FullServerIsolationTests(unittest.TestCase):
                                 self.assertTrue(full_phase_work and all(row['complete'] for row in full_phase_work),
                                                 'Per-task phase evidence has gaps/resets/overruns')
                     finally:
+                        slow_dump = None
+                        def capture_slow_shutdown():
+                            nonlocal slow_dump
+                            try:
+                                candidate = artifacts / f'owned-slow-shutdown-{secrets.token_hex(8)}.dmp'
+                                capture_owned_process_dump(process, candidate)
+                                slow_dump = candidate
+                                print(f'Owned slow shutdown dump: {candidate}', flush=True)
+                            except (OSError, ValueError):
+                                pass  # Observation must not replace the shutdown result.
                         try:
-                            stop_console_process(process)
+                            stop_console_process(process, capture_slow_shutdown)
                         except BaseException:
                             # Preserve a failing lifecycle before private fixture cleanup.
                             log.flush()
@@ -760,7 +783,7 @@ class FullServerIsolationTests(unittest.TestCase):
                                     if debugger.is_file():
                                         subprocess.run([str(debugger), '-z', str(dump),
                                             '-y', str(server.parent), '-logo', str(dump.with_suffix('.stacks.log')),
-                                            '-c', '~* kb; q'], stdout=subprocess.DEVNULL,
+                                            '-c', '~* kb; q'], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
                                             stderr=subprocess.DEVNULL, timeout=20,
                                             creationflags=subprocess.CREATE_NO_WINDOW)
                                 except (OSError, subprocess.TimeoutExpired):
@@ -770,6 +793,17 @@ class FullServerIsolationTests(unittest.TestCase):
                             if process.poll() is None:
                                 process.kill()
                                 process.wait(timeout=5)
+                            if slow_dump is not None:
+                                debugger = Path('C:/Program Files (x86)/Windows Kits/10/Debuggers/x64/cdb.exe')
+                                if debugger.is_file():
+                                    try:
+                                        subprocess.run([str(debugger), '-z', str(slow_dump),
+                                            '-y', str(server.parent), '-logo', str(slow_dump.with_suffix('.stacks.log')),
+                                            '-c', '~* kb; q'], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                            stderr=subprocess.DEVNULL, timeout=20,
+                                            creationflags=subprocess.CREATE_NO_WINDOW)
+                                    except (OSError, subprocess.TimeoutExpired):
+                                        pass
                     if process.returncode != 0:
                         log.flush()
                         shutil.copyfile(root / f'run-{run}.log', artifacts / 'full-server-isolation-failed-run.log')

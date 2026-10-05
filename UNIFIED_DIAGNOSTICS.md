@@ -3645,3 +3645,23 @@ shutdown completed and recording inspection began; this partial result does
 not prove the older candidate immune to intermittent shutdown delays. The
 comparison is not the matched 30-minute OFF/ON gate. The large OFF audit is
 still running separately; ON must not begin while either audit is active.
+
+The baseline invocation subsequently completed all eight first-lifecycle
+recording inspections (strict decode and packet/frame timestamp checks). Its
+second lifecycle failed before starting a server: replay sender creation tried
+to inherit an invalid standard-input handle after the fixture's console
+detach (`WinError 6`). This is a harness failure, not a baseline server crash
+or a two-lifecycle pass. Replay senders, server children and dump symbolization
+now use explicit null input instead of inheriting the detached console handle.
+
+Shutdown observation now captures an exclusive owned-child dump after ten
+seconds, while still attached to the child's console. It then waits only the
+remaining original 30-second budget. Symbolization happens after shutdown or
+owned-child cleanup, not inside the deadline. Fast exits produce no dump;
+observation failure does not replace the server result. Five offline timing/
+sender-input regressions pass, including time spent observing counting toward
+the deadline and timeout propagation without another 30-second allowance.
+A fresh latest-package run with the unchanged qualified workload is active in
+`artifacts/run-health-contention-mixed-codecs-early-stacks-20261005/`; its final
+result remains pending. These changes affect diagnostic tooling, not the
+packaged server, and do not fix or dismiss the earlier shutdown failure.
