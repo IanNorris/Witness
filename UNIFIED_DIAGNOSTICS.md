@@ -774,3 +774,64 @@ motion thresholds intentionally avoided AI/recording work, and the media clock
 was normalized. Neither original network behavior, playback, production load,
 nor the 30-minute baseline/enabled gate is established. No new native build was
 needed: the test used coherent native 15b2da5f9014 / web e2d8fb683d50 unchanged.
+
+### Mixed-codec real-browser preflight (2026-10-05)
+
+The same 8×720p H.264, 4×1080p20 HEVC and 4×2160p25 HEVC matrix ran for a
+240-second server sampling phase with the actual compiled dashboard attached.
+Computer-use selected the generated `16 small` layout. Four ordered DOM
+observations found sixteen native video elements (no JPEG fallback), all
+unpaused, with their expected native resolutions and advancing clocks. An
+observation near 200 seconds found one 4K element at readyState 2; other elements
+were readyState 4. Error codes were null and no warning/error console logs were
+captured. Evidence: `artifacts/mixed-qualified-browser-media-observations.json`
+and `artifacts/mixed-qualified-browser-dashboard.jpg`.
+
+This is not an unqualified smooth-playback pass. The actual health UI showed
+brief `media:waiting` events, decreasing buffered headroom and presentation
+drops, especially for 4K HEVC. In the final persisted heartbeat at roughly 210
+seconds of player age, H.264 dropped-frame counts were zero, 1080p HEVC counts
+were 31–53 out of approximately 4,146 frames, and 4K counts were 284–313 out of
+approximately 4,990 frames. One 4K player reported readyState 2. Restart/stall
+watchdog/error counters were zero, which does not exclude sub-watchdog-duration
+waits or poor pacing. Input/server drops and browser presentation drops must
+remain separate evidence. Delivery pacing of the looped workload must also be
+audited independently before attributing this to production decode or MSE.
+
+The real monitor showed retained server heartbeats as well as the live browser
+snapshot. Final history had durableThroughSequence 16, pending 0, rejected 0 and
+storageFailures 0. Preserved evidence:
+`artifacts/mixed-browser-15b2da5f9014-history.json`,
+`artifacts/mixed-qualified-browser-health.txt` and
+`artifacts/mixed-browser-15b2da5f9014-run-0.json`.
+The server lifecycle test passed in 258.656 seconds including initialization and
+cleanup; 238 sampled health requests had P95 27.26 ms. Mean process CPU was
+25.03% of total host capacity, not diagnostic overhead. Both browser tabs and
+all owned server/sender processes were closed. Original media timing/network,
+AI/clip workload and the 30-minute baseline/enabled gate remain unverified.
+
+`Tools/Tests/check_replay_sender_pacing.py` now isolates workload transport: it
+uses the full-server harness's exact loopback sender and a packet-copy-only
+FFmpeg receiver, recording monotonic receipt times of FFmpeg progress records.
+Timeouts kill only the owned receiver; the existing sender context guarantees
+listener cleanup. Sources are bounded local files; no camera/session extraction,
+Witness decode or browser playback is involved. Two unit tests check exclusion
+of startup samples and rejection of insufficient/non-advancing evidence.
+
+Independent 60-media-second audits measured media/wall slopes after the first
+ten wall seconds of 0.999629 (4K25) and 1.000114 (1080p20), with zero receiver
+diagnostic bytes. Reports: `artifacts/qualified-2160p25-sender-pacing.json` and
+`artifacts/qualified-1080p20-sender-pacing.json`. Thus the standalone sender does
+not inherently supply the approximately 4–6% slower clock seen in the mixed
+Witness/browser path. This does not exclude backpressure when Witness consumes
+the stream, or hardware/render pressure when the browser decodes it.
+
+Inspection identified a confounder requiring a controlled comparison:
+`CameraWorker::WorkerMain` sleeps to nominal codec frame duration for every
+input not classified as `rtsp://`. Our live paced HTTP MPEG-TS fixture therefore
+receives additional worker pacing; production RTSP inputs bypass it. Requested
+sleep may overshoot on Windows, and a codec's declared cadence need not match a
+timestamp-normalized container. This is a candidate cause, not an A/B-proven
+diagnosis. Correctly distinguish live inputs from recorded-file pacing and
+rerun the same matrix before using this fixture for performance acceptance or
+claiming a production playback fix.
