@@ -4569,3 +4569,28 @@ independent camera decoding or hidden-camera stream-priming proof. The separate
 owned recording inspector remains live with its bounded ffprobe child; no
 restart or cancellation was performed. No source/runtime/package change,
 production mutation, private-media commit or user BACKLOG edit.
+
+Physical PTZ validation preflight (2026-10-05): pinned Windows builds of the
+existing manual PtzPhysicalProbe and read-only PtzCapabilityProbe pass. Their
+wrapper tests pass (2 physical-scope/privacy checks, 1 discovery check); the
+first sandboxed attempt lacked temporary-file access and is not a test pass.
+Using read-only local C:/ProgramData/Witness/server.db configuration, camera10
+fails the required HTTP Stop preflight (preflightHttpStop=0, probeExit3), so no
+Baichuan move is attempted. Read-only production HTTP discovery for cameras10
+and12 reports authenticated=0, probeExit3. Camera10 resolves and TCP ports80,
+443 and9000 are reachable; simple network unreachability is not the cause.
+
+A separate HTTPS443 login-only check, matching the existing camera transport's
+TLS policy, receives HTTP200/code1/device error-7 for camera10's explicit PTZ
+credentials. The explicit PTZ password differs from its configured stream
+password; camera12's explicit username and password both differ. Using each
+camera's already-configured stream credentials for login-only comparison succeeds
+on both: HTTP200/code0/token present. No token, password, username, camera address
+or arbitrary response body is retained or printed. No camera setting or local
+database is modified, and no PTZ move, preset, zoom write, reboot or calibration
+is performed. Correcting or confirming the intended separate PTZ credentials
+requires user direction; do not silently overwrite them or infer physical
+movement acceptance from successful login. Native manual probes are excluded
+from the deployment package. Owned recording-audit session5476 remains live;
+its 128-output inspection remains incomplete with two outputs completed at
+this checkpoint. The verified deployment package and user BACKLOG are unchanged.
