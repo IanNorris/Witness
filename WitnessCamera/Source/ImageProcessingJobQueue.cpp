@@ -428,6 +428,11 @@ void ImageProcessingJobQueue::CompletedBackgroundAIJob()
 
 SourceStats ImageProcessingJobQueue::GetStats(int SourceID)
 {
+	return GetStats(SourceID, nullptr);
+}
+
+SourceStats ImageProcessingJobQueue::GetStats(int SourceID, ProcessingWorkSampleBuffer* Samples)
+{
 	auto& ID = *m_InternalData;
 	std::unique_lock<std::mutex> QueueLock(ID.QueueMutex);
 	ProcessingLatencyWindow Window;
@@ -459,6 +464,8 @@ SourceStats ImageProcessingJobQueue::GetStats(int SourceID)
 	Result.ActiveBackgroundAIJobs = ID.ActiveBackgroundAIJobs;
 	Result.MaximumConcurrentAIJobs = ID.MaximumConcurrentAIJobs;
 	QueueLock.unlock();
+	if (Samples)
+		Samples->Count = Window.CopyNewest(Samples->Values, Samples->Capacity, Samples->FirstSequence);
 	Window.Sort();
 	Result.ProcessingWorkSamples = Window.Count;
 	Result.ProcessingWorkSamplesSinceReset = Window.Total;

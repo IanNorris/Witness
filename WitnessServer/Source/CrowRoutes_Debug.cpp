@@ -17,6 +17,8 @@
 #include <atomic>
 #include <cmath>
 #include <climits>
+#include <array>
+#include <optional>
 #include <windows.h>
 #include <psapi.h>
 
@@ -221,6 +223,14 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 		return;
 	}
 	const auto CollectionStart = std::chrono::steady_clock::now();
+	const char* RawWorkOption = req.url_params.get("workSamples");
+	if (RawWorkOption && std::string(RawWorkOption) != "0" && std::string(RawWorkOption) != "1")
+	{
+		res.code = 400;
+		res.end();
+		return;
+	}
+	const bool IncludeRawWork = RawWorkOption && std::string(RawWorkOption) == "1";
 
 	struct CameraHealthSnapshot
 	{
@@ -408,6 +418,15 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 		return Value;
 	};
 
+	// Raw export is opt-in and bounded independently of the camera count.
+	// Keep the same deterministic lowest-ID set across successive collections.
+	std::vector<int> RawWorkCameraIds;
+	if (IncludeRawWork)
+	{
+		for (const auto& Snapshot : CameraSnapshots) RawWorkCameraIds.push_back(Snapshot.Id);
+		std::sort(RawWorkCameraIds.begin(), RawWorkCameraIds.end());
+		if (RawWorkCameraIds.size() > 16) RawWorkCameraIds.resize(16);
+	}
 	std::vector<crow::json::wvalue> Cameras;
 	Cameras.reserve( CameraSnapshots.size() );
 	for( const auto& Snapshot : CameraSnapshots )
@@ -419,7 +438,18 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 
 		if( m_GlobalContext->CommonImageProcessingJobQueue )
 		{
-			auto Stats = m_GlobalContext->CommonImageProcessingJobQueue->GetStats( Snapshot.Id );
+			const bool RawSelected = IncludeRawWork &&
+				std::binary_search(RawWorkCameraIds.begin(), RawWorkCameraIds.end(), Snapshot.Id);
+			std::optional<std::array<int64_t, 1024>> RawSamples;
+			Witness::Camera::ProcessingWorkSampleBuffer SampleBuffer;
+			if (RawSelected)
+			{
+				RawSamples.emplace();
+				SampleBuffer.Values = RawSamples->data();
+				SampleBuffer.Capacity = RawSamples->size();
+			}
+			auto Stats = m_GlobalContext->CommonImageProcessingJobQueue->GetStats(
+				Snapshot.Id, RawSelected ? &SampleBuffer : nullptr);
 			crow::json::wvalue Processing;
 			Processing["ingressFrames"] = Stats.IngressFrames;
 			Processing["startedFrames"] = Stats.StartedFrames;
@@ -435,6 +465,15 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 			Work["p95Ms"] = Stats.ProcessingWorkSamples ? crow::json::wvalue((double)Stats.ProcessingWorkP95NS / 1000000.0) : crow::json::wvalue(nullptr);
 			Work["p99Ms"] = Stats.ProcessingWorkSamples ? crow::json::wvalue((double)Stats.ProcessingWorkP99NS / 1000000.0) : crow::json::wvalue(nullptr);
 			Work["maxMs"] = Stats.ProcessingWorkSamples ? crow::json::wvalue((double)Stats.ProcessingWorkMaxNS / 1000000.0) : crow::json::wvalue(nullptr);
+			if (RawSelected)
+			{
+				std::vector<crow::json::wvalue> Values;
+				Values.reserve(SampleBuffer.Count);
+				for (size_t Index = 0; Index < SampleBuffer.Count; ++Index)
+					Values.emplace_back((*RawSamples)[Index]);
+				Work["rawSamplesNS"] = std::move(Values);
+				Work["firstSequence"] = SampleBuffer.FirstSequence;
+			}
 			Processing["workLatency"] = std::move(Work);
 			Processing["coalescedFrames"] = Stats.CoalescedFrames;
 			Processing["coalescedAIFrames"] = Stats.CoalescedAIFrames;
@@ -644,6 +683,9 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 	Coverage["hardwareDecoderSessions"] = "notExposedByBrowser";
 	Coverage["otherBrowserClients"] = "bounded authenticated history at /debug/client-health; silent or offline clients retain their last heartbeat";
 	Coverage["rateCalculationSupported"] = false;
+	Coverage["rawWorkSamplesRequested"] = IncludeRawWork;
+	Coverage["rawWorkSamplesCameraLimit"] = 16;
+	Coverage["rawWorkSamplesTruncated"] = IncludeRawWork && CameraSnapshots.size() > 16;
 	Coverage["rateCalculationReason"] = "worker and processing counter epochs are not yet exposed";
 	Coverage["mediaEventFeed"] = "last 48 warning, error, packet disposition, and recovery events per stream";
 	Coverage["httpTracing"] = !HttpSnapshot.TracingEnabled ? "disabledByConfiguration" :

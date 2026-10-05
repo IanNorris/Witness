@@ -1879,3 +1879,71 @@ code was loaded before this harness edit. Six summary tests and all nine fixture
 evidence validators pass. Two validator cases initially hit sandbox-only Temp
 permission errors; the unchanged tests passed with access to their own temporary
 directories. No running fixture or candidate binary was replaced.
+
+### AAC/MSE endurance result: measurement completed, qualification failed
+
+The observer-off run above is now terminal: 1,782 health samples covered 1,800
+seconds, maximum sampling gap 1.299 seconds. Its overall test FAILED after
+1,912.598 seconds because camera 2's manual recording exceeded the strict
+inspection helper's 512 MiB input bound. This is not a demonstrated decoder
+failure, and the large private recording was not copied. Final recording and
+inference qualification did not complete. Preserved evidence:
+`artifacts/aac-mse-16stream-observers-off-30minute-{replay,history,summary}.json`
+and `artifacts/recording-inspection-failed-aa936bfe14db85f0.json`.
+
+Descriptive process CPU (percentage of host capacity) P50/P95 was
+28.887/39.760%; host CPU 57.564/76.795%; summary HTTP wall-time P95 27.473 ms.
+There is no matched observer-enabled phase, so these do not establish overhead.
+All sixteen main streams remained connected in every sampled server snapshot,
+with initGeneration 0 and no timestamp-normalization rejection. Server
+processing continued, but this does not prove browser presentation continued.
+
+Eligible browser history covers approximately sixteen minutes, not the full
+phase. All sixteen players recorded one restart/error and frame-counter resets.
+At 06:42:00 UTC, a representative player restarted for 331 seconds of drift:
+its playhead was unchanged while fragments and buffered end advanced. The WS
+error was marked intentionalClose, so it is not evidence of a server disconnect.
+Playback subsequently advanced and later froze again. An offscreen IAB renderer
+or a genuine player fault remains unresolved; document visibility alone does not
+distinguish those. The run is not continuous-playback or production-stability
+proof. Next validation needs a continuously presented browser and bounded
+long-recording inspection, rather than weakening either gate.
+
+### Exact processing-task latency sample export
+
+Branch `codex/processing-latency-sample-export` adds opt-in
+`/debug/health?workSamples=1` behind the existing authentication policy. The
+default response remains summary-only. Up to sixteen cameras export their
+existing 1,024-entry completed-task ring chronologically, with an epoch and
+first sequence from the same queue snapshot. A caller-owned fixed buffer keeps
+allocation ownership out of the DLL boundary; no worker timing/storage is added.
+Scope remains filter-stage wall time, excluding queue wait and decode.
+
+The replay collector deduplicates overlapping sequence windows and archives
+bounded raw durations. It reports exact full-phase nearest-rank P50/P95/P99 only
+when every task between the per-camera snapshot cursors is accounted for.
+Ring overruns, resets, camera-set changes, empty phases and collector capacity
+limits cannot silently qualify a distribution. Boundaries are sequence cursors,
+not fabricated per-task UTC timestamps. Seven collector tests, six summary tests,
+nine workload-evidence validators and the native ring regression test pass.
+
+Candidate native `6753258e104f`, web `cd53d3d7d020`, is frozen at
+`build-vs2026-stable/deploy/processing-sample-export-native-6753258e104f`.
+The verified package contains 94 files / 177,842,516 bytes; its manifest is
+`artifacts/processing-sample-export-package-verified.json`. The native build has
+no C/LNK warnings; existing frontend Sass/chunk warnings remain. Dependencies
+were reused. The first normal-auth four-source, two-lifecycle smoke passed in
+126.214 seconds with strict recordings and complete raw sample coverage for all
+eight camera-phases. Evidence:
+`artifacts/processing-sample-export-{replay,workload}-{0,1}.json` and
+`artifacts/processing-sample-export-raw-{0,1}.json.gz`. This short test does not
+qualify long-load overhead, independent physical cameras or browser playback.
+
+A second four-source/two-lifecycle regression passed in 122.273 seconds,
+including anonymous malformed-option rejection (403), authenticated malformed
+option rejection (400), explicit `workSamples=0` omission of raw arrays, raw
+sample collection, stats reset epochs and strict recordings. All eight
+camera-phases retained complete exact task distributions. Evidence:
+`artifacts/processing-sample-export-auth-smoke.log`,
+`artifacts/processing-sample-export-auth-{replay,workload}-{0,1}.json` and
+`artifacts/processing-sample-export-auth-raw-{0,1}.json.gz`.

@@ -99,6 +99,7 @@ def summarize(replay, history):
         'summaryHttpWallMs': {'p50': quantile(requests, .5), 'p95': quantile(requests, .95),
                               'p99': quantile(requests, .99)},
         'processing': processing, 'browserSessions': browser,
+        'processingTaskDistributions': replay.get('processingTaskDistributions', []),
         'limits': ['Rolling filter P95 summaries are not the full-phase processing P95.',
                    'Browser retained spans are not exact measurement-window coverage.',
                    'Counter deltas exclude startup and cannot prove absence of a hidden reset.',

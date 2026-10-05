@@ -22,6 +22,19 @@ struct ProcessingLatencyWindow {
         ++Total;
     }
     void Reset() { Count = Next = 0; Total = 0; }
+    // Copy the newest retained tasks chronologically, without changing/sorting
+    // the writer's ring. Sequence numbers are local to the owning stats epoch.
+    size_t CopyNewest(int64_t* Output, size_t OutputCapacity, uint64_t& FirstSequence) const {
+        FirstSequence = 0;
+        if (!Output || !OutputCapacity || !Count) return 0;
+        const size_t Copied = (std::min)(Count, OutputCapacity);
+        const size_t Oldest = Count == Capacity ? Next : 0;
+        const size_t Skip = Count - Copied;
+        for (size_t Index = 0; Index < Copied; ++Index)
+            Output[Index] = Values[(Oldest + Skip + Index) % Capacity];
+        FirstSequence = Total - Copied + 1;
+        return Copied;
+    }
     void Sort() { std::sort(Values.begin(), Values.begin() + Count); }
     // Nearest-rank percentile; 0 for an empty window is not an available value.
     int64_t Percentile(unsigned Percent) const {

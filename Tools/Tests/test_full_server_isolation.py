@@ -4,6 +4,7 @@ Uses a newly created database, private cache/log/history, loopback binding and
 fixture-owned normal sessions. Never copies live configuration or disables auth.
 """
 import contextlib
+import gzip
 import ctypes
 import json
 import os
@@ -22,6 +23,7 @@ import urllib.error
 import urllib.request
 from check_preview_decode import inspect as inspect_recording
 from owned_process_dump import capture_owned_process_dump
+from processing_sample_collector import ProcessingSampleCollector
 
 RECORDING_FAILURE_ROOT = Path(__file__).resolve().parents[2] / 'artifacts'
 
@@ -246,6 +248,7 @@ class FullServerIsolationTests(unittest.TestCase):
         active_detection = os.environ.get('WITNESS_TEST_ACTIVE_DETECTION') == '1'
         active_recording = active_detection or os.environ.get('WITNESS_TEST_RECORDING') == '1'
         verify_outputs = os.environ.get('WITNESS_TEST_VERIFY_RECORDINGS') == '1'
+        raw_processing = os.environ.get('WITNESS_TEST_RAW_PROCESSING_SAMPLES') == '1'
         self.assertTrue(not verify_outputs or active_recording, 'Output verification requires recording mode')
         lifecycle_runs = int(os.environ.get('WITNESS_TEST_LIFECYCLE_RUNS', '2'))
         self.assertTrue(1 <= lifecycle_runs <= 10)
@@ -301,6 +304,8 @@ class FullServerIsolationTests(unittest.TestCase):
                 db.commit()
 
             def request(path, authenticated=True, body=None):
+                if raw_processing and path == '/debug/health':
+                    path += '?workSamples=1'
                 headers = {'Cookie': f'SessionToken-{port}={token}'} if authenticated else {}
                 if body is not None:
                     headers['Content-Type'] = 'application/json'
@@ -340,6 +345,15 @@ class FullServerIsolationTests(unittest.TestCase):
                             time.sleep(0.1)
                         self.assertEqual(request('/debug/health', False)[0], 403)
                         self.assertEqual(request('/debug/client-health', False)[0], 403)
+                        if raw_processing:
+                            self.assertEqual(request('/debug/health?workSamples=bad', False)[0], 403)
+                            self.assertEqual(request('/debug/health?workSamples=bad')[0], 400)
+                            code, ordinary = request('/debug/health?workSamples=0')
+                            self.assertEqual(code, 200)
+                            ordinary = json.loads(ordinary)
+                            self.assertFalse(ordinary['coverage']['rawWorkSamplesRequested'])
+                            self.assertTrue(all('rawSamplesNS' not in camera['processing']['workLatency']
+                                                for camera in ordinary['cameras']))
                         deadline = time.monotonic() + 10
                         while True:
                             code, body = request('/debug/client-health')
@@ -462,6 +476,11 @@ class FullServerIsolationTests(unittest.TestCase):
                                                       for camera in phase_health['cameras']}
                             samples = []
                             duration = browser_hold or replay_seconds
+                            work_collector = None
+                            if raw_processing:
+                                code, initial_work = request('/debug/health')
+                                self.assertEqual(code, 200)
+                                work_collector = ProcessingSampleCollector(json.loads(initial_work))
                             measurement_started_unix_ms = int(time.time() * 1000)
                             measurement_started_monotonic = time.monotonic()
                             until = measurement_started_monotonic + duration
@@ -470,12 +489,22 @@ class FullServerIsolationTests(unittest.TestCase):
                                 code, body = request('/debug/health')
                                 self.assertEqual(code, 200)
                                 health = json.loads(body)
+                                if work_collector is not None:
+                                    work_collector.add(health)
+                                    for camera in health['cameras']:
+                                        camera['processing']['workLatency'].pop('rawSamplesNS', None)
                                 samples.append({'receivedUnixMs': int(time.time() * 1000),
                                     'elapsedSeconds': duration - max(0, until - time.monotonic()),
                                     'httpMs': (time.monotonic() - started) * 1000,
                                     'server': health['server'], 'cameras': health['cameras']})
                                 self.assertTrue(all(sender.poll() is None for sender in senders), 'replay sender exited')
                                 time.sleep(1)
+                            full_phase_work = []
+                            if work_collector is not None:
+                                code, final_work = request('/debug/health')
+                                self.assertEqual(code, 200)
+                                work_collector.add(json.loads(final_work))
+                                full_phase_work = work_collector.report()
                             measurement_completed_unix_ms = int(time.time() * 1000)
                             measurement_elapsed_seconds = time.monotonic() - measurement_started_monotonic
                             if browser_hold:
@@ -552,6 +581,7 @@ class FullServerIsolationTests(unittest.TestCase):
                                         'startedUnixMs': measurement_started_unix_ms,
                                         'completedUnixMs': measurement_completed_unix_ms,
                                         'observedDurationSeconds': measurement_elapsed_seconds},
+                                    'processingTaskDistributions': full_phase_work,
                                     'browserReadyBeforePhase': bool(browser_hold),
                                     'workload': {'objectDetection': active_detection, 'provider': 'cpu' if active_detection else None,
                                                  'maximumMotionInferenceFps': 1 if active_detection else None,
@@ -559,6 +589,12 @@ class FullServerIsolationTests(unittest.TestCase):
                                                  'strictRecordingInspection': verify_outputs,
                                                  'motionThreshold': 0.01 if active_detection else 0.99},
                                     'samples': samples}, indent=2), encoding='utf-8')
+                            if work_collector is not None:
+                                raw_path = repository / f'artifacts/full-server-processing-samples-run-{run}.json.gz'
+                                with gzip.open(raw_path, 'wt', encoding='utf-8') as raw_file:
+                                    json.dump(work_collector.raw_evidence(), raw_file, separators=(',', ':'))
+                                self.assertTrue(full_phase_work and all(row['complete'] for row in full_phase_work),
+                                                'Per-task phase evidence has gaps/resets/overruns')
                     finally:
                         try:
                             stop_console_process(process)
