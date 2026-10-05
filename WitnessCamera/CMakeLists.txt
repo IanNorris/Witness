@@ -179,6 +179,12 @@ if(MSVC)
     target_compile_options(ProcessingLatencyWindowTests PRIVATE /utf-8 /W3)
 endif()
 
+add_executable(RecentWrittenVideoPacketsTests EXCLUDE_FROM_ALL ../Tools/Tests/RecentWrittenVideoPacketsTests.cpp)
+target_include_directories(RecentWrittenVideoPacketsTests PRIVATE Source)
+if(MSVC)
+    target_compile_options(RecentWrittenVideoPacketsTests PRIVATE /utf-8 /W3)
+endif()
+
 add_executable(BaichuanLifetimeTests EXCLUDE_FROM_ALL ../Tools/Tests/BaichuanLifetimeTests.cpp)
 add_executable(BaichuanPtzProbe EXCLUDE_FROM_ALL ../Tools/Tests/BaichuanPtzProbe.cpp)
 target_link_libraries(BaichuanPtzProbe PRIVATE WitnessCamera)

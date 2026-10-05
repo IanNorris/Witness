@@ -5,6 +5,7 @@
 #include "TimestampArrivalGuard.h"
 #include "TimestampRequalification.h"
 #include "TimestampPauseRecovery.h"
+#include "RecentWrittenVideoPackets.h"
 #include <mutex>
 
 namespace Witness::Camera {
@@ -208,6 +209,8 @@ struct LiveOutputStreamData
 	int _FragmentDiagRingPos = 0;
 	int _FragmentDiagRingCount = 0;
 	static const int PACKET_DIAG_RING_SIZE = 1024;
+	static_assert(PACKET_DIAG_RING_SIZE == RecentWrittenVideoPackets::PacketHorizon);
+	RecentWrittenVideoPackets _RecentWrittenVideoPackets;
 	PacketDiagEntry _PacketDiagRing[PACKET_DIAG_RING_SIZE] = {};
 	int _PacketDiagRingPos = 0;
 	int _PacketDiagRingCount = 0;

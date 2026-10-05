@@ -1246,3 +1246,39 @@ phase is still running at this checkpoint; no endurance result is claimed.
 Log: `artifacts/client-health-recovery-progress-gate-16stream-30minute.log`;
 startup screenshot: `artifacts/client-health-recovery-16stream-start.jpg`.
 The verified deployment remains unchanged by this test-harness correction.
+
+During that corrected run, all 16 playheads were automatically paused when the
+in-app browser became hidden, while incoming media and heartbeats continued with
+zero restarts/stalls. Explicitly foregrounding the browser recovered every player
+with one drift restart. Later DOM observations showed all 16 visible, unpaused,
+readyState 4, normal speed, no media errors and 1.12–1.41 seconds of live headroom.
+The new native allowlist retained each actual `lastDriftRestart.drift` snapshot in
+authenticated history, not just the synthetic fixture event. Evidence:
+`artifacts/client-health-recovery-16stream-after-foreground-history.json`,
+`artifacts/client-health-recovery-16stream-recovered-dom.json` and
+`artifacts/client-health-recovery-16stream-recovered.jpg`. Endurance is still
+running; the initial hidden period is not continuous visible playback evidence.
+
+### Functional packet history separation prerequisite
+
+The timestamp duplicate/regression guard previously queried the diagnostic packet
+ring. Disabling that ring for an overhead baseline would silently change repair
+decisions. On the separate `codex/functional-packet-history` branch, a fixed-size,
+Camera-DLL-private `RecentWrittenVideoPackets` retains only the hashes and relative
+disposition sequence needed by correctness. Every recorded disposition ages this
+history, including audio and rejected packets. Lookup still checks at most the
+last 32 written video packets within the last 1,024 dispositions; it does not
+extend the duplicate horizon or reset it at reconnect. Existing trace collection
+remains enabled and unchanged. This is a prerequisite, not a diagnostics-off
+switch or a completed overhead measurement.
+
+The standalone native regression passes boundary tests and 80,000 lookup
+comparisons over 20,000 deterministic mixed/sparse-video dispositions against an
+independent reference implementation of the original ring lookup. It uses no
+camera, network or production data. Adding its test target reconfigured CMake
+(8.1 seconds) and generated projects (2.0 seconds) using the same immutable
+managed dependency environment; no package install/rebuild occurred. That brief
+test compilation overlaps the current endurance phase, so its CPU measurements
+must not be represented as a clean overhead baseline. Integrated Camera/server
+build, timestamp/media regression fixtures and a separate deployable package for
+this source change remain pending after the frozen-package endurance run.

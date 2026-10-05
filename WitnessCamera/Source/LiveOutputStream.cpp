@@ -1225,6 +1225,7 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 				std::chrono::duration_cast<std::chrono::microseconds>(
 					std::chrono::steady_clock::now().time_since_epoch()).count()));
 		const std::lock_guard<std::mutex> guard(*_LiveData->_SegmentsMutex);
+		_LiveData->_RecentWrittenVideoPackets.Record(!IsAudio && DispositionText == "written", PayloadHash);
 		if( DispositionText == "waitingForKeyframe" ) ++_LiveData->_DiagWaitingForKeyframePackets;
 		else if( DispositionText == "missingTimestamp" ) ++_LiveData->_DiagMissingTimestampPackets;
 		else if( DispositionText == "beforeVideoEpoch" ) ++_LiveData->_DiagBeforeVideoEpochPackets;
@@ -1427,22 +1428,7 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 			bool PayloadSeenRecently = false;
 			{
 				const std::lock_guard<std::mutex> Guard(*_LiveData->_SegmentsMutex);
-				int WrittenVideoPacketsChecked = 0;
-				for (int Offset = 0; Offset < _LiveData->_PacketDiagRingCount &&
-					WrittenVideoPacketsChecked < 32; ++Offset)
-				{
-					const int Index = (_LiveData->_PacketDiagRingPos - 1 - Offset +
-						_LiveData->PACKET_DIAG_RING_SIZE) % _LiveData->PACKET_DIAG_RING_SIZE;
-					const auto& Previous = _LiveData->_PacketDiagRing[Index];
-					if (Previous.Audio || Previous.Disposition != "written")
-						continue;
-					++WrittenVideoPacketsChecked;
-					if (Previous.PayloadHash == PayloadHash)
-					{
-						PayloadSeenRecently = true;
-						break;
-					}
-				}
+				PayloadSeenRecently = _LiveData->_RecentWrittenVideoPackets.Contains(PayloadHash);
 			}
 			if (!_LiveData->_HasBFrames && _LiveData->_AllowObservedTimestampRegressionRepair &&
 				!_LiveData->_TimestampNormalizationRejected && !_LiveData->_NormalizeNoBFrameTimestamps &&
