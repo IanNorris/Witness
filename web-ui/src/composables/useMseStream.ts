@@ -1368,6 +1368,16 @@ export function useMseStream(
       // Connection lost: no fragments for extended period
       connectionLost.value = !reconnectTimer && fragAge > MSE_INITIAL_TIMEOUT_MS
 
+      // An open socket with no new media is a transport stall, independent of
+      // whether the browser has paused the decoder in a hidden document.
+      if (hasInitialBuffer && hasFrags && !reconnectTimer && ws &&
+          ws.readyState === WebSocket.OPEN && fragAge > MSE_INITIAL_TIMEOUT_MS) {
+        diag.log('fragmentTimeout', { fragmentAgeMs: fragAge, readyState: video.readyState,
+          visibility: document.visibilityState })
+        restartStream('fragmentTimeout')
+        return
+      }
+
       if (!reconnectTimer && ws && ws.readyState === WebSocket.CONNECTING &&
           pipelineAge > MSE_INITIAL_TIMEOUT_MS) {
         diag.log('connectTimeout', { waitedMs: pipelineAge })

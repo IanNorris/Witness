@@ -1117,3 +1117,39 @@ Three pure visibility/eviction tests pass, as do four playback-guard, three
 drift/privacy and three normal health-reporting tests (the optional offline
 fixture test was not selected in this invocation). Actual MSE hide/resume,
 buffer eviction and persisted transition evidence still require live validation.
+
+The initial candidate's verified package is
+`build-vs2026-stable/deploy/mse-hidden-recovery-486819b-native-e6f74ec3f350`,
+native `e6f74ec3f350` / web `c469dae5db3d`, 94 files / 177,677,077 bytes.
+Its three-minute two-HEVC-stream normal-authenticated fixture passed in
+235.596 seconds: 179 server samples, maximum gap 1.028 seconds, zero player
+restarts/stalls and zero history pending/rejected/storage failures. Thirteen
+player-bearing heartbeats were visible and only the final one hidden. This
+does not verify a long hidden window, eviction, or return to visible. The
+in-app browser's presentation-hide control was already false while its document
+still reported visible; opening the health tab did not reliably induce the
+desired hidden state. Evidence is preserved in
+`artifacts/mse-hidden-recovery-browser-{run-0,history}.json` and
+`artifacts/mse-hidden-recovery-browser.log`.
+
+`web-ui/tests/mseHiddenRecovery.test.mjs` now drives the **production MSE
+composable**, using in-memory socket/SourceBuffer/video/timer primitives and a
+virtual clock. A 90-second hidden interval delivers 360 more partials while the
+playhead is frozen: no restart or resume attempts, an open socket, removal keeping
+the retained time range within 30 seconds, and playback-specific recovery restored
+on return to visible. A separate case proves stalled appends still recover while
+hidden. These primitives do not model actual browser demux/decoder behavior or
+real SourceBuffer keyframe-removal semantics.
+
+The tests also exposed an independent existing latch-off path: an already-open
+socket could stop delivering fragments while paused/ready media never met the
+stuck/frozen conditions. The watchdog now treats ten seconds without fragments
+after initial buffering as `fragmentTimeout`, regardless of document visibility,
+before applying the playback suspension guard. This condition requires prior
+fragment progress, an initialized buffer, an open socket and no pending reconnect;
+existing scheduling-delay compensation still applies. A third production-
+composable test verifies hidden delivery-stall recovery. All three pass. Running
+the same cases against read-only pre-fix source `a621c7c` fails all three as the
+negative control (`artifacts/mse-hidden-recovery-baseline-regression.log`).
+The later fragment-timeout change is not present in the initial candidate
+package above and still requires a newly built package/live validation.
