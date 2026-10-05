@@ -162,6 +162,10 @@ target_include_directories(LivePreviewProbe PRIVATE Include ${FFMPEG_INCLUDE_DIR
 target_link_directories(LivePreviewProbe PRIVATE ${FFMPEG_LIBRARY_DIRS})
 target_link_libraries(LivePreviewProbe PRIVATE WitnessCamera ${FFMPEG_LIBRARIES})
 
+add_executable(InputPacingProbe EXCLUDE_FROM_ALL ../Tools/Tests/InputPacingProbe.cpp)
+target_include_directories(InputPacingProbe PRIVATE Include ${FFMPEG_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
+target_link_libraries(InputPacingProbe PRIVATE WitnessCamera)
+
 # Synthetic loopback peer only; exercises exported Camera DLL ownership.
 add_executable(BaichuanCommandReplyTests EXCLUDE_FROM_ALL ../Tools/Tests/BaichuanCommandReplyTests.cpp)
 target_include_directories(BaichuanCommandReplyTests PRIVATE Source)

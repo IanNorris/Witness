@@ -22,6 +22,7 @@ struct InputStreamData
 	InputStream::StreamStats Stats;
 	mutable std::mutex StatsMutex;
 	InputStream::PacketCallback PacketCallback;
+	bool RequiresPacketPacing = true;
 };
 
 InputStream::InputStream( const InputStreamSetup& Setup, int SourceID, ImageProcessingJobQueue* JobQueue, const std::string& StreamURL, int StreamIndex )
@@ -122,6 +123,11 @@ CameraStreamError InputStream::Initialize()
 	{
 		STREAM_ERROR( NoStreams, Result );
 	}
+	// Do not pace an already paced live HTTP/RTSP/pipe transport again. Keep
+	// file pacing for seekable local or remote recordings; URL spelling alone
+	// cannot distinguish a live HTTP endpoint from a recorded HTTP file.
+	m_InputData->RequiresPacketPacing = ID.FormatContext->pb &&
+		(ID.FormatContext->pb->seekable & AVIO_SEEKABLE_NORMAL) != 0;
 
 	ID.ChosenStreamIndex = 0;
 	ID.ChosenAudioStreamIndex = -1;
@@ -589,6 +595,7 @@ InputStream::StreamStats InputStream::GetStats() const
 void InputStream::Shutdown()
 {
 	auto& ID = *m_InternalData;
+	m_InputData->RequiresPacketPacing = true;
 
 	if( m_StreamManager )
 	{
@@ -673,6 +680,11 @@ double InputStream::GetFramerateDouble()
 	{
 		return 25.0;
 	}
+}
+
+bool InputStream::RequiresPacketPacing() const
+{
+	return m_InputData->RequiresPacketPacing;
 }
 
 std::string InputStream::GetCodecName() const

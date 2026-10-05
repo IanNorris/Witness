@@ -80,6 +80,10 @@ public:
 
 	double GetFramerateDouble();
 
+	// Recorded seekable inputs need worker pacing; non-seekable live inputs
+	// already have transport timing. Query on the input's owning worker thread.
+	bool RequiresPacketPacing() const;
+
 	// Optional callback invoked for every video packet (before unref).
 	// Used by ContinuousOutputStream to receive packets without modifying the Stream interface.
 	using PacketCallback = std::function<void(const AVPacket*)>;

@@ -40,7 +40,6 @@ CameraWorker::CameraWorker(
 , LastFrameTime( 0 )
 , LastDeleteTime( 0 )
 , IsConnected( false )
-, IsRTSP( false )
 , m_AuthFailureBackoff( 3000 )
 {
 }
@@ -277,10 +276,6 @@ void CameraWorker::CreateInputStream()
 		});
 	}
 
-	if (_strnicmp(CamPath.c_str(), "rtsp://", 7) == 0)
-	{
-		IsRTSP = true;
-	}
 	// Live and continuous outputs retain raw pointers to the previous input.
 	// Retire it only after both outputs have been rebound to the new stream.
 	RetiredCameraStream.reset();
@@ -1074,7 +1069,7 @@ void CameraWorker::WorkerMain()
 
 	uint64_t End = std::chrono::high_resolution_clock::now().time_since_epoch().count();
 
-	if (!IsRTSP && IsConnected)
+	if (IsConnected && CameraStream->RequiresPacketPacing())
 	{
 		double Duration = (double)(End - Start) / NanoSecondsToSeconds;
 		if (Duration < FrameTime)

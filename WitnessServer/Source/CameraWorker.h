@@ -166,7 +166,6 @@ private:
 	uint64_t LastDeleteTime;
 
 	bool IsConnected;
-	bool IsRTSP;
 	int m_AuthFailureBackoff; // milliseconds, grows exponentially on auth failures
 	int m_ConsecutiveConnectFailures = 0; // Counts consecutive RTSP connect timeouts
 	bool m_RebootRequested = false;       // True while waiting for camera to come back after reboot
