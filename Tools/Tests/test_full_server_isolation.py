@@ -30,6 +30,7 @@ from health_request_timing import sample_health
 from replay_profiles import qualify_profiles, validate_live_profiles
 from ptz_update_scope_fixture import check_update_scope
 from ptz_http_relink_fixture import check_http_relink
+from multi_client_history_fixture import check_multi_client_history
 
 RECORDING_FAILURE_ROOT = Path(__file__).resolve().parents[2] / 'artifacts'
 
@@ -308,6 +309,9 @@ class FullServerIsolationTests(unittest.TestCase):
         verify_outputs = os.environ.get('WITNESS_TEST_VERIFY_RECORDINGS') == '1'
         raw_processing = os.environ.get('WITNESS_TEST_RAW_PROCESSING_SAMPLES') == '1'
         cached_health = os.environ.get('WITNESS_TEST_CACHED_HEALTH') == '1'
+        multi_client_history = os.environ.get('WITNESS_TEST_MULTI_CLIENT_HISTORY') == '1'
+        self.assertTrue(not multi_client_history or (not inputs and not browser_hold),
+                        'Cross-client auth fixture is a separate zero-camera lifecycle test')
         ptz_guard = os.environ.get('WITNESS_TEST_PTZ_CONFIGURED_GUARD') == '1'
         ptz_update_scope = os.environ.get('WITNESS_TEST_PTZ_UPDATE_SCOPE') == '1'
         ptz_http_relink = os.environ.get('WITNESS_TEST_PTZ_HTTP_RELINK') == '1'
@@ -319,6 +323,8 @@ class FullServerIsolationTests(unittest.TestCase):
         self.assertTrue(not verify_outputs or active_recording, 'Output verification requires recording mode')
         lifecycle_runs = int(os.environ.get('WITNESS_TEST_LIFECYCLE_RUNS', '2'))
         self.assertTrue(1 <= lifecycle_runs <= 10)
+        self.assertTrue(not multi_client_history or lifecycle_runs >= 2,
+                        'Cross-client durability requires a real server restart')
         self.assertTrue(not active_recording or inputs, 'Recording mode requires replay inputs')
         self.assertTrue(not active_detection or (inputs and (browser_hold or replay_seconds) >= 90),
                         'Detection evidence needs replay inputs and at least 90 seconds')
@@ -353,6 +359,14 @@ class FullServerIsolationTests(unittest.TestCase):
                 db.execute('INSERT INTO User(Username,DisplayName,PasswordHash,HashMethod,Enabled,Admin) VALUES(?,?,?,?,?,?)',
                            ('fixture-admin', 'Fixture admin', 'not-a-login-hash', 0, 1, 1))
                 db.execute('INSERT INTO Session VALUES(?,?,?,?)', (token, csrf, 1, int(time.time())))
+                principals = {}
+                if multi_client_history:
+                    for name in ('alice', 'bob', 'exporter'):
+                        uid = db.execute('INSERT INTO User(Username,DisplayName,PasswordHash,HashMethod,Enabled,Admin) VALUES(?,?,?,?,?,?)',
+                            ('fixture-' + name, 'Fixture ' + name, 'not-a-login-hash', 0, 1, int(name == 'exporter'))).lastrowid
+                        principals[name] = {'uid': uid, 'token': secrets.token_hex(32), 'csrf': secrets.token_hex(32)}
+                        db.execute('INSERT INTO Session VALUES(?,?,?,?)',
+                            (principals[name]['token'], principals[name]['csrf'], uid, int(time.time())))
                 settings = {'server_hostname': f'127.0.0.1:{port}', 'server_tls_mode': 'NoSecurity',
                             'server_cache': str(cache), 'clip_cleanup_enabled': '0', 'thread_count': '2',
                             'export_motion_vectors': '1'}
@@ -371,10 +385,10 @@ class FullServerIsolationTests(unittest.TestCase):
                     db.executemany('INSERT INTO CameraGroupMapping VALUES(?,?)', [(index + 1, 1) for index in range(len(inputs))])
                 db.commit()
 
-            def request(path, authenticated=True, body=None, timeout=3):
+            def request(path, authenticated=True, body=None, timeout=3, token_override=None):
                 if raw_processing and path == '/debug/health':
                     path += '?workSamples=1'
-                headers = {'Cookie': f'SessionToken-{port}={token}'} if authenticated else {}
+                headers = {'Cookie': f'SessionToken-{port}={token if token_override is None else token_override}'} if authenticated else {}
                 if body is not None:
                     headers['Content-Type'] = 'application/json'
                 req = urllib.request.Request(f'http://127.0.0.1:{port}' + path,
@@ -539,7 +553,7 @@ class FullServerIsolationTests(unittest.TestCase):
                             code, body = request('/debug/client-health')
                             self.assertEqual(code, 200)
                             export = json.loads(body)
-                            if len(export['history']) == 1 and export['durableThroughSequence'] >= 1:
+                            if len(export['history']) == (3 if multi_client_history and run > 0 else 1) and export['durableThroughSequence'] >= 1:
                                 break
                             self.assertLess(time.monotonic(), deadline, 'history durability timeout')
                             time.sleep(0.05)
@@ -561,6 +575,10 @@ class FullServerIsolationTests(unittest.TestCase):
                         self.assertEqual(error['generation'], 4)
                         self.assertEqual(error['drift']['lagMs'], 99000)
                         self.assertNotIn('secret', json.dumps(error))
+                        if multi_client_history:
+                            report = check_multi_client_history(request, principals, data / 'server.db', restarted=run > 0)
+                            with (artifacts / f'full-server-multi-client-history-run-{run}.json').open('x', encoding='utf8') as output:
+                                json.dump({'nativeBuildId': identity, **report}, output, indent=2)
                         if inputs:
                             deadline = time.monotonic() + 45
                             while True:

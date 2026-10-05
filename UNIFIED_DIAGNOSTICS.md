@@ -3897,3 +3897,31 @@ This is tooling-only: the verified deployable native90c/web-a2c81 package from
 the preceding section remains unchanged. Frozen OFF audit58671 is confirmed
 live, with 56/128 outputs inspected successfully; overall inspection remains
 incomplete and matched ON has not started.
+
+### Actual full-server multi-client history authorization (2026-10-05)
+
+Branch `codex/full-server-multi-client-history` adds opt-in
+`WITNESS_TEST_MULTI_CLIENT_HISTORY=1` verification to the isolated native-server
+lifecycle harness. It requires zero cameras and at least two real lifecycles,
+keeping these authorization checks outside measured replay phases. All users,
+session tokens, database, cache and server binding are private fixture-owned;
+no live sessions or production credentials are read or changed.
+
+Two ordinary users concurrently submit identical browser/tab labels with forged
+owner fields. The administrator export retains two distinct authenticated
+owners, strips the forged name, and reports their hidden-state samples durably.
+Ordinary users cannot read the all-client export and cross-user CSRF fails.
+Disabling a previously accepted user immediately denies its next write. A
+deleted session cannot write, while its previously accepted history remains.
+Removing admin privilege immediately denies the separate exporter's next read;
+restoring that privilege permits reads again, and deleting its session denies
+reads again. Both retained owners and revocations survive actual server restart.
+
+The existing immutable native90c/web-a2c81 package passed the initial two-user
+test in 14.096s and the expanded fresh-authorization test in 13.976s. Per-lifecycle
+reports are under `artifacts/run-full-server-multi-client-fresh-auth-20261005/`.
+No application-code fix or rebuild was needed. This proves production-handler
+HTTP/session/storage behavior, not independent browser-profile collection or
+real hidden/resume playback. Frozen OFF audit58671 is still live and now has
+58/128 outputs inspected; the overall stream/performance gates remain open.
+No main merge, remote push, deployment, media tracking or backlog edit.
