@@ -424,8 +424,10 @@ On this machine, successful no-install configuration of the current legacy
 fingerprinting and does not match today's manifest/registry hashes; it was not
 silently re-stamped or bootstrapped. A successful real managed migration remains
 unverified until its inputs are reviewed and explicitly reconciled. The positive
-managed retry behavior is proven by the isolated real-CMake policy tests, not by
-claiming that the stale real managed tree configured successfully.
+managed retry behavior was proven by the isolated real-CMake policy tests, not by
+claiming that the stale real managed tree configured successfully in that pass.
+This paragraph records the 2026-10-04 state; see the newer managed verification
+below before treating the migration as still unverified.
 
 Managed configuration also verifies the **Git checkout**, not just `vcpkg.exe
 version`, before loading its toolchain. The checkout root must match the selected
@@ -496,3 +498,38 @@ results are in `artifacts/deployment-package-tests-20261004.log`. No package
 or production binary was changed. The check establishes file/embedded-identity
 coherence, not source provenance by itself, DLL ABI compatibility, runtime
 behavior or production stability.
+
+### Consolidated managed dependency reuse (2026-10-05)
+
+The current `build-vs2026-stable` tree successfully regenerated from consolidated
+master using managed environment fingerprint
+`6b27239cefa9921f3d82643ccc48e50ce241b30f5ea7ce1761240cb59532dc61`.
+The actual cache has managed dependencies ON, dependency bootstrap OFF and
+`VCPKG_MANIFEST_INSTALL=OFF`; the selected triplet is
+`x64-windows-witness-v145-release`. The generated compiler configuration selects
+MSVC `19.51.36257.0` from the VS2026 Insiders `14.51.36231` tool directory and SDK
+`10.0.26100.0`. This is now real managed configuration evidence, superseding the
+historical stale-stamp limitation above; it does not qualify arbitrary toolset
+updates for ABI reuse.
+
+A fresh complete inventory in
+`artifacts/dependency-consolidated-rebuild-20261005.json` contains 2,673 files /
+759,367,637 bytes and matches `dependency-root-guard-current-20261005.json` with
+zero additions, removals or content changes. CMake regeneration and recompilation
+of Witness targets are not equivalent to rebuilding installed dependencies.
+This inventory proves installed-file content reuse, not runtime ABI compatibility,
+unchanged permissions, or full-server Linux support. The existing Ubuntu tools
+were checked without installing packages; required Linux development headers and
+libraries were not present at the probed standard paths, so no full Linux build
+is claimed from the earlier worker-only portability tests.
+
+The consolidated `WitnessServer` build completed successfully. Existing Sass
+deprecation and frontend chunk-size advisories remain; no new C++ warning appeared
+in this run. A fresh package at
+`build-vs2026-stable/deploy/consolidated-573cd0df694f-web-e55b82803f31` passes the
+deployment verifier: 94 files / 178,003,926 bytes, native `573cd0df694f`, web
+`e55b82803f31` (`artifacts/consolidated-rebuild-package-20261005.json`). Its actual
+packaged server passed two disposable zero-camera lifecycles with authenticated
+multi-client history, revocation and persistence checks in 19.792 seconds. Runtime
+evidence is in `artifacts/run-consolidated-rebuild-runtime-20261005/`. This does
+not qualify loaded camera endurance, physical PTZ or browser hidden/resume behavior.
