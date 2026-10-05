@@ -77,7 +77,7 @@ public:
 protected:
 
 	std::shared_ptr<MessageBus> MessageBusObject;
-	std::shared_ptr<MessageBusQueue> MessageBusQueue;
+	std::shared_ptr<::MessageBusQueue> MessageBusQueue;
 
 	void UpdateLastTimedAction( const char* NewAction )
 	{

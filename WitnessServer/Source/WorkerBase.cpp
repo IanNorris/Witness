@@ -1,6 +1,8 @@
 #include "WorkerBase.h"
 
+#ifdef _WIN32
 #include <windows.h>
+#endif
 
 void WorkerBase::WorkerThread()
 {
@@ -23,7 +25,7 @@ void WorkerBase::WorkerThread()
 	WorkerShutdown();
 
 	//Don't allow Complete to be fired until all work above is complete
-	MemoryBarrier();
+	std::atomic_thread_fence(std::memory_order_seq_cst);
 
 	Complete.store( true );
 
@@ -32,6 +34,7 @@ void WorkerBase::WorkerThread()
 
 void WorkerBase::SetPriority( Priority ThreadPriority )
 {
+#ifdef _WIN32
 	int PlatformPriority = THREAD_PRIORITY_NORMAL;
 	switch (ThreadPriority)
 	{
@@ -49,4 +52,9 @@ void WorkerBase::SetPriority( Priority ThreadPriority )
 	}
 		
 	SetThreadPriority( Thread->native_handle(), PlatformPriority );
+#else
+	// Portable fallback: retain the process's normal scheduler policy. Do not
+	// require elevated scheduling privileges just to start a worker on Linux.
+	(void)ThreadPriority;
+#endif
 }

@@ -213,9 +213,13 @@ target_link_libraries(WorkerShutdownDelayTests PRIVATE Threads::Threads)
 if(MSVC)
     target_compile_options(WorkerShutdownDelayTests PRIVATE /utf-8 /W3)
 endif()
-if(WIN32)
-    # Exercise the real native thread and timer callback, not a fake thread loop.
-    target_sources(WorkerShutdownDelayTests PRIVATE Source/WorkerBase.cpp Source/TimerWorker.cpp)
+# Exercise the real native thread and timer callback on both platforms.
+target_sources(WorkerShutdownDelayTests PRIVATE Source/WorkerBase.cpp Source/TimerWorker.cpp)
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    # Worker status contains a timestamp/pointer pair: GCC's 16-byte atomic
+    # operations use libatomic on common Linux targets.
+    target_link_libraries(WitnessServer PRIVATE atomic)
+    target_link_libraries(WorkerShutdownDelayTests PRIVATE atomic)
 endif()
 add_executable(PtzMovementLeaseTests EXCLUDE_FROM_ALL
     ../Tools/PtzMovementLeaseTests.cpp Source/PtzMovementLease.cpp)

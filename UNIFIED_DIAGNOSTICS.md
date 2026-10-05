@@ -4159,3 +4159,19 @@ authenticated zero-camera restart/history checks use
 zero failures so far; overall inspection, matched ON, latest-candidate endurance,
 true hidden/resume and independent browser-profile gates remain open. No main
 merge, push, private media tracking, production change or user backlog edit.
+
+### Worker portability review (2026-10-05)
+
+The existing Ubuntu WSL environment compiles and runs the actual worker/timer
+shutdown regression with GCC 11.4, C++20, `-Wall -Wextra -Werror`, and libatomic.
+Windows headers/priority calls are now guarded; Linux retains normal scheduler
+policy without requiring privileges. The completion fence uses the standard
+atomic fence, and a qualified queue type avoids GCC's member/type name conflict.
+Both the held callback join and idle cancellation tests pass on Linux and Windows.
+The pinned Windows server and ownership consumer build also succeeds. No packages
+were installed and the managed dependency fingerprint remains unchanged.
+
+This is component portability validation, not a complete Linux server build.
+The additional Linux timestamp policy executable exposed an exact upper 5%
+boundary rounding failure at TimestampRegressionGuardTests.cpp:215; that finding
+must be resolved separately before the integration review is closed.

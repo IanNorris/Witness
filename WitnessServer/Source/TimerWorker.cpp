@@ -1,15 +1,13 @@
 #include "TimerWorker.h"
 
-#include <fstream>
 #include <chrono>
-#include <thread>
 
 void TimerWorker::WorkerMain()
 {
 	std::shared_ptr<Message> Msg;
 	if( MessageBusQueue->TryPop( Msg ) )
 	{
-		Msg->Handle<ThreadShutdownMessage>([&](const ThreadShutdownMessage& Data)
+		Msg->Handle<ThreadShutdownMessage>([&](const ThreadShutdownMessage&)
 		{
 			RequestShutdown();
 		});

@@ -2,9 +2,7 @@
 #include <future>
 #include <iostream>
 #include <stdexcept>
-#ifdef _WIN32
 #include "TimerWorker.h"
-#endif
 
 using namespace std::chrono_literals;
 
@@ -56,7 +54,6 @@ int main()
             Check(Waiter.wait_for(500ms) == std::future_status::ready, "stop did not interrupt idle wait");
             Check(Waiter.get(), "interrupted idle wait reported a timeout");
         }
-#ifdef _WIN32
         // A stop request cannot cancel an in-flight callback. Joining must
         // remain blocked until it returns, before its owning timer is destroyed.
         std::promise<void> CallbackEntered, CallbackReleased, JoinEntered;
@@ -89,9 +86,6 @@ int main()
         Timer.reset();
         Check(CallbackLifetime.expired(), "callback state survived timer teardown");
         std::cout << "Real held timer callback join test passed\n";
-#else
-        std::cout << "Held timer callback test requires the Windows worker implementation\n";
-#endif
         std::cout << "Worker idle cancellation tests passed\n";
         return 0;
     }
