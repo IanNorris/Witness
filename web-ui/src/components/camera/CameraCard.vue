@@ -230,7 +230,7 @@ onUnmounted(() => {
 <template>
   <div class="camera-card" :class="{ 'camera-card-fullscreen': canvasMode, 'controls-selected': controlsSelected }">
     <div class="camera-preview">
-      <div class="camera-video-wrap" @click.prevent="onSingleClick" @dblclick.prevent="onDoubleClick">
+      <div class="camera-video-wrap" data-playback-viewport @click.prevent="onSingleClick" @dblclick.prevent="onDoubleClick">
         <!-- HLS preview mode -->
         <HlsPlayer
           v-if="effectiveModeWithFallback === 'hls' && isConnected"

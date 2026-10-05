@@ -11,6 +11,7 @@ const vueUrl = moduleUrl('export const ref = value => ({value}); export const on
 const guardUrl = moduleUrl((await readFile(new URL('../src/composables/playbackGuard.ts', import.meta.url), 'utf8')).replace("'vue'", JSON.stringify(vueUrl)))
 const visibilityUrl = moduleUrl(await readFile(new URL('../src/composables/msePlaybackVisibility.ts', import.meta.url), 'utf8'))
 const evictionUrl = moduleUrl(await readFile(new URL('../src/composables/mseEviction.ts', import.meta.url), 'utf8'))
+const presentationUrl = moduleUrl(await readFile(new URL('../src/composables/msePresentationProgress.ts', import.meta.url), 'utf8'))
 const baseline = process.env.WITNESS_MSE_WATCHDOG_BASELINE_REV
 if (baseline && !/^[a-f0-9]{7,40}$/.test(baseline)) throw Error('Expected a local commit hash')
 const originalSource = baseline
@@ -23,16 +24,20 @@ const source = originalSource
   .replace("'./playbackGuard'", JSON.stringify(guardUrl))
   .replace("'./msePlaybackVisibility'", JSON.stringify(visibilityUrl))
   .replace("'./mseEviction'", JSON.stringify(evictionUrl))
+  .replace("'./msePresentationProgress'", JSON.stringify(presentationUrl))
 let fixtureNumber = 0
 
-async function fixture({ gopSeconds = .25 } = {}) {
+async function fixture({ gopSeconds = .25, presentationEnabled = false, viewportWrapped = false } = {}) {
   // In-memory browser primitives only. No sockets, credentials, media files or
   // browser automation: the production composable handles every control/tick.
   const saved = Object.fromEntries(['window', 'document', 'location', 'WebSocket', 'MediaSource',
-    'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout'].map(key => [key, globalThis[key]]))
+    'setInterval', 'clearInterval', 'setTimeout', 'clearTimeout', 'IntersectionObserver'].map(key => [key, globalThis[key]]))
   const realNow = Date.now, createUrl = URL.createObjectURL, revokeUrl = URL.revokeObjectURL
   let now = 100000, timerId = 0, playCalls = 0, socket, buffer, media, stream
   const intervals = new Map(), timeouts = new Map(), removals = []
+  const frameCallbacks = new Map()
+  let observer
+  const fixtureViewport = {getBoundingClientRect:()=>({left:0,top:0,right:100,bottom:100}),contains:node=>node===fixtureViewport}
   const ranges = { start: 0, end: 0 }
   const timeRanges = { get length() { return ranges.end > ranges.start ? 1 : 0 },
     start: () => ranges.start, end: () => ranges.end }
@@ -43,6 +48,11 @@ async function fixture({ gopSeconds = .25 } = {}) {
     pause() { this.paused = true }
     removeAttribute() { this.src = '' }
     load() { this.paused = true; this.currentTime = 0 }
+    closest() { return viewportWrapped ? fixtureViewport : this }
+    getBoundingClientRect() { return {left:0,top:0,right:100,bottom:100} }
+    contains(node) { return node===this }
+    requestVideoFrameCallback(fn) { frameCallbacks.set(++timerId,fn); return timerId }
+    cancelVideoFrameCallback(id) { frameCallbacks.delete(id) }
   }
   class Buffer extends EventTarget {
     updating = false; holdUpdates = false; quotaFailures = 0; buffered = timeRanges; mode = 'sequence'
@@ -79,10 +89,17 @@ async function fixture({ gopSeconds = .25 } = {}) {
   }
   const video = new Video()
   try {
-    globalThis.window = {}; globalThis.document = new EventTarget()
+    globalThis.window = {innerWidth:200,innerHeight:200}; globalThis.document = new EventTarget()
+    document.elementFromPoint=()=>observer?.rendered===false?null:observer?.target??null
     document.visibilityState = 'visible'
     globalThis.location = {protocol: 'http:', host: 'fixture.invalid'}
     globalThis.WebSocket = Socket; globalThis.MediaSource = Media
+    globalThis.IntersectionObserver = presentationEnabled ? class {
+      constructor(fn) { this.fn=fn; observer=this }
+      observe(target) { this.target=target; this.setVisible(true) }
+      setVisible(visible, rendered=true) { this.rendered=rendered;this.fn([{target:this.target,isIntersecting:visible,intersectionRatio:visible?1:0}]) }
+      disconnect() {}
+    } : undefined
     globalThis.setInterval = (fn, ms) => { intervals.set(++timerId, {fn, ms}); return timerId }
     globalThis.clearInterval = id => intervals.delete(id)
     globalThis.setTimeout = (fn, ms) => { timeouts.set(++timerId, {fn, ms}); return timerId }
@@ -117,7 +134,10 @@ async function fixture({ gopSeconds = .25 } = {}) {
         Date.now = realNow; URL.createObjectURL = createUrl; URL.revokeObjectURL = revokeUrl
       }
     }
-    return { video, tick, diag, restore, removals, buffer,
+    return { video, tick, diag, restore, removals, buffer, stream,
+      present(time) { for (const [id,fn] of [...frameCallbacks]) { frameCallbacks.delete(id); fn(0,{mediaTime:time}) } },
+      inView(visible, rendered=true) { observer.setVisible(visible,rendered) },
+      observedTarget:()=>observer.target, pendingFrames:()=>frameCallbacks.size,
       hide() { document.visibilityState = 'hidden'; video.paused = true },
       show() { document.visibilityState = 'visible' },
       playCalls: () => playCalls, socket: () => socket, timers: timeouts }
@@ -300,5 +320,74 @@ test('production quota retry protects independent decode intervals even when key
     assert.equal(f.diag().stats.errorCount,0)
     assert.ok(f.diag().importantEvents.some(event=>event.type==='quotaExceeded'))
     assert.ok(!f.diag().importantEvents.some(event=>event.type==='keyframeCatchUpSeek'))
+  } finally { f.restore() }
+})
+
+test('presentation watchdog recovers frozen video even when the media clock and fragments advance', async () => {
+  const f=await fixture({presentationEnabled:true,viewportWrapped:true})
+  try {
+    assert.notEqual(f.observedTarget(),f.video,'observe the shared control/video viewport')
+    f.video.currentTime=.5; f.present(.5); f.present(.5)
+    for(let i=0;i<24;i++) { f.video.currentTime+=.25; f.tick() }
+    assert.equal(f.diag().stats.restartCount,1)
+    assert.equal(f.diag().stats.stallCount,1)
+    assert.equal(f.diag().lastDriftRestart.type,'presentationFrozenRestart')
+    assert.equal(f.diag().lastDriftRestart.drift.presentedMediaTime,.5)
+    assert.ok(f.diag().lastDriftRestart.drift.presentationStallMs>3000)
+  } finally { f.restore() }
+  assert.equal(f.pendingFrames(),0,'unmount cancels the presentation callback')
+})
+
+test('presentation recovery excludes hidden, offscreen, paused, seeking and suppressed players', async () => {
+  for(const mode of ['hidden','offscreen','occluded','paused','seeking','suppressed']) {
+    const f=await fixture({presentationEnabled:true})
+    try {
+      f.video.currentTime=.5; f.present(.5); f.present(.5)
+      if(mode==='hidden')f.hide()
+      if(mode==='offscreen')f.inView(false)
+      if(mode==='occluded')f.inView(true,false)
+      if(mode==='seeking')f.video.seeking=true
+      if(mode==='suppressed')f.stream.renderSuppressed.value=true
+      for(let i=0;i<24;i++) {
+        if(mode==='paused')f.video.paused=true // Existing playback guard can try to resume.
+        f.video.currentTime+=.25; f.tick()
+      }
+      assert.equal(f.diag().stats.restartCount,0,mode)
+    } finally { f.restore() }
+  }
+})
+
+test('unsupported presentation observation keeps existing recovery without inventing a stall', async () => {
+  const f=await fixture()
+  try {
+    f.video.currentTime=.5
+    for(let i=0;i<24;i++) { f.video.currentTime+=.25; f.tick() }
+    assert.equal(f.diag().stats.restartCount,0)
+  } finally { f.restore() }
+})
+
+test('advancing presented timestamps avoid recovery even when image content would be static', async () => {
+  const f=await fixture({presentationEnabled:true})
+  try {
+    f.video.currentTime=.5; f.present(.5); f.present(.5)
+    for(let i=0;i<40;i++) { f.video.currentTime+=.25; f.present(f.video.currentTime); f.tick() }
+    assert.equal(f.diag().stats.restartCount,0)
+    assert.ok(f.diag().driftSamples.at(-1).presentedFrames>30)
+  } finally { f.restore() }
+})
+
+test('discontinuity clears presentation evidence and ignores an already armed old-generation callback', async () => {
+  const f=await fixture({presentationEnabled:true})
+  try {
+    f.video.currentTime=.5; f.present(.5); f.present(.5)
+    f.socket().message({type:'initSegment',generation:1})
+    f.socket().message(new ArrayBuffer(1))
+    f.present(99)
+    for(let i=0;i<4;i++)f.tick(false)
+    assert.equal(f.diag().driftSamples.at(-1).presentedFrames,0)
+    assert.equal(f.diag().driftSamples.at(-1).presentedMediaTime,undefined)
+    f.present(.1)
+    for(let i=0;i<4;i++)f.tick(false)
+    assert.equal(f.diag().driftSamples.at(-1).presentedMediaTime,.1)
   } finally { f.restore() }
 })

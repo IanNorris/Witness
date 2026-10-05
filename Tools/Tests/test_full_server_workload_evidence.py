@@ -156,6 +156,19 @@ class WorkloadEvidenceTests(unittest.TestCase):
         self.assertFalse(browser_playback_ready(healthy, [1, 2], 'test-build', 100500))
         self.assertFalse(browser_playback_ready(healthy, [1], 'test-build', 116000))
         self.assertFalse(browser_playback_ready(healthy, [1], 'test-build', 98000))
+        self.assertFalse(browser_playback_ready(healthy, [1], 'test-build', 100500, True))
+        presented = deepcopy(healthy)
+        presented['history'][0]['snapshot']['players'][0]['driftSamples'][-1].update({
+            'presentationVisible': True, 'presentedFrames': 30, 'currentTime': 2,
+            'presentedMediaTime': 1.95})
+        self.assertTrue(browser_playback_ready(presented, [1], 'test-build', 100500, True))
+        for field, value in [('presentationVisible', False), ('presentationVisible', 1),
+                             ('presentedFrames', True), ('presentedFrames', 1),
+                             ('currentTime', float('nan')), ('presentedMediaTime', float('inf')),
+                             ('presentedMediaTime', None), ('presentedMediaTime', 0)]:
+            invalid = deepcopy(presented)
+            invalid['history'][0]['snapshot']['players'][0]['driftSamples'][-1][field] = value
+            self.assertFalse(browser_playback_ready(invalid, [1], 'test-build', 100500, True))
         changing = deepcopy(healthy)
         changing['history'][0]['snapshot']['players'][0]['lastEventType'] = 'media:ratechange'
         self.assertTrue(browser_playback_ready(changing, [1], 'test-build', 100500))

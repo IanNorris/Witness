@@ -3,6 +3,7 @@ import type { DriftSample } from './driftDiagnostics'
 import { createPlaybackGuard, blockedAudioCameras } from './playbackGuard'
 import { MSE_BACK_BUFFER_SECONDS, playbackBufferTrimTarget, playbackRecoveryEnabled, playbackBufferPosition } from './msePlaybackVisibility'
 import { dependencySafeTrimTarget } from './mseEviction'
+import { createPresentationProgress, presentationViewportVisible } from './msePresentationProgress'
 
 // ── Constants ─────────────────────────────────────────────────────────
 const MSE_WATCHDOG_INTERVAL_MS = 250
@@ -93,7 +94,7 @@ class MseDiagnostics {
       ...extra,
     }
     this.events.push(event)
-    if (type === 'driftRestart') this.lastDriftRestart = {
+    if (type === 'driftRestart' || type === 'presentationFrozenRestart') this.lastDriftRestart = {
       ...event, driftSamples: this.driftSamples.slice(-20),
     }
     if (['appendError', 'sourceBufferError', 'sourceBufferCreateFailed', 'wsError', 'media:error'].includes(type)) {
@@ -336,6 +337,11 @@ export function useMseStream(
   let consecutiveAppendErrors = 0  // Track consecutive appendBuffer failures for restart
   let keyframeTimes: number[] = []
   let independentAppendEnds: number[] = []
+  const presentation = createPresentationProgress()
+  let presentationVisible = false
+  let presentationObserver: IntersectionObserver | null = null
+  let presentationViewport: Element | null = null
+  let presentationCallback: number | null = null
   let lastKeyframeSeekTarget = -1
   let lastAnomalyReportTime = 0
   let lastAnomalyReason = ''
@@ -386,6 +392,8 @@ export function useMseStream(
       partialIndependent: lastDiagnosticPartial?.independent, partialSeekSafe: lastDiagnosticPartial?.keyframeSeekSafe,
       muted: video?.muted, volume: video?.volume, sourceBufferMode: sourceBuffer?.mode,
       timestampOffsetSeconds: sourceBuffer?.timestampOffset,
+      presentedMediaTime: presentation.mediaTime, presentedFrames: presentation.frames,
+      presentationStallMs: presentation.stalledMs, presentationVisible,
       ...playbackBufferPosition(video?.buffered, currentTime),
       videoFrames: quality?.totalVideoFrames, droppedVideoFrames: quality?.droppedVideoFrames,
     }
@@ -1120,6 +1128,7 @@ export function useMseStream(
     catchUpActive = false
     keyframeTimes = []
     independentAppendEnds = []
+    presentation.reset()
     lastKeyframeSeekTarget = -1
   }
 
@@ -1231,6 +1240,7 @@ export function useMseStream(
         catchUpActive = false
         keyframeTimes = []
         independentAppendEnds = []
+        presentation.reset()
         lastKeyframeSeekTarget = -1
 
         const delayMs = pendingRestartDelayMs ?? restartBackoffMs
@@ -1311,6 +1321,7 @@ export function useMseStream(
     catchUpActive = false
     keyframeTimes = []
     independentAppendEnds = []
+    presentation.reset()
     lastKeyframeSeekTarget = -1
 
     restartBackoffMs = Math.min(restartBackoffMs * 1.5, 30000)
@@ -1340,6 +1351,33 @@ export function useMseStream(
   }
 
   // ── Watchdog ──────────────────────────────────────────────────────
+  function monitorPresentation(element: HTMLVideoElement) {
+    if (typeof IntersectionObserver !== 'function' ||
+        typeof element.requestVideoFrameCallback !== 'function') return
+    // The camera's own labels/controls overlap the video and are not external
+    // occlusion. Observe their common viewport, while separately gating render
+    // suppression; observing the bare video disables recovery on normal cards.
+    const viewport = element.closest('[data-playback-viewport]') ?? element
+    presentationViewport = viewport
+    presentationObserver = new IntersectionObserver(entries => {
+      for (const entry of entries) if (entry.target === viewport) {
+        presentationVisible = entry.isIntersecting && entry.intersectionRatio > 0
+        if (!presentationVisible) presentation.poll(0, element.currentTime, false)
+      }
+    })
+    presentationObserver.observe(viewport)
+    const arm = () => {
+      const generation = sourceBufferGeneration
+      presentationCallback = element.requestVideoFrameCallback((_now, metadata) => {
+        presentationCallback = null
+        if (destroyed || videoRef.value !== element) return
+        if (generation === sourceBufferGeneration) presentation.presented(metadata.mediaTime)
+        arm()
+      })
+    }
+    arm()
+  }
+
   function startWatchdog() {
     watchdog = setInterval(() => {
       const video = videoRef.value
@@ -1384,6 +1422,13 @@ export function useMseStream(
         ? now - sourceBufferOperation.startedAt
         : 0
       const oldestQueuedAge = appendQueue.length > 0 ? now - appendQueue[0]!.queuedAt : 0
+      const presentationStallMs = presentation.poll(schedulingDelay, video.currentTime,
+        presentationVisible && playbackRecoveryEnabled(document.visibilityState) &&
+        hasInitialBuffer && hasFrags && fragAge < 2000 &&
+        !video.paused && !video.seeking && video.readyState >= 2 && !renderSuppressed.value &&
+        (presentation.mediaTime === undefined || video.currentTime - presentation.mediaTime <= 1 ||
+          (presentationViewport !== null && presentationViewportVisible(presentationViewport,
+            document, window.innerWidth, window.innerHeight))))
 
       // Spinner: show during initial connect only, not during playback
       showSpinner.value = !hasInitialBuffer && pipelineAge < MSE_INITIAL_TIMEOUT_MS
@@ -1486,6 +1531,13 @@ export function useMseStream(
 
       // Frozen-frame detection: currentTime not advancing while frags are flowing
       // Catches SourceBuffer corruption, silent decode failures, frozen video element
+      if (presentationStallMs > 3000) {
+        diag.stats.stallCount++
+        diag.log('presentationFrozenRestart', { reason: 'presentation',
+          generation: sourceBufferGeneration, drift: driftEvidence(now) })
+        restartStream('presentationFrozen')
+        return
+      }
       if (hasFrags && !video.paused && video.readyState >= 1) {
         if (video.currentTime === lastCurrentTime && lastCurrentTime >= 0) {
           healthyPlaybackSince = 0
@@ -1651,12 +1703,20 @@ export function useMseStream(
     element.playbackRate = 1.0
 
     connectWebSocket()
+    monitorPresentation(element)
     startWatchdog()
     diag.log('start')
   }
 
   function stop() {
     destroyed = true
+    presentationObserver?.disconnect()
+    presentationObserver = null
+    presentationViewport = null
+    presentationVisible = false
+    if (presentationCallback !== null) videoRef.value?.cancelVideoFrameCallback?.(presentationCallback)
+    presentationCallback = null
+    presentation.reset()
     for (const event of driftMediaEvents) videoRef.value?.removeEventListener(event, recordDriftMediaEvent)
     document.removeEventListener('visibilitychange', recordDriftMediaEvent)
     clearRenderSuppression()

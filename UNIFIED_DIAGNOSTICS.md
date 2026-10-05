@@ -2479,3 +2479,68 @@ H.264/AAC source, without object inference or actual quota pressure, while the
 older HEVC recording inspector remains active. It does not qualify real Tapo
 network behavior, high-resolution decoding, all codecs or observer-overhead
 gates. The broader goal and the independent sixteen-source verifier remain open.
+
+### Presented-frame recovery implementation and real-page iteration (2026-10-05)
+
+`codex/mse-presented-frame-recovery` adds one cancellable presented-frame callback
+per production MSE player. Finite mediaTime advancement resets progress even for
+unchanging image content; callbacks from an old SourceBuffer generation cannot
+seed the replacement. Discontinuity/reconnect/unmount clear the evidence. A
+visible, playing, non-seeking, unsuppressed player with recent incoming fragments
+recovers if its clock stays more than one second ahead of presented video for
+over three seconds of runnable watchdog time. Scheduling suspension is excluded;
+repeated delayed ticks still accumulate runnable time. Unsupported observation or
+absence of any presented-frame baseline does not invent a presentation stall;
+the prior clock/transport/append watchdogs remain. Missing-first-frame recovery
+is not newly qualified by this change.
+
+Visibility uses geometric intersection of the shared `data-playback-viewport`
+(which contains the camera's own controls). Once video falls behind the clock,
+up to five local hit-test points exclude an external covering dialog without
+rejecting own labels/buttons. No per-frame geometry/hit-test work is performed
+while presentation is caught up. Hidden documents, offscreen viewports, paused,
+seeking and intentionally render-suppressed players are excluded. The causal
+restart snapshot survives routine-event eviction. Presented mediaTime/count,
+runnable stall time and geometric visibility pass the existing bounded scalar
+allowlists and compact-report budget through authenticated native history.
+
+The full final web suite passes 77 tests, with one optional export test skipped;
+TypeScript checking and native ClientHealthPayloadTests pass. Regression coverage
+includes advancing audio/media clock with frozen video, static-image timestamp
+progress, hidden/offscreen/covered/paused/seeking/suppressed gates, delayed ticks,
+generation replacement, viewport selection, callback cancellation and compact
+health export. Twelve workload-evidence tests also pass. Logs:
+`artifacts/mse-presentation-hit-test-web-tests.log`,
+`artifacts/mse-presentation-viewport-tests.log`, and build/native test output.
+
+Two earlier packaged variants used browser IntersectionObserver v2 occlusion
+visibility. Their authenticated full-server lifecycles completed (288.752 and
+273.944 seconds respectively), but real persisted history reports
+presentationVisible=false while frames advance. Therefore they **do not qualify
+the recovery feature**, despite the old playback-only harness passing. Their
+unmodified packages and evidence remain separate: web `a785d444ede0` and
+`2f5cc0830a97`, native `ccce3ef12e45`, namespaces
+`artifacts/run-presentation-browser-20261005/` and
+`artifacts/run-presentation-viewport-browser-20261005/`. The exact cause of the
+browser's conservative occlusion classification is not established. These are
+not recommended deployment candidates. No production data/authentication was
+changed during either test; read-only midphase probes checked the exact owned
+loopback hostname before reading only health payloads, never session data.
+
+The harness now offers `WITNESS_TEST_PRESENTATION_MONITOR=1`: startup requires
+fresh visible monitoring and finite presented mediaTime close to an advancing
+clock, not just clock/frame-count evidence. Both earlier exports fail this
+required gate. Wrong types, missing/disabled observation and non-finite/stale
+mediaTime fail closed in unit tests. Default legacy callers are unchanged.
+
+Corrected frozen package:
+`build-vs2026-stable/deploy/mse-presentation-ccce3ef12e45-web-c7af85c866b9`,
+94 files / 177,846,496 bytes, native `ccce3ef12e45`, web `c7af85c866b9`,
+byte/identity verified by `artifacts/mse-presentation-hit-test-package-verified.json`.
+Pinned incremental builds do not install dependencies and emit no C++/linker
+warnings; pre-existing Sass/Bootstrap/chunk advisories remain. A fresh three-minute
+synthetic long-GOP replay with the **required presentation gate** is now running
+under `artifacts/run-presentation-hit-browser-20261005/`; its terminal outcome is
+not yet known. Original sixteen-source recording verification remains separate
+and live. Actual frozen-video recovery in a browser, broader codec/network/load
+coverage and the matched observer-overhead gates remain unproven.

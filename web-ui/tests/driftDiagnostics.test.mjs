@@ -18,6 +18,7 @@ const sample = { t, lagMs: 5601, currentTime: 10, playbackRate: 1.08,
   playbackAdvanceMs: 1080, bufferAdvanceMs: 1000, lagChangeMs: -80,
   hasAudio: true, futureSafeKeyframes: 0, visibility: 'visible',
   fragmentsSinceSample: 6, maxFragmentGapMs: 700, maxAppendDurationMs: 12 }
+Object.assign(sample,{presentedMediaTime:7.1,presentedFrames:42,presentationStallMs:3250,presentationVisible:true})
 
 test('drift evidence is allowlisted, finite, bounded and independently copied', () => {
   const actual = sanitizeDriftSample({ ...sample, currentTime: Infinity, token: 'secret',
@@ -27,6 +28,10 @@ test('drift evidence is allowlisted, finite, bounded and independently copied', 
   assert.deepEqual(actual.buffered, [[0, 1]])
   assert.equal(actual.lagMs, 5601)
   assert.equal(actual.maxFragmentGapMs, 700)
+  assert.equal(actual.presentedMediaTime,7.1)
+  assert.equal(actual.presentedFrames,42)
+  assert.equal(actual.presentationStallMs,3250)
+  assert.equal(actual.presentationVisible,true)
   assert.equal(sanitizeDriftSample({ t: 'invalid' }), undefined)
   assert.equal(sanitizeDriftSamples(Array(100).fill(sample)).length, 60)
   const copied = sanitizeDriftSample(sample)

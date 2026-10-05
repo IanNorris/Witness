@@ -7,6 +7,7 @@ import contextlib
 import gzip
 import ctypes
 import json
+import math
 import os
 import re
 from pathlib import Path
@@ -56,7 +57,7 @@ def sample_coverage(samples, duration, max_gap=10):
             'maximumGapSeconds': max(gaps), 'maximumAllowedGapSeconds': max_gap}
 
 
-def browser_playback_ready(export, camera_ids, build_id, now_ms):
+def browser_playback_ready(export, camera_ids, build_id, now_ms, require_presentation=False):
     """A fresh, authenticated real-player heartbeat, not synthetic setup telemetry."""
     expected_ids = {f'{camera_id}_mse' for camera_id in camera_ids}
     if not expected_ids:
@@ -83,6 +84,13 @@ def browser_playback_ready(export, camera_ids, build_id, now_ms):
             if not isinstance(samples, list) or not samples or not isinstance(samples[-1], dict):
                 return False
             drift = samples[-1]
+            if require_presentation:
+                frame_count = drift.get('presentedFrames')
+                clock, presented = drift.get('currentTime'), drift.get('presentedMediaTime')
+                if (drift.get('presentationVisible') is not True or type(frame_count) is not int or
+                        frame_count < 2 or any(type(value) not in (int, float) or not math.isfinite(value)
+                                              for value in (clock, presented)) or abs(clock-presented) > 1):
+                    return False
             advance = drift.get('playbackAdvanceMs')
             interval = drift.get('sampleIntervalMs')
             return (drift.get('visibility') == 'visible' and drift.get('paused') is False and
@@ -493,7 +501,8 @@ class FullServerIsolationTests(unittest.TestCase):
                                     code, history = request('/debug/client-health')
                                     self.assertEqual(code, 200)
                                     if browser_playback_ready(json.loads(history), initial.keys(),
-                                            health['server']['webBuildHash'], int(time.time() * 1000)):
+                                            health['server']['webBuildHash'], int(time.time() * 1000),
+                                            os.environ.get('WITNESS_TEST_PRESENTATION_MONITOR') == '1'):
                                         print('browserPlaybackReady=true', flush=True)
                                         break
                                     self.assertLess(time.monotonic(), deadline, 'browser playback readiness timeout')
