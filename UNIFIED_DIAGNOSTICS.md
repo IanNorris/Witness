@@ -2669,3 +2669,51 @@ Log: `artifacts/client-health-colliding-owner-http-test.log`. Tests use disposab
 loopback-only auth/history databases, not production sessions or cameras. These
 are independent HTTP clients, not two actual browser profiles, and do not prove
 the full live-server UI reporting/login/HTTPS path or browser throttling behavior.
+
+### Configured PTZ write boundary (2026-10-05)
+
+Inspection found that the direct connected Baichuan path did not check the
+requested camera's PtzEnabled setting, and cached/linked HTTP transports could
+also be selected before any current enabled-setting check. A transport's
+capability is not permission to bypass the requested view's configuration.
+`codex/ptz-configured-command-guard` checks the owned current configuration after
+the existing per-camera authentication/CSRF boundary, before transport discovery,
+lane selection or command dispatch. Movement/relative zoom/focus/preset go-to,
+absolute zoom, preset save and preset delete reject a disabled requested camera.
+Read-only capability queries are unchanged. An authenticated Stop bypasses only
+this enabled-setting gate, so disabling PTZ after a move does not suppress its
+safety Stop; per-camera authorization and the original-transport lease still apply.
+
+Native production-SQL configuration regressions cover enabled, disabled linked,
+missing, disabled-after-discovery and re-enabled views, including Stop permitted
+after disable. Lease expiry, failed-Stop retry, ambiguous acknowledgements, linked
+ordering, independent lanes, preset interlocks and shutdown still pass. Ten PTZ
+client regressions pass. Logs: `artifacts/ptz-configured-guard-native-tests.log`
+and `artifacts/ptz-configured-command-ui-tests.log`. The initial sandboxed Node
+test invocation failed with spawn EPERM; the explicit approved rerun passed.
+
+The full packaged native-server fixture now offers an opt-in
+`WITNESS_TEST_PTZ_CONFIGURED_GUARD=1` check. It requires a synthetic configured
+camera, grants the fixture user its camera group, verifies PTZ remains disabled,
+and tests all five production write routes. Two full-server startup/shutdown
+cycles pass in 46.801 seconds: anonymous and wrong-CSRF writes return 403,
+authenticated disabled writes return 400 with the expected error, and a missing
+camera remains unauthorized. Normal stream readiness, diagnostics authentication,
+durable retained history and clean shutdown/restart checks also pass.
+Evidence: `artifacts/run-ptz-configured-guard-20261005/full-server-ptz-guard-run-0.json`
+and run-1; console `artifacts/ptz-configured-guard-full-server.log`. Fixture state
+is disposed. No PTZ transport is configured, no physical motor command sent, and
+no production configuration/authentication changed. This route test does not
+prove connected/cached transport command suppression or Stop motor behavior;
+the configuration helper and existing lease regressions remain narrower evidence.
+Concurrent link reconfiguration during a movement remains an outstanding audit.
+
+Coherent candidate:
+`build-vs2026-stable/deploy/ptz-configured-81eef548334f-web-e656f4548d6b`, native
+`81eef548334f`, web `e656f4548d6b`, 94 files / 177,847,008 bytes, byte/identity
+verified by `artifacts/ptz-configured-guard-package-verified.json`. The pinned
+incremental build installs no dependencies and has no C++/linker warnings;
+pre-existing frontend deprecation/chunk advisories remain. No main merge,
+remote push or production deployment occurred. The user's backlog remains dirty
+and untouched. The separate sixteen-source recording verifier is still live;
+this short isolated run is not the matched full-load performance gate.

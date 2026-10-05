@@ -29,6 +29,14 @@ inline PtzConfiguration ReadPtzConfiguration(const std::shared_ptr<SQLiteDatabas
     return Result;
 }
 
+// Check the requested view, not a cached/linked transport's capability. Stop
+// remains available after PTZ is disabled so an acknowledged move can be ended.
+// Authentication/authorization of the requested camera must precede this policy.
+inline bool PtzControlAllowed(const std::shared_ptr<SQLiteDatabase>& Database, int CameraId, bool Stop)
+{
+    return Stop || ReadPtzConfiguration(Database, CameraId).Enabled;
+}
+
 inline int ReadPtzLinkedCameraId(const std::shared_ptr<SQLiteDatabase>& Database, int CameraId)
 {
     int Result = 0;

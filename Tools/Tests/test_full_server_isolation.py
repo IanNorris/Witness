@@ -288,6 +288,8 @@ class FullServerIsolationTests(unittest.TestCase):
         active_recording = active_detection or os.environ.get('WITNESS_TEST_RECORDING') == '1'
         verify_outputs = os.environ.get('WITNESS_TEST_VERIFY_RECORDINGS') == '1'
         raw_processing = os.environ.get('WITNESS_TEST_RAW_PROCESSING_SAMPLES') == '1'
+        ptz_guard = os.environ.get('WITNESS_TEST_PTZ_CONFIGURED_GUARD') == '1'
+        self.assertTrue(not ptz_guard or inputs, 'PTZ guard checks require a configured synthetic camera')
         self.assertTrue(not verify_outputs or active_recording, 'Output verification requires recording mode')
         lifecycle_runs = int(os.environ.get('WITNESS_TEST_LIFECYCLE_RUNS', '2'))
         self.assertTrue(1 <= lifecycle_runs <= 10)
@@ -337,7 +339,7 @@ class FullServerIsolationTests(unittest.TestCase):
                     db.execute('INSERT INTO Camera(CameraName,CameraString,CameraStringSub,Enabled,SkipFrames,MDFrameHeight,MDThreshold,MotionFilter,BlackoutMaskPath,FocusMaskPath,ContinuousRecording) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
                                (f'Fixture {index + 1}', url, '', 1, 1, 400,
                                 0.01 if active_detection else 0.99, 'motion_vectors', '', '', int(active_recording)))
-                if browser_hold or active_recording:
+                if browser_hold or active_recording or ptz_guard:
                     db.execute('INSERT INTO CameraGroup(DisplayName,Description) VALUES(?,?)', ('Isolated replay', 'Test only'))
                     db.execute('INSERT INTO UserGroupMapping VALUES(?,?)', (1, 1))
                     db.executemany('INSERT INTO CameraGroupMapping VALUES(?,?)', [(index + 1, 1) for index in range(len(inputs))])
@@ -385,6 +387,32 @@ class FullServerIsolationTests(unittest.TestCase):
                             time.sleep(0.1)
                         self.assertEqual(request('/debug/health', False)[0], 403)
                         self.assertEqual(request('/debug/client-health', False)[0], 403)
+                        if ptz_guard:
+                            # Every camera in this fixture has PTZ disabled and
+                            # only loopback media endpoints. Never enable/create
+                            # a PTZ transport or issue a physical camera command.
+                            with contextlib.closing(sqlite3.connect(data / 'server.db')) as db:
+                                self.assertEqual(db.execute('SELECT coalesce(PtzEnabled,0) FROM Camera WHERE CameraUID=1').fetchone()[0], 0)
+                            results = []
+                            for path, fields in [('/ptz/1/left', {'speed': 2}),
+                                                 ('/ptz/1/preset', {'id': 1}),
+                                                 ('/ptz/1/zoom/set', {'zoom': 1000}),
+                                                 ('/ptz/1/preset/set', {'id': 1, 'name': 'fixture'}),
+                                                 ('/ptz/1/preset/delete', {'id': 1})]:
+                                body = {'csrf': csrf, **fields}
+                                anonymous = request(path, False, body)[0]
+                                invalid_csrf = request(path, body={**body, 'csrf': 'invalid'})[0]
+                                code, response = request(path, body=body)
+                                self.assertEqual(anonymous, 403)
+                                self.assertEqual(invalid_csrf, 403)
+                                self.assertEqual(code, 400)
+                                self.assertEqual(json.loads(response)['error'], 'Camera does not have PTZ enabled')
+                                results.append({'path': path, 'anonymousStatus': anonymous,
+                                                'invalidCsrfStatus': invalid_csrf, 'disabledStatus': code})
+                            self.assertEqual(request('/ptz/999/left', body={'csrf': csrf, 'speed': 2})[0], 403)
+                            with (artifacts / f'full-server-ptz-guard-run-{run}.json').open('x', encoding='utf8') as output:
+                                json.dump({'nativeBuildId': identity, 'passed': True, 'routes': results,
+                                           'scope': 'Actual configured disabled-camera routes and auth; no cached or connected PTZ transport'}, output, indent=2)
                         if raw_processing:
                             self.assertEqual(request('/debug/health?workSamples=bad', False)[0], 403)
                             self.assertEqual(request('/debug/health?workSamples=bad')[0], 400)

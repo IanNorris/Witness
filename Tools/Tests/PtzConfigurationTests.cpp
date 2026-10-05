@@ -52,6 +52,21 @@ int main(int Argc, char** Argv)
             Empty.RtspPath.empty(), "NULL values were not safely copied");
         Check(!ReadPtzConfiguration(Database, 999).Enabled, "missing camera enabled PTZ");
 
+        Check(PtzControlAllowed(Database, 10, false), "enabled camera denied PTZ control");
+        Check(!PtzControlAllowed(Database, 11, false), "disabled view inherited linked camera control");
+        Check(!PtzControlAllowed(Database, 999, false), "missing view allowed PTZ control");
+        Check(PtzControlAllowed(Database, 11, true), "disabled view prevented safety Stop");
+        // An already discovered/cached transport cannot override a later disable.
+        Check(sqlite3_exec(Database->GetDatabase(),
+            "UPDATE Camera SET PtzEnabled=0 WHERE CameraUID=10;", nullptr, nullptr, nullptr) == SQLITE_OK,
+            "fixture PTZ disable failed");
+        Check(!PtzControlAllowed(Database, 10, false), "stale transport capability bypassed disable");
+        Check(PtzControlAllowed(Database, 10, true), "disabled moving camera prevented Stop");
+        Check(sqlite3_exec(Database->GetDatabase(),
+            "UPDATE Camera SET PtzEnabled=1 WHERE CameraUID=10;", nullptr, nullptr, nullptr) == SQLITE_OK,
+            "fixture PTZ re-enable failed");
+        Check(PtzControlAllowed(Database, 10, false), "re-enabled camera retained disabled policy");
+
         std::promise<void> Entered, Release;
         auto Ready = Release.get_future().share();
         auto Discovery = std::async(std::launch::async, [&] {

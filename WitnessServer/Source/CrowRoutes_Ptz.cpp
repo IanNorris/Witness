@@ -175,6 +175,11 @@ void CrowListener::HandlePtzCommand(const crow::request& req, crow::response& re
 	}
 
 	// Do not run HTTP discovery before a healthy Baichuan command (especially Stop).
+	if (!PtzControlAllowed(m_GlobalContext->Database, cameraId, command == "stop"))
+	{
+		RespondNoPtz(res);
+		return;
+	}
 	std::shared_ptr<ReolinkClient> client;
 	const int deviceId = PtzLaneId(*m_GlobalContext, cameraId);
 	const auto lease = m_GlobalContext->PtzMovement;
@@ -370,6 +375,11 @@ void CrowListener::HandlePtzZoomSet(const crow::request& req, crow::response& re
 		return;
 	}
 
+	if (!PtzControlAllowed(m_GlobalContext->Database, cameraId, false))
+	{
+		RespondNoPtz(res);
+		return;
+	}
 	auto client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
 	if (!client)
 	{
@@ -446,6 +456,11 @@ void CrowListener::HandlePtzPresetSet(const crow::request& req, crow::response& 
 		return;
 	}
 
+	if (!PtzControlAllowed(m_GlobalContext->Database, cameraId, false))
+	{
+		RespondNoPtz(res);
+		return;
+	}
 	auto client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
 	if (!client)
 	{
@@ -484,6 +499,11 @@ void CrowListener::HandlePtzPresetDelete(const crow::request& req, crow::respons
 		return;
 	}
 
+	if (!PtzControlAllowed(m_GlobalContext->Database, cameraId, false))
+	{
+		RespondNoPtz(res);
+		return;
+	}
 	auto client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
 	if (!client)
 	{
