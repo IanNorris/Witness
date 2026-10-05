@@ -2801,3 +2801,43 @@ separate 16-source recording audit session 71718 remains live at the latest poll
 quiet output is not a passing or terminal result. The broader matched-observer
 performance and real-browser gates remain open. User BACKLOG.md edits are not
 part of this work piece.
+
+#### Built-dashboard browser validation follow-up
+
+The current built bundle was then exercised through computer-use in the existing
+isolated `ptzDashboard.mjs --serve --layout --auto-slots` fixture, with the local
+`artifacts/tapo9-rate-consistency-15minute-20261004.mp4` mux replay and a fresh
+loopback origin. The fixture forwards no command to Witness or a physical
+camera. All five synthetic IDs replay the same source; this is not a
+five-independent-camera hardware-capacity measurement.
+
+Through the real controls, hero7, balanced8 and grid16 each retained the original
+three visible cameras while keeping two hidden. The grid DOM proves priority
+order 13, 12, 10 fills the first three slots; hidden higher-priority IDs 15 and 14
+do not consume them. Returning to Custom restored automatic-slot indicators and
+the saved activity rectangle. Initially requesting hero7 with three visible
+cameras and an actually overlapping activity rectangle was correctly refused;
+after hiding cameras 12 and 13 in Arrange and placing activity at x=8,y=0,w=4,h=4,
+the same preset succeeded with only camera 10 occupying its large slot. The
+former false collision is absent and the activity panel remains beside it.
+
+The bounded NDJSON evidence contains 26 five-second samples across 125 seconds.
+Independent post-run assertions require all five player IDs and unchanged
+startTime values in every sample, readyState=4, unpaused, no error, empty append
+queues, zero restart/stall/error/integrity/corruption/suppression counters and
+one opened / zero closed stream connections per camera throughout. Every
+player's media clock advanced more than 100 seconds. Visible tile counts include
+3 (regular/generated), 5 (editing) and 1 (saved/reselected preset). These checks
+prove retained transport/player readiness across those transitions, not RVFC
+progress for hidden players, physical camera behavior or broad codec capacity.
+
+Artifacts: `artifacts/dashboard-generated-visibility-browser-20261005.ndjson`,
+`artifacts/dashboard-generated-visibility-browser-summary.json`,
+`artifacts/dashboard-generated-visibility-dom-proof.json`,
+`artifacts/dashboard-generated-visibility-grid-proof.png` and
+`artifacts/dashboard-generated-visibility-activity-proof.png`. The owned browser
+tab was closed and fixture session 6113 stopped after capture. The existing
+native194a9b4dc0a7/web2d144ade7fe5 package remains the candidate; this follow-up
+does not change runtime code. At the separate long recording audit check,
+session 71718 remained live and owned strict-decode PID 27180 showed a new stage
+process; the audit is not yet terminal and is not claimed to pass.
