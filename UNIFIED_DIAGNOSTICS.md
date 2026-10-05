@@ -2453,3 +2453,29 @@ An authenticated full-server three-minute real-browser synthetic long-GOP replay
 and strict recording verification has been started in the exclusive evidence
 namespace `artifacts/run-dependency-safe-browser-20261005/`; it is not yet a
 terminal pass. The earlier sixteen-source verifier remains separate and live.
+
+That separate candidate lifecycle has now completed successfully in 279.196
+seconds. Its positive actual-browser gate passed before the measured phase;
+179 snapshots cover 180.741 seconds with maximum gap 1.259 seconds. Twelve
+eligible authenticated browser-history rows span 165.051 seconds, start 14.895
+seconds into measurement, and end .789 seconds before completion; maximum receipt
+gap is 15.006 seconds. Restart/stall/error deltas are zero with no observed
+counter decrease, 3,953 video-frame delta and zero dropped-frame delta. All 48
+unique retained playhead-position samples report buffered, with no gap/tail;
+final readyState is 4 and latency 1,380 ms. Actual midphase DOM evidence shows
+normal advancing playback at rate 1, currentTime 115.336522, retained range
+[108.192622,116.714021], no pause or media error. Both fresh manual and continuous
+recordings pass full strict video decode and packet/frame timestamp inspection
+(6,182 and 6,194 inspected frames); authenticated history and clean server stop
+checks pass. Recording progress is complete with two of two passing outputs.
+The finished test browser tab is closed and the fixture cleaned up.
+
+Evidence and summary are in the exclusive namespace above; console log
+`artifacts/mse-dependency-safe-browser.log`; midphase DOM/screenshot
+`artifacts/mse-dependency-safe-stream-midphase.json` and matching PNG. The complete
+web suite also passes 68 tests, with one optional real-player export test skipped
+(`artifacts/mse-dependency-safe-full-web-tests.log`). This is one synthetic small
+H.264/AAC source, without object inference or actual quota pressure, while the
+older HEVC recording inspector remains active. It does not qualify real Tapo
+network behavior, high-resolution decoding, all codecs or observer-overhead
+gates. The broader goal and the independent sixteen-source verifier remain open.
