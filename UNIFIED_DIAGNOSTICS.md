@@ -2282,3 +2282,47 @@ stability. The original long verifier remains live and was observed at camera
 10 frame-timestamp inspection; its generic outputs were not overwritten by this
 test. No source/binary changes beyond the previously packaged passive gap
 instrumentation were introduced by the namespace harness changes.
+
+### Actual MSE-to-server gap diagnostics validated on the diagnostic build
+
+`codex/buffer-gap-stream-validation` preserves a completed authenticated replay
+with the production dashboard/MSE player, native `648a3dfc9a0c`, web
+`7c71d142b7f3`. The 180-second phase sampled 179 server snapshots over
+180.409 seconds, maximum sampling gap 1.028 seconds. The positive browser-start
+gate passed on actual advancing media before measurement began. Twelve eligible
+history rows span 165.069 seconds, starting 14.087 seconds into the phase and
+ending 1.253 seconds before its end; maximum receipt gap 15.013 seconds. Player
+restart/stall/error counter deltas are zero, no counter decrease observed, final
+readyState 4 and latency 1,033 ms. Its frame-count delta is 3,296 with 185 dropped
+frames: this is not flawless presentation and not a clean load/performance
+benchmark while the older fixture's recording inspector was decoding in the
+background.
+
+Forty-eight unique retained drift samples carry the real playhead-position
+fields through the authenticated native history endpoint. All report the
+playhead buffered; none report a hole or tail. Midphase read-only inspection
+checked this exact owned fixture's loopback hostname before reading only player
+telemetry, never auth sessions. AAC presence, timestamp offset and mode are
+retained alongside headroom; an observed offset of -40.930625 seconds illustrates
+why native timestamps must not be treated as the sequence-mode browser timeline.
+Independent DOM observations show advancing playback without pause/media error.
+
+The complete test passed in 258.349 seconds, including both fresh manual/DVR
+outputs passing strict streaming decode and timestamp checks, normal auth/CSRF,
+durable history, and clean server stop. The finished browser tab was closed. All
+evidence is under `artifacts/run-gap-build-aac-browser-20261005/`, with
+`full-server-{replay,workload,recording-progress}-run-0.json`, history, summary,
+bounded midphase telemetry and DOM evidence. Console/screenshot:
+`artifacts/gap-build-aac-browser.log` and `artifacts/gap-build-aac-browser.png`.
+
+The replay summarizer now deduplicates retained drift observations by generation
+and sample identifier, classifies explicitly observed buffered/gap/tail states,
+and leaves legacy missing fields or conflicting repeats unknown. It never infers
+a hole from the final buffered-end latency alone. Ten summary tests pass,
+including duplicate observations, missing fields, conflicting repeats and bad
+gap values. These are sparse media-element position snapshots, not continuous
+playback or separate-track readiness proof. This one saved H.264/AAC input does
+not qualify Tapo/Reolink network behavior, sixteen-camera contention, matched
+observer overhead or independent browser profiles. The original sixteen-source
+recording verification remains live and separate; no earlier incomplete test
+was silently restarted, replaced or relabelled as passing.

@@ -11,6 +11,48 @@ def quantile(values, percentile):
     return values[max(0, math.ceil(len(values) * percentile) - 1)] if values else None
 
 
+def buffer_position_observations(timeline):
+    """Deduplicated retained snapshots only; never infer a gap from final latency."""
+    seen = {}
+    def finite(value):
+        return type(value) in (int, float) and math.isfinite(value)
+    for player in timeline:
+        samples = player.get('driftSamples', [])
+        if not isinstance(samples, list):
+            continue
+        for sample in samples:
+            if not isinstance(sample, dict) or not isinstance(sample.get('t'), str):
+                continue
+            generation = sample.get('generation')
+            if generation is not None and not finite(generation):
+                continue
+            key = generation, sample['t']
+            position, gap = 'unknown', None
+            if sample.get('playheadBuffered') is True:
+                position = 'buffered'
+            elif sample.get('playheadBuffered') is False:
+                value = sample.get('playheadGapMs')
+                if finite(value) and value > 0 and finite(sample.get('nextBufferedStartSeconds')):
+                    position, gap = 'gap', value
+                elif (finite(sample.get('bufferedRangeCount')) and sample['bufferedRangeCount'] >= 0 and
+                      sample.get('headroomInCurrentRangeMs') == 0 and
+                      'nextBufferedStartSeconds' not in sample and 'playheadGapMs' not in sample):
+                    position = 'tailOrEmpty'
+            current = position, gap
+            if key in seen and seen[key] != current:
+                seen[key] = ('unknown', None)  # Conflicting repeats cannot qualify a known state.
+            else:
+                seen[key] = current
+    gaps = [gap for position, gap in seen.values() if position == 'gap']
+    return {'observedUniqueSamples': len(seen),
+        'bufferedSamples': sum(position == 'buffered' for position, _ in seen.values()),
+        'gapSamples': len(gaps),
+        'tailOrEmptySamples': sum(position == 'tailOrEmpty' for position, _ in seen.values()),
+        'unknownPositionSamples': sum(position == 'unknown' for position, _ in seen.values()),
+        'maximumObservedGapMs': max(gaps) if gaps else None,
+        'scope': 'retainedMediaElementPositionSnapshotsNotContinuousPlaybackOrSeparateTrackReadiness'}
+
+
 def summarize(replay, history):
     samples = replay.get('samples', [])
     if not samples:
@@ -85,6 +127,7 @@ def summarize(replay, history):
                 'counterResetObserved': reset,
                 'finalReadyState': last[player_id].get('readyState'),
                 'finalLatencyMs': last[player_id].get('latencyMs'),
+                'sampledBufferPosition': buffer_position_observations(timeline),
                 'finalLastEventType': last[player_id].get('lastEventType')})
         first_received = rows[0]['receivedUnixMs']
         last_received = rows[-1]['receivedUnixMs']
