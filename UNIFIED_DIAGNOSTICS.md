@@ -4314,3 +4314,29 @@ startup proof and cannot be retroactively qualified by manufacturing it. Fresh
 paired runs are required. Startup DOM proof does not establish uninterrupted
 visibility, identical tile geometry throughout the phase, hidden/resume behavior,
 or absence of external host contention. Those validation limits remain open.
+
+### Loaded recording shutdown regression discovered (2026-10-05)
+
+The consolidated native573cd0df694f/web e55b82803f31 package passed the isolated
+zero-camera restart/history checks, but the subsequent mixed loaded test failed.
+The first 90.180-second phase had 89 health samples (maximum gap1.054s), all four
+inputs connected and no reported video corruption/drops. Three manual recordings
+passed strict whole-file decode and timestamp inspection: H264 1280x720, HEVC
+1920x1080 and HEVC 3840x2160. The fourth, synthetic H264/AAC 160x90, had no MP4
+moov atom; independent ffprobe reproduced the error in its preserved fixture-owned
+file. The process exited cleanly, but the second lifecycle was NOT reached.
+This is a failed recording gate despite healthy live-stream counters.
+
+Ignored evidence: `artifacts/run-consolidated-mixed-loaded-20261005/`, including
+`recording-inspection-failed-7247bd10054ce423.json` and its private MP4. No media,
+database, session credentials or dump is tracked. The Tapo-derived source is an
+earlier saved OUTPUT replay, not raw physical camera/network input.
+
+Branch `codex/finalize-active-recording-on-shutdown` explicitly invokes the
+existing OnClipFinished(true) path on the camera worker before observer/filter,
+input and live stream teardown. Previously WorkerShutdown left RecordStream
+alive; its eventual destruction calls the Stream base destructor, not the
+derived OutputStream::Shutdown trailer writer. The source-order regression
+checks actual calls (comments removed); both shutdown-order tests pass. The
+rebuild and actual recording regression remain pending: this fix is not yet
+qualified as a deployable recording repair.

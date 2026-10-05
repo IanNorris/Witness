@@ -5,6 +5,18 @@ import unittest
 
 
 class ShutdownJoinOrderTests(unittest.TestCase):
+    def test_camera_finalizes_active_recording_before_derived_state_teardown(self):
+        source = (Path(__file__).resolve().parents[2] /
+                  'WitnessServer/Source/CameraWorker.cpp').read_text(encoding='utf-8')
+        shutdown = source.split('void CameraWorker::WorkerShutdown()', 1)[1].split(
+            'void CameraWorker::WorkerMain()', 1)[0]
+        shutdown = re.sub(r'//[^\n]*|/\*.*?\*/', '', shutdown, flags=re.S)
+        finish = shutdown.index('OnClipFinished(true);')
+        for teardown in ('Filter = nullptr;', 'ContinuousStream = nullptr;',
+                         'LiveStream = nullptr;', 'RetiredCameraStream.reset();'):
+            self.assertLess(finish, shutdown.index(teardown))
+        self.assertLess(finish, shutdown.index('std::make_shared<ThreadShutdownMessage>()'))
+
     def test_background_workers_join_before_request_shutdown_returns(self):
         source = (Path(__file__).resolve().parents[2] /
                   'WitnessServer/Source/Shutdown.cpp').read_text(encoding='utf-8')

@@ -862,6 +862,11 @@ void CameraWorker::WorkerInit()
 
 void CameraWorker::WorkerShutdown()
 {
+	// Finalize an active manual/automatic MP4 while the observer, filter and
+	// input stream still exist. OutputStream destruction does not invoke its
+	// derived Shutdown(), so merely destroying RecordStream leaves no trailer.
+	OnClipFinished(true);
+
 	// Stop sub-stream worker first
 	std::shared_ptr<SubStreamWorker> SubWorker;
 	{
