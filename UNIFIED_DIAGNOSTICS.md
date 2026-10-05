@@ -4594,3 +4594,36 @@ movement acceptance from successful login. Native manual probes are excluded
 from the deployment package. Owned recording-audit session5476 remains live;
 its 128-output inspection remains incomplete with two outputs completed at
 this checkpoint. The verified deployment package and user BACKLOG are unchanged.
+
+Latest-package mixed-codec browser acceptance (2026-10-05): owned session5655
+completes successfully in377.133 seconds using the verified native d63a3532fc76 /
+web42f16c90ef9a package. Independent1280x900 fullscreen DOM proof validates both
+players before measurement: synthetic H.264160x90 with AAC, and a timing-normalized
+saved HEVC1920x1080@20 workload without audio. This is replay, not independent
+physical camera/network evidence. The180.132-second phase retains179 server
+samples with maximum gap1.027 seconds and12 authenticated browser heartbeats,
+including3 genuine hidden receipts and no unknown visibility/incomplete players.
+
+At19:58:06.463Z/19:58:06.466Z, both players recover immediately on returning
+visible after hidden retention evicts their paused playheads. Each records one
+hiddenBufferEvicted restart; no second restart appears in the remaining retained
+rows. Fresh DOM evidence at19:58:57.845Z shows advancing H.264/HEVC current times
+46.782/45.730, both unpaused/ready4/error-null and inside buffered ranges. Final
+latencies are1353/1335ms. Each error counter increments once for the deliberate
+teardown's wsError with intentionalClose=true; frame/drop counters reset with
+the replacement media element. Do not call these zero-error/no-reset statistics
+or interpret negative lifetime-counter deltas as lost frames. Retained presented
+frame samples show31 progressing same-generation pairs per player and no
+presentation-reset pair; that is sampled evidence, not continuous presentation.
+
+All four manual clip/DVR outputs pass strict whole-file decode and packet/frame
+timestamp inspection, with zero decode diagnostics. Final clip metadata and
+graceful shutdown checks pass. Evidence:
+`artifacts/run-run-hidden-resume-mixed-browser-20261005/`, including genuine
+startup proof, persisted history and post-resume DOM/JPEG checkpoints. The test
+tab is closed and viewport override reset; private fixture data cleans up on
+success. This qualifies two-codec reconnect recovery, not a real single-RAP seek,
+every audio codec, independent-profile endurance or observer overhead: the older
+128-output recording audit was concurrent and remains separately live. No
+deployment/package/source change, remote push, real-media commit or user BACKLOG
+edit is performed.
