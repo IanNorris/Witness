@@ -78,6 +78,29 @@ class ReplaySummaryTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 summarize(replay, {})
 
+    def test_retained_tail_cannot_look_like_full_phase_coverage(self):
+        replay, row = self.fixture()
+        replay['measurementWindow'] = {'startedUnixMs': 1000, 'completedUnixMs': 1801000}
+        tail = copy.deepcopy(row)
+        tail['receivedUnixMs'] = 1201000
+        last = copy.deepcopy(row)
+        last['receivedUnixMs'] = 1781000
+        session = summarize(replay, {'history': [tail, last]})['browserSessions'][0]
+        boundaries = session['measurementBoundaryObservations']
+        self.assertEqual(boundaries['startOffsetSeconds'], 1200)
+        self.assertEqual(boundaries['endGapSeconds'], 20)
+        self.assertFalse(boundaries['startObservedWithin30Seconds'])
+        self.assertTrue(boundaries['endObservedWithin30Seconds'])
+        self.assertEqual(session['maximumReceiptGapSeconds'], 580)
+        self.assertEqual(session['firstReceivedUnixMs'], 1201000)
+        self.assertEqual(session['lastReceivedUnixMs'], 1781000)
+
+    def test_single_row_and_legacy_history_have_no_invented_gap_or_boundaries(self):
+        replay, row = self.fixture()
+        session = summarize(replay, {'history': [row]})['browserSessions'][0]
+        self.assertIsNone(session['maximumReceiptGapSeconds'])
+        self.assertIsNone(session['measurementBoundaryObservations'])
+
 
 if __name__ == '__main__':
     unittest.main()

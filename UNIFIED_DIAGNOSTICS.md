@@ -2003,3 +2003,12 @@ test, not a completed endurance result. Evidence so far:
 `artifacts/presented-browser-16stream-grid.png`, and
 `artifacts/presented-browser-16stream-{start-dom,progress-1,progress-2}.json`.
 No wake lock, deployment mutation or production data/session was used.
+
+`codex/browser-phase-coverage-audit` makes browser evidence boundaries explicit:
+first/last eligible server-receipt timestamps, largest inter-snapshot gap, and
+start/end offsets from the anchored measurement phase. A descriptive 30-second
+boundary-observation check is explicitly not continuous-playback proof. Older
+unanchored reports and single-row gap evidence remain unavailable, not guessed.
+Eight summary tests pass, including a retained tail that misses twenty minutes
+of a thirty-minute phase. This changes only post-processing, not the running
+fixture or production history limits.

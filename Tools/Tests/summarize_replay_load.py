@@ -86,8 +86,24 @@ def summarize(replay, history):
                 'finalReadyState': last[player_id].get('readyState'),
                 'finalLatencyMs': last[player_id].get('latencyMs'),
                 'finalLastEventType': last[player_id].get('lastEventType')})
+        first_received = rows[0]['receivedUnixMs']
+        last_received = rows[-1]['receivedUnixMs']
+        receipt_gaps = [(right['receivedUnixMs'] - left['receivedUnixMs']) / 1000
+                        for left, right in zip(rows, rows[1:])]
+        boundary_observations = None
+        if window:
+            start_gap = (first_received - window['startedUnixMs']) / 1000
+            end_gap = (window['completedUnixMs'] - last_received) / 1000
+            boundary_observations = {
+                'startOffsetSeconds': start_gap, 'endGapSeconds': end_gap,
+                'startObservedWithin30Seconds': start_gap <= 30,
+                'endObservedWithin30Seconds': end_gap <= 30,
+                'scope': 'retainedEligibleSnapshotBoundariesNotContinuousPlaybackProof'}
         browser.append({'retainedRows': len(rows),
             'retainedSpanSeconds': (rows[-1]['receivedUnixMs'] - rows[0]['receivedUnixMs']) / 1000,
+            'firstReceivedUnixMs': first_received, 'lastReceivedUnixMs': last_received,
+            'maximumReceiptGapSeconds': max(receipt_gaps) if receipt_gaps else None,
+            'measurementBoundaryObservations': boundary_observations,
             'players': player_reports})
     return {'nativeBuildId': native, 'webBuildId': build,
         'cameraCount': len(camera_ids), 'sampleCount': len(samples),
