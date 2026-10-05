@@ -3191,3 +3191,87 @@ merge/push/deployment, production session/config mutation or user backlog edit
 was performed. The corrected process was verified live on its handle at the
 latest poll; no measured phase or audit terminal result exists yet. The matched
 overhead gate and overall goal remain open.
+
+### PTZ update query lifetime: prepared fix, validation deferred
+
+While frozen-candidate replay handle 58671 continues its measured phase, source
+inspection found `HandleCameraUpdate` retaining its `SQLiteDatabaseQueryInstance`
+for `UpdateCamera` through subsequent `ReolinkClient::AutoDetect` network I/O.
+The prepared-query mutex therefore spans slow discovery and can delay an
+independent camera update; its diagnostic query-scope timing also includes that
+network work. The separate `codex/ptz-update-query-lifetime` branch scopes the
+same bindings/update/error response in a block ending before client discovery.
+It changes no SQL selection, fields, authorization, credentials or motor commands.
+This source change is not yet built, committed or declared validated: native
+build and actual-server regression are deferred until the measured phase ends.
+The frozen native2213c5ef8142/webb301018e1023 running package is unchanged.
+
+`ptz_update_scope_fixture.py` prepares an opt-in actual HTTP regression, enabled
+by `WITNESS_TEST_PTZ_UPDATE_SCOPE=1` with at least two fresh loopback cameras. A
+fake loopback Reolink endpoint accepts only Login, pauses discovery for one camera
+and requires a second camera update to return before releasing that login.
+Anonymous and invalid-CSRF updates must not reach discovery. Release/cleanup is
+bounded and performed even after assertions, and no physical or motor command
+is sent. Three fixture-driver unit tests pass: independent scoped update, a
+simulated retained-mutex negative case, and missing-camera rejection. These are
+driver checks, not yet proof against the real Crow handler. The intended next
+test is old frozen candidate (negative report expected), then the scoped-query
+candidate (positive report required), using exclusive artifact namespaces.
+
+Inspection separately found that editing a linked-camera graph mid-gesture can
+change `ReadPtzLaneId` before a release request. `StopExisting` then searches the
+new lane rather than the lane holding the original moving transport. The old
+lane retains its ten-second safety stop, but immediate release and concurrently
+dispatched commands across reconfiguration remain unresolved. Do not claim the
+query-lifetime fix solves this routing issue. A reproduction with real production
+SQL and retained callbacks is still required before choosing a configuration
+fence/gesture-identity design; no physical movement was attempted during review.
+
+Independent real-browser checkpoints at 12:36:32 and 12:46:39 UTC show all sixteen
+playheads still advancing, readyState 4, unpaused and error-free. Evidence:
+`artifacts/matched-cached-health-off-v2-progress-{2,3}.json`. Browser tab 51 remains
+marked for continuation in the same visible fullscreen grid. The handle remains
+live, with no measured-phase or audit terminal output yet. Do not launch ON or
+another heavy workload while OFF is measuring, or while its subsequent audit
+still consumes CPU. No wake lock or production setting was changed; the
+user-owned backlog remains untouched.
+
+### PTZ update query lifetime: actual before/after validation (2026-10-05)
+
+The measured OFF replay phase completed before the native build or additional
+server fixture started. Its replay, browser history and exact processing samples
+are preserved under `artifacts/run-matched-cached-health-off-20261005-v2/`.
+The 128-output recording audit remains live on handle 58671; the first complete
+recording passed strict decode and packet/frame timestamp checks. This is not
+the matched OFF/ON gate: ON must wait for the recording audit to finish.
+
+The real Crow regression reproduced the retained-query problem against frozen
+native `2213c5ef8142`: the independent camera update did not finish during the
+one-second stalled discovery window, then both updates returned 200 after release.
+Evidence: `artifacts/run-ptz-update-scope-before-20261005-v2/`.
+The same regression against the scoped-query native `94d7d02b84d4` passed in
+23.220 seconds; the independent update returned before discovery was released.
+Both tests used fresh authenticated fixture databases and loopback media sources;
+anonymous and invalid-CSRF requests were rejected before discovery. The fake
+transport received one Login and zero motor commands in each run.
+Evidence: `artifacts/run-ptz-update-scope-after-20261005/`.
+The initial sandbox attempt failed before server startup while creating a private
+fixture directory; it is not a product regression. Native configuration/SQL and
+movement-lease tests passed; three fixture-driver tests and diff checks passed.
+The pinned native build reused dependencies and completed successfully; frontend
+Sass deprecation and chunk-size advisories remain. The linked-graph mid-gesture
+release-routing issue described above remains unresolved by this scope fix.
+
+Separate verified package:
+`build-vs2026-stable/deploy/ptz-update-scope-94d7d02b84d4-web-f283df0a6816`,
+94 files / 178,030,973 bytes. Byte/inventory/identity verification is recorded in
+`artifacts/ptz-update-scope-package-verified.json`, not a general ABI/stability proof.
+The frozen matched-load package was not changed. No main merge, remote push,
+production deployment, wake lock or user backlog edit occurred.
+
+A read-only privacy audit found no camera recording extensions, recording/capture
+paths or artifact paths in tracked files, the index, or reachable local/cached
+remote history. The media objects present are notification sounds; `.ts` matches
+are TypeScript sources, not transport recordings. Real replay media remains in
+ignored `artifacts/`; build packages are untracked. This checked local reachable
+history and cached remote refs, not a new remote fetch or unreachable Git objects.

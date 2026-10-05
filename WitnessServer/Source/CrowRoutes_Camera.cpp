@@ -653,40 +653,44 @@ void CrowListener::HandleCameraUpdate( const crow::request& req, crow::response&
 		});
 	}
 
-	SQLiteDatabaseQueryInstance UpdateCamera( m_GlobalContext->Database, "UpdateCamera" );
-	UpdateCamera->Bind( "@CameraId", CameraID );
-	UpdateCamera->Bind( "@CameraName", DisplayName.c_str() );
-	UpdateCamera->Bind( "@CameraString", ConnectionString.c_str() );
-	UpdateCamera->Bind( "@CameraStringSub", ConnectionStringSub.c_str() );
-	UpdateCamera->Bind( "@Description", Description.c_str() );
-	UpdateCamera->Bind( "@Enabled", Enabled );
-	UpdateCamera->Bind( "@SkipFrames", SkipFrames );
-	UpdateCamera->Bind( "@MDFrameHeight", MDFrameHeight );
-	UpdateCamera->Bind( "@MDThreshold", MDThreshold );
-	UpdateCamera->Bind( "@MotionFilter", MotionFilter.empty() ? nullptr : MotionFilter.c_str() );
-	UpdateCamera->Bind( "@BlackoutMaskPath", BlackoutMaskPath.empty() ? nullptr : BlackoutMaskPath.c_str() );
-	UpdateCamera->Bind( "@FocusMaskPath", FocusMaskPath.empty() ? nullptr : FocusMaskPath.c_str() );
-	UpdateCamera->Bind( "@ContinuousRecording", ContinuousRecording );
-	UpdateCamera->Bind( "@LowLatencyHLS", LowLatencyHLS );
-	UpdateCamera->Bind( "@PtzEnabled", PtzEnabled );
-	UpdateCamera->Bind( "@PtzApiHost", PtzApiHost.empty() ? nullptr : PtzApiHost.c_str() );
-	UpdateCamera->Bind( "@PtzApiPort", PtzApiPort );
-	UpdateCamera->Bind( "@PtzUsername", PtzUsername.empty() ? nullptr : PtzUsername.c_str() );
-	UpdateCamera->Bind( "@PtzPassword", PtzPassword.empty() ? nullptr : PtzPassword.c_str() );
-	UpdateCamera->Bind( "@LinkedCameraId", LinkedCameraId );
-	UpdateCamera->Bind( "@MotionSourceCameraId", MotionSourceCameraId );
-	UpdateCamera->Bind( "@AudioIntelligenceEnabled", AudioIntelligenceEnabled );
-	UpdateCamera->Bind( "@AudioConfidence", std::clamp( AudioConfidence, 0.05, 0.99 ) );
-
-	if( UpdateCamera->Execute( nullptr ) < 0 )
+	// End the prepared-query scope before PTZ discovery below. AutoDetect can
+	// perform slow network I/O and must not hold the shared UpdateCamera mutex.
 	{
-		crow::json::wvalue Data;
-		Data["errorMessage"] = UpdateCamera->GetLastError();
-		res.set_header( "Content-Type", "application/json" );
-		res.body = Data.dump();
-		res.code = 400;
-		res.end();
-		return;
+		SQLiteDatabaseQueryInstance UpdateCamera( m_GlobalContext->Database, "UpdateCamera" );
+		UpdateCamera->Bind( "@CameraId", CameraID );
+		UpdateCamera->Bind( "@CameraName", DisplayName.c_str() );
+		UpdateCamera->Bind( "@CameraString", ConnectionString.c_str() );
+		UpdateCamera->Bind( "@CameraStringSub", ConnectionStringSub.c_str() );
+		UpdateCamera->Bind( "@Description", Description.c_str() );
+		UpdateCamera->Bind( "@Enabled", Enabled );
+		UpdateCamera->Bind( "@SkipFrames", SkipFrames );
+		UpdateCamera->Bind( "@MDFrameHeight", MDFrameHeight );
+		UpdateCamera->Bind( "@MDThreshold", MDThreshold );
+		UpdateCamera->Bind( "@MotionFilter", MotionFilter.empty() ? nullptr : MotionFilter.c_str() );
+		UpdateCamera->Bind( "@BlackoutMaskPath", BlackoutMaskPath.empty() ? nullptr : BlackoutMaskPath.c_str() );
+		UpdateCamera->Bind( "@FocusMaskPath", FocusMaskPath.empty() ? nullptr : FocusMaskPath.c_str() );
+		UpdateCamera->Bind( "@ContinuousRecording", ContinuousRecording );
+		UpdateCamera->Bind( "@LowLatencyHLS", LowLatencyHLS );
+		UpdateCamera->Bind( "@PtzEnabled", PtzEnabled );
+		UpdateCamera->Bind( "@PtzApiHost", PtzApiHost.empty() ? nullptr : PtzApiHost.c_str() );
+		UpdateCamera->Bind( "@PtzApiPort", PtzApiPort );
+		UpdateCamera->Bind( "@PtzUsername", PtzUsername.empty() ? nullptr : PtzUsername.c_str() );
+		UpdateCamera->Bind( "@PtzPassword", PtzPassword.empty() ? nullptr : PtzPassword.c_str() );
+		UpdateCamera->Bind( "@LinkedCameraId", LinkedCameraId );
+		UpdateCamera->Bind( "@MotionSourceCameraId", MotionSourceCameraId );
+		UpdateCamera->Bind( "@AudioIntelligenceEnabled", AudioIntelligenceEnabled );
+		UpdateCamera->Bind( "@AudioConfidence", std::clamp( AudioConfidence, 0.05, 0.99 ) );
+
+		if( UpdateCamera->Execute( nullptr ) < 0 )
+		{
+			crow::json::wvalue Data;
+			Data["errorMessage"] = UpdateCamera->GetLastError();
+			res.set_header( "Content-Type", "application/json" );
+			res.body = Data.dump();
+			res.code = 400;
+			res.end();
+			return;
+		}
 	}
 
 	// Update in-memory setting so it takes effect immediately

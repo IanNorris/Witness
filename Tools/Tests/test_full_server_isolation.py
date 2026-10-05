@@ -28,6 +28,7 @@ from owned_process_dump import capture_owned_process_dump
 from processing_sample_collector import ProcessingSampleCollector
 from health_request_timing import sample_health
 from replay_profiles import qualify_profiles, validate_live_profiles
+from ptz_update_scope_fixture import check_update_scope
 
 RECORDING_FAILURE_ROOT = Path(__file__).resolve().parents[2] / 'artifacts'
 
@@ -294,6 +295,9 @@ class FullServerIsolationTests(unittest.TestCase):
         raw_processing = os.environ.get('WITNESS_TEST_RAW_PROCESSING_SAMPLES') == '1'
         cached_health = os.environ.get('WITNESS_TEST_CACHED_HEALTH') == '1'
         ptz_guard = os.environ.get('WITNESS_TEST_PTZ_CONFIGURED_GUARD') == '1'
+        ptz_update_scope = os.environ.get('WITNESS_TEST_PTZ_UPDATE_SCOPE') == '1'
+        self.assertTrue(not ptz_update_scope or len(inputs) >= 2,
+                        'PTZ update scope checks need two disposable replay cameras')
         self.assertTrue(not ptz_guard or inputs, 'PTZ guard checks require a configured synthetic camera')
         self.assertTrue(not verify_outputs or active_recording, 'Output verification requires recording mode')
         lifecycle_runs = int(os.environ.get('WITNESS_TEST_LIFECYCLE_RUNS', '2'))
@@ -350,7 +354,7 @@ class FullServerIsolationTests(unittest.TestCase):
                     db.executemany('INSERT INTO CameraGroupMapping VALUES(?,?)', [(index + 1, 1) for index in range(len(inputs))])
                 db.commit()
 
-            def request(path, authenticated=True, body=None):
+            def request(path, authenticated=True, body=None, timeout=3):
                 if raw_processing and path == '/debug/health':
                     path += '?workSamples=1'
                 headers = {'Cookie': f'SessionToken-{port}={token}'} if authenticated else {}
@@ -359,7 +363,7 @@ class FullServerIsolationTests(unittest.TestCase):
                 req = urllib.request.Request(f'http://127.0.0.1:{port}' + path,
                     data=None if body is None else json.dumps(body).encode(), headers=headers)
                 try:
-                    response = urllib.request.urlopen(req, timeout=3)
+                    response = urllib.request.urlopen(req, timeout=timeout)
                 except urllib.error.HTTPError as error:
                     response = error
                 with response:
@@ -392,6 +396,11 @@ class FullServerIsolationTests(unittest.TestCase):
                             time.sleep(0.1)
                         self.assertEqual(request('/debug/health', False)[0], 403)
                         self.assertEqual(request('/debug/client-health', False)[0], 403)
+                        if ptz_update_scope:
+                            report = check_update_scope(request, csrf, urls)
+                            with (artifacts / f'full-server-ptz-update-scope-run-{run}.json').open('x', encoding='utf8') as output:
+                                json.dump({'nativeBuildId': identity, **report}, output, indent=2)
+                            self.assertTrue(report['passed'], 'Stalled PTZ discovery retained UpdateCamera query mutex')
                         if cached_health:
                             self.assertEqual(request('/debug/health?details=bad', False)[0], 403)
                             self.assertEqual(request('/debug/health?details=bad')[0], 400)
