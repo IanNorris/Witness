@@ -4340,3 +4340,22 @@ derived OutputStream::Shutdown trailer writer. The source-order regression
 checks actual calls (comments removed); both shutdown-order tests pass. The
 rebuild and actual recording regression remain pending: this fix is not yet
 qualified as a deployable recording repair.
+
+The fix rebuilt successfully and the separate package
+`build-vs2026-stable/deploy/recording-shutdown-3b7916dff6bd-web-f5d7c333b90e`
+passes byte/inventory/embedded-identity verification (94 files / 178,003,926 bytes;
+`artifacts/recording-shutdown-package-20261005.json`). The focused actual-server
+AAC recording regression then passed two 20-second replay lifecycles in77.261s.
+Both manual clips and both continuous DVR segments passed strict whole-file
+decode and packet/frame timestamp inspection with no diagnostics, missing,
+duplicated or regressing timestamps. Evidence is in
+`artifacts/run-recording-shutdown-aac-regression-20261005/`; both progress files
+are inspectionComplete:true, completedOutputs:2/2, passed:true.
+
+This focused pass repairs the demonstrated open-recording finalization path; it
+does not qualify the full mixed CPU-inference workload. That exact four-source,
+two90-second-lifecycle rerun is now active under
+`artifacts/run-recording-shutdown-mixed-loaded-20261005/`. No result is claimed
+until its recording inspection and both lifecycle exits complete. The fix remains
+on its separate branch and has not been merged or pushed. Production and the
+user-owned BACKLOG.md are untouched.
