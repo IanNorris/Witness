@@ -761,7 +761,7 @@ class FullServerIsolationTests(unittest.TestCase):
                             nonlocal slow_dump
                             try:
                                 candidate = artifacts / f'owned-slow-shutdown-{secrets.token_hex(8)}.dmp'
-                                capture_owned_process_dump(process, candidate)
+                                capture_owned_process_dump(process, candidate, include_referenced_memory=True)
                                 slow_dump = candidate
                                 print(f'Owned slow shutdown dump: {candidate}', flush=True)
                             except (OSError, ValueError):
@@ -778,7 +778,7 @@ class FullServerIsolationTests(unittest.TestCase):
                             if process.poll() is None:
                                 try:
                                     dump = artifacts / f'owned-shutdown-{secrets.token_hex(8)}.dmp'
-                                    capture_owned_process_dump(process, dump)
+                                    capture_owned_process_dump(process, dump, include_referenced_memory=True)
                                     print(f'Owned shutdown dump: {dump}', flush=True)
                                     if debugger.is_file():
                                         subprocess.run([str(debugger), '-z', str(dump),

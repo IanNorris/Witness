@@ -5,10 +5,12 @@ from pathlib import Path
 import subprocess
 
 
-def capture_owned_process_dump(process, destination):
+def capture_owned_process_dump(process, destination, *, include_referenced_memory=False):
     """Use Popen's retained CreateProcess handle; never open an arbitrary PID.
 
     Normal + thread-info dumps intentionally exclude full process memory.
+    Opt-in indirectly referenced memory is for private synthetic fixtures only:
+    it can contain heap data/credentials and must never be published.
     The caller must capture before killing/reaping its child. Output is exclusive.
     """
     if os.name != 'nt':
@@ -23,8 +25,9 @@ def capture_owned_process_dump(process, destination):
     destination = Path(destination)
     descriptor = os.open(destination, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_BINARY, 0o600)
     try:
+        dump_type = 0x1000 | (0x40 if include_referenced_memory else 0)
         if not writer(int(process._handle), process.pid, msvcrt.get_osfhandle(descriptor),
-                      0x1000, None, None, None):  # MiniDumpWithThreadInfo | MiniDumpNormal
+                      dump_type, None, None, None):  # ThreadInfo + optional IndirectlyReferencedMemory
             raise ctypes.WinError(ctypes.get_last_error())
     finally:
         os.close(descriptor)

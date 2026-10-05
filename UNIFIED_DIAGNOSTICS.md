@@ -3675,3 +3675,20 @@ timeout dump `owned-shutdown-4bd8e920cf0020d7` remains private and ignored too.
 Targeted shutdown-stage tracing or richer test-owned evidence is still needed.
 These changes affect diagnostic tooling, not the packaged server, and do not
 fix or dismiss the earlier shutdown failure. No new deployable build is claimed.
+
+The same replay reproduced the timeout again in 135.650s under
+`artifacts/run-health-contention-mixed-codecs-referenced-memory-20261005/`.
+Test-owned dump capture now optionally includes indirectly referenced memory
+(not full process memory); its default remains a normal thread-info dump.
+This option is restricted by convention to private synthetic fixtures and may
+contain heap data/fixture credentials: never publish these files. The owned
+Python-child dump/exclusive-output smoke passes for both modes.
+
+The richer ten-second and timeout snapshots contain the reprocessing worker
+object. Matching symbols locate `WorkerBase::Shutdown` at offset 0x48 and
+`Complete` at 0x49. At both snapshots the reprocessing worker reads 01/00 while
+its stack remains inside the 30-second idle sleep; the audio worker reads 00/00.
+This proves an accepted reprocessing stop cannot interrupt its idle sleep.
+The shutdown implementation joins reprocessing before requesting audio stop,
+consistent with the audio state. It does not prove every other teardown stage
+is healthy. Stack and worker-state logs remain ignored alongside the dumps.

@@ -23,6 +23,11 @@ class OwnedProcessDumpTests(unittest.TestCase):
                 with output.open('rb') as stream:
                     self.assertEqual(stream.read(4), b'MDMP')
                 self.assertGreater(output.stat().st_size, 32)
+                richer = Path(directory) / 'synthetic-referenced-memory.dmp'
+                capture_owned_process_dump(child, richer, include_referenced_memory=True)
+                with richer.open('rb') as stream:
+                    self.assertEqual(stream.read(4), b'MDMP')
+                self.assertGreater(richer.stat().st_size, 32)
                 with self.assertRaises(FileExistsError):
                     capture_owned_process_dump(child, output)
                 self.assertIsNone(child.poll())
