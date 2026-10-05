@@ -7,6 +7,7 @@ import contextlib
 import ctypes
 import json
 import os
+import re
 from pathlib import Path
 import secrets
 import shutil
@@ -19,6 +20,38 @@ import time
 import unittest
 import urllib.error
 import urllib.request
+
+
+def sample_coverage(samples, duration, max_gap=10):
+    """Reject suspended/partial observation windows, including missing endpoints."""
+    times = [0.0] + [sample['elapsedSeconds'] for sample in samples] + [float(duration)]
+    if not samples or any(not 0 <= value <= duration + max_gap for value in times):
+        raise ValueError('Missing or out-of-range load samples')
+    gaps = [right - left for left, right in zip(times, times[1:])]
+    if any(gap < 0 or gap > max_gap for gap in gaps):
+        raise ValueError('Load observation gap exceeds the continuous-test limit')
+    return {'sampleCount': len(samples), 'durationSeconds': duration,
+            'maximumGapSeconds': max(gaps), 'maximumAllowedGapSeconds': max_gap}
+
+
+def inference_evidence(text):
+    """Export only numeric completed-inference stats, never raw log/session data."""
+    pattern = re.compile(r'ONNX Camera (\d+) stats: (\d+)/(\d+) detected '
+                         r'\((\d+)%\), (\d+) skipped, (\d+) baseline-filtered, avg (\d+)ms')
+    return [{'cameraId': int(match[0]), 'detections': int(match[1]),
+             'completedInferences': int(match[2]), 'skipped': int(match[4]),
+             'baselineFiltered': int(match[5]), 'meanInferenceMsRounded': int(match[6])}
+            for match in pattern.findall(text) if int(match[2]) > 0]
+
+
+def recording_evidence(db, previous_clip_uid, previous_segment_uid):
+    """Only this lifecycle's newly created rows qualify; no reused baseline rows."""
+    clips = [{'cameraId': row[0], 'clips': row[1]} for row in db.execute(
+        'SELECT Camera,count(*) FROM Clip WHERE ClipUID>? GROUP BY Camera', (previous_clip_uid,))]
+    segments = [{'cameraId': row[0], 'segments': row[1]} for row in db.execute(
+        'SELECT CameraUID,count(*) FROM ContinuousSegment WHERE SegmentUID>? GROUP BY CameraUID',
+        (previous_segment_uid,))]
+    return clips, segments
 
 
 def stop_console_process(process):
@@ -86,6 +119,11 @@ class FullServerIsolationTests(unittest.TestCase):
         browser_hold = int(os.environ.get('WITNESS_TEST_BROWSER_HOLD_SECONDS', '0'))
         self.assertTrue(browser_hold == 0 or 60 <= browser_hold <= 3600)
         self.assertTrue(not browser_hold or inputs, 'Browser mode requires replay inputs')
+        active_detection = os.environ.get('WITNESS_TEST_ACTIVE_DETECTION') == '1'
+        self.assertTrue(not active_detection or (inputs and (browser_hold or replay_seconds) >= 90),
+                        'Detection evidence needs replay inputs and at least 90 seconds')
+        if active_detection:
+            self.assertTrue((server.parent / 'models/yolo26n.onnx').is_file())
         urls = [f'http://127.0.0.1:{loopback_port()}/replay' for _ in inputs]
         repository = Path(__file__).resolve().parents[2]
         with tempfile.TemporaryDirectory(prefix='full-server-isolation-', dir=repository / 'artifacts') as directory:
@@ -117,12 +155,16 @@ class FullServerIsolationTests(unittest.TestCase):
                 settings = {'server_hostname': f'127.0.0.1:{port}', 'server_tls_mode': 'NoSecurity',
                             'server_cache': str(cache), 'clip_cleanup_enabled': '0', 'thread_count': '2',
                             'export_motion_vectors': '1'}
+                if active_detection:
+                    settings.update({'detection_backend': 'onnx', 'detection_provider': 'cpu',
+                                     'detection_max_fps': '1'})
                 db.executemany('INSERT OR REPLACE INTO Setting VALUES(?,?)', settings.items())
                 self.assertEqual(db.execute('SELECT count(*) FROM Camera').fetchone()[0], 0)
                 for index, url in enumerate(urls):
-                    db.execute('INSERT INTO Camera(CameraName,CameraString,CameraStringSub,Enabled,SkipFrames,MDFrameHeight,MDThreshold,MotionFilter,BlackoutMaskPath,FocusMaskPath) VALUES(?,?,?,?,?,?,?,?,?,?)',
-                               (f'Fixture {index + 1}', url, '', 1, 1, 400, 0.99, 'motion_vectors', '', ''))
-                if browser_hold:
+                    db.execute('INSERT INTO Camera(CameraName,CameraString,CameraStringSub,Enabled,SkipFrames,MDFrameHeight,MDThreshold,MotionFilter,BlackoutMaskPath,FocusMaskPath,ContinuousRecording) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
+                               (f'Fixture {index + 1}', url, '', 1, 1, 400,
+                                0.01 if active_detection else 0.99, 'motion_vectors', '', '', int(active_detection)))
+                if browser_hold or active_detection:
                     db.execute('INSERT INTO CameraGroup(DisplayName,Description) VALUES(?,?)', ('Isolated replay', 'Test only'))
                     db.execute('INSERT INTO UserGroupMapping VALUES(?,?)', (1, 1))
                     db.executemany('INSERT INTO CameraGroupMapping VALUES(?,?)', [(index + 1, 1) for index in range(len(inputs))])
@@ -142,6 +184,10 @@ class FullServerIsolationTests(unittest.TestCase):
                     return response.status, response.read()
 
             for run in range(1 if browser_hold else 2):
+                log_offsets = {path: path.stat().st_size for path in (data / 'logs').glob('*.log')}
+                with contextlib.closing(sqlite3.connect(data / 'server.db')) as db:
+                    previous_clip_uid = db.execute('SELECT coalesce(max(ClipUID),0) FROM Clip').fetchone()[0]
+                    previous_segment_uid = db.execute('SELECT coalesce(max(SegmentUID),0) FROM ContinuousSegment').fetchone()[0]
                 startup = subprocess.STARTUPINFO()
                 startup.dwFlags = subprocess.STARTF_USESHOWWINDOW
                 startup.wShowWindow = 0  # Hidden dedicated console, not a user window.
@@ -213,6 +259,12 @@ class FullServerIsolationTests(unittest.TestCase):
                                 time.sleep(0.25)
                             initial = {camera['cameraId']: camera['streams'][0]['acceptedVideoPackets'] for camera in cameras}
                             initial_processing = {camera['cameraId']: camera['processing']['completedFrames'] for camera in cameras}
+                            if active_detection:
+                                # Normal authenticated recording path, not manufactured DB rows.
+                                # These are explicit manual clips, not proof of motion activation.
+                                for camera_id in initial:
+                                    self.assertEqual(request(f'/camera/record/{camera_id}',
+                                        body={'csrf': csrf, 'record': True})[0], 200)
                             if browser_hold:
                                 print(f'isolatedBrowserUrl=http://127.0.0.1:{port}/', flush=True)
                             samples = []
@@ -232,6 +284,11 @@ class FullServerIsolationTests(unittest.TestCase):
                                 code, history = request('/debug/client-health')
                                 self.assertEqual(code, 200)
                                 (repository / 'artifacts/full-server-browser-history.json').write_bytes(history)
+                            coverage = sample_coverage(samples, duration)
+                            if active_detection:
+                                for camera_id in initial:
+                                    self.assertEqual(request(f'/camera/record/{camera_id}',
+                                        body={'csrf': csrf, 'record': False})[0], 200)
                             for camera in health['cameras']:
                                 self.assertGreater(camera['streams'][0]['acceptedVideoPackets'], initial[camera['cameraId']],
                                                    f"camera {camera['cameraId']} stopped advancing")
@@ -261,10 +318,32 @@ class FullServerIsolationTests(unittest.TestCase):
                             (repository / f'artifacts/full-server-replay-run-{run}.json').write_text(
                                 json.dumps({'nativeBuildId': identity, 'cameraCount': len(inputs),
                                     'limits': 'Paced loopback packet-copy replay; browser attachment is externally verified; no baseline phase; not the full load gate',
+                                    'coverage': coverage,
+                                    'workload': {'objectDetection': active_detection, 'provider': 'cpu' if active_detection else None,
+                                                 'maximumMotionInferenceFps': 1 if active_detection else None,
+                                                 'recording': 'continuous DVR plus authenticated manual clips' if active_detection else 'disabled',
+                                                 'motionThreshold': 0.01 if active_detection else 0.99},
                                     'samples': samples}, indent=2), encoding='utf-8')
                     finally:
                         try:
                             stop_console_process(process)
+                        except BaseException:
+                            # Preserve a failing lifecycle before private fixture cleanup.
+                            log.flush()
+                            shutil.copyfile(root / f'run-{run}.log', repository / 'artifacts/full-server-isolation-failed-run.log')
+                            for source in (data / 'logs').glob('*.log'):
+                                shutil.copyfile(source, repository / 'artifacts/full-server-isolation-failed-server.log')
+                            debugger = Path('C:/Program Files (x86)/Windows Kits/10/Debuggers/x64/cdb.exe')
+                            if process.poll() is None and debugger.is_file():
+                                try:
+                                    subprocess.run([str(debugger), '-pv', '-p', str(process.pid),
+                                        '-y', str(server.parent), '-logo', str(repository / 'artifacts/full-server-shutdown-hang-stacks.log'),
+                                        '-c', '~* kb; .detach; q'], stdout=subprocess.DEVNULL,
+                                        stderr=subprocess.DEVNULL, timeout=20,
+                                        creationflags=subprocess.CREATE_NO_WINDOW)
+                                except (OSError, subprocess.TimeoutExpired):
+                                    pass  # Diagnostics never prevent test-owned process cleanup.
+                            raise
                         finally:
                             if process.poll() is None:
                                 process.kill()
@@ -275,6 +354,27 @@ class FullServerIsolationTests(unittest.TestCase):
                         for source in (data / 'logs').glob('*.log'):
                             shutil.copyfile(source, repository / 'artifacts/full-server-isolation-failed-server.log')
                     self.assertEqual(process.returncode, 0, 'graceful shutdown failed')
+                    if active_detection:
+                        log.flush()
+                        evidence = inference_evidence((root / f'run-{run}.log').read_text(encoding='utf-8', errors='replace'))
+                        for source in (data / 'logs').glob('*.log'):
+                            with source.open('rb') as stream:
+                                stream.seek(log_offsets.get(source, 0))
+                                evidence.extend(inference_evidence(stream.read().decode('utf-8', errors='replace')))
+                        # Log sinks can duplicate lines; counts are evidence windows, not lifetime totals.
+                        evidence = list({json.dumps(row, sort_keys=True): row for row in evidence}.values())
+                        with contextlib.closing(sqlite3.connect(data / 'server.db')) as db:
+                            clips, segments = recording_evidence(db, previous_clip_uid, previous_segment_uid)
+                        (repository / f'artifacts/full-server-workload-run-{run}.json').write_text(
+                            json.dumps({'completedInferenceWindows': evidence, 'clipRows': clips,
+                                        'continuousSegmentRows': segments,
+                                        'limits': 'Database rows prove creation, not decoded recording integrity; clips are manually triggered, not proof of MV activation; inferred frames include 30-second no-motion baselines'}, indent=2), encoding='utf-8')
+                        self.assertEqual({row['cameraId'] for row in evidence}, set(range(1, len(inputs) + 1)),
+                                         'Every camera must complete real inference, not just load a model')
+                        self.assertEqual({row['cameraId'] for row in clips}, set(range(1, len(inputs) + 1)),
+                                         'Every camera must create a new recorded clip')
+                        self.assertEqual({row['cameraId'] for row in segments}, set(range(1, len(inputs) + 1)),
+                                         'Every camera must create new continuous DVR segments')
             self.assertTrue((data / 'client-health.db').is_file())
             self.assertFalse((root / 'server.db').exists())
             for path in root.rglob('*'):

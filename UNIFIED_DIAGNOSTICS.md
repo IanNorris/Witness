@@ -888,3 +888,62 @@ comparison. Browser rendering after the pacing fix and the representative
 30-minute baseline/enabled phases still need verification; zero server drops
 must not be used as a smooth-browser-playback claim. All test-owned processes
 stopped. No main merge, remote push, production deployment or wake lock occurred.
+
+### Mixed browser comparison after live-input pacing (2026-10-05)
+
+The same native e6f74ec3f350 / web b9437265ce28 package passed the isolated
+240-second browser-attached fixture (260.173 seconds including lifecycle).
+Actual MSE players showed all sixteen expected native resolutions, unpaused
+1x playback, readyState 4 and no media errors at three live observations.
+At roughly 9/48/100 seconds, 4K buffered headroom remained about 1.1–1.4
+seconds, replacing the previous build's draining headroom. The fourth DOM
+observation and dashboard JPEG were taken **after the fixture stopped**;
+their Connection Lost/reset media state is not live playback evidence.
+
+The final persisted player heartbeat, at approximately 195 seconds, had all
+sixteen players buffered/playing, zero restarts/stalls/errors, and empty append
+queues. 4K players still dropped 180–197 of 4,807–4,861 presentation frames
+(about 3.7–4.1%). This demonstrates improved delivery/headroom, not zero browser
+drops or smooth playback under every load, and does not prove a hardware cause.
+Persisted history had 15 durable samples, zero pending/rejected/storage failures.
+Evidence: `artifacts/live-pacing-browser-e6f74ec3f350-{run-0,history}.json`,
+`artifacts/live-pacing-browser-health.txt`, the read-only DOM observations in
+`artifacts/live-pacing-browser-observations.json`, and
+`artifacts/live-pacing-browser-regression.log`. Both temporary tabs and all
+fixture processes were closed. AI/clip workload and the full overhead gate
+remain separate, unproved requirements.
+
+### Recording-enabled workload qualification (2026-10-05, in progress)
+
+Separate branch `codex/representative-load-harness` adds opt-in
+`WITNESS_TEST_ACTIVE_DETECTION=1` to the isolated lifecycle fixture. It selects
+CPU ONNX with a 1 fps motion-inference cap, a 0.01 MV threshold, continuous DVR,
+and explicit authenticated manual recording on every camera. Normal authentication
+remains enabled. Numeric completed-inference log windows and newly created
+clip/continuous-segment rows are required for every camera on each lifecycle;
+previous-run rows/logs cannot qualify a restart. Rows alone do not prove decoded
+recording integrity, and manual clips do not prove automatic motion activation.
+
+The first 90-second H.264 720p / HEVC 4K qualification exposed an important gap:
+both cameras completed two baseline inferences, but no clips or continuous
+segments were created. Merely lowering the MV threshold did not activate motion
+in these replay inputs, and the original camera seed left DVR disabled.
+Evidence is preserved in `artifacts/representative-workload-initial-{no-clips,health}.json`.
+This is not representative sustained motion-driven inference load.
+
+After explicitly enabling DVR and starting/stopping normal authenticated manual
+clips, the lifecycle timed out during shutdown (30-second limit; 130.944 seconds
+total). `artifacts/representative-workload-recording-qualification.log` records
+that failure. Test-owned processes were killed and their private files cleaned
+up; no production configuration was changed. This is a separate shutdown-hang
+investigation, not a passing workload qualification or proof of another double
+join. A follow-up reproduction now preserves failure logs and, when the installed
+Windows debugger is available, captures non-invasive stacks from only the owned
+fixture server before termination.
+
+Five pure evidence-validator tests pass, covering continuous sample/endpoints,
+sleep/partial/reordered observation rejection, zero-inference/model-ready
+non-evidence, numeric-only log export, and old recording-row exclusion. Observation
+gaps over ten seconds invalidate a continuous test. The full 16-stream, 30-minute
+baseline/enabled CPU/processing/HTTP performance gate remains outstanding. Native
+product binaries are unchanged; the verified e6f74ec3f350 package is reused.
