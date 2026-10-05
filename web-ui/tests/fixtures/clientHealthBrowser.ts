@@ -10,6 +10,11 @@ let frames = 0
     currentState: { readyState: 3, playbackQuality: { totalVideoFrames: frames, droppedVideoFrames: 0 } },
     liveState: { selectedStream: 'sub', latencyMs: camera * 100, wsReadyState: 1 },
     stats: { restartCount: 0, stallCount: 0, errorCount: 0 },
+    driftSamples: [{ t: new Date().toISOString(), currentTime: 11.4, bufferedEnd: 14,
+      bufferedRangeCount: 2, playheadBuffered: false, nextBufferedStartSeconds: 13,
+      playheadGapMs: 1600, headroomInCurrentRangeMs: 0, hasAudio: true,
+      sourceBufferMode: 'sequence', timestampOffsetSeconds: -3,
+      buffered: [[1, 2], [13, 14]], url: 'https://fixture-secret@camera' }],
   }) },
 }
 setCsrfToken('admin-csrf')

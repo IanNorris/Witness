@@ -44,7 +44,12 @@ class HealthHttpTests(unittest.TestCase):
                     return response.status, response.read(), response.headers
 
             payload = {"csrf": "alice-csrf", "snapshot": {"browserId": "browser-a", "sessionId": "tab-a",
-                "username": "forged-admin", "userUid": 1, "visibilityState": "hidden", "players": [{"id": "8_mse", "latencyMs": 14000}]}}
+                "username": "forged-admin", "userUid": 1, "visibilityState": "hidden", "players": [{"id": "8_mse", "latencyMs": 14000,
+                    "driftSamples": [{"t": "2026-10-05T10:00:00Z", "bufferedRangeCount": 2,
+                        "playheadBuffered": False, "nextBufferedStartSeconds": 13,
+                        "playheadGapMs": 1600, "headroomInCurrentRangeMs": 0,
+                        "hasAudio": True, "sourceBufferMode": "sequence", "timestampOffsetSeconds": -3,
+                        "buffered": [[1, 2], [13, 14]], "url": "https://fixture-secret@camera"}]}]}}
             for restart in (False, True):
                 process = subprocess.Popen([os.environ["WITNESS_HEALTH_HTTP_FIXTURE"], str(root),
                     str(Path(__file__).resolve().parents[2] / "WitnessServer/Source/Database.cpp")],
@@ -102,6 +107,19 @@ class HealthHttpTests(unittest.TestCase):
                     owners = {(row["userUid"], row["username"], row["browserId"]) for row in export["history"]}
                     self.assertEqual(owners, {(7, "alice", "browser-a"), (8, "bob", "browser-b")})
                     self.assertNotIn("forged-admin", body.decode())
+                    self.assertNotIn("fixture-secret", body.decode())
+                    for row in export["history"]:
+                        sample = row["snapshot"]["players"][0]["driftSamples"][0]
+                        self.assertIs(sample["playheadBuffered"], False)
+                        self.assertEqual(sample["bufferedRangeCount"], 2)
+                        self.assertEqual(sample["nextBufferedStartSeconds"], 13)
+                        self.assertEqual(sample["playheadGapMs"], 1600)
+                        self.assertEqual(sample["headroomInCurrentRangeMs"], 0)
+                        self.assertIs(sample["hasAudio"], True)
+                        self.assertEqual(sample["sourceBufferMode"], "sequence")
+                        self.assertEqual(sample["timestampOffsetSeconds"], -3)
+                        self.assertNotIn("buffered", sample)
+                        self.assertNotIn("url", sample)
                 finally:
                     if base and process.poll() is None:
                         try:

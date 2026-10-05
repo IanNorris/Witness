@@ -2215,3 +2215,43 @@ stability. A fresh authenticated stream smoke and actual browser-to-server
 history collection with these new fields remain to be run. The old thirty-minute
 candidate stays isolated in its original package and its recording-verifier
 handle remains live; its measured phase cannot be attributed to this new build.
+
+### Authenticated HTTP and real-browser retention of buffer-gap evidence
+
+`codex/buffer-gap-http-history-validation` extends the real cookie/CSRF HTTP
+regression with gap-position and audio-timeline scalars. The native loopback
+fixture was rebuilt against the current payload allowlist. The test passed in
+0.615 seconds: authenticated Alice/Bob submissions are stored under server-
+resolved owners, Bob's subsequently revoked session cannot write, administrator
+export retains both owners, graceful restart restores both rows, and all new
+false/zero/negative-offset scalars survive. Injected URLs and full range arrays
+remain excluded. Anonymous, wrong-port-cookie, disabled/missing-user and CSRF
+cases retain their expected rejection. This is the shared production auth,
+history and payload code in a disposable two-worker fixture, not the full camera
+server. Build/test logs: `artifacts/buffer-gap-health-http-fixture-build.log` and
+`artifacts/buffer-gap-authenticated-http-history.log`.
+
+The browser fixture bundles the actual reporter/API with explicitly synthetic
+player data. Two real Codex in-app browser tabs submitted their own independently
+generated session IDs under the same browser-local ID, then exported history
+through real port-scoped cookies and CSRF. Nine rows were durably exported with
+the server-resolved fixture administrator and preserved gap fields. Stopping and
+closing camera-8's reporter tab left its stored session available to camera-9's
+tab. An injected URL never appeared in exported JSON. Both tabs stopped and
+closed; the owned fixture stopped gracefully with exit zero and its temporary
+databases were cleaned by its harness. No production authentication/configuration
+or camera data was used.
+
+Evidence: `artifacts/buffer-gap-browser-history-{active,disconnected}.json` and
+`artifacts/buffer-gap-browser-history-disconnected.png`. The first esbuild attempt
+hit sandbox child-spawn EPERM, so the prematurely started stale-module fixture
+was stopped without browser use, the module rebuilt with appropriate access,
+and a fresh disposable fixture used for all reported browser results.
+
+Limits: this validates browser reporting/retention of synthetic fields, not
+actual-stream detection of a gap. Available browser inventory contains one
+in-app profile plus MCP Apps, so these are two sessions in one profile, not two
+independent browsers/devices. Full-server browser-to-history stream evidence,
+independent profiles and matched long-run performance gates remain open. The
+separate endurance recording-verifier handle is still live, not restarted or
+relabelled as a passed full test.
