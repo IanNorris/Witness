@@ -1237,3 +1237,12 @@ The saved real 16-player heartbeat in
 `artifacts/client-health-recovery-ratechange-readiness.json` passes the corrected
 predicate. The already-running process loaded the old predicate: none of its
 pre-gate time counts toward endurance, and it must finish before a new attempt.
+
+That old-predicate attempt terminated with the readiness timeout in 324.060
+seconds and cleaned up. A fresh corrected-predicate attempt then passed the
+readiness gate (`browserPlaybackReady=true`) with all 16 actual DOM videos
+visible, unpaused, readyState 4 and no media errors. Its bounded 1,800-second
+phase is still running at this checkpoint; no endurance result is claimed.
+Log: `artifacts/client-health-recovery-progress-gate-16stream-30minute.log`;
+startup screenshot: `artifacts/client-health-recovery-16stream-start.jpg`.
+The verified deployment remains unchanged by this test-harness correction.
