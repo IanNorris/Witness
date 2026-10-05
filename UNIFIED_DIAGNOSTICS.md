@@ -1222,3 +1222,18 @@ optional PDBs). `artifacts/client-health-recovery-package-verified.json` confirm
 inventory/identity/byte coherence. Dependencies were reused. This package has not
 yet received a new long mixed-stream browser run, production deployment or the
 equivalent native diagnostics-overhead A/B acceptance test.
+
+The next 16-stream qualification exposed a readiness-validator false negative:
+healthy Tapo playback can leave `media:ratechange` as its latest event rather than
+`media:playing`. The corrected predicate requires positive measured playback
+advance over a bounded sample interval and an explicitly visible, unpaused drift
+sample, in addition to the existing authenticated identity, fresh report, matching
+build, exact player set, ready/open/initialized and zero-error requirements.
+Explicit waiting/stalled/paused/ended/error events still fail. `seeking`, which
+compact reports omit, is rejected when explicitly true; absence alone does not
+replace the required progress measurement. Seven validator tests pass, including
+rate changes, frozen playheads, hidden/paused samples, missing samples and NaN.
+The saved real 16-player heartbeat in
+`artifacts/client-health-recovery-ratechange-readiness.json` passes the corrected
+predicate. The already-running process loaded the old predicate: none of its
+pre-gate time counts toward endurance, and it must finish before a new attempt.

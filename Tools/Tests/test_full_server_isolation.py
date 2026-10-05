@@ -57,8 +57,20 @@ def browser_playback_ready(export, camera_ids, build_id, now_ms):
             continue
         if {player.get('id') for player in players} != expected_ids:
             continue
+        def progressing(player):
+            samples = player.get('driftSamples', [])
+            if not isinstance(samples, list) or not samples or not isinstance(samples[-1], dict):
+                return False
+            drift = samples[-1]
+            advance = drift.get('playbackAdvanceMs')
+            interval = drift.get('sampleIntervalMs')
+            return (drift.get('visibility') == 'visible' and drift.get('paused') is False and
+                    drift.get('seeking') is not True and type(advance) in (int, float) and
+                    type(interval) in (int, float) and 0 < advance <= 15000 and 0 < interval <= 15000)
+
         if all(type(player.get('readyState')) is int and player['readyState'] >= 3 and
-               player.get('wsReadyState') == 1 and player.get('lastEventType') == 'media:playing' and
+               player.get('wsReadyState') == 1 and progressing(player) and
+               player.get('lastEventType') not in ('media:waiting', 'media:stalled', 'media:pause', 'media:ended', 'media:error') and
                type(player.get('totalVideoFrames')) is int and player['totalVideoFrames'] > 2 and
                player.get('errorCount') == 0 and player.get('hasInitialBuffer') is True and
                player.get('waitingForKeyframe') is False and player.get('awaitingInit') is False

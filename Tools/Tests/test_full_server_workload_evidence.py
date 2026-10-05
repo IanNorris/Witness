@@ -12,7 +12,9 @@ class WorkloadEvidenceTests(unittest.TestCase):
     def test_browser_phase_requires_fresh_matching_playing_players(self):
         player = {'id': '1_mse', 'readyState': 4, 'wsReadyState': 1, 'lastEventType': 'media:playing',
                   'totalVideoFrames': 10, 'errorCount': 0, 'hasInitialBuffer': True,
-                  'waitingForKeyframe': False, 'awaitingInit': False}
+                  'waitingForKeyframe': False, 'awaitingInit': False,
+                  'driftSamples': [{'visibility': 'visible', 'paused': False, 'seeking': False,
+                                    'playbackAdvanceMs': 2000, 'sampleIntervalMs': 2000}]}
         healthy = {'history': [{'userUid': 1, 'username': 'fixture-admin', 'receivedUnixMs': 100000,
                               'snapshot': {'buildHash': 'test-build', 'path': '/',
                                            'visibilityState': 'visible', 'players': [player]}}]}
@@ -30,6 +32,21 @@ class WorkloadEvidenceTests(unittest.TestCase):
         self.assertFalse(browser_playback_ready(healthy, [1, 2], 'test-build', 100500))
         self.assertFalse(browser_playback_ready(healthy, [1], 'test-build', 116000))
         self.assertFalse(browser_playback_ready(healthy, [1], 'test-build', 98000))
+        changing = deepcopy(healthy)
+        changing['history'][0]['snapshot']['players'][0]['lastEventType'] = 'media:ratechange'
+        self.assertTrue(browser_playback_ready(changing, [1], 'test-build', 100500))
+        # Compact browser reports omit seeking, but retain measured progress.
+        del changing['history'][0]['snapshot']['players'][0]['driftSamples'][-1]['seeking']
+        self.assertTrue(browser_playback_ready(changing, [1], 'test-build', 100500))
+        for field, value in [('paused', True), ('seeking', True), ('visibility', 'hidden'),
+                             ('playbackAdvanceMs', 0), ('playbackAdvanceMs', float('nan')),
+                             ('sampleIntervalMs', 60000)]:
+            export = deepcopy(changing)
+            export['history'][0]['snapshot']['players'][0]['driftSamples'][-1][field] = value
+            self.assertFalse(browser_playback_ready(export, [1], 'test-build', 100500))
+        export = deepcopy(changing)
+        export['history'][0]['snapshot']['players'][0]['driftSamples'] = []
+        self.assertFalse(browser_playback_ready(export, [1], 'test-build', 100500))
 
     def test_continuous_sampling(self):
         report = sample_coverage([{'elapsedSeconds': value} for value in range(1, 91)], 90)
