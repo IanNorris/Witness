@@ -24,6 +24,21 @@ int main()
 {
     try
     {
+        MessageBusQueue PendingQueue;
+        auto FirstMessage = std::make_shared<Message>();
+        auto SecondMessage = std::make_shared<Message>();
+        auto LateMessage = std::make_shared<Message>();
+        PendingQueue.Push(FirstMessage);
+        PendingQueue.Push(SecondMessage);
+        auto Pending = PendingQueue.TakePending();
+        PendingQueue.Push(LateMessage);
+        Check(Pending.size() == 2 && Pending[0] == FirstMessage && Pending[1] == SecondMessage,
+              "shutdown snapshot must preserve pending FIFO order");
+        std::shared_ptr<Message> Remaining;
+        Check(PendingQueue.TryPop(Remaining) && Remaining == LateMessage,
+              "snapshot must not consume later producer messages");
+        Check(PendingQueue.TakePending().empty(), "empty shutdown snapshot must not block");
+
         IdleWorker Normal;
         auto Started = std::chrono::steady_clock::now();
         Check(!Normal.Wait(50ms), "ordinary idle wait reported cancellation");

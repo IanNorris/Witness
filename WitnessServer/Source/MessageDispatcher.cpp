@@ -27,6 +27,7 @@ void WitnessServer::MessageLoop( const std::atomic<bool>& ContinueRunning )
 	{
 		std::shared_ptr<Message> Msg;
 		MessageClient->Pop( Msg );
+		std::lock_guard DispatchLock(MessageDispatchMutex);
 
 		HandleEvent(CameraStartupMessage);
 		HandleEvent(CameraReconnectMessage);

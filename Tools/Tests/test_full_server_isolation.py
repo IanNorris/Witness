@@ -125,12 +125,17 @@ def inference_evidence(text):
 
 def recording_evidence(db, previous_clip_uid, previous_segment_uid):
     """Only this lifecycle's newly created rows qualify; no reused baseline rows."""
-    clips = [{'cameraId': row[0], 'clips': row[1]} for row in db.execute(
-        'SELECT Camera,count(*) FROM Clip WHERE ClipUID>? GROUP BY Camera', (previous_clip_uid,))]
+    clips = [{'cameraId': row[0], 'clips': row[1], 'minimumDurationSeconds': row[2]} for row in db.execute(
+        'SELECT Camera,count(*),min(Duration) FROM Clip WHERE ClipUID>? GROUP BY Camera', (previous_clip_uid,))]
     segments = [{'cameraId': row[0], 'segments': row[1]} for row in db.execute(
         'SELECT CameraUID,count(*) FROM ContinuousSegment WHERE SegmentUID>? GROUP BY CameraUID',
         (previous_segment_uid,))]
     return clips, segments
+
+
+def recording_metadata_finalized(clips):
+    return bool(clips) and all(type(row.get('minimumDurationSeconds')) is int and
+                              row['minimumDurationSeconds'] > 0 for row in clips)
 
 
 def replay_sender_failures(processes, root, inputs, urls):
@@ -878,6 +883,8 @@ class FullServerIsolationTests(unittest.TestCase):
                                              'Every camera must complete real inference, not just load a model')
                         self.assertEqual({row['cameraId'] for row in clips}, set(range(1, len(inputs) + 1)),
                                          'Every camera must create a new recorded clip')
+                        self.assertTrue(recording_metadata_finalized(clips),
+                                        'Every recorded clip must persist its final duration before shutdown')
                         self.assertEqual({row['cameraId'] for row in segments}, set(range(1, len(inputs) + 1)),
                                          'Every camera must create new continuous DVR segments')
                         if verify_outputs:

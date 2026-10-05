@@ -96,4 +96,23 @@ void WitnessServer::RequestShutdown()
 	if( Worker ) Worker->Join();
 	if( Watchdog ) Watchdog->Join();
 	if( Timer ) Timer->Join();
+
+	// ContinueRunning is already false, so MessageLoop may have exited before
+	// camera workers emitted their final clip statistics. Producers are joined;
+	// consume one finite snapshot, processing only finalization (never camera
+	// start/configuration commands). Serialize with any dispatch still finishing.
+	if( MessageClient )
+	{
+		std::lock_guard DispatchLock(MessageDispatchMutex);
+		for( const auto& Msg : MessageClient->TakePending() )
+		{
+			Msg->Handle<CameraClipFinishedMessage>([&](const CameraClipFinishedMessage& Data)
+			{
+				StopCameraRecording(Data.ClipStats, Data.Camera, Data.Result);
+			});
+		}
+		// The snapshot may consume the original wake message before a blocked
+		// MessageLoop::Pop sees it. Leave a fresh wake so it can observe stop.
+		MessageClient->Push(std::make_shared<ThreadShutdownMessage>());
+	}
 }

@@ -80,6 +80,8 @@ private:
 	std::unique_ptr<CrowListener>	Server;
 	std::shared_ptr<GlobalContext> Context;
 	std::shared_ptr<MessageBusQueue> MessageClient;
+	// Serialize the final shutdown drain with a dispatch already in progress.
+	std::mutex MessageDispatchMutex;
 
 	DebugConsole* DebugConsoleInstance;
 

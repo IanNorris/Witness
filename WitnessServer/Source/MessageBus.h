@@ -3,6 +3,8 @@
 #include <mutex>
 #include <condition_variable>
 #include <vector>
+#include <memory>
+#include <unordered_map>
 #include "Message.h"
 
 class MessageBusQueue
@@ -11,6 +13,7 @@ public:
 	
 	void Push( const std::shared_ptr<Message>& Message );
 	bool TryPop(std::shared_ptr<Message>& Message );
+	std::vector<std::shared_ptr<Message>> TakePending();
 	void Pop(std::shared_ptr<Message>& Message );
 
 	void TryPop( std::function< void(std::shared_ptr<Message>) > );

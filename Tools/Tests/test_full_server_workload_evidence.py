@@ -9,7 +9,7 @@ from unittest.mock import Mock
 from copy import deepcopy
 from check_preview_decode import RecordingInspectionError
 
-from test_full_server_isolation import artifact_directory, browser_playback_ready, inference_evidence, recording_evidence, replay_sender_failures, sample_coverage, verify_recordings
+from test_full_server_isolation import artifact_directory, browser_playback_ready, inference_evidence, recording_evidence, recording_metadata_finalized, replay_sender_failures, sample_coverage, verify_recordings
 
 
 class WorkloadEvidenceTests(unittest.TestCase):
@@ -207,15 +207,28 @@ class WorkloadEvidenceTests(unittest.TestCase):
     def test_previous_lifecycle_recordings_cannot_qualify_new_run(self):
         db = sqlite3.connect(':memory:')
         try:
-            db.execute('CREATE TABLE Clip(ClipUID INTEGER,Camera INTEGER)')
+            db.execute('CREATE TABLE Clip(ClipUID INTEGER,Camera INTEGER,Duration INTEGER)')
             db.execute('CREATE TABLE ContinuousSegment(SegmentUID INTEGER,CameraUID INTEGER)')
-            db.executemany('INSERT INTO Clip VALUES(?,?)', [(1, 1), (2, 1), (3, 2)])
+            db.executemany('INSERT INTO Clip VALUES(?,?,?)', [(1, 1, 10), (2, 1, 20), (3, 2, 30)])
             db.executemany('INSERT INTO ContinuousSegment VALUES(?,?)', [(1, 1), (2, 2)])
             self.assertEqual(recording_evidence(db, 3, 2), ([], []))
             self.assertEqual(recording_evidence(db, 2, 1),
-                             ([{'cameraId': 2, 'clips': 1}], [{'cameraId': 2, 'segments': 1}]))
+                             ([{'cameraId': 2, 'clips': 1, 'minimumDurationSeconds': 30}],
+                              [{'cameraId': 2, 'segments': 1}]))
         finally:
             db.close()
+
+    def test_recording_metadata_requires_every_new_clip_to_be_finalized(self):
+        self.assertFalse(recording_metadata_finalized([]))
+        for duration in (None, 0, -1, True, '20'):
+            self.assertFalse(recording_metadata_finalized([
+                {'minimumDurationSeconds': 20}, {'minimumDurationSeconds': duration}]))
+        self.assertTrue(recording_metadata_finalized([{'minimumDurationSeconds': 20}]))
+        with sqlite3.connect(':memory:') as db:
+            db.execute('CREATE TABLE Clip(ClipUID INTEGER,Camera INTEGER,Duration INTEGER)')
+            db.execute('CREATE TABLE ContinuousSegment(SegmentUID INTEGER,CameraUID INTEGER)')
+            db.executemany('INSERT INTO Clip VALUES(?,?,?)', [(1, 1, 20), (2, 1, 0)])
+            self.assertFalse(recording_metadata_finalized(recording_evidence(db, 0, 0)[0]))
 
     def test_output_verifier_rejects_external_paths_before_decoding(self):
         db = sqlite3.connect(':memory:')

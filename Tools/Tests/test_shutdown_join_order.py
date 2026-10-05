@@ -5,6 +5,23 @@ import unittest
 
 
 class ShutdownJoinOrderTests(unittest.TestCase):
+    def test_final_clip_metadata_drain_is_serialized_after_all_worker_joins(self):
+        root = Path(__file__).resolve().parents[2] / 'WitnessServer/Source'
+        source = (root / 'Shutdown.cpp').read_text(encoding='utf8')
+        request = source.split('void WitnessServer::RequestShutdown()', 1)[1]
+        request = re.sub(r'//[^\n]*|/\*.*?\*/', '', request, flags=re.S)
+        drain = request.index('MessageClient->TakePending()')
+        for joined in ('Camera.second.Worker->Join();', 'if( Worker ) Worker->Join();',
+                       'if( Watchdog ) Watchdog->Join();', 'if( Timer ) Timer->Join();'):
+            self.assertLess(request.index(joined), drain)
+        self.assertLess(request.index('std::lock_guard DispatchLock(MessageDispatchMutex);'), drain)
+        self.assertIn('StopCameraRecording(Data.ClipStats, Data.Camera, Data.Result);', request[drain:])
+        self.assertNotIn('StartCameraRecording(', request[drain:])
+        self.assertIn('MessageClient->Push(std::make_shared<ThreadShutdownMessage>());', request[drain:])
+        dispatcher = (root / 'MessageDispatcher.cpp').read_text(encoding='utf8')
+        self.assertLess(dispatcher.index('std::lock_guard DispatchLock(MessageDispatchMutex);'),
+                        dispatcher.index('Msg->Handle<CameraClipFinishedMessage>'))
+
     def test_camera_finalizes_active_recording_before_derived_state_teardown(self):
         source = (Path(__file__).resolve().parents[2] /
                   'WitnessServer/Source/CameraWorker.cpp').read_text(encoding='utf-8')

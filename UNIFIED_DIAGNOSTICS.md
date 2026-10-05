@@ -4359,3 +4359,28 @@ two90-second-lifecycle rerun is now active under
 until its recording inspection and both lifecycle exits complete. The fix remains
 on its separate branch and has not been merged or pushed. Production and the
 user-owned BACKLOG.md are untouched.
+
+The mixed native3b7916dff6bd/webf5d7c333b90e rerun completed with exit0 in803.802s:
+both 90-second lifecycles, actual CPU inference on all four sources, all16 manual
+clip/DVR outputs strictly inspected, and both graceful exits passed. However,
+review during the second lifecycle found unfinished Clip.Duration values in the
+fixture database: first-lifecycle cameras1/3/4 remained zero while camera2 was91.
+Media finalization therefore did NOT establish final metadata persistence.
+
+The strengthened duration check passed a single-camera20-second trial (47.505s);
+that setup can dispatch its one final message despite shutdown, so it is not a
+negative regression. The two-camera AAC trial against the same media-only binary
+failed the new runtime assertion in69.895s: camera1 duration20, camera2 duration0,
+despite valid recordings. Evidence:
+`artifacts/run-recording-shutdown-metadata-two-camera-red-20261005/`.
+
+The pending follow-up serializes message dispatch with the shutdown drain. After
+worker joins, it takes one finite queue snapshot and handles ONLY final clip
+statistics, never start/configuration commands, without holding the queue mutex
+during database work. It leaves a fresh wake message: the snapshot could consume
+the original shutdown wake before a blocked MessageLoop::Pop sees it. A native
+queue test checks FIFO snapshot ownership, late-message preservation and the
+nonblocking empty case. Runtime evidence now requires a positive persisted
+duration for every new clip, not merely rows/files. Sixteen pure workload and
+source-order tests pass. The expanded native tests/build and multi-camera green
+runtime check are still pending; no merge, push or production deployment.
