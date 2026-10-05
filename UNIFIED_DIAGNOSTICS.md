@@ -755,3 +755,22 @@ packets/frames, from `Sound2_1789650188.mp4`). Evidence and generated media:
 the captured video clock and remove audio. They qualify decoder/load workloads,
 not original camera pacing, original network transport, or A/V synchronization.
 The saved Tapo workload is also an accepted-output capture, not a raw RTSP feed.
+
+The actual full server then passed two 60-second sampled runs with eight 720p
+H.264 senders, four qualified 1080p20 HEVC senders and four qualified 2160p25 HEVC
+senders. Every camera advanced accepted packets and completed processing tasks;
+all percentile windows and authenticated profiling resets passed. Both server
+instances stopped gracefully and all sixteen fixture-owned senders were stopped.
+Test duration including readiness/restart/cleanup was 149.113 seconds. Evidence:
+`artifacts/mixed-qualified-server-preflight.log` and preserved
+`artifacts/mixed-qualified-15b2da5f9014-run-{0,1}.json`.
+
+Sixty health requests per run had measured end-to-end P95 25.13 / 25.96 ms.
+Mean Witness process CPU was 23.56 / 23.61 percent of host logical CPU capacity;
+final private memory was 853.50 / 857.68 MiB. These are observations, not overhead
+comparisons. Final camera snapshots were connected with zero established drops
+and no timestamp rejection. There was no browser attached in this preflight,
+motion thresholds intentionally avoided AI/recording work, and the media clock
+was normalized. Neither original network behavior, playback, production load,
+nor the 30-minute baseline/enabled gate is established. No new native build was
+needed: the test used coherent native 15b2da5f9014 / web e2d8fb683d50 unchanged.
