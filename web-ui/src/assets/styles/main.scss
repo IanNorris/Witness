@@ -189,6 +189,22 @@ html, body, #app {
   }
 }
 
+// Opt in only for pages with a dense toolbar; other headers keep their height.
+.app-topbar.app-topbar-wrap {
+  height: auto;
+  min-height: 52px;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+
+  .topbar-actions {
+    flex: 1 1 36rem;
+    max-width: 100%;
+    overflow: visible;
+  }
+}
+
 .app-content {
   flex: 1;
   overflow-y: auto;

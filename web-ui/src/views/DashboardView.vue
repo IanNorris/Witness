@@ -545,7 +545,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <AppLayout>
+  <AppLayout wrap-actions>
     <template #title>Dashboard</template>
     <template #actions>
       <div class="dashboard-toolbar d-flex align-items-center gap-2">
@@ -564,7 +564,7 @@ onMounted(async () => {
           <option value="grid16">16 small</option>
         </select>
         <!-- Group picker -->
-        <div v-if="groupStore.activeGroups.length > 0" class="btn-group btn-group-sm me-2">
+        <div v-if="groupStore.activeGroups.length > 0" class="dashboard-groups d-flex flex-wrap gap-1" role="group" aria-label="Camera group">
           <button
             class="btn"
             :class="selectedGroupId === null ? 'btn-primary' : 'btn-outline-secondary'"
@@ -795,7 +795,10 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-.dashboard-toolbar { padding: 0.25rem 0; }
+.dashboard-toolbar { padding: 0.25rem 0; flex-wrap: wrap; width: 100%; min-width: 0; }
+.dashboard-toolbar > * { flex-shrink: 0; max-width: 100%; }
+.dashboard-groups { min-width: 0; }
+.dashboard-groups .btn { white-space: normal; overflow-wrap: anywhere; }
 .dashboard-toolbar .btn { white-space: nowrap; }
 .mode-detail { margin-left: 0.35rem; font-size: 0.65rem; opacity: 0.75; }
 .dashboard-stage { position: relative; }

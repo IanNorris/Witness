@@ -3815,3 +3815,31 @@ its own qualified camera-loaded replay after that audit completes. Frozen OFF
 inspection session58671 remains live and has advanced to 22/128 outputs. No
 matched ON phase is started during these audits. No main merge/push, production
 deployment, dependency mutation, media tracking or user-owned backlog edit.
+
+### Responsive dashboard toolbar (2026-10-05)
+
+Branch `codex/dashboard-toolbar-responsive` opts the dashboard into an
+auto-height, wrapping header without changing other pages' fixed-height
+headers. Its toolbar wraps controls instead of clipping playback and Activity
+past the viewport. Camera group buttons are independently wrapping, with long
+names allowed to break. Existing mobile zoom hiding remains unchanged.
+
+Vue type checking and all eight dashboard layout tests pass. The production
+frontend bundle builds with existing Sass deprecation and chunk-size warnings.
+Computer-use validation used only the synthetic five-camera loopback fixture:
+all displayed controls were within the viewport at widths 1280, 1024 and 390;
+the Activity toggle worked at 1024. Ignored screenshots are
+`artifacts/dashboard-toolbar-1280-20261005.png` and
+`artifacts/dashboard-toolbar-mobile-20261005.png`. This fixture has no camera
+groups, so many/long group names still need rendered validation. Browser
+viewport override was reset and the owned fixture/tab were closed.
+
+Separate package
+`build-vs2026-stable/deploy/toolbar-responsive-90c2fae6e2a5-web-2b399a208d85`
+contains the unchanged tested native build and new web bundle; byte/inventory/
+identity verification passes (94 files / 178,199,729 bytes), recorded in
+`artifacts/toolbar-responsive-package-verified.json`. The prior runtime Web
+directory was retained as `Web-toolbar-prior-743329f05c56`, not deleted. No
+new native runtime, live-stream, Linux or production-stability claim follows
+from these frontend checks. Frozen OFF recording audit session58671 remains
+live; matched ON has not started. No push or production deployment.

@@ -9,6 +9,8 @@ import { ensureClientHealthResponder, startClientHealthReporting } from '../../c
 import { openHealthMonitor } from '../../composables/useHealthMonitor'
 import { format } from 'date-fns'
 
+defineProps<{ wrapActions?: boolean }>()
+
 const auth = useAuthStore()
 const cameraStore = useCameraStore()
 const groupStore = useGroupStore()
@@ -170,7 +172,7 @@ onBeforeUnmount(() => {
 
     <!-- Main content -->
     <div class="app-main">
-      <header class="app-topbar">
+      <header class="app-topbar" :class="{ 'app-topbar-wrap': wrapActions }">
         <div class="topbar-left">
           <button class="mobile-menu-btn" @click="mobileMenuOpen = true" aria-label="Open menu">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
