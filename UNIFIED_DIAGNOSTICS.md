@@ -3615,3 +3615,33 @@ The older frozen load candidate is unchanged; its audit58671 remains live with
 13/128 inspections complete. Matched ON and validation of the latest candidate
 remain open. No main merge, remote push, production deployment, dependency or
 toolchain mutation, private-media tracking or user-owned backlog edit occurred.
+
+### Latest mixed-codec candidate: shutdown validation failure (2026-10-05)
+
+The packaged native `bc40858364cf` / web `a4264754aefb` candidate failed the
+four-profile, 90-second CPU-inference/manual-recording/DVR replay with all five
+observer modes enabled. The qualified inputs include H.264, 1080p HEVC, 2160p
+HEVC and H.264/AAC; the inference workload was not reduced to bypass validation.
+The server did not finish stopping within the existing 30-second limit. This
+is a shutdown timeout, not a crash, and neither recording inspection nor the
+second lifecycle was reached. The earlier zero-camera pass does not override
+this camera-loaded failure. No candidate stability claim is supported.
+
+Private evidence remains ignored under
+`artifacts/run-health-contention-mixed-codecs-20261005-v2/`: the replay and raw
+processing samples, failure logs, and owned-child shutdown dump/stack log
+`owned-shutdown-4193f014dfa1f858`. Matching package symbols show the main thread
+waiting on `ServerControlMutex` in `ServiceMain`, the history worker in its
+normal condition-variable wait, and the reprocessing worker inside its
+30-second idle sleep. The control-handler thread could not be inspected
+(dump reports thread access failure), so its precise blocking operation and
+the cause of the timeout remain unproven. An uninterruptible idle sleep is a
+lead, not proof that this was the only cause or introduced by the storage fix.
+
+An identical four-profile comparison against immutable native `2213c5ef8142` /
+web `b301018e1023` is running separately under
+`artifacts/run-health-contention-baseline-mixed-codecs-20261005/`. Its first
+shutdown completed and recording inspection began; this partial result does
+not prove the older candidate immune to intermittent shutdown delays. The
+comparison is not the matched 30-minute OFF/ON gate. The large OFF audit is
+still running separately; ON must not begin while either audit is active.
