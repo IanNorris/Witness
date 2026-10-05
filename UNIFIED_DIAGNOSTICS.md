@@ -1868,3 +1868,14 @@ observation timeout, and no user-owned backlog changes were edited/staged.
 After terminal completion, preserve its generic reports to unique evidence
 names before starting another fixture. A comparable observer-enabled run and
 actual representative-source/full-gate qualification remain outstanding.
+
+Subsequent harness runs now record measurement start/end Unix milliseconds,
+observed monotonic duration and individual health-sample receipt timestamps.
+The summarizer uses server receipt time to restrict browser rows to that phase
+when anchors exist, rejects invalid anchors, and explicitly labels older
+unanchored reports instead of inventing their boundaries. This is NOT
+retroactively applied to the currently running observer-off replay, whose Python
+code was loaded before this harness edit. Six summary tests and all nine fixture
+evidence validators pass. Two validator cases initially hit sandbox-only Temp
+permission errors; the unchanged tests passed with access to their own temporary
+directories. No running fixture or candidate binary was replaced.

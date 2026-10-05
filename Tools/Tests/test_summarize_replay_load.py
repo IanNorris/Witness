@@ -57,6 +57,27 @@ class ReplaySummaryTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             summarize(replay, {})
 
+    def test_window_scopes_server_receipts_without_guessing_legacy_times(self):
+        replay, row = self.fixture()
+        replay['measurementWindow'] = {'startedUnixMs': 1500, 'completedUnixMs': 2500}
+        current = copy.deepcopy(row)
+        current['receivedUnixMs'] = 2000
+        summary = summarize(replay, {'history': [row, current]})
+        self.assertEqual(summary['browserHistoryScope'], 'serverReceiptWithinMeasurementWindow')
+        self.assertEqual(summary['browserSessions'][0]['retainedRows'], 1)
+        del replay['measurementWindow']
+        summary = summarize(replay, {'history': [row, current]})
+        self.assertEqual(summary['browserHistoryScope'], 'legacyUnanchoredHistory')
+        self.assertEqual(summary['browserSessions'][0]['retainedRows'], 2)
+
+    def test_invalid_window_is_not_silently_ignored(self):
+        replay, _ = self.fixture()
+        for window in ({}, {'startedUnixMs': True, 'completedUnixMs': 2000},
+                       {'startedUnixMs': 2000, 'completedUnixMs': 1000}):
+            replay['measurementWindow'] = window
+            with self.assertRaises(ValueError):
+                summarize(replay, {})
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -15,6 +15,12 @@ def summarize(replay, history):
     samples = replay.get('samples', [])
     if not samples:
         raise ValueError('No replay samples')
+    window = replay.get('measurementWindow')
+    if window is not None:
+        if (not isinstance(window, dict) or type(window.get('startedUnixMs')) is not int or
+                type(window.get('completedUnixMs')) is not int or
+                window['startedUnixMs'] >= window['completedUnixMs']):
+            raise ValueError('Invalid measurement window')
     build = samples[0]['server']['webBuildHash']
     native = replay['nativeBuildId']
     if any(sample['server'].get('nativeBuildHash') != native or
@@ -43,6 +49,11 @@ def summarize(replay, history):
     # sessions separate: counter resets/replacements must not look like recovery.
     sessions = {}
     for row in sorted(history.get('history', []), key=lambda row: row.get('receivedUnixMs', 0)):
+        received = row.get('receivedUnixMs')
+        if type(received) is not int:
+            continue
+        if window is not None and not window['startedUnixMs'] <= received <= window['completedUnixMs']:
+            continue
         snapshot = row.get('snapshot', {})
         players = snapshot.get('players', [])
         if (not isinstance(players, list) or len(players) != len(camera_ids) or
@@ -81,6 +92,8 @@ def summarize(replay, history):
     return {'nativeBuildId': native, 'webBuildId': build,
         'cameraCount': len(camera_ids), 'sampleCount': len(samples),
         'coverage': replay.get('coverage'), 'workload': replay.get('workload'),
+        'measurementWindow': window,
+        'browserHistoryScope': 'serverReceiptWithinMeasurementWindow' if window else 'legacyUnanchoredHistory',
         'processCpuHostCapacityPercent': {'p50': quantile(cpu, .5), 'p95': quantile(cpu, .95)},
         'hostCpuPercent': {'p50': quantile(host, .5), 'p95': quantile(host, .95)},
         'summaryHttpWallMs': {'p50': quantile(requests, .5), 'p95': quantile(requests, .95),

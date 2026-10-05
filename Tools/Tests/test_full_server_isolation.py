@@ -462,17 +462,22 @@ class FullServerIsolationTests(unittest.TestCase):
                                                       for camera in phase_health['cameras']}
                             samples = []
                             duration = browser_hold or replay_seconds
-                            until = time.monotonic() + duration
+                            measurement_started_unix_ms = int(time.time() * 1000)
+                            measurement_started_monotonic = time.monotonic()
+                            until = measurement_started_monotonic + duration
                             while time.monotonic() < until:
                                 started = time.monotonic()
                                 code, body = request('/debug/health')
                                 self.assertEqual(code, 200)
                                 health = json.loads(body)
-                                samples.append({'elapsedSeconds': duration - max(0, until - time.monotonic()),
+                                samples.append({'receivedUnixMs': int(time.time() * 1000),
+                                    'elapsedSeconds': duration - max(0, until - time.monotonic()),
                                     'httpMs': (time.monotonic() - started) * 1000,
                                     'server': health['server'], 'cameras': health['cameras']})
                                 self.assertTrue(all(sender.poll() is None for sender in senders), 'replay sender exited')
                                 time.sleep(1)
+                            measurement_completed_unix_ms = int(time.time() * 1000)
+                            measurement_elapsed_seconds = time.monotonic() - measurement_started_monotonic
                             if browser_hold:
                                 code, history = request('/debug/client-health')
                                 self.assertEqual(code, 200)
@@ -543,6 +548,10 @@ class FullServerIsolationTests(unittest.TestCase):
                                 json.dumps({'nativeBuildId': identity, 'cameraCount': len(inputs),
                                     'limits': 'Paced loopback packet-copy replay; browser attachment is externally verified; no baseline phase; not the full load gate',
                                     'coverage': coverage,
+                                    'measurementWindow': {
+                                        'startedUnixMs': measurement_started_unix_ms,
+                                        'completedUnixMs': measurement_completed_unix_ms,
+                                        'observedDurationSeconds': measurement_elapsed_seconds},
                                     'browserReadyBeforePhase': bool(browser_hold),
                                     'workload': {'objectDetection': active_detection, 'provider': 'cpu' if active_detection else None,
                                                  'maximumMotionInferenceFps': 1 if active_detection else None,
