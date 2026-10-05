@@ -1323,3 +1323,18 @@ the updated native build before execution. None of this new instrumentation is i
 the frozen package currently undergoing endurance, so it cannot retroactively
 identify the already-evicted errors from that run. Matching native/frontend build,
 runtime tests, UI verification and a separate package remain pending.
+
+The Health table now has a readable last-error clue (append, buffer/setup,
+socket or media failure; deliberate-close context when known), with the event
+timestamp available on hover. Type checking passes; rendered verification still
+requires the new bundle. The running old-package test cannot show this UI yet.
+
+The corrected 16-stream run completed its measurement but failed graceful
+shutdown after 30 seconds (fixture total 1,916.383 seconds). Its debugger attach
+was denied with NTSTATUS C0000022; there are no usable captured thread stacks,
+so do not claim a diagnosed deadlock. Evidence is preserved in
+`artifacts/client-health-recovery-30minute-{run-0,history}.json`,
+`artifacts/client-health-recovery-30minute-shutdown.log` and
+`artifacts/client-health-recovery-30minute-hang-stacks.log` (the latter records
+only the failed capture). Fixture-owned processes/data were cleaned up. Native
+playback samples must be audited separately from this failed lifecycle gate.

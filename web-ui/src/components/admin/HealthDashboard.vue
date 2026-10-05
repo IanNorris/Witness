@@ -346,6 +346,17 @@ function playerRestartClue(player: ClientPlayerHealth): string {
   return reason ? ` · ${reason}` : ''
 }
 
+function playerErrorClue(player: ClientPlayerHealth): string {
+  const event = player.lastError
+  if (!event) return ''
+  const labels: Record<string, string> = {
+    appendError: 'append failed', sourceBufferError: 'MSE buffer error',
+    sourceBufferCreateFailed: 'MSE setup failed', wsError: 'socket error', 'media:error': 'media error',
+  }
+  const context = event.intentionalClose === true ? ' during deliberate close' : ''
+  return `Last error: ${labels[event.type] ?? event.type}${event.name ? ` (${event.name})` : ''}${context}`
+}
+
 function playerLabel(id: string): string {
   const cameraId = Number.parseInt(id, 10)
   const camera = snapshot.value?.cameras.find(candidate => candidate.cameraId === cameraId)
@@ -817,7 +828,7 @@ onBeforeUnmount(() => {
                   <td>{{ playerLabel(player.id) }}</td><td>{{ streamTierLabel(player.selectedStream ?? 'unknown') }}</td><td>{{ formatMs(player.latencyMs) }}</td>
                   <td>{{ readyStateLabel(player.readyState) }}</td><td class="health-secondary">{{ playerBufferClue(player) }}</td><td>{{ formatCount(player.totalVideoFrames) }}</td>
                   <td>{{ formatCount(player.droppedVideoFrames) }}</td><td>{{ formatCount(player.corruptedVideoFrames) }}</td>
-                  <td>{{ player.restartCount ?? 0 }} / {{ player.stallCount ?? 0 }} / {{ player.errorCount ?? 0 }}<span class="health-secondary">{{ playerRestartClue(player) }}</span></td>
+                  <td>{{ player.restartCount ?? 0 }} / {{ player.stallCount ?? 0 }} / {{ player.errorCount ?? 0 }}<span class="health-secondary">{{ playerRestartClue(player) }}</span><span v-if="player.lastError" class="health-secondary" :title="player.lastError.t">{{ playerErrorClue(player) }}</span></td>
                 </tr>
               </template>
             </tbody>
