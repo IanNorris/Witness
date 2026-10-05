@@ -2405,3 +2405,51 @@ production websocket/watchdog, reconnect, network load or decoder-slot contentio
 was involved. No production fix is claimed yet: safe removal boundaries and
 presentation-progress recovery now have a concrete reproduction to target.
 The native/web diagnostic package is unchanged.
+
+### Dependency-protected MSE eviction candidate (2026-10-05)
+
+`codex/mse-dependency-safe-eviction` implements a bounded 64-entry list of
+successful independent first-part append-completion ends in the actual browser
+timeline. These are deliberately **not seek targets** or exact RAP timestamps.
+Both ordinary and quota-driven removal are capped at the older of the two
+latest independent append ends behind the reference, retaining the current
+decoding interval and an earlier boundary that removal may extend past. Hidden
+players use the live edge as reference, not the frozen playhead. Missing,
+insufficient, malformed or excessive boundary evidence permits no removal;
+existing bounded queue/append watchdogs handle unrecoverable quota pressure
+instead of deleting potentially required frames. Discontinuity, socket teardown,
+restart and unmount all clear the list. Native packet metadata, audio handling,
+keyframe-seek eligibility and catch-up rates are unchanged.
+
+Twenty-one affected web tests and Vue/TypeScript checking pass. The production
+composable regression feeds five-second independent intervals with seeking
+explicitly unsafe, forces a QuotaExceededError and confirms removal caps at .25
+seconds rather than six, retries the queued append, and neither seeks nor
+restarts. Other tests cover a sixty-second GOP-like interval, unknown/bad
+boundaries, hidden buffering and the prior transport/suspension recovery cases.
+Log: `artifacts/mse-dependency-safe-eviction-tests.log`.
+
+The real-browser comparison now imports the actual compiled pure policy and
+records append-completion ends while appending the fixed keyframe-fragmented
+synthetic file. At playhead seven, only one independent completed interval is
+behind the playhead, so protection refuses the unsafe removal. After 3.010
+seconds, protected/control/normal last presented mediaTime is 9.938069; protected
+has 61 presented callbacks and 76 total frames. The unprotected one-second
+removal again freezes at 7.146402 (five callbacks/frames) while its clock reaches
+9.969195 and no media error appears. Evidence:
+`artifacts/mse-dependency-safe-eviction-browser.json` and matching PNG. This
+proves prevention in that fixture, not production Tapo causation or all codecs,
+GOP structures, actual quota exhaustion or browser engines. The presentation
+watchdog improvement remains a separate pending change.
+
+Pinned incremental RelWithDebInfo build completed without dependency installation
+or C++/linker warnings; existing Sass/Bootstrap and frontend chunk advisories
+remain. Frozen package:
+`build-vs2026-stable/deploy/mse-dependency-safe-648a3dfc9a0c-web-6f20fe1e81b0`,
+native `648a3dfc9a0c`, web `6f20fe1e81b0`, 94 files / 177,844,232 bytes,
+verified byte-for-byte by `artifacts/mse-dependency-safe-package-verified.json`.
+The package contains no private database, session or server configuration.
+An authenticated full-server three-minute real-browser synthetic long-GOP replay
+and strict recording verification has been started in the exclusive evidence
+namespace `artifacts/run-dependency-safe-browser-20261005/`; it is not yet a
+terminal pass. The earlier sixteen-source verifier remains separate and live.

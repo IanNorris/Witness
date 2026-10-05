@@ -10,6 +10,7 @@ const moduleUrl = source => 'data:text/javascript;base64,' + Buffer.from(ts.tran
 const vueUrl = moduleUrl('export const ref = value => ({value}); export const onUnmounted = fn => { window.fixtureUnmount = fn; };')
 const guardUrl = moduleUrl((await readFile(new URL('../src/composables/playbackGuard.ts', import.meta.url), 'utf8')).replace("'vue'", JSON.stringify(vueUrl)))
 const visibilityUrl = moduleUrl(await readFile(new URL('../src/composables/msePlaybackVisibility.ts', import.meta.url), 'utf8'))
+const evictionUrl = moduleUrl(await readFile(new URL('../src/composables/mseEviction.ts', import.meta.url), 'utf8'))
 const baseline = process.env.WITNESS_MSE_WATCHDOG_BASELINE_REV
 if (baseline && !/^[a-f0-9]{7,40}$/.test(baseline)) throw Error('Expected a local commit hash')
 const originalSource = baseline
@@ -21,9 +22,10 @@ const source = originalSource
   .replace("'vue'", JSON.stringify(vueUrl))
   .replace("'./playbackGuard'", JSON.stringify(guardUrl))
   .replace("'./msePlaybackVisibility'", JSON.stringify(visibilityUrl))
+  .replace("'./mseEviction'", JSON.stringify(evictionUrl))
 let fixtureNumber = 0
 
-async function fixture() {
+async function fixture({ gopSeconds = .25 } = {}) {
   // In-memory browser primitives only. No sockets, credentials, media files or
   // browser automation: the production composable handles every control/tick.
   const saved = Object.fromEntries(['window', 'document', 'location', 'WebSocket', 'MediaSource',
@@ -43,8 +45,12 @@ async function fixture() {
     load() { this.paused = true; this.currentTime = 0 }
   }
   class Buffer extends EventTarget {
-    updating = false; holdUpdates = false; buffered = timeRanges; mode = 'sequence'
+    updating = false; holdUpdates = false; quotaFailures = 0; buffered = timeRanges; mode = 'sequence'
     appendBuffer(data) {
+      if (this.quotaFailures > 0) {
+        this.quotaFailures--
+        throw Object.assign(Error('fixture quota pressure'), {name:'QuotaExceededError'})
+      }
       this.updating = true
       if (this.holdUpdates) return
       if (data.byteLength === 8) ranges.end += new DataView(data).getFloat64(0)
@@ -89,9 +95,11 @@ async function fixture() {
     media.dispatchEvent(new Event('sourceopen')); socket.onopen()
     socket.message({type: 'initSegment', generation: 0})
     socket.message(new ArrayBuffer(1))
+    let feedIndex = 0
     const feed = () => {
-      socket.message({type: 'partial', generation: 0, duration: .25, independent: true,
-        keyframeSeekSafe: false, segmentIndex: 1, partIndex: 1})
+      const partIndex = feedIndex++ % (gopSeconds * 4)
+      socket.message({type: 'partial', generation: 0, duration: .25, independent: partIndex === 0,
+        keyframeSeekSafe: false, segmentIndex: 1, partIndex})
       const bytes = new ArrayBuffer(8); new DataView(bytes).setFloat64(0, .25)
       socket.message(bytes)
     }
@@ -273,4 +281,24 @@ test('short under-buffered pauses recover latency through bounded catch-up witho
       }
     } finally { f.restore() }
   }
+})
+
+test('production quota retry protects independent decode intervals even when keyframe seeking is unsafe', async () => {
+  const f = await fixture({gopSeconds:5})
+  try {
+    f.hide()
+    for (let i=0;i<40;i++) f.tick()
+    f.show(); f.video.currentTime=7; f.video.paused=false
+    f.buffer.quotaFailures=1
+    f.tick()
+    // Independent append ends are .25, 5.25 and 10.25. A one-second
+    // aggressive target would remove to 6 and delete the active video GOP.
+    assert.deepEqual(f.removals,[.25])
+    for (const timer of [...f.timers.values()]) timer.fn()
+    assert.equal(f.diag().liveState.appendQueueLength,0)
+    assert.equal(f.diag().stats.restartCount,0)
+    assert.equal(f.diag().stats.errorCount,0)
+    assert.ok(f.diag().importantEvents.some(event=>event.type==='quotaExceeded'))
+    assert.ok(!f.diag().importantEvents.some(event=>event.type==='keyframeCatchUpSeek'))
+  } finally { f.restore() }
 })

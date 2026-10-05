@@ -2,6 +2,7 @@ import { ref, onUnmounted, type Ref } from 'vue'
 import type { DriftSample } from './driftDiagnostics'
 import { createPlaybackGuard, blockedAudioCameras } from './playbackGuard'
 import { MSE_BACK_BUFFER_SECONDS, playbackBufferTrimTarget, playbackRecoveryEnabled, playbackBufferPosition } from './msePlaybackVisibility'
+import { dependencySafeTrimTarget } from './mseEviction'
 
 // ── Constants ─────────────────────────────────────────────────────────
 const MSE_WATCHDOG_INTERVAL_MS = 250
@@ -334,6 +335,7 @@ export function useMseStream(
   let pendingInitData: ArrayBuffer | null = null  // Buffered init segment when MediaSource isn't open yet
   let consecutiveAppendErrors = 0  // Track consecutive appendBuffer failures for restart
   let keyframeTimes: number[] = []
+  let independentAppendEnds: number[] = []
   let lastKeyframeSeekTarget = -1
   let lastAnomalyReportTime = 0
   let lastAnomalyReason = ''
@@ -601,7 +603,9 @@ export function useMseStream(
 
     const ranges = sourceBuffer.buffered
     const end = ranges.length ? ranges.end(ranges.length - 1) : 0
-    const trimTo = playbackBufferTrimTarget(video.currentTime, end, document.visibilityState, aggressive)
+    const desired = playbackBufferTrimTarget(video.currentTime, end, document.visibilityState, aggressive)
+    const reference = document.visibilityState === 'hidden' ? end : video.currentTime
+    const trimTo = dependencySafeTrimTarget(desired, reference, independentAppendEnds)
     if (trimTo > 0 && sourceBuffer.buffered.length > 0) {
       const bufferedStart = sourceBuffer.buffered.start(0)
       if (trimTo <= bufferedStart + 0.05 || trimTo <= lastTrimmedTo + 0.05) return false
@@ -714,6 +718,15 @@ export function useMseStream(
         // append queue. Record its actual position in the sequence timeline
         // only once the browser confirms that append has completed.
         const partial = operation.item.partial
+        if (partial?.independent && partial.partIndex === 0 && buffer.buffered.length > 0) {
+          const end = buffer.buffered.end(buffer.buffered.length - 1)
+          const start = operation.startTime ?? buffer.buffered.start(buffer.buffered.length - 1)
+          if (end > start + 0.001 &&
+              (!independentAppendEnds.length || end > independentAppendEnds[independentAppendEnds.length - 1]!)) {
+            independentAppendEnds.push(end)
+            if (independentAppendEnds.length > 64) independentAppendEnds.shift()
+          }
+        }
         if (partial?.independent && partial.keyframeSeekSafe && partial.partIndex === 0) {
           const buffered = buffer.buffered
           if (buffered.length > 0) {
@@ -1106,6 +1119,7 @@ export function useMseStream(
     highLatencySince = 0
     catchUpActive = false
     keyframeTimes = []
+    independentAppendEnds = []
     lastKeyframeSeekTarget = -1
   }
 
@@ -1216,6 +1230,7 @@ export function useMseStream(
         highLatencySince = 0
         catchUpActive = false
         keyframeTimes = []
+        independentAppendEnds = []
         lastKeyframeSeekTarget = -1
 
         const delayMs = pendingRestartDelayMs ?? restartBackoffMs
@@ -1295,6 +1310,7 @@ export function useMseStream(
     highLatencySince = 0
     catchUpActive = false
     keyframeTimes = []
+    independentAppendEnds = []
     lastKeyframeSeekTarget = -1
 
     restartBackoffMs = Math.min(restartBackoffMs * 1.5, 30000)
@@ -1688,6 +1704,7 @@ export function useMseStream(
     pendingPartialMetadata = null
     pendingBinaryIntegrity = null
     keyframeTimes = []
+    independentAppendEnds = []
     // A codec change remounts the player under the same diagnostic ID. Vue may
     // stop the old instance after the replacement has registered itself.
     if (diagMap[diagId] === diag) delete diagMap[diagId]

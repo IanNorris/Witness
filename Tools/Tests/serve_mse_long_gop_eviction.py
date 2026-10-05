@@ -10,6 +10,7 @@ def main():
     assets = freeze_assets({
         '/': (Path(__file__).with_name('mse_long_gop_eviction.html'), 'text/html; charset=utf-8'),
         '/fixture.mp4': (root / 'artifacts/mse-long-gop-eviction-input.mp4', 'video/mp4'),
+        '/eviction-policy.js': (root / 'artifacts/mse-eviction-policy.js', 'text/javascript; charset=utf-8'),
     }, {'/fixture.mp4': 'a132adc277cfb202bfae620cac72471430b0a9e25c10eb66bbfe9d166382021c'})
 
     class Handler(BaseHTTPRequestHandler):
