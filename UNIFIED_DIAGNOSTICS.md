@@ -3456,3 +3456,31 @@ remains the candidate. User-owned BACKLOG.md edits are untouched; no main merge,
 push, deployment, or real-media tracking occurred. Matched OFF recording audit
 handle58671 was confirmed live, with 6/128 outputs complete and passing; matched
 ON and the full overhead/stream-validation gates remain open.
+
+### Retained presentation evidence continuity (2026-10-05)
+
+Separate `codex/presentation-evidence-continuity` hardens the offline replay
+summary: adjacent unavailable/conflicting frame snapshots no longer disappear
+before progression is calculated, so measurements cannot bridge those gaps.
+It also reports advancing/nonadvancing pairs whose two endpoints are explicitly
+presentation-visible separately from hidden or unknown visibility. This is
+sampled callback evidence, not uninterrupted video or browser occlusion proof.
+All 17 summary regression tests pass, including missing/zero/nonfinite callback
+data, conflicting duplicate snapshots, and mixed visibility pair endpoints.
+
+Re-analysis of the frozen OFF phase is saved in ignored
+`artifacts/matched-cached-health-off-v2-continuity-summary.json`. One eligible
+browser session retained 119 snapshots over 1773.428s; largest receipt gap was
+15.063s, with measurement start/end offsets 14.279/13.231s. Every one of its 16
+players has 118 visible advancing pairs, zero unmeasurable/nonadvancing pairs,
+zero sampled counter resets/restarts, and final readyState 4. Final latencies
+range 1226-1631ms. These four profiles repeated four times are not 16 independent
+physical cameras, and the retained snapshots cannot exclude between-sample
+stalls. The native package and frozen phase inputs are unchanged; no rebuild is
+required for this offline analysis-only change.
+
+Recording-audit handle58671 remains live, with ffprobe2484 consuming CPU during
+the check. Its first six of 128 outputs have passed; remaining recordings,
+matched ON overhead and true hidden/resume/independent-profile validation remain
+outstanding. No main merge, push, deployment, real-media tracking or user backlog
+edit occurred.

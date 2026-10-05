@@ -87,15 +87,24 @@ def presentation_observations(timeline):
     values = [(key, value) for key, value in sorted(seen.items()) if value is not None]
     measurable = [(key, value) for key, value in values if value[1] is not None]
     progressing, nonadvancing, resets = 0, 0, 0
-    for (left_key, left), (right_key, right) in zip(measurable, measurable[1:]):
+    visible_progressing, visible_nonadvancing, unmeasurable = 0, 0, 0
+    # Do not bridge unavailable/conflicting snapshots. Frames advancing on
+    # either side of missing evidence cannot qualify that intervening pair.
+    ordered = sorted(seen.items())
+    for (left_key, left), (right_key, right) in zip(ordered, ordered[1:]):
         if left_key[0] != right_key[0]:
+            continue
+        if left is None or right is None or left[1] is None or right[1] is None:
+            unmeasurable += 1
             continue
         if right[1] < left[1] or right[2] < left[2]:
             resets += 1
         elif right[1] > left[1] and right[2] > left[2]:
             progressing += 1
+            visible_progressing += left[0] is True and right[0] is True
         else:
             nonadvancing += 1
+            visible_nonadvancing += left[0] is True and right[0] is True
     lags = [(value[3] - value[2]) * 1000 for _, value in measurable]
     stalls = [value[4] for _, value in values if value[4] is not None]
     return {'observedUniqueSamples': len(seen),
@@ -105,6 +114,9 @@ def presentation_observations(timeline):
         'unknownVisibilitySamples': len(seen) - sum(value[0] is not None for _, value in values),
         'progressingSameGenerationPairs': progressing,
         'nonadvancingSameGenerationPairs': nonadvancing,
+        'visibleProgressingSameGenerationPairs': visible_progressing,
+        'visibleNonadvancingSameGenerationPairs': visible_nonadvancing,
+        'unmeasurableSameGenerationPairs': unmeasurable,
         'presentationResetPairs': resets,
         'maximumObservedClockAheadOfPresentationMs': max(lags) if lags else None,
         'maximumObservedRunnableStallMs': max(stalls) if stalls else None,

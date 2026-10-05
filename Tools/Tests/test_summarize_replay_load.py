@@ -4,6 +4,35 @@ from summarize_replay_load import buffer_position_observations, presentation_obs
 
 
 class ReplaySummaryTests(unittest.TestCase):
+    def test_presentation_does_not_bridge_missing_or_conflicting_evidence(self):
+        def sample(t, frames):
+            return {'t': t, 'generation': 1, 'presentationVisible': True,
+                    'presentedFrames': frames, 'presentedMediaTime': frames / 24,
+                    'currentTime': frames / 24}
+        first, middle, last = sample('1', 24), sample('2', 48), sample('3', 72)
+        for unavailable in [{'t': '2', 'generation': 1},
+                            dict(middle, presentedFrames=0),
+                            dict(middle, presentedMediaTime=float('nan'))]:
+            report = presentation_observations([{'driftSamples': [first, unavailable, last]}])
+            self.assertEqual(report['progressingSameGenerationPairs'], 0)
+            self.assertEqual(report['unmeasurableSameGenerationPairs'], 2)
+        report = presentation_observations([{'driftSamples': [first, middle, last]},
+            {'driftSamples': [dict(middle, presentationVisible=False)]}])
+        self.assertEqual(report['progressingSameGenerationPairs'], 0)
+        self.assertEqual(report['unmeasurableSameGenerationPairs'], 2)
+
+    def test_visible_progress_requires_both_pair_endpoints_visible(self):
+        samples = [{'t': str(index), 'generation': 1, 'presentationVisible': visible,
+                    'presentedFrames': frames, 'presentedMediaTime': frames / 24,
+                    'currentTime': frames / 24}
+                   for index, frames, visible in [(1, 24, True), (2, 48, True),
+                                                 (3, 72, False), (4, 96, True), (5, 96, True)]]
+        report = presentation_observations([{'driftSamples': samples}])
+        self.assertEqual(report['progressingSameGenerationPairs'], 3)
+        self.assertEqual(report['visibleProgressingSameGenerationPairs'], 1)
+        self.assertEqual(report['visibleNonadvancingSameGenerationPairs'], 1)
+        self.assertEqual(report['unmeasurableSameGenerationPairs'], 0)
+
     def test_presentation_deduplicates_callbacks_not_media_clock(self):
         samples = [{'t': str(index), 'generation': 1, 'presentationVisible': True,
                     'presentedFrames': frames, 'presentedMediaTime': presented,
