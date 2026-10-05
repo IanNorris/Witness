@@ -2,6 +2,8 @@ import importlib.util
 from pathlib import Path
 import tempfile
 import unittest
+import sys
+from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('inventory', Path(__file__).parents[1] / 'dependency_inventory.py')
 module = importlib.util.module_from_spec(spec)
@@ -9,6 +11,31 @@ spec.loader.exec_module(module)
 
 
 class DependencyInventoryTests(unittest.TestCase):
+    def test_linked_root_is_rejected_before_resolution(self):
+        # Mock the platform link query so this regression also runs on Windows
+        # without requiring the privilege to create a directory symlink.
+        with patch.object(Path, 'is_symlink', return_value=True), \
+                patch.object(Path, 'resolve') as resolve:
+            with self.assertRaisesRegex(ValueError, 'linked root'):
+                module.inventory(Path('linked-installed-root'))
+            resolve.assert_not_called()
+
+    def test_junction_root_is_rejected_before_resolution(self):
+        with patch.object(Path, 'is_symlink', return_value=False), \
+                patch.object(Path, 'is_junction', return_value=True, create=True), \
+                patch.object(Path, 'resolve') as resolve:
+            with self.assertRaisesRegex(ValueError, 'linked root'):
+                module.inventory(Path('junction-installed-root'))
+            resolve.assert_not_called()
+
+    def test_capture_cli_does_not_resolve_away_the_link_check(self):
+        with patch.object(sys, 'argv', ['inventory', 'capture', 'linked-installed-root', 'snapshot.json']), \
+                patch.object(Path, 'is_symlink', return_value=True), \
+                patch.object(Path, 'resolve') as resolve:
+            with self.assertRaisesRegex(ValueError, 'linked root'):
+                module.main()
+            resolve.assert_not_called()
+
     def test_content_metadata_changes_additions_and_removals(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

@@ -3870,3 +3870,30 @@ is separately byte/inventory/identity verified by
 this is frontend validation, not new stream endurance or production stability
 evidence. Prior runtime Web is recoverable as `Web-toolbar-prior-2b399a208d85`.
 No real camera media is part of these fixtures, and no push/deployment occurred.
+
+### Dependency inventory linked-root guard (2026-10-05)
+
+Branch `codex/dependency-inventory-root-guard` fixes an evidence gap in the
+read-only dependency verifier: it previously resolved the supplied installation
+root before checking links, silently accepting a root symlink/junction even
+though linked descendants are rejected. Both API and capture CLI now validate
+the supplied root before resolution. Regression coverage includes symlink,
+junction and CLI entry paths; platform link-query mocks avoid requiring Windows
+symlink privileges. This is not evidence against arbitrary ancestor-link races.
+
+The root-link regression fails against the earlier implementation and passes
+afterward. All seven inventory tests pass. All 14 dependency-policy tests pass
+when the real read-only checkout/tool validation is enabled with
+`WITNESS_TEST_VCPKG_ROOT=X:/Programming/vcpkg`; the earlier general run had that
+one optional test skipped, then it was explicitly run and passed. Tests required
+access to private temporary directories; the initial sandbox run produced ACL
+errors, not application regressions.
+
+Fresh capture `artifacts/dependency-root-guard-current-20261005.json` inventories
+2,673 installed files / 759,367,637 bytes. Comparison with
+`artifacts/dependency-stable-before-20261004.json` reports zero added, removed or
+changed files. No install, bootstrap, toolchain mutation or rebuild occurred.
+This is tooling-only: the verified deployable native90c/web-a2c81 package from
+the preceding section remains unchanged. Frozen OFF audit58671 is confirmed
+live, with 56/128 outputs inspected successfully; overall inspection remains
+incomplete and matched ON has not started.

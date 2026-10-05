@@ -6,10 +6,19 @@ import re
 from pathlib import Path
 
 
-def inventory(root):
+def installed_root(root):
+    # Check the supplied path before resolve hides a linked root. Child entries
+    # are already rejected below; the root must obey the same rule.
+    if root.is_symlink() or (hasattr(root, 'is_junction') and root.is_junction()):
+        raise ValueError('Inventory refuses linked root: ' + str(root))
     root = root.resolve(strict=True)
     if not root.is_dir():
         raise ValueError('Installed root must be a directory')
+    return root
+
+
+def inventory(root):
+    root = installed_root(root)
     files = {}
     pending = [root]
     while pending:
@@ -65,7 +74,7 @@ def main():
     compare.add_argument('after', type=Path)
     args = parser.parse_args()
     if args.command == 'capture':
-        root, target = args.installed_root.resolve(strict=True), args.snapshot.resolve()
+        root, target = installed_root(args.installed_root), args.snapshot.resolve()
         if target == root or root in target.parents:
             parser.error('Snapshots must be outside the installed package root')
         if target.exists():
