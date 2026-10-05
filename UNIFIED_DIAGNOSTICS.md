@@ -3116,3 +3116,78 @@ candidate and cannot be substituted. The periodic cache runs in both phases;
 selective observer-off is not all functional diagnostics-off. No main merge,
 remote push, production deployment or user backlog edit/staging was performed.
 The full goal remains active.
+
+### Matched cached-summary endurance attempt and profile guard (2026-10-05)
+
+Validation branch `codex/matched-cached-health-load` uses the frozen verified
+native `2213c5ef8142` / web `b301018e1023` package, not subsequently rebuilt output.
+An initial observer-off attempt accidentally selected the 256x144 synthetic H.264
+fixture. Independent DOM inspection caught that lighter workload. Only its
+verified disposable server process group was signalled with CTRL_BREAK; the
+harness then terminated with the expected connection-refused failure and cleaned
+up its senders/private state. Its log and startup proof are preserved under
+`artifacts/matched-cached-health-off-20261005*`. This attempt is excluded from
+overhead/endurance qualification, not counted as a passing or unexplained crash.
+
+The corrected OFF attempt is live on exec handle 58671, with normally
+authenticated loopback browser `http://127.0.0.1:62518/` in owned IAB tab 51. Its
+exclusive evidence directory is
+`artifacts/run-matched-cached-health-off-20261005-v2/`, and log
+`artifacts/matched-cached-health-off-20261005-v2.log`. All five selective observer
+switches (`WITNESS_HTTP_TRACE`, `WITNESS_SQLITE_TRACE`, `WITNESS_PACKET_TRACE`,
+`WITNESS_MUX_TRACE`, `WITNESS_MEDIA_TRACE`) and corresponding test mode checks are
+0. Functional integrity/cadence and the new background cache remain active.
+The test measures 1800 seconds after its presented-playback gate, using CPU
+object detection capped at 1 fps, manual recording plus DVR, exact raw task
+samples and correctly scoped ordinary summary HTTP timing. Bounded whole-file
+recording decode/timestamp inspection is enabled after the measured phase.
+The ON phase must wait until that inspection is terminal to avoid CPU contention
+from the audit contaminating the next measured phase.
+
+Sources, repeated four times in this order:
+- `artifacts/tapo8-rate-consistency-15minute-window1.mp4`: H.264 1280x720, no audio;
+- `artifacts/replay-qualified-hevc-1080p20.mp4`: HEVC 1920x1080, no audio;
+- `artifacts/replay-qualified-hevc-2160p25.mp4`: HEVC 3840x2160, no audio;
+- `artifacts/adts-aac-remux-fixture.ts`: H.264 160x90 with AAC.
+
+This is sixteen logical paced loopback streams, not sixteen independent cameras,
+raw original RTSP traffic, or sixteen full-resolution camera feeds. In particular
+the AAC source is deliberately small codec/format coverage. The two qualified
+HEVC recordings have repaired fixture clocks and are not evidence of original
+camera pacing. These coverage limits apply to the eventual paired result too.
+
+The browser is explicitly presented in a 4x4 fullscreen grid with activity hidden;
+all sixteen videos fit its viewport. Startup DOM proof at 12:27:21 UTC confirms
+the expected sizes, readyState 4, unpaused and no media errors. A subsequent
+independent observation at 12:30:04 shows every playhead advancing by more than
+ten seconds and still ready/playing. This is a checkpoint, not a completed
+endurance result. Proofs:
+`artifacts/matched-cached-health-off-v2-{start-dom,progress-1}.json` and
+`artifacts/matched-cached-health-off-v2-start.png`.
+
+The harness now accepts optional `WITNESS_TEST_EXPECTED_REPLAY_PROFILES`: a JSON
+array with one exact `{videoCodec,width,height,audioCodec}` object per source.
+`replay_profiles.py` qualifies ffprobe metadata before creating fixture state,
+probes repeated source files only once, then checks actual available main-stream
+health profiles at ingress readiness and after measurement. Future result JSON
+records `replayProfiles`. Invalid shape, boolean dimensions, codec/resolution/audio
+mismatch, diagnostic probe output or changed/duplicate live camera membership
+fail closed. Five pure tests pass. The actual four-source/16-entry metadata guard
+also passes outside the sandbox after the sandboxed probe failed. Evidence:
+`artifacts/matched-cached-health-qualified-profiles.json`.
+
+The running corrected OFF Python process predates the new guard import; its
+inputs were independently qualified and an actual authenticated live summary was
+checked using the same validator. It confirms all sixteen profiles, matching
+native/web IDs, five observer modes off, cachedSummary mode, sample age 868 ms,
+no collection failures and not stale. Evidence:
+`artifacts/matched-cached-health-off-v2-live-profile-proof.json`. Only the newly
+generated disposable fixture session was used; no token was printed or exported.
+The future ON invocation should pass the profiles array from the qualification
+file and keep every other workload, visibility and package setting unchanged.
+
+No native or web bytes changed for this validation piece. No wake lock, main
+merge/push/deployment, production session/config mutation or user backlog edit
+was performed. The corrected process was verified live on its handle at the
+latest poll; no measured phase or audit terminal result exists yet. The matched
+overhead gate and overall goal remain open.

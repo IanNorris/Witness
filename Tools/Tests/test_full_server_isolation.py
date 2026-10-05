@@ -27,6 +27,7 @@ from check_long_recording import inspect_long
 from owned_process_dump import capture_owned_process_dump
 from processing_sample_collector import ProcessingSampleCollector
 from health_request_timing import sample_health
+from replay_profiles import qualify_profiles, validate_live_profiles
 
 RECORDING_FAILURE_ROOT = Path(__file__).resolve().parents[2] / 'artifacts'
 
@@ -280,6 +281,8 @@ class FullServerIsolationTests(unittest.TestCase):
         self.assertLessEqual(len(input_values), 16)
         inputs = [Path(value).resolve(strict=True) for value in input_values]
         self.assertTrue(all(path.is_file() for path in inputs))
+        expected_profiles = os.environ.get('WITNESS_TEST_EXPECTED_REPLAY_PROFILES')
+        profiles = qualify_profiles(inputs, json.loads(expected_profiles)) if expected_profiles else None
         replay_seconds = int(os.environ.get('WITNESS_TEST_REPLAY_SECONDS', '20'))
         self.assertTrue(10 <= replay_seconds <= 3600)
         browser_hold = int(os.environ.get('WITNESS_TEST_BROWSER_HOLD_SECONDS', '0'))
@@ -565,6 +568,8 @@ class FullServerIsolationTests(unittest.TestCase):
                                 self.assertLess(time.monotonic(), deadline, 'camera ingress readiness timeout')
                                 time.sleep(0.25)
                             initial = {camera['cameraId']: camera['streams'][0]['acceptedVideoPackets'] for camera in cameras}
+                            if profiles is not None:
+                                validate_live_profiles(cameras, profiles)
                             initial_processing = {camera['cameraId']: camera['processing']['completedFrames'] for camera in cameras}
                             if active_recording:
                                 # Normal authenticated recording path, not manufactured DB rows.
@@ -620,6 +625,8 @@ class FullServerIsolationTests(unittest.TestCase):
                                 self.assertTrue(all(sender.poll() is None for sender in senders), 'replay sender exited')
                                 time.sleep(1)
                             full_phase_work = []
+                            if profiles is not None:
+                                validate_live_profiles(health['cameras'], profiles)
                             if work_collector is not None:
                                 code, final_work = request('/debug/health')
                                 self.assertEqual(code, 200)
@@ -702,6 +709,7 @@ class FullServerIsolationTests(unittest.TestCase):
                                         'completedUnixMs': measurement_completed_unix_ms,
                                         'observedDurationSeconds': measurement_elapsed_seconds},
                                     'processingTaskDistributions': full_phase_work,
+                                    'replayProfiles': profiles,
                                     'browserReadyBeforePhase': bool(browser_hold),
                                     'workload': {'objectDetection': active_detection, 'provider': 'cpu' if active_detection else None,
                                                  'maximumMotionInferenceFps': 1 if active_detection else None,
