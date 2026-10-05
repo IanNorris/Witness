@@ -1,7 +1,7 @@
 import { ref, onUnmounted, type Ref } from 'vue'
 import type { DriftSample } from './driftDiagnostics'
 import { createPlaybackGuard, blockedAudioCameras } from './playbackGuard'
-import { MSE_BACK_BUFFER_SECONDS, playbackBufferTrimTarget, playbackRecoveryEnabled, playbackBufferPosition } from './msePlaybackVisibility'
+import { MSE_BACK_BUFFER_SECONDS, playbackBufferTrimTarget, playbackRecoveryEnabled, playbackBufferPosition, hiddenResumePlayheadEvicted, hiddenResumeSeekTarget } from './msePlaybackVisibility'
 import { dependencySafeTrimTarget } from './mseEviction'
 import { createPresentationProgress, presentationViewportVisible } from './msePresentationProgress'
 
@@ -94,7 +94,7 @@ class MseDiagnostics {
       ...extra,
     }
     this.events.push(event)
-    if (type === 'driftRestart' || type === 'presentationFrozenRestart') this.lastDriftRestart = {
+    if (type === 'driftRestart' || type === 'presentationFrozenRestart' || type === 'hiddenBufferEvictedRestart') this.lastDriftRestart = {
       ...event, driftSamples: this.driftSamples.slice(-20),
     }
     if (['appendError', 'sourceBufferError', 'sourceBufferCreateFailed', 'wsError', 'media:error'].includes(type)) {
@@ -1507,6 +1507,24 @@ export function useMseStream(
         highLatencySince = 0
         healthyPlaybackSince = 0
         diag.log('hiddenPlaybackRecoveryResumed', { drift: driftEvidence(now) })
+        // An intentionally bounded hidden buffer can leave the paused playhead
+        // before every retained range. Preserve the existing exact-RAP catch-up
+        // path when a safe future target is known; otherwise reconnect now,
+        // rather than showing a frozen frame until the drift watchdog expires.
+        if (hiddenResumePlayheadEvicted(video.buffered, video.currentTime)) {
+          const target = hiddenResumeSeekTarget(video.buffered, video.currentTime, keyframeTimes)
+          if (target === undefined) {
+            diag.log('hiddenBufferEvictedRestart', { drift: driftEvidence(now) })
+            restartStream('hiddenBufferEvicted')
+            return
+          }
+          const from = video.currentTime
+          video.currentTime = target
+          lastCurrentTime = target
+          lastKeyframeSeekTarget = target
+          catchUpActive = true
+          diag.log('hiddenBufferEvictedSeek', { from, to: target, drift: driftEvidence(now) })
+        }
       }
 
       // Auto-resume only after the browser can actually schedule playback again.

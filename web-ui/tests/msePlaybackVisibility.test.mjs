@@ -41,6 +41,31 @@ test('invalid or excessive ranges report unknown position without inventing a ga
   assert.deepEqual(policy.playbackBufferPosition(ranges([[0,2]]),NaN),{})
 })
 
+test('hidden resume detects an evicted playhead without inventing unknown or exhausted gaps', () => {
+  assert.equal(policy.hiddenResumePlayheadEvicted(ranges([[122,153]]),113.852),true)
+  assert.equal(policy.hiddenResumePlayheadEvicted(ranges([[100,153]]),113.852),false)
+  assert.equal(policy.hiddenResumePlayheadEvicted(ranges([[122,153]]),122),false)
+  assert.equal(policy.hiddenResumePlayheadEvicted(ranges([[122,153]]),121.98),false)
+  assert.equal(policy.hiddenResumePlayheadEvicted(ranges([[122,153]]),153),false)
+  assert.equal(policy.hiddenResumePlayheadEvicted(ranges([]),113),false)
+  assert.equal(policy.hiddenResumePlayheadEvicted(undefined,113),false)
+  assert.equal(policy.hiddenResumePlayheadEvicted(ranges([[153,122]]),113),false)
+  assert.equal(policy.hiddenResumePlayheadEvicted(ranges([[122,153]]),NaN),false)
+  assert.equal(policy.hiddenResumePlayheadEvicted(ranges([[1,3],[5,9]]),4),true)
+})
+
+test('evicted hidden playheads seek only to verified future RAPs inside retained media', () => {
+  const buffered = ranges([[122,153]])
+  assert.equal(policy.hiddenResumeSeekTarget(buffered,113,[125]),125)
+  assert.equal(policy.hiddenResumeSeekTarget(buffered,113,[130,125,145]),145)
+  assert.equal(policy.hiddenResumeSeekTarget(buffered,113,[110,120,153,NaN,Infinity]),undefined)
+  assert.equal(policy.hiddenResumeSeekTarget(ranges([[110,153]]),113,[125]),undefined)
+  assert.equal(policy.hiddenResumeSeekTarget(ranges([[122,130],[140,153]]),113,[135,145]),145)
+  assert.equal(policy.hiddenResumeSeekTarget(buffered,113,[]),undefined)
+  assert.equal(policy.hiddenResumeSeekTarget(buffered,113,Array(21).fill(125)),undefined)
+  assert.equal(policy.hiddenResumeSeekTarget(undefined,113,[125]),undefined)
+})
+
 test('hidden buffer eviction follows the live edge even with a frozen playhead', () => {
   for (const end of [0, 10, 30, 60, 300, 1800]) {
     assert.equal(policy.playbackBufferTrimTarget(0, end, 'hidden'), Math.max(0, end - 30))

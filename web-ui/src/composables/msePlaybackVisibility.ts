@@ -39,6 +39,36 @@ export function playbackRecoveryEnabled(visibility: string): boolean {
   return visibility !== 'hidden'
 }
 
+// Hidden retention deliberately follows the live edge, not a suspended decoder.
+// On resume an evicted playhead cannot play its way across that missing range.
+// Unknown/empty/exhausted ranges are not evidence of eviction; ordinary append
+// and transport watchdogs still handle those states.
+export function hiddenResumePlayheadEvicted(buffered: TimeRanges | undefined,
+  currentTime: number): boolean {
+  const position = playbackBufferPosition(buffered, currentTime)
+  return position.playheadBuffered === false &&
+    position.nextBufferedStartSeconds !== undefined &&
+    position.nextBufferedStartSeconds > currentTime + 0.05
+}
+
+// Only caller-verified random-access positions may rescue an evicted playhead.
+// A range start or multiplexed append boundary is not a safe seek target.
+export function hiddenResumeSeekTarget(buffered: TimeRanges | undefined,
+  currentTime: number, safeKeyframes: readonly number[]): number | undefined {
+  if (!hiddenResumePlayheadEvicted(buffered, currentTime) || !buffered ||
+      safeKeyframes.length > 20) return undefined
+  let end: number
+  try { end = buffered.end(buffered.length - 1) } catch { return undefined }
+  if (!Number.isFinite(end)) return undefined
+  let target: number | undefined
+  for (const time of safeKeyframes) {
+    if (Number.isFinite(time) && time > currentTime + 0.05 && time < end - 0.01 &&
+        playbackBufferPosition(buffered, time).playheadBuffered === true &&
+        (target === undefined || time > target)) target = time
+  }
+  return target
+}
+
 export function playbackBufferTrimTarget(currentTime: number, bufferedEnd: number,
   visibility: string, aggressive = false): number {
   const reference = visibility === 'hidden' ? bufferedEnd : currentTime

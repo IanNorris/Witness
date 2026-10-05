@@ -4455,3 +4455,33 @@ Fresh browser inventory exposes only in-app Browser and MCP Apps, not an
 external Chrome/Edge profile; genuine hidden/resume acceptance remains open.
 The local master consolidation preserves native identity and user BACKLOG edits;
 no remote push, production deployment or private media commit was performed.
+
+Final-candidate browser endurance checkpoint (2026-10-05, still running):
+
+`artifacts/run-final-master-16-mse-observers-off-20261005/` uses the verified
+native d63a3532fc76/web48906d0cd45a package, 16 repeated qualified logical
+sources, real MSE players, CPU inference and clip/DVR recording. Independent
+2172x1550 fullscreen DOM proof passes the startup gate. Session 5476 is live;
+there is no completed 30-minute or recording-audit result yet.
+
+Actual persisted browser heartbeats now capture a genuine hidden interval,
+unlike the earlier unsuccessful hide attempts: camera 1's 19:08:51.883Z sample
+is hidden/paused at media time113.852004; the 19:09:23.822Z sample remains
+hidden with the playhead evicted behind retained media (next start119.076933).
+At 19:09:26.865Z it is visible/unpaused, but still behind buffered start122.076688.
+All 16 players subsequently reconnect together for drift recovery around
+19:09:29Z. The known hidden-buffer retention policy explains the gap; this is
+not evidence of simultaneous input disconnection. A later direct authenticated
+fixture health snapshot reports all 16 input cameras Connected and video
+drop/corruption counters zero. It does not establish incident-time CPU causality.
+The run is therefore not an uninterrupted-visible full-load benchmark and must
+not be used to qualify a matched observer-overhead comparison as such.
+
+Branch `codex/mse-hidden-eviction-resume` adds immediate resume recovery when
+retention has evicted the playhead. Only verified safe RAPs inside retained
+media may be seek targets; otherwise reconnect without the extra drift-wait
+interval. Unknown, empty, malformed and exhausted ranges do not invent eviction.
+Ten focused visibility/eviction policy tests pass. Type-check, rebuilt bundle
+and genuine hidden/resume runtime acceptance remain pending; the running frozen
+fixture and master package are unchanged. No production/session mutation,
+private recording commit or user BACKLOG edit.
