@@ -89,4 +89,11 @@ void WitnessServer::RequestShutdown()
 	{
 		Worker->Join();
 	}
+
+	// Join before Shutdown destroys derived members (including timer callbacks
+	// and watchdog targets) or stops their shared services. The base destructor
+	// runs only after derived members have already been destroyed.
+	if( Worker ) Worker->Join();
+	if( Watchdog ) Watchdog->Join();
+	if( Timer ) Timer->Join();
 }

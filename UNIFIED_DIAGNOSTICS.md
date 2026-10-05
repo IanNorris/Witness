@@ -3731,3 +3731,36 @@ camera-loaded integration pass or the matched 30-minute endurance gate. The
 frozen OFF audit remains live and has advanced to 14/128 inspected outputs;
 ON remains deferred until background audits end. No main merge, remote push,
 production deployment, dependency mutation or private-media tracking occurred.
+
+### Explicit worker joins before normal teardown (2026-10-05)
+
+Branch `codex/worker-join-before-teardown` closes a normal-shutdown ordering
+gap found while reviewing idle cancellation: thumbnail, watchdog and timer
+workers received stop requests, but only joined from their base destructors.
+In particular, watchdog targets/timer callbacks are derived members and their
+destruction precedes the base destructor. `RequestShutdown` now explicitly joins
+all three after image queues/workers have been stopped and joined, before
+`Shutdown` stops shared broadcasters and destroys worker objects. It does not
+hold `Context->Mutex` while joining. This is normal-path ordering hardening,
+not proof that arbitrary blocking callbacks or partial initialization are safe.
+
+The production-source ordering guard fails for all three missing joins against
+the earlier committed source and passes for the new source; it ignores comments
+and quoted strings and bounds evidence to the RequestShutdown function body.
+This is a source-order regression, not a dynamic held-callback lifetime test.
+Pinned native/frontend build and WorkerShutdownDelayTests pass. Separate package
+`build-vs2026-stable/deploy/worker-join-90c2fae6e2a5-web-743329f05c56` is byte/
+inventory/identity verified (94 files / 178,199,141 bytes;
+`artifacts/worker-join-package-verified.json`). Actual authenticated zero-camera
+health-history shutdown/restart passes two lifecycles in 14.418s under
+`artifacts/run-worker-join-runtime-20261005/`. That does not validate live streams,
+physical PTZ, delayed callbacks, full load, Linux or production stability.
+
+The immutable preceding candidate `38f1f29951b5` completed both qualified
+camera-loaded shutdowns without timeout. Its first recording audit passed all
+eight outputs; four of eight second-lifecycle outputs have passed, with the
+final result still pending (session69740). The join-hardened package still needs
+its own qualified camera-loaded replay after that audit completes. Frozen OFF
+inspection session58671 remains live and has advanced to 22/128 outputs. No
+matched ON phase is started during these audits. No main merge/push, production
+deployment, dependency mutation, media tracking or user-owned backlog edit.
