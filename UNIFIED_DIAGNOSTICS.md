@@ -2061,3 +2061,37 @@ including later exception, later failed result and all-success cases. The live
 endurance fixture predates this edit, so no per-recording progress is invented
 for it. Its owned decoder was observed moving from timestamp probing to camera
 3 strict decode, which proves progress but not success of earlier recordings.
+
+### Multiplexed fragment track timing audit (client sequence-mode lead)
+
+`codex/fragment-track-timing-audit` adds a read-only, bounded fMP4 audit. It scans
+top-level box extents without loading the media, maps ffprobe packet positions
+to each fragment's mdat payload, and reports per-stream presentation envelopes,
+inter-fragment track gaps and multiplexed track-end spread. Extended/zero-sized
+boxes, malformed extents/packets, missing-track fragments and probe errors have
+five regression tests. The underlying streaming probe limits rows, line length,
+stderr retention and execution time; external protocols are disallowed.
+
+Actual production-mux fixture outputs:
+
+- ADTS input: 736 packets, 77 fragments, only 33 containing both streams;
+  multiplexed end spread up to 92 ms. Video spans 0--11 s, audio 0--11.010666 s.
+- Raw AAC input: 803 packets, 84 fragments, all containing both streams;
+  end spread up to 50 ms. Both track envelopes span 0--12 s.
+- Neither fixture shows a positive inter-fragment video gap; audio envelope
+  gaps are at most 0.001 ms, within ffprobe's printed timestamp precision.
+
+Evidence: `artifacts/{adts,raw}-aac-fragment-track-timing.json`. Stream indices
+are not inferred codec identities, and envelopes are not full frame continuity
+or perceptual playback proof. These short offline outputs do not reproduce the
+thirty-minute AAC drift or rule out the looped sender's boundary behavior.
+
+The client still deliberately uses `SourceBuffer.mode='sequence'`. The W3C MSE
+specification warns about multiplexed tracks with misaligned end times in this
+mode: https://www.w3.org/TR/media-source-2/ . Sparse audio fragments and measured
+end mismatches make a real-browser sequence-versus-segments comparison worth
+doing, but are not evidence that changing the default is safe. No player mode,
+keyframe-seek safety, native muxing, deployed bundle or production settings were
+changed by this audit. Late joins, reconnects and B-frame streams must be covered
+before adopting any mode change. The long recording verification remains live
+and pending, independently of this offline audit.
