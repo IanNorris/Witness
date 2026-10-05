@@ -3430,3 +3430,29 @@ Separate verified package:
 The frozen load package is unchanged. Recording audit58671 remains live; matched
 ON has not started. No main merge, remote push, production deployment, private-media
 tracking or user-owned backlog edit occurred.
+
+### Rendered dashboard control ownership validation (2026-10-05)
+
+On `codex/dashboard-selection-rendered-validation`, browser-only checks exercised
+the current compiled web payload (dbcadd4ab7f8) through the loopback synthetic
+`ptzDashboard.mjs --serve --layout` fixture. Its five JPEG cameras and PTZ replies
+are fabricated; no request reaches Witness, a physical camera, or production.
+In windowed Layout mode, selecting camera 1 displayed its explicit selection
+badge and recording controls. Opening PTZ displayed camera 1 as panel owner.
+Selecting camera 2 removed camera 1's panel and moved the selection badge;
+clicking the overview heading cleared selection. In Full Screen mode the same
+badge and named PTZ panel appeared. First Escape dismissed selection and PTZ
+while leaving fullscreen active; second Escape returned to windowed Layout.
+Entering Arrange with a camera selected cleared its control ownership; Cancel
+returned to the original layout without saving fixture changes. The temporary
+tab and fixture were closed afterward.
+
+Ignored evidence: `artifacts/fullscreen-selection-20261005.png` and matching
+`.dom.txt` show fullscreen selection and the named PTZ panel. This verifies
+rendered UI behavior with synthetic JPEG previews, not physical PTZ motor
+behavior, decoder capacity, live MSE continuity, or hidden-tab recovery.
+No server or web implementation changed, so the verified 07bf7a9a88f8 package
+remains the candidate. User-owned BACKLOG.md edits are untouched; no main merge,
+push, deployment, or real-media tracking occurred. Matched OFF recording audit
+handle58671 was confirmed live, with 6/128 outputs complete and passing; matched
+ON and the full overhead/stream-validation gates remain open.
