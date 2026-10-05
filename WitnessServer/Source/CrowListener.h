@@ -13,6 +13,7 @@
 #include "GlobalContext.h"
 #include "DebugBind.h"
 #include "HttpServerDiagnostics.h"
+#include "HealthSnapshotCache.h"
 
 struct HttpTracingMiddleware
 {
@@ -187,6 +188,8 @@ private:
 	void HandleDebugReset( const crow::request& req, crow::response& res );
 	void HandleDebugReloadTLS( const crow::request& req, crow::response& res );
 	void HandleDebugHealth( const crow::request& req, crow::response& res );
+	std::string CollectHealthSnapshot( bool IncludeRawWork, bool IncludeIncidents,
+		uint64_t ExcludeHttpRequest = 0 );
 	void HandleDebugStreamingDiag( const crow::request& req, crow::response& res );
 	void HandleDebugPacketCapture( const crow::request& req, crow::response& res );
 	void HandleDebugDisk( const crow::request& req, crow::response& res );
@@ -246,6 +249,7 @@ private:
 	WitnessApp m_App;
 	std::thread m_ServerThread;
 	std::atomic<bool> m_Ready{ false };
+	HealthSnapshotCache m_HealthCache;
 
 	std::shared_ptr<GlobalContext> m_GlobalContext;
 	DebugConsole* m_DebugConsole;

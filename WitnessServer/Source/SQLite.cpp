@@ -129,7 +129,7 @@ SQLiteDatabaseQueryInstance::~SQLiteDatabaseQueryInstance() noexcept
 	}
 }
 
-SQLiteDiagnosticsSnapshot GetSQLiteDiagnosticsSnapshot()
+SQLiteDiagnosticsSnapshot GetSQLiteDiagnosticsSnapshot(bool IncludeIncidents)
 {
 	if (!SQLiteTracingEnabled())
 	{
@@ -157,6 +157,7 @@ SQLiteDiagnosticsSnapshot GetSQLiteDiagnosticsSnapshot()
 		static_cast<double>( TotalExecuteUS ) / (1000.0 * Result.Queries) : 0.0;
 	Result.MaxExecuteMs = static_cast<double>(
 		Diagnostics.MaxExecuteUS.load( std::memory_order_relaxed ) ) / 1000.0;
+	if (IncludeIncidents)
 	{
 		std::lock_guard Lock( Diagnostics.RecentMutex );
 		Result.RecentSlowQueries.assign( Diagnostics.Recent.rbegin(), Diagnostics.Recent.rend() );

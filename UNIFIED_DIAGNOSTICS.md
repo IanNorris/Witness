@@ -3035,3 +3035,84 @@ still apply; new matched same-candidate OFF/ON phases remain required.
 
 No main merge, remote push, production change or user backlog edit/staging was
 performed. The overall goal remains active.
+
+### Background cached health summary (2026-10-05)
+
+Branch `codex/cached-health-summary` moves the default `/debug/health` and
+key-scoped `/api/v1/diagnostics/health` collection into a listener-owned background
+sampler. It starts after Crow becomes ready and collects immediately, then waits
+two seconds after each completed collection. It cannot queue overlapping periodic
+collections. Stop interrupts the interval and joins any current collection before
+camera transports or processing queues can be torn down. Lifecycle Start/Stop
+have one owner; concurrent HTTP readers only acquire an immutable owning pointer.
+
+Ordinary requests retain the existing administrator/session or API-key scope/IP
+authorization checks before reading the cache. Authentication, accounts,
+revocation results and request objects are never cached. Delivery copies the
+serialized summary without parsing JSON, gathering counters or walking cameras
+on the request thread. A top-level `cache` object reports current `ageMs`,
+`intervalMs` (2000), `stale` (age greater than 6000 ms), cumulative collection
+failures and whether the most recent collection failed. No valid sample returns
+503 with Retry-After 1 and failure metadata. Failure keeps the last valid sample
+with its original timestamp, rather than manufacturing fresh zero values.
+
+Retained payloads are capped at 2 MiB. This bounds the stored summary, not every
+transient JSON allocation during collection or response serialization. Host,
+camera, processing, HTTP/route and SQLite counters remain available. Scalar
+collection omits stream media-event rings, slow HTTP/active request details and
+slow SQLite query details. Coverage explicitly says those feeds are omitted.
+HTTP/SQLite legacy snapshot defaults still preserve incident details; their new
+scalar modes do not consume or reset the underlying rings.
+
+`details=1` requests the bounded incident feeds on demand, while `workSamples=1`
+requests bounded raw processing samples on demand. They may be combined. Both
+options accept only `0` or `1`; malformed options remain checked after auth.
+The manual Health view now explicitly requests `details=1`, preserving its
+FFmpeg/HTTP/database investigation feed. Default `workSamples=0` remains a cached
+scalar request. `server.requestSequence` identifies the collection, not an HTTP
+request: repeated cached responses intentionally share it. Existing sample UTC,
+monotonic collection anchors, duration, native/web identities and process
+instance identifiers describe that collection, not delivery time.
+
+The cache native regression covers immutable repeated reads with no recollection,
+interrupted waits, first-sample failure and recovery, valid-shaped oversized
+payload rejection, preservation of a pinned reader after Stop, and joining an
+actively blocked collector before releasing its captures. Evidence:
+`artifacts/cached-health-cache-final-regression.log`. All four HTTP/SQLite observer
+on/off combinations pass the prepared-query and request-accounting regressions,
+including scalar counter preservation and non-consuming incident reads:
+`artifacts/cached-health-server-observer-regressions.log`.
+
+Actual authenticated full-server loopback/restart validation passes against final
+native `2213c5ef8142` in 38.853 seconds, using a disposable database and one paced
+H.264 input. Both phases show eight repeated requests sharing one sample, later
+background sequence advancement, incident on-demand responses, and immediate
+403s for cached and detailed requests after disabling the fixture account.
+Re-enabling that private account restores access. Raw samples, clean shutdown,
+restart and durable browser history remain covered. Evidence:
+`artifacts/run-cached-health-summary-final-20261005/`. An earlier fixture assertion
+incorrectly required a media-event field on unavailable streams; its failed
+artifacts remain under `run-cached-health-summary-20261005/`, and the corrected
+intermediate run passed in 36.750 seconds. These tests do not inject stalled
+collection at the actual HTTP endpoint, validate API-key revocation specifically,
+exercise independent browser profiles or prove loaded overhead/stability.
+
+Web regressions: 79 pass, one optional real-player export test skipped; Vue type
+checking and bundle build pass. Python HTTP timing (5), replay summarization (15)
+and exact processing collection (7) tests pass. The native build reused the
+immutable managed dependency environment; no package installation occurred.
+Frontend Sass deprecations/chunk advisories remain a separate build-health task.
+
+Verified package:
+`build-vs2026-stable/deploy/cached-health-2213c5ef8142-web-b301018e1023`, native
+`2213c5ef8142`, web `b301018e1023`, 94 files / 178,031,485 bytes. Verification:
+`artifacts/cached-health-summary-package-verified.json`. No private fixture state,
+credentials or test executables are included. This verifies matching package
+bytes/identities, not runtime ABI or production stability.
+
+Matched same-candidate 30-minute OFF/ON replay phases and ordinary summary HTTP
+P95 qualification still remain; the earlier 16-source audit used an older
+candidate and cannot be substituted. The periodic cache runs in both phases;
+selective observer-off is not all functional diagnostics-off. No main merge,
+remote push, production deployment or user backlog edit/staging was performed.
+The full goal remains active.

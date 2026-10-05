@@ -289,6 +289,7 @@ class FullServerIsolationTests(unittest.TestCase):
         active_recording = active_detection or os.environ.get('WITNESS_TEST_RECORDING') == '1'
         verify_outputs = os.environ.get('WITNESS_TEST_VERIFY_RECORDINGS') == '1'
         raw_processing = os.environ.get('WITNESS_TEST_RAW_PROCESSING_SAMPLES') == '1'
+        cached_health = os.environ.get('WITNESS_TEST_CACHED_HEALTH') == '1'
         ptz_guard = os.environ.get('WITNESS_TEST_PTZ_CONFIGURED_GUARD') == '1'
         self.assertTrue(not ptz_guard or inputs, 'PTZ guard checks require a configured synthetic camera')
         self.assertTrue(not verify_outputs or active_recording, 'Output verification requires recording mode')
@@ -388,6 +389,58 @@ class FullServerIsolationTests(unittest.TestCase):
                             time.sleep(0.1)
                         self.assertEqual(request('/debug/health', False)[0], 403)
                         self.assertEqual(request('/debug/client-health', False)[0], 403)
+                        if cached_health:
+                            self.assertEqual(request('/debug/health?details=bad', False)[0], 403)
+                            self.assertEqual(request('/debug/health?details=bad')[0], 400)
+                            snapshots = []
+                            for _ in range(8):
+                                code, summary = request('/debug/health?workSamples=0')
+                                self.assertEqual(code, 200)
+                                summary = json.loads(summary)
+                                self.assertEqual(summary['server']['collectionMode'], 'cachedSummary')
+                                self.assertFalse(summary['coverage']['incidentDetailsIncluded'])
+                                self.assertEqual(summary['cache']['intervalMs'], 2000)
+                                self.assertGreaterEqual(summary['cache']['ageMs'], 0)
+                                self.assertFalse(summary['cache']['stale'])
+                                self.assertEqual(summary['cache']['failedCollections'], 0)
+                                self.assertFalse(summary['server']['http']['recentSlowRequests'])
+                                self.assertFalse(summary['server']['http']['activeRequests'])
+                                self.assertFalse(summary['server']['database']['recentSlowQueries'])
+                                self.assertTrue(all(not stream.get('recentMediaEvents', [])
+                                    for camera in summary['cameras'] for stream in camera['streams']))
+                                snapshots.append(summary['server']['requestSequence'])
+                            self.assertLess(len(set(snapshots)), len(snapshots),
+                                            'Requests appear to recollect instead of reuse snapshots')
+                            deadline = time.monotonic() + 6
+                            while summary['server']['requestSequence'] == snapshots[-1]:
+                                self.assertLess(time.monotonic(), deadline, 'background sampler stopped')
+                                time.sleep(0.1)
+                                code, body = request('/debug/health?workSamples=0')
+                                self.assertEqual(code, 200)
+                                summary = json.loads(body)
+                            code, detail = request('/debug/health?details=1')
+                            self.assertEqual(code, 200)
+                            detail = json.loads(detail)
+                            self.assertEqual(detail['server']['collectionMode'], 'onDemand')
+                            self.assertTrue(detail['coverage']['incidentDetailsIncluded'])
+                            self.assertNotIn('cache', detail)
+                            # Private fixture database only: a valid populated
+                            # cache must not bypass live account revocation.
+                            with contextlib.closing(sqlite3.connect(data / 'server.db')) as db:
+                                db.execute('UPDATE User SET Enabled=0 WHERE Username=?', ('fixture-admin',))
+                                db.commit()
+                            self.assertEqual(request('/debug/health?workSamples=0')[0], 403)
+                            self.assertEqual(request('/debug/health?details=1')[0], 403)
+                            with contextlib.closing(sqlite3.connect(data / 'server.db')) as db:
+                                db.execute('UPDATE User SET Enabled=1 WHERE Username=?', ('fixture-admin',))
+                                db.commit()
+                            self.assertEqual(request('/debug/health?workSamples=0')[0], 200)
+                            with (artifacts / f'full-server-cached-health-run-{run}.json').open('x', encoding='utf8') as output:
+                                json.dump({'nativeBuildId': identity, 'passed': True,
+                                           'requestSequences': snapshots,
+                                           'nextSampleSequence': summary['server']['requestSequence'],
+                                           'revokedCachedStatus': 403, 'detailsMode': 'onDemand',
+                                           'scope': 'Actual authenticated Crow requests, cache reuse, background advancement and fresh account checks; no API key revocation or overload/stale injection'}, output, indent=2)
                         if ptz_guard:
                             # Every camera in this fixture has PTZ disabled and
                             # only loopback media endpoints. Never enable/create

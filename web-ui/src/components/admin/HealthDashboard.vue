@@ -249,7 +249,9 @@ async function refresh() {
         collection: null,
         error: err instanceof Error ? err.message : String(err),
       }))
-    snapshot.value = await api<HealthSnapshot>('/debug/health')
+    // This manual incident view needs the bounded FFmpeg/HTTP/DB feeds.
+    // Recurring collectors use the default cached scalar summary instead.
+    snapshot.value = await api<HealthSnapshot>('/debug/health?details=1')
     snapshotReceivedAtMonotonicMs.value = performance.now()
     nowMonotonicMs.value = snapshotReceivedAtMonotonicMs.value
     const clients = await clientRequest

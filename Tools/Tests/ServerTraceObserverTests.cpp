@@ -55,6 +55,14 @@ static void Http(bool Enabled) {
               Snapshot.Routes.empty() && Snapshot.RecentSlowRequests.empty() && Snapshot.ObservedWorkers == 0,
               "disabled HTTP observer retained request details");
     }
+    const auto Active = BeginRequest("GET", "/fixture/active", &Loop, 0);
+    const auto Summary = GetSnapshot(0, false);
+    Check(Summary.RecentSlowRequests.empty() && Summary.ActiveRequests.empty() &&
+          Summary.InFlight == (Enabled ? 1 : 0), "summary copied active incident details or changed counters");
+    Check(GetSnapshot().ActiveRequests.size() == (Enabled ? 1 : 0),
+          "scalar HTTP read consumed active incident evidence");
+    CompleteRequest(Active, 200, 0);
+    RecordEventLoopRelease(Active);
     ClearActiveRequests();
 }
 static void SQLite(bool Enabled) {
@@ -111,6 +119,10 @@ static void SQLite(bool Enabled) {
     Check(Waiting.wait_for(2s) == std::future_status::ready, "query lock was not released");
     Waiting.get();
     const auto Snapshot = GetSQLiteDiagnosticsSnapshot();
+    const auto Summary = GetSQLiteDiagnosticsSnapshot(false);
+    Check(Summary.RecentSlowQueries.empty() && Summary.Queries == Snapshot.Queries &&
+          Summary.SlowQueries == Snapshot.SlowQueries,
+          "scalar SQLite summary changed counters or copied incident history");
     Check(Snapshot.TracingEnabled == Enabled, "SQLite observer setting changed after initialization");
     if (Enabled) {
         Check(Snapshot.Queries == 5 && Snapshot.SlowQueries >= 1 && !Snapshot.RecentSlowQueries.empty(),

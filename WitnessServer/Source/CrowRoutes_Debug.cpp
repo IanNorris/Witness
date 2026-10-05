@@ -222,15 +222,56 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 		res.end();
 		return;
 	}
-	const auto CollectionStart = std::chrono::steady_clock::now();
 	const char* RawWorkOption = req.url_params.get("workSamples");
-	if (RawWorkOption && std::string(RawWorkOption) != "0" && std::string(RawWorkOption) != "1")
+	const char* DetailOption = req.url_params.get("details");
+	auto InvalidOption = [](const char* Value) {
+		return Value && std::string(Value) != "0" && std::string(Value) != "1";
+	};
+	if (InvalidOption(RawWorkOption) || InvalidOption(DetailOption))
 	{
 		res.code = 400;
 		res.end();
 		return;
 	}
 	const bool IncludeRawWork = RawWorkOption && std::string(RawWorkOption) == "1";
+	const bool IncludeIncidents = DetailOption && std::string(DetailOption) == "1";
+	res.set_header( "Content-Type", "application/json" );
+	res.set_header( "Cache-Control", "no-store" );
+	if (IncludeRawWork || IncludeIncidents)
+	{
+		res.body = CollectHealthSnapshot(IncludeRawWork, IncludeIncidents,
+			m_App.get_context<HttpTracingMiddleware>(req).Token.Id);
+	}
+	else
+	{
+		// Authentication/revocation checks above are deliberately never cached.
+		// Copy only an owning immutable reference while holding the cache lock.
+		const auto Cached = m_HealthCache.Read();
+		if (!Cached.Value)
+		{
+			res.code = 503;
+			res.set_header("Retry-After", "1");
+			res.body = std::format("{{\"error\":\"healthSummaryNotReady\",\"failedCollections\":{},\"lastCollectionFailed\":{}}}",
+				Cached.FailedCollections, Cached.LastCollectionFailed);
+			res.end();
+			return;
+		}
+		const auto Age = std::max<int64_t>(0, std::chrono::duration_cast<std::chrono::milliseconds>(
+			HealthSnapshotCache::Clock::now() - Cached.Value->Completed).count());
+		// No parsing or recollection on the request thread. Freshness is evaluated
+		// at delivery, not frozen into the sampled payload.
+		res.body = std::format("{{\"cache\":{{\"ageMs\":{},\"stale\":{},\"intervalMs\":2000,\"failedCollections\":{},\"lastCollectionFailed\":{}}},",
+			Age, Age > 6000, Cached.FailedCollections, Cached.LastCollectionFailed);
+		res.body.append(Cached.Value->Body, 1, std::string::npos);
+	}
+	res.code = 200;
+	res.end();
+}
+
+std::string CrowListener::CollectHealthSnapshot(bool IncludeRawWork, bool IncludeIncidents,
+	uint64_t ExcludeHttpRequest)
+{
+	const auto CollectionStart = std::chrono::steady_clock::now();
 
 	struct CameraHealthSnapshot
 	{
@@ -297,7 +338,7 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 	{
 		return Samples ? (double)TotalNS / ((double)Samples * 1000000.0) : 0.0;
 	};
-	auto StreamJson = []( const char* Tier, bool Connected,
+	auto StreamJson = [IncludeIncidents]( const char* Tier, bool Connected,
 		const std::shared_ptr<Witness::Camera::LiveOutputStream>& Stream )
 	{
 		crow::json::wvalue Value;
@@ -307,7 +348,7 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 		if( !Stream )
 			return Value;
 
-		auto Diag = Stream->GetStreamingDiagnostics( false );
+		auto Diag = IncludeIncidents ? Stream->GetStreamingDiagnostics(false) : Stream->GetStreamingSummary();
 		Value["packetTraceEnabled"] = Diag.PacketTraceEnabled;
 		Value["muxTraceEnabled"] = Diag.MuxTraceEnabled;
 		Value["mediaTraceEnabled"] = Diag.MediaTraceEnabled;
@@ -535,7 +576,7 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
     Server["cameraBuildConfiguration"] = Witness::Camera::LiveOutputStream::GetNativeBuildConfiguration();
     Server["nativeBuildMismatch"] = std::string(GetNativeBuildIdentity()) != Witness::Camera::LiveOutputStream::GetNativeBuildIdentity() ||
         std::string(GetNativeBuildConfiguration()) != Witness::Camera::LiveOutputStream::GetNativeBuildConfiguration();
-	Server["collectionMode"] = "onDemand";
+	Server["collectionMode"] = IncludeRawWork || IncludeIncidents ? "onDemand" : "cachedSummary";
 	Server["requestSequence"] = ++HealthSampleSequence;
 	Server["uptimeMs"] = std::chrono::duration_cast<std::chrono::milliseconds>(
 		NowSteady - HealthProcessStart ).count();
@@ -554,8 +595,7 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 		static_cast<double>( AudioHealth.TotalInferenceUS.load() ) / ( 1000.0 * AudioClips ) : 0.0;
 	Server["audioIntelligence"] = std::move( Audio );
 
-	const auto CurrentHttpRequest = m_App.get_context<HttpTracingMiddleware>( req ).Token;
-	const auto HttpSnapshot = Witness::HttpDiagnostics::GetSnapshot( CurrentHttpRequest.Id );
+	const auto HttpSnapshot = Witness::HttpDiagnostics::GetSnapshot( ExcludeHttpRequest, IncludeIncidents );
 	crow::json::wvalue Http;
 	Http["tracingEnabled"] = HttpSnapshot.TracingEnabled;
 	Http["unavailableReason"] = HttpSnapshot.TracingEnabled ? "" : "disabledByConfiguration";
@@ -643,7 +683,7 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 	}
 	Server["http"] = std::move( Http );
 
-	const auto SQLiteSnapshot = GetSQLiteDiagnosticsSnapshot();
+	const auto SQLiteSnapshot = GetSQLiteDiagnosticsSnapshot(IncludeIncidents);
 	crow::json::wvalue SQLite;
 	SQLite["tracingEnabled"] = SQLiteSnapshot.TracingEnabled;
 	SQLite["unavailableReason"] = SQLiteSnapshot.TracingEnabled ? "" : "disabledByConfiguration";
@@ -687,7 +727,9 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 	Coverage["rawWorkSamplesCameraLimit"] = 16;
 	Coverage["rawWorkSamplesTruncated"] = IncludeRawWork && CameraSnapshots.size() > 16;
 	Coverage["rateCalculationReason"] = "worker and processing counter epochs are not yet exposed";
-	Coverage["mediaEventFeed"] = "last 48 warning, error, packet disposition, and recovery events per stream";
+	Coverage["incidentDetailsIncluded"] = IncludeIncidents;
+	Coverage["mediaEventFeed"] = IncludeIncidents ? "last 48 warning, error, packet disposition, and recovery events per stream" :
+		"omittedFromSummary; request details=1 for bounded incident feeds";
 	Coverage["httpTracing"] = !HttpSnapshot.TracingEnabled ? "disabledByConfiguration" :
 		"handler time ends before Crow's synchronous response write; event-loop release delay includes that write and queued callbacks; percentiles use the latest 1024 finalized requests";
 	Coverage["databaseTracing"] = !SQLiteSnapshot.TracingEnabled ? "disabledByConfiguration" :
@@ -711,11 +753,7 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 	Data["cameras"] = std::move( Cameras );
 	Data["coverage"] = std::move( Coverage );
 
-	res.set_header( "Content-Type", "application/json" );
-	res.set_header( "Cache-Control", "no-store" );
-	res.body = Data.dump();
-	res.code = 200;
-	res.end();
+	return Data.dump();
 }
 
 void CrowListener::HandleDebugPacketCapture( const crow::request& req, crow::response& res )
@@ -1960,6 +1998,16 @@ bool CrowListener::Start()
 		return false;
 	}
 	m_Ready.store( true, std::memory_order_release );
+	try
+	{
+		m_HealthCache.Start([this] { return CollectHealthSnapshot(false, false); });
+	}
+	catch (const std::exception& Error)
+	{
+		LOG_ERROR("Could not start health sampler: %s", Error.what());
+		m_Ready.store(false, std::memory_order_release);
+		return false;
+	}
 
 	LOG_INFO( "Crow server ready on %s:%d (%s)", m_Hostname.c_str(), m_Port, m_Secure ? "HTTPS" : "HTTP" );
 
@@ -1975,6 +2023,8 @@ bool CrowListener::Start()
 void CrowListener::Stop()
 {
 	m_Ready.store( false, std::memory_order_release );
+	// Join collection before camera transports/processing queues can be freed.
+	m_HealthCache.Stop();
 	// Stop cert monitor
 	m_CertMonitorRunning = false;
 	if( m_CertMonitorThread.joinable() )

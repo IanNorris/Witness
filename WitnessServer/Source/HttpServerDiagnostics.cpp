@@ -366,7 +366,7 @@ namespace Witness::HttpDiagnostics
 		Diagnostics.InFlight = 0;
 	}
 
-	Snapshot GetSnapshot( uint64_t ExcludeActiveRequest )
+	Snapshot GetSnapshot( uint64_t ExcludeActiveRequest, bool IncludeIncidents )
 	{
 		if (!TracingEnabled())
 		{
@@ -413,6 +413,7 @@ namespace Witness::HttpDiagnostics
 			[]( const auto& Left, const auto& Right ) { return Left.Started > Right.Started; } );
 		if( Result.Routes.size() > MaxSnapshotRoutes ) Result.Routes.resize( MaxSnapshotRoutes );
 
+		if (!IncludeIncidents) return Result;
 		Result.RecentSlowRequests.assign(
 			Diagnostics.RecentSlowRequests.rbegin(), Diagnostics.RecentSlowRequests.rend() );
 		const auto Now = SteadyClock::now();

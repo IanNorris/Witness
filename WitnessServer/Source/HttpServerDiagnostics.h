@@ -88,5 +88,5 @@ namespace Witness::HttpDiagnostics
 	void CompleteRequest( RequestToken Token, int Status, size_t ResponseBytes );
 	void RecordEventLoopRelease( RequestToken Token );
 	void ClearActiveRequests();
-	Snapshot GetSnapshot( uint64_t ExcludeActiveRequest = 0 );
+	Snapshot GetSnapshot( uint64_t ExcludeActiveRequest = 0, bool IncludeIncidents = true );
 }

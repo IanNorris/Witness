@@ -38,7 +38,7 @@ struct SQLiteDiagnosticsSnapshot
 	std::vector<SQLiteQueryTimingEvent> RecentSlowQueries;
 };
 
-SQLiteDiagnosticsSnapshot GetSQLiteDiagnosticsSnapshot();
+SQLiteDiagnosticsSnapshot GetSQLiteDiagnosticsSnapshot(bool IncludeIncidents = true);
 
 #define MAKE_QUERY( Name ) SQLiteDatabaseQueryInstance Name( Context->Database, #Name )
 
