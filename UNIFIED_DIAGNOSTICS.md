@@ -624,3 +624,54 @@ Finalized harness regression: `artifacts/camera-loaded-server-regression-final.l
 passed in 68.117 seconds with both phases and the explicit processing-advancement
 assertions enabled. All fixture-owned server/sender processes ended. The user's
 unrelated `BACKLOG.md` edits are preserved and excluded from this commit.
+
+### Real browser coupled to the isolated full server (2026-10-05)
+
+Optional `WITNESS_TEST_BROWSER_HOLD_SECONDS` (60–3600; default 0) holds a
+single camera-loaded run open and prints only its loopback URL. This mode copies
+the deployment into the fixture's private runtime, and changes only that copy's
+HTML to bootstrap a fixture-owned session cookie and MSE/layout preferences.
+Compiled assets and native binaries are unchanged; the verified package/build
+are not modified. Authentication stays enforced, including anonymous denial.
+Fixture-only camera/user/group mappings authorize the disposable administrator
+to the replay cameras. Session tokens are not printed or written to evidence;
+the private runtime/database and bootstrap cookie lose their server when the
+owned processes stop and the temporary directory is removed. This test bootstrap
+is not a production login or security change.
+
+A 180-second server run used sixteen independently paced HTTP senders of the
+saved Tapo H.264 1280×720 recording. The actual compiled dashboard was opened in
+the in-app browser through computer-use, showing all 16 real MSE players. Two
+DOM observations showed all 16 unpaused, readyState 4, error null, and media
+clocks advancing from approximately 27 to 98 seconds. Selecting the generated
+`16 small` preset succeeded without replacing the playback pipeline. Screenshot:
+`artifacts/isolated-full-server-dashboard-16.jpg`.
+
+A second browser tab opened the real health monitor. It collected persisted
+records from the dashboard and showed all 16 players with zero restarts, stalls,
+errors and corrupt frames, while nonzero browser dropped-frame counts remained
+visible (0–3 per player in that observation). After the dashboard tab closed,
+refreshing the monitor showed no responding live dashboard but retained all 16
+players from its last heartbeat. Evidence:
+`artifacts/isolated-browser-disconnected-health.txt` and the fixture's final
+`artifacts/full-server-browser-history.json`. Both tabs share one browser profile;
+this does not prove independent-profile behavior. Playback was observed for
+roughly 105 seconds before intentionally closing the tab, not for the complete
+180-second server phase.
+
+This establishes that the real server/auth/WebSocket/MSE/history path can be
+tested in isolation. It is still not the representative 30-minute gate: repeated
+720p H.264 media is not a mixed H.264/HEVC resolution matrix, no AI/clip workload
+was intentionally triggered, no baseline/enabled comparison was made, and queue
+means/maxima are not processing P95 distributions. The user-provided Reolink
+samples advertise r_frame_rate 90000/1 and previously reported pacing/corruption
+problems; they require timing/payload qualification before use as clean workload
+inputs. No conclusion about diagnostic overhead or production stability follows
+from this run.
+
+Run result: `artifacts/isolated-browser-load-run.log` passed in 203.135 seconds
+(180 seconds sampled after readiness plus initialization/cleanup). Final export
+contained nine history samples, durableThroughSequence 9, storageFailures 0.
+The private server and all sixteen sender processes stopped cleanly; both test
+browser tabs were closed. This branch modifies only the validation harness/docs
+and continues to use the verified deployable shutdown-fix package above.

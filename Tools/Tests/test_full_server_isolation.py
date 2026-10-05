@@ -83,6 +83,9 @@ class FullServerIsolationTests(unittest.TestCase):
         self.assertTrue(all(path.is_file() for path in inputs))
         replay_seconds = int(os.environ.get('WITNESS_TEST_REPLAY_SECONDS', '20'))
         self.assertTrue(10 <= replay_seconds <= 3600)
+        browser_hold = int(os.environ.get('WITNESS_TEST_BROWSER_HOLD_SECONDS', '0'))
+        self.assertTrue(browser_hold == 0 or 60 <= browser_hold <= 3600)
+        self.assertTrue(not browser_hold or inputs, 'Browser mode requires replay inputs')
         urls = [f'http://127.0.0.1:{loopback_port()}/replay' for _ in inputs]
         repository = Path(__file__).resolve().parents[2]
         with tempfile.TemporaryDirectory(prefix='full-server-isolation-', dir=repository / 'artifacts') as directory:
@@ -95,6 +98,18 @@ class FullServerIsolationTests(unittest.TestCase):
             self.assertEqual(created.returncode, 0)
             port = loopback_port()
             token, csrf = secrets.token_hex(32), secrets.token_hex(32)
+            executable = server
+            if browser_hold:
+                # Alter only a private copy, never the verified deployment/build.
+                runtime = root / 'private runtime'
+                shutil.copytree(server.parent, runtime)
+                executable = runtime / server.name
+                index = runtime / 'Web/index.html'
+                bootstrap = '<script>document.cookie=' + json.dumps(f'SessionToken-{port}={token}; Path=/; SameSite=Strict') + ';'
+                bootstrap += "localStorage.setItem('streamingMode','\"mse\"');localStorage.setItem('fullscreenMode','false');"
+                bootstrap += "localStorage.setItem('witness-dashboard-windowed-mode','layout');"
+                bootstrap += '</script>'
+                index.write_text(index.read_text(encoding='utf-8').replace('<head>', '<head>' + bootstrap, 1), encoding='utf-8')
             with contextlib.closing(sqlite3.connect(data / 'server.db')) as db:
                 db.execute('INSERT INTO User(Username,DisplayName,PasswordHash,HashMethod,Enabled,Admin) VALUES(?,?,?,?,?,?)',
                            ('fixture-admin', 'Fixture admin', 'not-a-login-hash', 0, 1, 1))
@@ -107,6 +122,10 @@ class FullServerIsolationTests(unittest.TestCase):
                 for index, url in enumerate(urls):
                     db.execute('INSERT INTO Camera(CameraName,CameraString,CameraStringSub,Enabled,SkipFrames,MDFrameHeight,MDThreshold,MotionFilter,BlackoutMaskPath,FocusMaskPath) VALUES(?,?,?,?,?,?,?,?,?,?)',
                                (f'Fixture {index + 1}', url, '', 1, 1, 400, 0.99, 'motion_vectors', '', ''))
+                if browser_hold:
+                    db.execute('INSERT INTO CameraGroup(DisplayName,Description) VALUES(?,?)', ('Isolated replay', 'Test only'))
+                    db.execute('INSERT INTO UserGroupMapping VALUES(?,?)', (1, 1))
+                    db.executemany('INSERT INTO CameraGroupMapping VALUES(?,?)', [(index + 1, 1) for index in range(len(inputs))])
                 db.commit()
 
             def request(path, authenticated=True, body=None):
@@ -122,12 +141,12 @@ class FullServerIsolationTests(unittest.TestCase):
                 with response:
                     return response.status, response.read()
 
-            for run in range(2):
+            for run in range(1 if browser_hold else 2):
                 startup = subprocess.STARTUPINFO()
                 startup.dwFlags = subprocess.STARTF_USESHOWWINDOW
                 startup.wShowWindow = 0  # Hidden dedicated console, not a user window.
                 with replay_senders(inputs, urls, root) as senders, (root / f'run-{run}.log').open('wb') as log:
-                    process = subprocess.Popen([str(server), '--plain-console'], cwd=root, env=environment,
+                    process = subprocess.Popen([str(executable), '--plain-console'], cwd=root, env=environment,
                         stdout=log, stderr=subprocess.STDOUT, startupinfo=startup,
                         creationflags=subprocess.CREATE_NEW_CONSOLE | subprocess.CREATE_NEW_PROCESS_GROUP)
                     try:
@@ -194,18 +213,25 @@ class FullServerIsolationTests(unittest.TestCase):
                                 time.sleep(0.25)
                             initial = {camera['cameraId']: camera['streams'][0]['acceptedVideoPackets'] for camera in cameras}
                             initial_processing = {camera['cameraId']: camera['processing']['completedFrames'] for camera in cameras}
+                            if browser_hold:
+                                print(f'isolatedBrowserUrl=http://127.0.0.1:{port}/', flush=True)
                             samples = []
-                            until = time.monotonic() + replay_seconds
+                            duration = browser_hold or replay_seconds
+                            until = time.monotonic() + duration
                             while time.monotonic() < until:
                                 started = time.monotonic()
                                 code, body = request('/debug/health')
                                 self.assertEqual(code, 200)
                                 health = json.loads(body)
-                                samples.append({'elapsedSeconds': replay_seconds - max(0, until - time.monotonic()),
+                                samples.append({'elapsedSeconds': duration - max(0, until - time.monotonic()),
                                     'httpMs': (time.monotonic() - started) * 1000,
                                     'server': health['server'], 'cameras': health['cameras']})
                                 self.assertTrue(all(sender.poll() is None for sender in senders), 'replay sender exited')
                                 time.sleep(1)
+                            if browser_hold:
+                                code, history = request('/debug/client-health')
+                                self.assertEqual(code, 200)
+                                (repository / 'artifacts/full-server-browser-history.json').write_bytes(history)
                             for camera in health['cameras']:
                                 self.assertGreater(camera['streams'][0]['acceptedVideoPackets'], initial[camera['cameraId']],
                                                    f"camera {camera['cameraId']} stopped advancing")
@@ -213,7 +239,7 @@ class FullServerIsolationTests(unittest.TestCase):
                                                    f"camera {camera['cameraId']} processing stopped advancing")
                             (repository / f'artifacts/full-server-replay-run-{run}.json').write_text(
                                 json.dumps({'nativeBuildId': identity, 'cameraCount': len(inputs),
-                                    'limits': 'Paced loopback packet-copy replay; no browser clients or baseline phase; not the full load gate',
+                                    'limits': 'Paced loopback packet-copy replay; browser attachment is externally verified; no baseline phase; not the full load gate',
                                     'samples': samples}, indent=2), encoding='utf-8')
                     finally:
                         try:
