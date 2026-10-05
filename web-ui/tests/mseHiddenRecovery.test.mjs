@@ -68,7 +68,7 @@ async function fixture() {
     readyState = 1
     constructor() { socket = this }
     send() {}
-    close() { this.readyState = 3; this.onclose?.({code: 1000, reason: 'fixture'}) }
+    close() { this.readyState = 3; if (this.errorOnClose) this.onerror?.(); this.onclose?.({code: 1000, reason: 'fixture'}) }
     message(data) { this.onmessage({data: typeof data === 'object' && !(data instanceof ArrayBuffer) ? JSON.stringify(data) : data}) }
   }
   const video = new Video()
@@ -160,5 +160,38 @@ test('a hidden tab recovers an open socket that stops delivering media', async (
     for (let i = 0; i < 45; i++) f.tick(false)
     assert.equal(f.diag().stats.restartCount, 1)
     assert.ok(f.diag().importantEvents.some(e => e.type === 'fragmentTimeout'))
+  } finally { f.restore() }
+})
+
+test('last counted error survives routine-event eviction and retains transport context', async () => {
+  const f = await fixture()
+  try {
+    f.socket().onerror()
+    assert.equal(f.diag().stats.errorCount, 1)
+    const error = f.diag().lastError
+    assert.equal(error.type, 'wsError')
+    assert.equal(error.wsReadyState, 1)
+    assert.equal(error.intentionalClose, false)
+    assert.ok(error.drift)
+    for (let i = 0; i < 600; i++) window._witnessMseDiag['1_mse'].log('media:playing')
+    assert.equal(f.diag().importantEvents.some(e => e.type === 'wsError'), false)
+    assert.deepEqual(f.diag().lastError, error)
+    f.buffer.dispatchEvent(new Event('error'))
+    assert.equal(f.diag().lastError.type, 'sourceBufferError')
+    assert.equal(f.diag().lastError.consecutive, 1)
+  } finally { f.restore() }
+})
+
+test('transport errors during deliberate teardown remain distinguishable', async () => {
+  const f = await fixture()
+  try {
+    f.socket().errorOnClose = true
+    f.hide()
+    for (let i = 0; i < 45; i++) f.tick(false)
+    assert.equal(f.diag().stats.restartCount, 1)
+    assert.equal(f.diag().stats.errorCount, 1)
+    assert.equal(f.diag().lastError.type, 'wsError')
+    assert.equal(f.diag().lastError.intentionalClose, true)
+    assert.equal(f.diag().lastError.wsReadyState, 3)
   } finally { f.restore() }
 })

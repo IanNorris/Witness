@@ -1300,3 +1300,26 @@ had already evicted the error events. Do not infer an AbortError, WebSocket clos
 or decoder failure from that counter alone. This exposes another history
 requirement: retain a bounded structured last-error snapshot independently of
 the rolling routine-event list, without persisting free-form messages or secrets.
+
+On the separate `codex/client-health-error-evidence` branch, MSE diagnostics now
+retain one last counted pipeline/transport error independently of routine events.
+The report and server allowlist preserve its bounded time/type/name/reason,
+numeric stage/generation/socket context, deliberate-close flag and scalar drift
+snapshot. Free-form messages, arbitrary nested payloads and drift/buffer arrays
+are not persisted. Error counters and recovery behaviour are unchanged; a
+transport error during deliberate teardown is retained and distinguishable rather
+than silently reclassified. The attached drift sample is the most recent sampled
+state, with its own timestamp, not a claimed simultaneous measurement.
+
+Five production-composable mocked-primitive tests pass, including 600 routine
+events evicting the counted error without losing the sticky snapshot, replacement
+by a newer SourceBuffer error, and socket errors during deliberate teardown.
+Three normal reporting tests pass (the optional offline export case was skipped),
+including rich 16-player compaction with error evidence and no free-form messages.
+Type checking passes after replacing unsupported `Array.at` with indexed access.
+Native allowlist/privacy tests also pass for structured last-error context.
+The full normal-authenticated storage/restart fixture has been extended, but needs
+the updated native build before execution. None of this new instrumentation is in
+the frozen package currently undergoing endurance, so it cannot retroactively
+identify the already-evicted errors from that run. Matching native/frontend build,
+runtime tests, UI verification and a separate package remain pending.

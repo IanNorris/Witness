@@ -38,6 +38,7 @@ export interface ClientPlayerHealth {
   recentEvents?: ClientPlayerEvent[]
   driftSamples?: DriftSample[]
   lastDriftRestart?: ClientPlayerEvent
+  lastError?: ClientPlayerEvent
 }
 
 export interface ClientPlayerEvent {
@@ -58,6 +59,8 @@ export interface ClientPlayerEvent {
   lagMs?: number
   drift?: DriftSample
   driftSamples?: DriftSample[]
+  wsReadyState?: number
+  intentionalClose?: boolean
 }
 
 export interface ClientHealthSession {
@@ -138,6 +141,8 @@ function sanitizeEvent(value: unknown): ClientPlayerEvent | null {
     lagMs: optionalFinite(source.lagMs),
     drift: sanitizeDriftSample(source.drift),
     driftSamples: sanitizeDriftSamples(source.driftSamples),
+    wsReadyState: optionalFinite(source.wsReadyState),
+    intentionalClose: typeof source.intentionalClose === 'boolean' ? source.intentionalClose : undefined,
   }
 }
 
@@ -205,6 +210,7 @@ function validateSession(value: unknown): ClientHealthSession | null {
       recentEvents: sanitizeEvents(player.recentEvents),
       driftSamples: sanitizeDriftSamples(player.driftSamples),
       lastDriftRestart: sanitizeEvent(player.lastDriftRestart) ?? undefined,
+      lastError: sanitizeEvent(player.lastError) ?? undefined,
     })
   }
   const visibility = source.visibilityState
@@ -293,6 +299,7 @@ export function collectLocalClientHealth(): ClientHealthSession {
         recentEvents,
         driftSamples: sanitizeDriftSamples(data.driftSamples),
         lastDriftRestart: sanitizeEvent(data.lastDriftRestart) ?? undefined,
+        lastError: sanitizeEvent(data.lastError) ?? undefined,
       })
       seen.add(id)
     }
@@ -350,10 +357,17 @@ export function compactHealthReport(session: ClientHealthSession): ClientHealthS
     t: event.t, type: event.type, reason: event.reason, lagMs: event.lagMs,
     drift: compactDrift(event.drift),
   } : undefined
+  const compactError = (event?: ClientPlayerEvent): ClientPlayerEvent | undefined => event ? {
+    t: event.t, type: event.type, name: event.name, reason: event.reason, code: event.code,
+    generation: event.generation, consecutive: event.consecutive, readyState: event.readyState,
+    mediaSourceState: event.mediaSourceState, wsReadyState: event.wsReadyState,
+    intentionalClose: event.intentionalClose, drift: compactDrift(event.drift),
+  } : undefined
   const overBudget = () => new TextEncoder().encode(JSON.stringify(report)).length > 60 * 1024
   const report = { ...session, players: session.players.map(player => ({ ...player,
     recentEvents: player.recentEvents?.slice(-8).map(event => ({ ...event, message: undefined, driftSamples: undefined, drift: undefined })),
     driftSamples: player.driftSamples?.slice(-4), lastDriftRestart: compactRestart(player.lastDriftRestart),
+    lastError: compactError(player.lastError),
   })) }
   if (overBudget()) {
     for (const player of report.players) {
@@ -364,6 +378,7 @@ export function compactHealthReport(session: ClientHealthSession): ClientHealthS
   if (overBudget()) {
     for (const player of report.players) {
       player.recentEvents = undefined; player.driftSamples = undefined; player.lastDriftRestart = undefined
+      player.lastError = undefined
     }
   }
   return report

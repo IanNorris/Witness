@@ -55,6 +55,7 @@ class MseDiagnostics {
   importantEvents: DiagEvent[] = []
   driftSamples: DriftSample[] = []
   lastDriftRestart: DiagEvent | null = null
+  lastError: DiagEvent | null = null
   stats: MseDiagStats = {
     restartCount: 0,
     stallCount: 0,
@@ -93,6 +94,9 @@ class MseDiagnostics {
     this.events.push(event)
     if (type === 'driftRestart') this.lastDriftRestart = {
       ...event, driftSamples: this.driftSamples.slice(-20),
+    }
+    if (['appendError', 'sourceBufferError', 'sourceBufferCreateFailed', 'wsError', 'media:error'].includes(type)) {
+      this.lastError = { ...event, drift: this.driftSamples[this.driftSamples.length - 1] }
     }
     // Routine fragment traffic quickly fills the rolling diagnostic window.
     // Retain lifecycle, error, and recovery events separately so a later dump
@@ -143,6 +147,7 @@ class MseDiagnostics {
       liveState: this._stateGetter ? this._stateGetter() : null,
       driftSamples: this.driftSamples.slice(),
       lastDriftRestart: this.lastDriftRestart,
+      lastError: this.lastError,
       currentState: el
         ? {
             readyState: el.readyState,
@@ -762,7 +767,8 @@ export function useMseStream(
         if (sourceBufferOperation?.buffer === buffer) sourceBufferOperation.failed = true
         diag.stats.errorCount++
         consecutiveAppendErrors++
-        diag.log('sourceBufferError', { consecutive: consecutiveAppendErrors })
+        diag.log('sourceBufferError', { consecutive: consecutiveAppendErrors, generation,
+          mediaSourceState: mediaSource?.readyState ?? null })
         if (consecutiveAppendErrors >= 5) {
           restartStream('sourceBufferErrors')
         }
@@ -1153,7 +1159,7 @@ export function useMseStream(
 	socket.onerror = () => {
 	  if (ws !== socket) return
       diag.stats.errorCount++
-      diag.log('wsError')
+      diag.log('wsError', { intentionalClose, wsReadyState: socket.readyState, generation: sourceBufferGeneration })
     }
 
 	socket.onclose = (event: CloseEvent) => {

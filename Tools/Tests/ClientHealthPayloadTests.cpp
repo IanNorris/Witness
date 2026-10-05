@@ -31,9 +31,21 @@ int main() {
         Check(Restart["drift"]["fragmentAgeMs"].d() == 76 && Restart["drift"]["paused"].b(), "causal scalar snapshot lost");
         Check(!Restart.has("driftSamples") && !Restart["drift"].has("buffered"), "unbounded recovery details persisted");
         Check(RecoveryValue.Json.find("secret") == std::string::npos, "recovery credentials persisted");
-        auto MalformedRecovery = crow::json::load(R"({"players":[{"id":"8_mse","lastDriftRestart":"wrong"}]})");
+        auto MalformedRecovery = crow::json::load(R"({"players":[{"id":"8_mse","lastDriftRestart":"wrong","lastError":["wrong"]}]})");
         auto MalformedClean = crow::json::load(Sanitize(MalformedRecovery, 7, "server-user").Json);
         Check(!MalformedClean["players"][0].has("lastDriftRestart"), "malformed recovery accepted");
+        Check(!MalformedClean["players"][0].has("lastError"), "malformed last error accepted");
+        auto ErrorBody = crow::json::load(R"({"players":[{"id":"8_mse","lastError":{
+          "t":"2026-10-05T03:00:00Z","type":"wsError","wsReadyState":3,"generation":4,
+          "intentionalClose":true,"message":"https://secret@camera","password":"secret",
+          "drift":{"paused":true,"lagMs":99000,"buffered":[[1,2]],"url":"secret"}}}]})");
+        auto ErrorValue = Sanitize(ErrorBody, 7, "server-user");
+        auto ErrorClean = crow::json::load(ErrorValue.Json);
+        const auto& ErrorSnapshot = ErrorClean["players"][0]["lastError"];
+        Check(ErrorSnapshot["wsReadyState"].d() == 3 && ErrorSnapshot["generation"].d() == 4 &&
+              ErrorSnapshot["intentionalClose"].b(), "error transport context lost");
+        Check(ErrorSnapshot["drift"]["lagMs"].d() == 99000, "error scalar evidence lost");
+        Check(ErrorValue.Json.find("secret") == std::string::npos && !ErrorSnapshot["drift"].has("buffered"), "error secrets or arrays persisted");
         auto Bad = crow::json::load(R"({"players":"wrong"})");
         bool Rejected = false;
         try { Sanitize(Bad, 7, "server-user"); } catch (const std::invalid_argument&) { Rejected = true; }

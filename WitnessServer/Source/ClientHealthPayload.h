@@ -94,6 +94,16 @@ inline Sample Sanitize(const crow::json::rvalue& Source, int UserUID, std::strin
                 Event["drift"] = Drift(Restart["drift"]);
             Out["lastDriftRestart"] = std::move(Event);
         }
+        if (Player.has("lastError") && Player["lastError"].t() == crow::json::type::Object) {
+            const auto& Error = Player["lastError"];
+            crow::json::wvalue Event;
+            Texts(Error, Event, {"t", "type", "name", "reason", "mediaSourceState"});
+            Numbers(Error, Event, {"code", "generation", "consecutive", "readyState", "wsReadyState"});
+            Booleans(Error, Event, {"intentionalClose"});
+            if (Error.has("drift") && Error["drift"].t() == crow::json::type::Object)
+                Event["drift"] = Drift(Error["drift"]);
+            Out["lastError"] = std::move(Event);
+        }
         if (Player.has("driftSamples") && Player["driftSamples"].t() == crow::json::type::List) {
             std::vector<crow::json::wvalue> Samples;
             const auto& List = Player["driftSamples"];

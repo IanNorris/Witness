@@ -296,7 +296,11 @@ class FullServerIsolationTests(unittest.TestCase):
                         if run == 0:
                             payload = {'csrf': csrf, 'snapshot': {'browserId': 'isolated-browser',
                                 'sessionId': 'isolated-session', 'visibilityState': 'visible', 'players': [{
-                                    'id': 'fixture_mse', 'lastDriftRestart': {
+                                    'id': 'fixture_mse', 'lastError': {
+                                        'type': 'wsError', 'wsReadyState': 3, 'intentionalClose': True,
+                                        'generation': 4, 'message': 'https://secret@camera',
+                                        'drift': {'paused': True, 'lagMs': 99000, 'password': 'secret'}},
+                                    'lastDriftRestart': {
                                         'type': 'driftRestart', 'reason': 'drift', 'lagMs': 148000,
                                         'message': 'https://secret@camera',
                                         'drift': {'paused': True, 'fragmentAgeMs': 76,
@@ -322,6 +326,13 @@ class FullServerIsolationTests(unittest.TestCase):
                         self.assertTrue(recovery['drift']['paused'])
                         self.assertNotIn('buffered', recovery['drift'])
                         self.assertNotIn('secret', json.dumps(recovery))
+                        error = export['history'][0]['snapshot']['players'][0]['lastError']
+                        self.assertEqual(error['type'], 'wsError')
+                        self.assertEqual(error['wsReadyState'], 3)
+                        self.assertTrue(error['intentionalClose'])
+                        self.assertEqual(error['generation'], 4)
+                        self.assertEqual(error['drift']['lagMs'], 99000)
+                        self.assertNotIn('secret', json.dumps(error))
                         if inputs:
                             deadline = time.monotonic() + 45
                             while True:

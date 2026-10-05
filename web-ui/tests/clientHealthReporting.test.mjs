@@ -53,6 +53,8 @@ test('a rich 16-player report retains suspension and restart evidence under the 
       recentEvents: Array(8).fill({ t, type: 'restart', reason: 'drift', message: 'omit', mimeType: 'a'.repeat(120) }),
       driftSamples: Array(60).fill(drift),
       lastDriftRestart: { t, type: 'driftRestart', lagMs: 141100, message: 'omit', drift, driftSamples: Array(20).fill(drift) },
+      lastError: { t, type: 'wsError', code: 3, generation: 4, wsReadyState: 3,
+        intentionalClose: true, message: 'secret', drift, driftSamples: Array(20).fill(drift) },
     })) }
   const report = health.compactHealthReport(session)
   assert.equal(report.players.length, 16)
@@ -66,6 +68,12 @@ test('a rich 16-player report retains suspension and restart evidence under the 
     assert.equal(player.lastDriftRestart.drift.lagMs, 141100)
     assert.equal(player.lastDriftRestart.message, undefined)
     assert.equal(player.lastDriftRestart.driftSamples, undefined)
+    assert.equal(player.lastError.type, 'wsError')
+    assert.equal(player.lastError.intentionalClose, true)
+    assert.equal(player.lastError.generation, 4)
+    assert.equal(player.lastError.drift.paused, true)
+    assert.equal(player.lastError.message, undefined)
+    assert.equal(player.lastError.driftSamples, undefined)
   }
   assert.equal(session.players[0].driftSamples.length, 60)
   assert.equal(session.players[0].lastDriftRestart.message, 'omit')
