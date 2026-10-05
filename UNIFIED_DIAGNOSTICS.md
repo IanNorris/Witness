@@ -2885,3 +2885,46 @@ build also completes; existing Sass/chunk warnings remain. Verified package:
 `artifacts/message-header-isolation-package-verified.json` (byte/identity proof,
 not runtime ABI or production stability). No main merge, push or deployment;
 user BACKLOG.md edits remain unstaged and untouched.
+
+#### Reusable no-PCH message-header cost probe
+
+`scripts/measure-message-header.ps1` takes explicit CompilerRoot, SdkIncludeRoot,
+InstalledRoot and 1..10 repeats (default 3). It preflights paths before creating
+a fresh GUID-named artifact directory, preprocesses the isolated/control cases,
+then alternates their object-compilation order. It never configures CMake,
+installs dependencies, deletes build output or writes into the supplied toolchain
+and installed-package roots. `/Bt+` compiler phase logs, generated objects,
+preprocessed text hashes and scalar elapsed-run results are retained privately.
+The control force-includes GlobalContext.h; it models the removed import rather
+than checking out and rebuilding an earlier revision.
+
+The final command used CompilerRoot
+`C:/Program Files/Microsoft Visual Studio/18/Insiders/VC/Tools/MSVC/14.51.36231`,
+SdkIncludeRoot `C:/Program Files (x86)/Windows Kits/10/Include/10.0.26100.0`,
+InstalledRoot `build-vs2026-stable/vcpkg_installed/x64-windows-witness-v145-release`
+(absolute path when invoking), and Repeats=3. Flags use C++20, utf-8, `/EHsc`,
+`/W3 /WX`, `/O2 /MD`, NDEBUG and Windows-10 target macros. Compiler/SDK/package
+headers use `/external:I /external:W0`, matching the CMake system-header policy;
+project warnings remain fatal. The first prototype lacked `/EHsc` and produced
+C4530; a subsequent strict run exposed vendored Crow warnings before correcting
+system-header classification and target macros. Those incomplete/warning runs
+are not used as the successful measurement.
+
+Final evidence directory:
+`artifacts/message-header-probe-f9bfb4198c304fe49f16f8600f836f6d/`. Six object
+compilations exit zero. Context-control elapsed seconds: 7.646477, 7.636336,
+7.837583; isolated: 2.601541, 2.598234, 2.584973. Medians are 7.646477 and
+2.598234 seconds. Preprocessed text is 10,229,543 versus 4,931,667 bytes under
+these flags; unlike the earlier `/EP` smoke it also defines NDEBUG and Windows
+target macros. These measurements include host scheduling/cache effects while
+the independent recording audit is active. They are not CPU-work figures,
+PCH-enabled server compile timings, full-build speedups, runtime improvements
+or ABI compatibility proof. Invalid compiler-root, SDK-root and repeat=0 inputs
+were each rejected before creating another artifact directory.
+
+The probe changes no runtime source; the existing verified
+native3d9183607607/web99d827777842 message-header package remains the deployable
+candidate. No main merge/push/deployment or dependency mutation occurred. The
+recording audit handle 71718 is still live, with its owned Python PID42428 and
+child timestamp-inspection ffprobe PID10200 observed after the prior decode
+stage; this is verified continued work, not a terminal pass.
