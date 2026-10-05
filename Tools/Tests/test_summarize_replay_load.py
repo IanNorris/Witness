@@ -1,9 +1,53 @@
 import copy
 import unittest
-from summarize_replay_load import buffer_position_observations, quantile, summarize
+from summarize_replay_load import buffer_position_observations, presentation_observations, quantile, summarize
 
 
 class ReplaySummaryTests(unittest.TestCase):
+    def test_presentation_deduplicates_callbacks_not_media_clock(self):
+        samples = [{'t': str(index), 'generation': 1, 'presentationVisible': True,
+                    'presentedFrames': frames, 'presentedMediaTime': presented,
+                    'currentTime': clock, 'presentationStallMs': stall}
+                   for index, frames, presented, clock, stall in
+                   [(1, 24, 1, 1.1, 0), (2, 48, 2, 2.1, 0),
+                    (3, 48, 2, 5.1, 3000)]]
+        report = presentation_observations([{'driftSamples': samples}] * 2)
+        self.assertEqual(report['observedUniqueSamples'], 3)
+        self.assertEqual(report['measurableSamples'], 3)
+        self.assertEqual(report['visibleSamples'], 3)
+        self.assertEqual(report['progressingSameGenerationPairs'], 1)
+        self.assertEqual(report['nonadvancingSameGenerationPairs'], 1)
+        self.assertAlmostEqual(report['maximumObservedClockAheadOfPresentationMs'], 3100)
+        self.assertEqual(report['maximumObservedRunnableStallMs'], 3000)
+
+    def test_presentation_unknown_invalid_and_conflicting_stay_unknown(self):
+        sample = {'t': 'one', 'generation': 1, 'presentationVisible': True,
+                  'presentedFrames': 24, 'presentedMediaTime': 1, 'currentTime': 1.1}
+        conflict = dict(sample, presentationVisible=False)
+        invalid = [dict(sample, t='bool', presentedFrames=True),
+                   dict(sample, t='nan', presentedMediaTime=float('nan')),
+                   dict(sample, t='zero', presentedFrames=0),
+                   dict(sample, t='legacy', generation=None),
+                   {'t': 'unknown', 'generation': 1}]
+        report = presentation_observations([{'driftSamples': [sample, conflict, sample] + invalid}])
+        self.assertEqual(report['observedUniqueSamples'], 5)
+        self.assertEqual(report['measurableSamples'], 0)
+        self.assertEqual(report['unknownVisibilitySamples'], 2)
+        self.assertIsNone(report['maximumObservedClockAheadOfPresentationMs'])
+        self.assertEqual(report['progressingSameGenerationPairs'], 0)
+        self.assertEqual(presentation_observations([])['observedUniqueSamples'], 0)
+
+    def test_presentation_generations_and_resets_do_not_invent_progress(self):
+        samples = [{'t': str(index), 'generation': generation, 'presentationVisible': False,
+                    'presentedFrames': frames, 'presentedMediaTime': presented,
+                    'currentTime': presented}
+                   for index, generation, frames, presented in
+                   [(1, 1, 48, 2), (2, 1, 24, 1), (3, 2, 72, 3)]]
+        report = presentation_observations([{'driftSamples': samples}])
+        self.assertEqual(report['presentationResetPairs'], 1)
+        self.assertEqual(report['progressingSameGenerationPairs'], 0)
+        self.assertEqual(report['notVisibleSamples'], 3)
+
     def test_buffer_position_is_deduplicated_and_missing_fields_stay_unknown(self):
         samples = [{'t':'one','generation':1,'playheadBuffered':True},
                    {'t':'two','generation':1,'playheadBuffered':False,'playheadGapMs':1600,'nextBufferedStartSeconds':13},

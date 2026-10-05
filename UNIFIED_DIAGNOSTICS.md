@@ -2544,3 +2544,36 @@ under `artifacts/run-presentation-hit-browser-20261005/`; its terminal outcome i
 not yet known. Original sixteen-source recording verification remains separate
 and live. Actual frozen-video recovery in a browser, broader codec/network/load
 coverage and the matched observer-overhead gates remain unproven.
+
+The corrected candidate has now completed the full-server lifecycle in 270.137
+seconds with the strengthened presentation gate enabled. Its measured phase has
+179 server samples across 180.483 seconds (maximum sampling gap 1.028 seconds).
+Twelve authenticated retained browser rows span 165.059 seconds, beginning 14.330
+seconds into measurement and ending 1.091 seconds before completion. There are
+48 deduplicated presentation observations: all have visible geometric monitoring
+and valid callback evidence, all 47 within-generation pairs advance presented
+timestamps and callback counts, and none show a callback reset/nonadvance.
+Maximum sampled clock lead over presented video is 62.378 ms and sampled runnable
+stall time is zero. Restart/stall/error deltas are zero with no observed counter
+decrease; video-frame delta is 3,954, dropped-frame delta zero, final readyState 4,
+and final latency 1,361 ms. All 48 playhead-position observations are buffered.
+
+Both fresh outputs pass full strict decode and packet/frame timestamp inspection:
+manual recording 5,936 frames and continuous DVR 5,954, with no missing,
+duplicate or regressing timestamps or decode diagnostics. Recording progress is
+complete, two of two passing outputs. Authenticated diagnostics/history and clean
+shutdown checks pass. Summary: `artifacts/mse-presentation-hit-test-summary.json`;
+underlying replay/history/workload/progress reports remain in the exclusive
+namespace above, console `artifacts/mse-presentation-hit-test-browser.log`.
+The private fixture is cleaned; its browser tab is no longer in the session.
+
+The replay summarizer now reports deduplicated presented callback evidence
+separately from media-clock movement. Conflicting repeated samples stay unknown;
+missing, boolean/non-finite numeric values or an unknown generation cannot invent
+progress; generations are not stitched across resets. Thirteen summary regression
+tests pass. These are retained observations, not continuous presentation or
+occlusion proof. This healthy single small H.264/AAC replay neither deliberately
+induces a freeze nor qualifies real Tapo traffic/high-resolution decoding or
+observer overhead. The older sixteen-source audit is still live, currently in
+continuous-recording frame timestamp inspection, so competing inspection CPU
+also prevents treating this run as an overhead benchmark.

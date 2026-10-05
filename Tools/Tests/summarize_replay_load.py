@@ -53,6 +53,64 @@ def buffer_position_observations(timeline):
         'scope': 'retainedMediaElementPositionSnapshotsNotContinuousPlaybackOrSeparateTrackReadiness'}
 
 
+def presentation_observations(timeline):
+    """Report retained frame callbacks separately from the advancing media clock."""
+    seen = {}
+    def finite(value):
+        return type(value) in (int, float) and math.isfinite(value) and value >= 0
+    for player in timeline:
+        samples = player.get('driftSamples', [])
+        if not isinstance(samples, list):
+            continue
+        for sample in samples:
+            if not isinstance(sample, dict) or not isinstance(sample.get('t'), str):
+                continue
+            generation = sample.get('generation')
+            if type(generation) is not int or generation < 0:
+                continue  # Unknown generations cannot establish callback continuity.
+            key = generation, sample['t']
+            visibility = sample.get('presentationVisible')
+            if type(visibility) is not bool:
+                visibility = None
+            frames, presented, clock = (sample.get(field) for field in
+                ('presentedFrames', 'presentedMediaTime', 'currentTime'))
+            measured = (type(frames) is int and frames > 0 and
+                        finite(presented) and finite(clock))
+            stall = sample.get('presentationStallMs')
+            value = (visibility, frames if measured else None,
+                     presented if measured else None, clock if measured else None,
+                     stall if finite(stall) else None)
+            if key in seen and seen[key] != value:
+                seen[key] = None  # Conflicts stay unknown, including later repeats.
+            else:
+                seen[key] = value
+    values = [(key, value) for key, value in sorted(seen.items()) if value is not None]
+    measurable = [(key, value) for key, value in values if value[1] is not None]
+    progressing, nonadvancing, resets = 0, 0, 0
+    for (left_key, left), (right_key, right) in zip(measurable, measurable[1:]):
+        if left_key[0] != right_key[0]:
+            continue
+        if right[1] < left[1] or right[2] < left[2]:
+            resets += 1
+        elif right[1] > left[1] and right[2] > left[2]:
+            progressing += 1
+        else:
+            nonadvancing += 1
+    lags = [(value[3] - value[2]) * 1000 for _, value in measurable]
+    stalls = [value[4] for _, value in values if value[4] is not None]
+    return {'observedUniqueSamples': len(seen),
+        'measurableSamples': len(measurable),
+        'visibleSamples': sum(value[0] is True for _, value in values),
+        'notVisibleSamples': sum(value[0] is False for _, value in values),
+        'unknownVisibilitySamples': len(seen) - sum(value[0] is not None for _, value in values),
+        'progressingSameGenerationPairs': progressing,
+        'nonadvancingSameGenerationPairs': nonadvancing,
+        'presentationResetPairs': resets,
+        'maximumObservedClockAheadOfPresentationMs': max(lags) if lags else None,
+        'maximumObservedRunnableStallMs': max(stalls) if stalls else None,
+        'scope': 'deduplicatedRetainedCallbacksNotContinuousPresentationOrOcclusionProof'}
+
+
 def summarize(replay, history):
     samples = replay.get('samples', [])
     if not samples:
@@ -128,6 +186,7 @@ def summarize(replay, history):
                 'finalReadyState': last[player_id].get('readyState'),
                 'finalLatencyMs': last[player_id].get('latencyMs'),
                 'sampledBufferPosition': buffer_position_observations(timeline),
+                'sampledPresentation': presentation_observations(timeline),
                 'finalLastEventType': last[player_id].get('lastEventType')})
         first_received = rows[0]['receivedUnixMs']
         last_received = rows[-1]['receivedUnixMs']
