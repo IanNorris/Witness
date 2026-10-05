@@ -4396,3 +4396,15 @@ minimum and maximum durations against the replay window plus its bounded startup
 allowance, rejecting huge positive values as well as zero/negative durations.
 This last source change still requires a rebuild and runtime validation. No new
 package or merge is inferred from the preceding native test pass.
+
+The unsigned-sentinel rebuild completed successfully. Follow-up review found
+that a zero/unset motion end during active motion would underflow the existing
+unsigned subtraction in Recording.cpp. A small production ClipTiming.h policy
+now treats an unset end as the recording end, retains an earlier real end for
+quiet/grace tails, and clamps reversed/out-of-window motion boundaries before
+subtracting. The actual native queue/shutdown target tests that production
+function for active, quiet-tail, reversed/equal, unset and legacy-sentinel cases.
+The persisted-recording gate also rejects missing, negative and excessive active
+motion durations per clip; seventeen pure tests pass. Native policy tests and
+the final rebuilt server runtime remain pending. No production deployment,
+remote push, master merge or user BACKLOG mutation.

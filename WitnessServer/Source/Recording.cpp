@@ -1,6 +1,7 @@
 #include "Common.h"
 #include "Database.h"
 #include "ClipHelpers.h"
+#include "ClipTiming.h"
 #include "ObservingMotionFilter.h"
 #include "Witness.h"
 #include "GlobalContext.h"
@@ -95,7 +96,8 @@ void WitnessServer::StopCameraRecording( const ClipStatistics& ClipStats, int Ca
 	if( ClipStats.TimestampMotionStarted != INT64_MAX )
 	{
 		UpdateClip->Bind( "@MotionTimestamp", (int64_t)ClipStats.TimestampMotionStarted );
-		UpdateClip->Bind( "@ActiveDuration", (int64_t)(ClipStats.TimestampMotionEnded - ClipStats.TimestampMotionStarted) );
+		UpdateClip->Bind( "@ActiveDuration", static_cast<int64_t>(FinalizedMotionDurationSeconds(
+			ClipStats.TimestampClipEnded, ClipStats.TimestampMotionStarted, ClipStats.TimestampMotionEnded)) );
 	}
 	else
 	{

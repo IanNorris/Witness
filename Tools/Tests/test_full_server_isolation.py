@@ -126,8 +126,10 @@ def inference_evidence(text):
 def recording_evidence(db, previous_clip_uid, previous_segment_uid):
     """Only this lifecycle's newly created rows qualify; no reused baseline rows."""
     clips = [{'cameraId': row[0], 'clips': row[1], 'minimumDurationSeconds': row[2],
-              'maximumDurationSeconds': row[3]} for row in db.execute(
-        'SELECT Camera,count(*),min(Duration),max(Duration) FROM Clip WHERE ClipUID>? GROUP BY Camera', (previous_clip_uid,))]
+              'maximumDurationSeconds': row[3], 'invalidMotionDurationCount': row[4]} for row in db.execute(
+        'SELECT Camera,count(*),min(Duration),max(Duration),'
+        'sum(CASE WHEN ActiveDuration IS NULL OR ActiveDuration<0 OR ActiveDuration>Duration THEN 1 ELSE 0 END) '
+        'FROM Clip WHERE ClipUID>? GROUP BY Camera', (previous_clip_uid,))]
     segments = [{'cameraId': row[0], 'segments': row[1]} for row in db.execute(
         'SELECT CameraUID,count(*) FROM ContinuousSegment WHERE SegmentUID>? GROUP BY CameraUID',
         (previous_segment_uid,))]
@@ -137,6 +139,8 @@ def recording_evidence(db, previous_clip_uid, previous_segment_uid):
 def recording_metadata_finalized(clips, maximum_duration_seconds):
     return bool(clips) and all(type(row.get('minimumDurationSeconds')) is int and
                               type(row.get('maximumDurationSeconds')) is int and
+                              type(row.get('invalidMotionDurationCount')) is int and
+                              row['invalidMotionDurationCount'] == 0 and
                               0 < row['minimumDurationSeconds'] <= row['maximumDurationSeconds'] <=
                               maximum_duration_seconds for row in clips)
 

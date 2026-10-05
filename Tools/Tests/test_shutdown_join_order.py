@@ -12,6 +12,9 @@ class ShutdownJoinOrderTests(unittest.TestCase):
         for field in ('TimestampMotionEnded', 'TimestampClipEnded'):
             self.assertNotRegex(source, r'ClipStats\.' + field + r'\s*=\s*INT64_MIN')
             self.assertRegex(source, r'ClipStats\.' + field + r'\s*=\s*0;')
+        recording = (root / 'Recording.cpp').read_text(encoding='utf8')
+        self.assertIn('FinalizedMotionDurationSeconds(', recording)
+        self.assertNotIn('ClipStats.TimestampMotionEnded - ClipStats.TimestampMotionStarted', recording)
 
     def test_final_clip_metadata_drain_is_serialized_after_all_worker_joins(self):
         root = Path(__file__).resolve().parents[2] / 'WitnessServer/Source'

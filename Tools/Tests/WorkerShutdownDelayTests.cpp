@@ -3,6 +3,7 @@
 #include <iostream>
 #include <stdexcept>
 #include "TimerWorker.h"
+#include "ClipTiming.h"
 
 using namespace std::chrono_literals;
 
@@ -24,6 +25,17 @@ int main()
 {
     try
     {
+        Check(FinalizedMotionDurationSeconds(120, 100, 0) == 20, "active motion must end with the recording");
+        Check(FinalizedMotionDurationSeconds(120, 100, 115) == 15, "quiet tail must not count as motion");
+        Check(FinalizedMotionDurationSeconds(120, 100, 125) == 20, "motion end must not exceed clip end");
+        Check(FinalizedMotionDurationSeconds(120, 100, 95) == 0, "motion duration must not underflow");
+        Check(FinalizedMotionDurationSeconds(95, 100, 0) == 0, "reversed clip boundary must not underflow");
+        Check(FinalizedMotionDurationSeconds(100, 100, 0) == 0, "equal boundaries have no duration");
+        Check(FinalizedMotionDurationSeconds(120, static_cast<uint64_t>(INT64_MAX), 0) == 0,
+              "unset motion must have zero duration");
+        Check(FinalizedMotionDurationSeconds(120, 100, uint64_t{1} << 63) == 20,
+              "legacy unsigned negative sentinel must not produce a huge duration");
+
         MessageBusQueue PendingQueue;
         auto FirstMessage = std::make_shared<Message>();
         auto SecondMessage = std::make_shared<Message>();

@@ -207,13 +207,14 @@ class WorkloadEvidenceTests(unittest.TestCase):
     def test_previous_lifecycle_recordings_cannot_qualify_new_run(self):
         db = sqlite3.connect(':memory:')
         try:
-            db.execute('CREATE TABLE Clip(ClipUID INTEGER,Camera INTEGER,Duration INTEGER)')
+            db.execute('CREATE TABLE Clip(ClipUID INTEGER,Camera INTEGER,Duration INTEGER,ActiveDuration INTEGER)')
             db.execute('CREATE TABLE ContinuousSegment(SegmentUID INTEGER,CameraUID INTEGER)')
-            db.executemany('INSERT INTO Clip VALUES(?,?,?)', [(1, 1, 10), (2, 1, 20), (3, 2, 30)])
+            db.executemany('INSERT INTO Clip VALUES(?,?,?,?)', [(1, 1, 10, 0), (2, 1, 20, 0), (3, 2, 30, 0)])
             db.executemany('INSERT INTO ContinuousSegment VALUES(?,?)', [(1, 1), (2, 2)])
             self.assertEqual(recording_evidence(db, 3, 2), ([], []))
             self.assertEqual(recording_evidence(db, 2, 1),
-                             ([{'cameraId': 2, 'clips': 1, 'minimumDurationSeconds': 30, 'maximumDurationSeconds': 30}],
+                             ([{'cameraId': 2, 'clips': 1, 'minimumDurationSeconds': 30,
+                                'maximumDurationSeconds': 30, 'invalidMotionDurationCount': 0}],
                               [{'cameraId': 2, 'segments': 1}]))
         finally:
             db.close()
@@ -222,18 +223,24 @@ class WorkloadEvidenceTests(unittest.TestCase):
         self.assertFalse(recording_metadata_finalized([], 120))
         for duration in (None, 0, -1, True, '20'):
             self.assertFalse(recording_metadata_finalized([
-                {'minimumDurationSeconds': 20, 'maximumDurationSeconds': 20},
-                {'minimumDurationSeconds': duration, 'maximumDurationSeconds': 20}], 120))
+                {'minimumDurationSeconds': 20, 'maximumDurationSeconds': 20, 'invalidMotionDurationCount': 0},
+                {'minimumDurationSeconds': duration, 'maximumDurationSeconds': 20, 'invalidMotionDurationCount': 0}], 120))
         self.assertTrue(recording_metadata_finalized([
-            {'minimumDurationSeconds': 20, 'maximumDurationSeconds': 20}], 120))
+            {'minimumDurationSeconds': 20, 'maximumDurationSeconds': 20, 'invalidMotionDurationCount': 0}], 120))
         for duration in (None, True, 19, 121, 2**63):
             self.assertFalse(recording_metadata_finalized([
-                {'minimumDurationSeconds': 20, 'maximumDurationSeconds': duration}], 120))
+                {'minimumDurationSeconds': 20, 'maximumDurationSeconds': duration, 'invalidMotionDurationCount': 0}], 120))
         with sqlite3.connect(':memory:') as db:
-            db.execute('CREATE TABLE Clip(ClipUID INTEGER,Camera INTEGER,Duration INTEGER)')
+            db.execute('CREATE TABLE Clip(ClipUID INTEGER,Camera INTEGER,Duration INTEGER,ActiveDuration INTEGER)')
             db.execute('CREATE TABLE ContinuousSegment(SegmentUID INTEGER,CameraUID INTEGER)')
-            db.executemany('INSERT INTO Clip VALUES(?,?,?)', [(1, 1, 20), (2, 1, 0)])
+            db.executemany('INSERT INTO Clip VALUES(?,?,?,?)', [(1, 1, 20, 0), (2, 1, 0, 0)])
             self.assertFalse(recording_metadata_finalized(recording_evidence(db, 0, 0)[0], 120))
+            db.execute('UPDATE Clip SET Duration=20')
+            for active in (None, -1, 21):
+                db.execute('UPDATE Clip SET ActiveDuration=? WHERE ClipUID=2', (active,))
+                self.assertFalse(recording_metadata_finalized(recording_evidence(db, 0, 0)[0], 120))
+            db.execute('UPDATE Clip SET ActiveDuration=10')
+            self.assertTrue(recording_metadata_finalized(recording_evidence(db, 0, 0)[0], 120))
 
     def test_output_verifier_rejects_external_paths_before_decoding(self):
         db = sqlite3.connect(':memory:')
