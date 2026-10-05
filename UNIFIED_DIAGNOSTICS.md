@@ -4433,3 +4433,25 @@ pass is retained as narrower evidence, not mislabeled as latest-candidate mixed
 load/MSE playback acceptance. Genuine hidden/resume, physical PTZ and matched
 full-load observer overhead remain open. No private recordings, DBs or dumps are
 tracked; user BACKLOG edits and production remain untouched.
+
+Final merged-candidate mixed recording validation (2026-10-05):
+
+Native `d63a3532fc76` / web `48906d0cd45a` passes the isolated four-source,
+two-lifecycle CPU-inference/manual-recording/DVR regression in 583.414 seconds.
+Evidence: `artifacts/run-final-master-mixed-recording-20261005/`.
+Both 90-second measured phases retain 89 samples, with maximum gaps of
+1.042 / 1.045 seconds. Every sampled camera state is Connected; reported video
+drop and corruption counters stay zero. All four cameras complete inference in
+each lifecycle. All 16 saved clip/DVR files pass whole-recording strict decode
+and packet/frame timestamp checks. Persisted clip durations are 91/91/91/90
+seconds, then 91/91/91/91; invalid motion-duration counts are zero throughout.
+The fixture completes both graceful shutdowns and restart with test exit 0.
+
+Coverage remains four paced loopback replay sources: saved Tapo H.264 720p
+OUTPUT, normalized HEVC 1080p/2160p fixtures, and small synthetic H.264/AAC.
+It does not prove raw Tapo network delivery, perceptual pacing, MSE playback,
+motion-trigger activation, physical PTZ or the matched 16-player overhead gate.
+Fresh browser inventory exposes only in-app Browser and MCP Apps, not an
+external Chrome/Edge profile; genuine hidden/resume acceptance remains open.
+The local master consolidation preserves native identity and user BACKLOG edits;
+no remote push, production deployment or private media commit was performed.
