@@ -2763,3 +2763,41 @@ Verified candidate:
 ABI or production stability proof). Pinned incremental build has no dependency
 installation or C++/linker warnings; existing frontend advisories remain. No main
 merge, remote push or deployment occurred; user backlog edits remain untouched.
+
+### Generated dashboard visibility regression (2026-10-05)
+
+Inspection found that hero7, balanced8 and grid16 filled their slots from the
+priority list without consulting saved visibility. Switching from a custom
+layout could resurrect hidden cameras, consume capacity and incorrectly claim
+that a rectangular activity region was occupied. The generator now filters the
+deduplicated ranking before assigning geometry; all three DashboardView callers
+(display, regular collision checks and preset-change validation) pass the same
+visibility set. Omitted visibility retains legacy all-camera behavior. Saved
+priorities and custom rectangles remain unchanged; custom automatic-slot motion
+candidate policy is intentionally not altered.
+
+Pure layout regressions cover hidden high-priority IDs, capacity, priority order,
+empty visibility and stale IDs across all presets. Compiled DashboardView setup
+tests exercise preset transitions, the activity collision decision and restored
+custom rectangles. The CameraGrid transition regression verifies that hiding,
+replacing and hiding all visible IDs retains the exact group-camera collection,
+clears controls for a hidden selection and leaves group membership unchanged.
+The template still keys all group CameraCards by camera ID and hides them with
+CSS/inert rather than removing players. These are component-state and source
+checks, not a new rendered-browser or physical multi-camera decoding proof.
+
+`node --test tests/*.test.mjs` from web-ui passes 79 tests with one optional
+real-export fixture skipped. The pinned WitnessServer build, including vue-tsc
+and production Vite output, completes with no dependency installation or native
+compile/link warnings; existing Sass and chunk-size advisories remain.
+
+Verified package:
+`build-vs2026-stable/deploy/dashboard-visibility-194a9b4dc0a7-web-2d144ade7fe5`,
+native `194a9b4dc0a7`, web `2d144ade7fe5`, 94 files / 177,848,179 bytes. Manifest:
+`artifacts/dashboard-generated-visibility-package-verified.json`. This is byte
+and identity coherence, not ABI or production stability verification. No main
+merge, push, deployment, camera motion or production setting was changed. The
+separate 16-source recording audit session 71718 remains live at the latest poll;
+quiet output is not a passing or terminal result. The broader matched-observer
+performance and real-browser gates remain open. User BACKLOG.md edits are not
+part of this work piece.

@@ -204,7 +204,11 @@ export function normaliseCameraPriority(candidate: unknown, cameraIds: number[])
   return [...new Set([...ranked, ...cameraIds])]
 }
 
-export function generatedDashboardTiles(preset: DashboardPreset, cameraIds: number[]): DashboardTileLayout[] {
+export function generatedDashboardTiles(preset: DashboardPreset, cameraIds: number[], visibleCameraIds?: readonly number[]): DashboardTileLayout[] {
+  const visible = visibleCameraIds === undefined ? null : new Set(visibleCameraIds)
+  // Filter before filling slots: a hidden high-priority camera must not consume
+  // capacity or leave a hole. Visibility does not change the saved priority.
+  const ranked = [...new Set(cameraIds)].filter(id => visible === null || visible.has(id))
   let areas: DashboardGridArea[]
   switch (preset) {
     case 'hero7':
@@ -220,9 +224,9 @@ export function generatedDashboardTiles(preset: DashboardPreset, cameraIds: numb
       areas = Array.from({ length: 16 }, (_, i) => ({ x: i % 4 * 3, y: Math.floor(i / 4) * 3, width: 3, height: 3 }))
       break
     default:
-      return createDefaultDashboardLayout(cameraIds).tiles
+      return createDefaultDashboardLayout(ranked).tiles
   }
-  return [...new Set(cameraIds)].slice(0, areas.length).map((cameraId, index) => ({ cameraId, ...areas[index]! }))
+  return ranked.slice(0, areas.length).map((cameraId, index) => ({ cameraId, ...areas[index]! }))
 }
 
 export function dashboardAreasOverlap(a: DashboardGridArea, b: DashboardGridArea): boolean {

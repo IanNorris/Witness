@@ -44,6 +44,21 @@ test('generated presets fill slots in priority order and remain bounded and non-
   }
 })
 
+test('generated presets filter hidden cameras before capacity without changing priority', () => {
+  const priority = Array.from({ length: 20 }, (_, i) => i + 1)
+  const original = [...priority]
+  const visible = priority.slice(2).reverse() // visibility is a set, not the ranking
+  for (const [preset, capacity] of [['hero7', 7], ['balanced8', 8], ['grid16', 16]]) {
+    const tiles = layout.generatedDashboardTiles(preset, [1, ...priority], visible)
+    assert.equal(tiles.length, capacity)
+    assert.deepEqual(tiles.map(tile => tile.cameraId), priority.slice(2, capacity + 2))
+    assert.deepEqual(tiles[0], { ...layout.generatedDashboardTiles(preset, priority)[0], cameraId: 3 })
+    assert.deepEqual(layout.generatedDashboardTiles(preset, priority, []), [])
+    assert.deepEqual(layout.generatedDashboardTiles(preset, priority, [99]), [])
+  }
+  assert.deepEqual(priority, original)
+})
+
 test('preset restoration preserves custom layout and clamps activity rectangles', () => {
   const custom = layout.createDefaultDashboardLayout([8, 9])
   const restored = layout.normaliseDashboardLayout({ ...custom, preset: 'hero7', priorityCameraIds: [9, 8],

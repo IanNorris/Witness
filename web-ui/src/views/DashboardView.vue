@@ -86,7 +86,7 @@ function moveAutomaticSlot(index: number, direction: number) {
 const rectangleRequested = computed(() => canvasMode.value && showRecentActivity.value && dashboardLayout.value.activityPlacement === 'rectangle')
 const regularTiles = computed(() => dashboardLayout.value.preset === 'custom'
   ? dashboardLayout.value.tiles.filter(tile => dashboardLayout.value.visibleCameraIds.includes(tile.cameraId))
-  : generatedDashboardTiles(dashboardLayout.value.preset, dashboardLayout.value.priorityCameraIds))
+  : generatedDashboardTiles(dashboardLayout.value.preset, dashboardLayout.value.priorityCameraIds, dashboardLayout.value.visibleCameraIds))
 const regularActivityConflict = computed(() => rectangleRequested.value &&
   regularTiles.value.some(tile => dashboardAreasOverlap(tile, dashboardLayout.value.activityRegion)))
 // A changed group can fill a previously empty slot. Keep activity available in
@@ -207,7 +207,7 @@ const editorTiles = computed(() =>
   editingLayout.value && editingLayoutMode.value === 'focus'
     ? focusEditorTiles.value
     : dashboardLayout.value.preset !== 'custom' && !editingLayout.value
-      ? generatedDashboardTiles(dashboardLayout.value.preset, dashboardLayout.value.priorityCameraIds)
+      ? generatedDashboardTiles(dashboardLayout.value.preset, dashboardLayout.value.priorityCameraIds, dashboardLayout.value.visibleCameraIds)
       : editingLayout.value ? dashboardLayout.value.tiles : automaticTiles.value,
 )
 const displayedCameraIds = computed(() => editingLayout.value
@@ -216,7 +216,7 @@ function changePreset(event: Event) {
   const select = event.target as HTMLSelectElement
   const next = select.value as DashboardPreset
   const tiles = next === 'custom' ? dashboardLayout.value.tiles.filter(tile => dashboardLayout.value.visibleCameraIds.includes(tile.cameraId))
-    : generatedDashboardTiles(next, dashboardLayout.value.priorityCameraIds)
+    : generatedDashboardTiles(next, dashboardLayout.value.priorityCameraIds, dashboardLayout.value.visibleCameraIds)
   if (rectangleActive.value && tiles.some(tile => dashboardAreasOverlap(tile, dashboardLayout.value.activityRegion))) {
     layoutMessage.value = 'This preset overlaps activity. Dock activity or adjust the custom layout first.'
     select.value = dashboardLayout.value.preset

@@ -81,6 +81,45 @@ test('fullscreen selection is independent of layout focus and Escape deselects b
   } finally { f.close() }
 })
 
+test('generated layouts respect visibility for display and activity conflicts without replacing custom rectangles', async () => {
+  const f = fixture()
+  const state = f.setup(await component('DashboardView'), {})
+  try {
+    const custom = structuredClone(Vue.toRaw(state.dashboardLayout.value.tiles))
+    state.dashboardLayout.value.priorityCameraIds = [12, 10]
+    state.dashboardLayout.value.visibleCameraIds = [10]
+    state.showRecentActivity.value = true
+    state.dashboardLayout.value.activityPlacement = 'rectangle'
+    // The second hero slot is free when only camera 10 is visible.
+    state.dashboardLayout.value.activityRegion = { x: 8, y: 0, width: 4, height: 4 }
+    state.changePreset({ target: { value: 'hero7' } })
+    assert.equal(state.dashboardLayout.value.preset, 'hero7')
+    assert.deepEqual(state.displayedCameraIds.value, [10])
+    assert.deepEqual(state.regularTiles.value.map(tile => tile.cameraId), [10])
+    assert.equal(state.regularActivityConflict.value, false)
+    assert.equal(state.rectangleActive.value, true)
+    assert.deepEqual(state.dashboardLayout.value.tiles, custom)
+    // Changing the ranking cannot resurrect the hidden camera.
+    state.moveCameraPriority(10, -1)
+    assert.deepEqual(state.displayedCameraIds.value, [10])
+    // Turning it back on now fills the formerly empty slot and docks activity.
+    state.dashboardLayout.value.visibleCameraIds = [10, 12]
+    assert.deepEqual(state.displayedCameraIds.value, [10, 12])
+    assert.equal(state.regularActivityConflict.value, true)
+    assert.equal(state.rectangleActive.value, false)
+    state.dashboardLayout.value.activityPlacement = 'dock'
+    for (const preset of ['balanced8', 'grid16', 'custom']) {
+      state.dashboardLayout.value.visibleCameraIds = [10]
+      state.changePreset({ target: { value: preset } })
+      assert.deepEqual(state.displayedCameraIds.value, [10])
+      assert.deepEqual(state.dashboardLayout.value.tiles, custom)
+    }
+    state.dashboardLayout.value.visibleCameraIds = []
+    state.changePreset({ target: { value: 'grid16' } })
+    assert.deepEqual(state.displayedCameraIds.value, [])
+  } finally { f.close() }
+})
+
 test('automatic focus hold is not extended by unrelated motion updates', async t => {
   const f = fixture()
   t.mock.timers.enable({ apis: ['setTimeout'] })
@@ -135,6 +174,17 @@ test('windowed canvas keeps every group camera mounted and selects controls with
     assert.equal(grid.isCameraVisible(12), false)
     grid.selectControls(10)
     assert.equal(grid.selectedControlsCameraId.value, 10)
+    const mountedCameras = grid.filteredCameras.value
+    props.visibleCameraIds = [12]; await Vue.nextTick()
+    assert.equal(grid.filteredCameras.value, mountedCameras)
+    assert.equal(grid.isCameraVisible(10), false)
+    assert.equal(grid.isCameraVisible(12), true)
+    assert.equal(grid.selectedControlsCameraId.value, null)
+    props.visibleCameraIds = []; await Vue.nextTick()
+    assert.equal(grid.filteredCameras.value, mountedCameras)
+    assert.equal(grid.isCameraVisible(12), false)
+    props.visibleCameraIds = [10]; await Vue.nextTick()
+    grid.selectControls(10)
     card.onSingleClick(); t.mock.timers.tick(300)
     assert.deepEqual(f.recording, [])
     grid.onKeydown({ key: 'Escape' })
