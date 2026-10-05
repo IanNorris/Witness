@@ -233,3 +233,44 @@ test('repeated delayed ticks still accumulate runnable frozen-playback time', as
     assert.ok(f.diag().importantEvents.some(e => e.type === 'frozenRestart'))
   } finally { f.restore() }
 })
+
+test('short under-buffered pauses recover latency through bounded catch-up without a reconnect', async t => {
+  // Feed/clock simulation through the production composable, not a browser or
+  // decoder performance claim. This isolates what the existing control policy
+  // does when media arrives but presentation pauses briefly.
+  for (const pauseSeconds of [.5, 1, 2]) {
+    const f = await fixture()
+    try {
+      f.video.currentTime = f.video.buffered.end(0) - 1.5
+      f.video.readyState = 2
+      for (let i = 0; i < pauseSeconds * 4; i++) {
+        f.tick()
+        assert.equal(f.video.playbackRate, 1, 'under-buffered playback must not accelerate')
+      }
+      const delayedLag = f.video.buffered.end(0) - f.video.currentTime
+      assert.ok(Math.abs(delayedLag - (1.5 + pauseSeconds)) < .001)
+      f.video.readyState = 4
+      let elapsed = 0
+      let accelerated = false
+      while (elapsed < 60) {
+        f.video.currentTime += .25 * f.video.playbackRate
+        f.tick()
+        elapsed += .25
+        accelerated ||= f.video.playbackRate > 1
+        assert.ok([1, 1.03, 1.08].includes(f.video.playbackRate))
+        if (accelerated && f.video.playbackRate === 1) break
+      }
+      assert.equal(f.diag().stats.restartCount, 0)
+      assert.equal(f.diag().stats.stallCount, 0)
+      assert.equal(f.diag().stats.errorCount, 0)
+      assert.ok(accelerated)
+      assert.ok(f.video.buffered.end(0) - f.video.currentTime < 1.25)
+      assert.ok(elapsed < 60, 'catch-up must eventually exit its hysteresis band')
+      t.diagnostic(`simulated presentation pause ${pauseSeconds}s: catch-up completed after ${elapsed}s; no restart`)
+      if (pauseSeconds === 2) {
+        assert.ok(elapsed > 30, 'a two-second interruption takes tens of seconds to repay at these rates')
+        assert.ok(elapsed < 45)
+      }
+    } finally { f.restore() }
+  }
+})

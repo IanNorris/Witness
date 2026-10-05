@@ -2326,3 +2326,36 @@ not qualify Tapo/Reolink network behavior, sixteen-camera contention, matched
 observer overhead or independent browser profiles. The original sixteen-source
 recording verification remains live and separate; no earlier incomplete test
 was silently restarted, replaced or relabelled as passing.
+
+### Under-buffered catch-up policy isolated (2026-10-05)
+
+`codex/mse-underbuffer-catchup-regression` adds a control-policy regression
+through the production MSE composable with in-memory media/socket primitives.
+Starting at 1.5 seconds headroom, presentation pauses of 0.5, 1 and 2 seconds
+while fragments keep arriving produce corresponding extra buffered-end latency.
+With steady presentation/ingest restored, the existing 1.08x/1.03x hysteresis
+returns to normal speed after 20, 26.25 and 38.75 simulated seconds respectively.
+All three recover without a restart, stall counter increment or counted error.
+The test also checks that low-ready playback never accelerates and that rates
+remain limited to the intended values. Seventeen recovery, buffer-position and
+drift-export tests pass from their required `web-ui` working directory; output:
+`artifacts/mse-underbuffer-catchup-regression-web-cwd.log`. An earlier invocation
+from the repository root failed to locate the drift test's cwd-relative source;
+its separate log is retained and is not counted as a passing run.
+
+This establishes that a short interruption can leave elevated latency for tens
+of seconds with stable restart counters. It is not evidence that a decoder or
+network interruption actually caused the sixteen-stream AAC latency spikes.
+The fake media does not model decoded frames, audio/video track intersection,
+browser scheduling or random-access dependency removal. Actual buffer-position
+history and matched loaded browser runs remain necessary to separate those
+mechanisms. Inspection also finds trimming after each eligible append, including
+aggressive quota eviction retaining only one second behind the visible playhead;
+that is a separate, unproven long-GOP dependency-removal lead, not a demonstrated
+failure in the one-second-GOP replay. No production trim, seek, rate or restart
+behavior was changed, and the existing verified diagnostic package is unchanged.
+
+The original long verifier was polled by its live owned process handle and
+observed at camera 14 frame-timestamp inspection during this work. This is
+progress through inspection, not a terminal success or a per-recording verdict;
+the full test is still pending.
