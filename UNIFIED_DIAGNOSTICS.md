@@ -4106,3 +4106,56 @@ Frozen OFF audit58671 is still live with 90/128 inspected and zero inspected
 failures. Overall inspection, matched ON, latest-candidate endurance and physical
 camera/browser hidden-resume validation are still open. No private recording,
 user backlog edit, remote push or production configuration change is committed.
+
+### MSE first-presentation watchdog gap (2026-10-05)
+
+Branch `codex/mse-first-presentation-recovery` adds a red/green regression through
+the actual production composable: fragments and the media clock keep advancing,
+frame callback observation is supported/armed, but no first video frame is ever
+reported. Before the change, presentation.mediaTime remains undefined forever,
+the watchdog records no presentation stall and restartCount stays zero. Existing
+clock/transport/drift checks do not cover this apparently healthy-clock case.
+This is a reproduced simulated control-path gap, not proof of the physical Tapo
+camera's current failure mode.
+
+Presentation tracking now explicitly records that callback observation was
+installed. Only then can a missing first frame become evidence: the eligible
+visible player's clock must advance more than one second from a fresh eligible
+baseline, followed by the existing >3-second runnable presentation timeout.
+Unavailable callback support still remains unknown and retains existing recovery.
+Hidden/offscreen/covered/paused/seeking/render-suppressed intervals do not spend
+the first-frame timeout; discontinuity, ineligibility and clock rewind reset
+its baseline. Suspension still contributes only the existing 250ms runnable
+tick allowance. Unknown first presentation now also requires viewport hit-test
+visibility, avoiding false recovery beneath an external covering dialog.
+
+The previously failing composable regression now passes. Recovery, presentation,
+visibility, eviction, audio-play guard, compact health reporting, drift and health
+display suites pass 45 tests with one optional offline export skipped. Type checking
+and the pinned server/frontend build pass. Existing Sass/chunk advisories remain;
+no dependency/toolchain change was requested.
+
+Computer-use skill/browser inspection ran the freshly esbuild-bundled actual
+composable against the fixed hashed synthetic H264/AAC 35-second browser fixture.
+137 pre-end snapshots through currentTime 33.971124 show no restart/stall/error;
+the last pre-end drift sample has 713 presented callbacks, readyState4,
+presentationVisible=true, presentationStallMs=0, and empty append queue.
+The finite fixture then exhausts, and the existing frozen-clock watchdog performs
+one expected tail restart; do NOT claim the entire saved 53-second capture has
+zero restarts. Local evidence:
+`artifacts/mse-first-frame-normal-browser-20261005.json` and `.png` (the screenshot
+is after that tail restart). The missing-first-frame fault itself is simulated,
+not an injected browser-decoder fault; this smoke check verifies normal startup
+does not falsely trip the new guard. No real camera, application session or
+production credentials were used. Temporary tab and loopback fixture were closed.
+
+Verified separate deployment:
+`build-vs2026-stable/deploy/mse-first-frame-cbbf475693c1-web-8598be71d403`,
+94 files / 177,889,238 bytes (`artifacts/mse-first-frame-package-verified-20261005.json`).
+Native identity is unchanged because this is a client-only runtime fix. Actual
+authenticated zero-camera restart/history checks use
+`artifacts/run-mse-first-frame-runtime-20261005/` and pass both lifecycles in
+18.460 seconds. Frozen OFF audit58671 remains live at 104/128 inspected,
+zero failures so far; overall inspection, matched ON, latest-candidate endurance,
+true hidden/resume and independent browser-profile gates remain open. No main
+merge, push, private media tracking, production change or user backlog edit.

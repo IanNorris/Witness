@@ -366,6 +366,33 @@ test('unsupported presentation observation keeps existing recovery without inven
   } finally { f.restore() }
 })
 
+test('presentation watchdog recovers when no first video frame is ever presented', async () => {
+  const f=await fixture({presentationEnabled:true,viewportWrapped:true})
+  try {
+    f.video.currentTime=.5
+    for(let i=0;i<24;i++) { f.video.currentTime+=.25; f.tick() }
+    assert.equal(f.diag().stats.restartCount,1)
+    assert.equal(f.diag().lastDriftRestart.type,'presentationFrozenRestart')
+    assert.equal(f.diag().lastDriftRestart.drift.presentedFrames,0)
+    assert.equal(f.diag().lastDriftRestart.drift.presentedMediaTime,undefined)
+    assert.ok(f.diag().lastDriftRestart.drift.presentationStallMs>3000)
+  } finally { f.restore() }
+})
+
+test('missing first frame does not restart hidden, covered, offscreen or suppressed playback', async () => {
+  for(const mode of ['hidden','occluded','offscreen','suppressed']) {
+    const f=await fixture({presentationEnabled:true,viewportWrapped:true})
+    try {
+      if(mode==='hidden')f.hide()
+      if(mode==='occluded')f.inView(true,false)
+      if(mode==='offscreen')f.inView(false)
+      if(mode==='suppressed')f.stream.renderSuppressed.value=true
+      for(let i=0;i<24;i++) { f.video.currentTime+=.25; f.tick() }
+      assert.equal(f.diag().stats.restartCount,0,mode)
+    } finally { f.restore() }
+  }
+})
+
 test('advancing presented timestamps avoid recovery even when image content would be static', async () => {
   const f=await fixture({presentationEnabled:true})
   try {

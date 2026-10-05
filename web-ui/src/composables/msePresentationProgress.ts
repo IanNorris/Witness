@@ -5,22 +5,43 @@ export function createPresentationProgress() {
   let mediaTime: number | undefined
   let frames = 0
   let stalledMs = 0
+  let callbacksObserved = false
+  let firstEligibleClock: number | undefined
   return {
     get mediaTime() { return mediaTime },
     get frames() { return frames },
     get stalledMs() { return stalledMs },
-    reset() { mediaTime = undefined; frames = 0; stalledMs = 0 },
+    // Enable only after the caller has installed a real frame callback.
+    // Unsupported browsers must not manufacture missing-frame evidence.
+    observeCallbacks() { callbacksObserved = true },
+    reset() { mediaTime = undefined; frames = 0; stalledMs = 0; firstEligibleClock = undefined },
     presented(time: number) {
       if (!Number.isFinite(time) || time < 0) return
       frames++
       if (mediaTime === undefined || Math.abs(time - mediaTime) > .001) {
         mediaTime = time
         stalledMs = 0
+        firstEligibleClock = undefined
       }
     },
     poll(elapsedMs: number, currentTime: number, eligible: boolean): number {
-      if (!eligible || mediaTime === undefined || !Number.isFinite(currentTime) ||
-          currentTime - mediaTime <= 1 || !Number.isFinite(elapsedMs) || elapsedMs < 0) {
+      if (!eligible || !Number.isFinite(currentTime) ||
+          !Number.isFinite(elapsedMs) || elapsedMs < 0) {
+        stalledMs = 0
+        firstEligibleClock = undefined
+        return 0
+      }
+      let reference = mediaTime
+      if (reference === undefined) {
+        if (!callbacksObserved) return 0
+        // An audio/media clock can run without ever presenting the first
+        // video frame. Require >1s of clock progress within this eligible
+        // visible interval before accumulating the ordinary runnable timeout.
+        if (firstEligibleClock === undefined || currentTime < firstEligibleClock)
+          firstEligibleClock = currentTime
+        reference = firstEligibleClock
+      }
+      if (currentTime - reference <= 1) {
         stalledMs = 0
         return 0
       }

@@ -27,6 +27,24 @@ test('suspension is excluded but repeated delayed runnable ticks still permit re
   for(let i=0;i<12;i++)p.poll(25000,3,true)
   assert.equal(p.stalledMs,3250)
 })
+test('installed callbacks detect missing first presentation only after eligible clock progress',()=>{
+  const p=createPresentationProgress();p.observeCallbacks()
+  assert.equal(p.poll(250,5,true),0)
+  assert.equal(p.poll(250,6,true),0)
+  for(let i=0;i<13;i++)p.poll(250,6.25+i*.25,true)
+  assert.equal(p.stalledMs,3250);assert.equal(p.frames,0);assert.equal(p.mediaTime,undefined)
+  p.presented(9);assert.equal(p.stalledMs,0)
+})
+test('first presentation grace restarts after ineligibility, a generation reset or clock rewind',()=>{
+  const p=createPresentationProgress();p.observeCallbacks()
+  p.poll(250,5,true);p.poll(250,7,true);assert.equal(p.stalledMs,250)
+  p.poll(250,8,false);assert.equal(p.poll(250,100,true),0)
+  assert.equal(p.poll(250,102,true),250)
+  p.reset();assert.equal(p.poll(250,200,true),0)
+  assert.equal(p.poll(250,202,true),250)
+  assert.equal(p.poll(250,0,true),0)
+  assert.equal(p.poll(60000,2,true),250,'suspension cannot spend a wall-clock timeout')
+})
 test('viewport hit testing accepts own controls and excludes external coverage or offscreen rectangles',()=>{
   const control={},outside={}
   const viewport={getBoundingClientRect:()=>({left:0,top:0,right:100,bottom:100}),contains:node=>node===control}

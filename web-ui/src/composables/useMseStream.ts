@@ -1376,6 +1376,7 @@ export function useMseStream(
       })
     }
     arm()
+    presentation.observeCallbacks()
   }
 
   function startWatchdog() {
@@ -1426,7 +1427,7 @@ export function useMseStream(
         presentationVisible && playbackRecoveryEnabled(document.visibilityState) &&
         hasInitialBuffer && hasFrags && fragAge < 2000 &&
         !video.paused && !video.seeking && video.readyState >= 2 && !renderSuppressed.value &&
-        (presentation.mediaTime === undefined || video.currentTime - presentation.mediaTime <= 1 ||
+        ((presentation.mediaTime !== undefined && video.currentTime - presentation.mediaTime <= 1) ||
           (presentationViewport !== null && presentationViewportVisible(presentationViewport,
             document, window.innerWidth, window.innerHeight))))
 
