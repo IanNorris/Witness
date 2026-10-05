@@ -2135,3 +2135,41 @@ production websocket player, long loop/reconnect, B-frame or hidden-resume test.
 It does not qualify production stability or replace the active goal's longer
 matched-observer and real-stream gates. The recording-verifier handle remains
 live and was observed advancing to camera 6 strict decode.
+
+### Paced three-loop AAC sender-clock audit
+
+`codex/paced-replay-clock-audit` adds a bounded, read-only packet-clock audit:
+separate clocks for at most 32 stream indices, positive-gap/overlap counts,
+duplicate/backward DTS counts, duration sum versus elapsed envelope, and only
+the largest sixteen discontinuities per stream. Three regression tests cover
+padding overlaps versus backwards DTS, per-track isolation, bounded anomalies,
+MPEG-TS side-data separators and malformed clocks. The existing bounded process
+reader supplies line/row/stderr/timeout limits and local-only demux protocols.
+
+Captured three paced loops of the same 12-second H.264/AAC source with the
+endurance sender's `-re -stream_loop -map -c copy -f mpegts` options (finite loop
+count and local-file output, not HTTP/network timing). The source MP4 has AAC
+priming at DTS -0.021333 and 564 audio packets. The resulting TS contains 720
+video / 1,690 audio packets. Video has two 21.289 ms loop-boundary gaps; audio
+has two approximately 10.6 ms gaps. Neither track regresses or overlaps.
+
+The existing production `LiveAacRemuxTests` executable successfully remuxed the
+captured TS: 245 partials. It retains 700 video / 1,642 audio packets after the
+documented initial audio-config/RAP wait. Output envelopes span video
+0--35.042578 s and audio 0--35.053291 s. No video gaps, duplicates or regressions
+are observed; audio gaps are at most 0.001 ms printed-precision rounding. Strict
+video decode/timestamp inspection passes with 700 decoded frames and no decoder
+diagnostics; separate strict audio decode exits zero without diagnostics. The
+test's final intentional malformed-ADTS check emits its expected error, not a
+decode failure of this output. No native code or deployed binaries changed.
+
+Evidence: `artifacts/paced-aac-three-loop-input.ts`,
+`artifacts/paced-aac-three-loop-{packet-clock,output-packet-clock,output-fragment-clock,output-decode}.json`,
+`artifacts/paced-aac-three-loop-live-output.mp4` and
+`artifacts/raw-aac-fixture-packet-clock.json`. This weakens the hypothesis that
+ordinary loop timestamp boundaries alone explain the multi-second AAC browser
+lag, but does not rule out HTTP delivery bursts, thirty-minute behavior or
+production-player handling. The remux test consumes the captured file offline;
+it does not reproduce live wall-clock arrival or sixteen-player resource load.
+The long recording-verifier handle remains live and was observed at camera 7
+strict decode; overall endurance recording assertions remain pending.
