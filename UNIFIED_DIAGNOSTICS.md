@@ -4547,3 +4547,25 @@ player sets. The new gate correctly excludes it from a visible matched-overhead
 comparison. Full recording inspection is still underway (128 expected outputs);
 do not interpret partial progress as a completed pass. This is tool-only work:
 the verified native d63a3532fc76/web42f16c90ef9a package is unchanged.
+
+Merged-bundle compact manual review (2026-10-05): the computer-use skill reviewed
+the current generated web bundle against the isolated loopback PTZ/dashboard
+fixture with five synthetic JPEG cameras, two long group names, two automatic
+slots and a vertical rectangular activity region at1024x768. No request is
+forwarded to Witness or physical cameras. Group controls wrap without obscuring
+the toolbar. Fullscreen camera selection shows one explicit selection badge;
+switching from camera1 to camera2 closes the old PTZ panel, and reopening names
+camera2 as its owner. First Escape dismisses selection/PTZ while retaining
+fullscreen; second Escape returns to Layout. Tiles restores all five visible
+camera cards from the custom layout's three visible slots. The activity region
+remains visible; an open floating PTZ panel intentionally overlays part of it.
+
+Ignored synthetic screenshot:
+`artifacts/merged-dashboard-ptz-compact-20261005.jpg`.
+Both review-created tabs and the completed measured-phase tab are closed;
+temporary viewport override reset. The synthetic fixture is stopped. This is
+rendered UI evidence only, not physical PTZ acceptance, motion slot endurance,
+independent camera decoding or hidden-camera stream-priming proof. The separate
+owned recording inspector remains live with its bounded ffprobe child; no
+restart or cancellation was performed. No source/runtime/package change,
+production mutation, private-media commit or user BACKLOG edit.
