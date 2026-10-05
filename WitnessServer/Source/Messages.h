@@ -1,8 +1,8 @@
 #pragma once
 
-#include "GlobalContext.h"
 #include "Message.h"
 #include <RecordFilter.h>
+#include <string>
 #include <vector>
 #include <stdint.h>
 

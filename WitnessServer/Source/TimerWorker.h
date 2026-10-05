@@ -1,7 +1,6 @@
 #pragma once
 
 #include "WorkerBase.h"
-#include "GlobalContext.h"
 
 class TimerWorker : public WorkerBase
 {

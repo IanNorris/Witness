@@ -3,6 +3,7 @@
 #include "ClipHelpers.h"
 #include "ObservingMotionFilter.h"
 #include "Witness.h"
+#include "GlobalContext.h"
 #include "TagHelpers.h"
 
 #include <Log.h>

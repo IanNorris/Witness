@@ -156,6 +156,16 @@ target_link_libraries(WitnessServer PRIVATE
 )
 
 # Focused retention safety test; built explicitly, not on every server build.
+# Compile messages/timer declarations without the server's Crow PCH or global
+# context imports. This catches accidental restoration of heavyweight coupling.
+add_executable(MessageHeaderIsolationTests EXCLUDE_FROM_ALL
+    ../Tools/Tests/MessageHeaderIsolationTests.cpp)
+target_include_directories(MessageHeaderIsolationTests PRIVATE Source ${OpenCV_INCLUDE_DIRS})
+target_link_libraries(MessageHeaderIsolationTests PRIVATE WitnessCamera)
+if(MSVC)
+    target_compile_options(MessageHeaderIsolationTests PRIVATE /utf-8 /W3)
+endif()
+
 add_executable(DetectionCleanupTests EXCLUDE_FROM_ALL
     ../Tools/Tests/DetectionCleanupTests.cpp
     Source/DetectionCleanup.cpp

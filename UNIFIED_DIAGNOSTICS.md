@@ -2841,3 +2841,47 @@ native194a9b4dc0a7/web2d144ade7fe5 package remains the candidate; this follow-up
 does not change runtime code. At the separate long recording audit check,
 session 71718 remained live and owned strict-decode PID 27180 showed a new stage
 process; the audit is not yet terminal and is not claimed to pass.
+
+### Message and timer header isolation (2026-10-05)
+
+The existing vcperf trace `artifacts/build-profile-20261004-174504/build-timetrace.json`
+summarizes 77 translation units with 500.269 aggregate frontend / 266.830 backend
+seconds (not elapsed build time). GlobalContext.h appeared in 35 visits with
+38.907 inclusive seconds; Messages.h in 17 visits with 24.378 inclusive seconds.
+These are nested costs and must not be added or interpreted as a predicted
+saving. Inspection showed Messages.h and TimerWorker.h import GlobalContext.h
+without using its types. Removing both imports isolates worker/message consumers
+from the server context graph. Messages.h explicitly imports string. Recording.cpp,
+which actually accesses Context, now explicitly imports GlobalContext.h. The
+first build intentionally exposed that previously hidden implementation dependency;
+the corrected full build completes without native compiler/linker warnings.
+No message fields, constructors, worker semantics or DLL layouts are changed.
+
+The opt-in `MessageHeaderIsolationTests` target compiles Messages.h and TimerWorker.h
+first, without the server Crow PCH or an explicit Crow/SQLite dependency. It checks
+all message inheritance declarations and representative clip/motion/record/reconnect
+values; its native executable exits zero. Adding the target reran CMake using the
+same immutable dependency environment
+`6b27239cefa9921f3d82643ccc48e50ce241b30f5ea7ce1761240cb59532dc61`, with manifest
+installation/bootstrap still disabled. No package rebuild/install occurred.
+
+A separate no-PCH MSVC 14.51.36231 `/EP /std:c++20 /utf-8 /D_WINDOWS` probe uses
+that test source, repository Source/Camera/Common include directories, pinned
+vcpkg include/opencv4 and compiler/SDK include directories. The control adds
+`/FIGlobalContext.h`, modeling the removed import without modifying source or
+restoring it in production. Generated preprocessed output sizes are 10,092,485
+bytes (context control) and 4,959,108 bytes (isolated): 50.86% less text. Summary
+and hashes: `artifacts/message-header-isolation-size-summary.json`. This is not
+a token-count, compile-duration or full-build-speedup measurement. A controlled
+compile timing run is deferred while the independent recording audit is active.
+
+The zero-camera full-server lifecycle smoke passes in 15.833 seconds, including
+normal authenticated health/history, graceful restart and persisted history;
+namespace `artifacts/run-message-header-isolation-20261005/`. It is not a
+camera-loaded shutdown, stream or performance gate. Production Vue/typechecking
+build also completes; existing Sass/chunk warnings remain. Verified package:
+`build-vs2026-stable/deploy/message-header-3d9183607607-web-99d827777842`, native
+`3d9183607607`, web `99d827777842`, 94 files / 177,848,179 bytes. Manifest:
+`artifacts/message-header-isolation-package-verified.json` (byte/identity proof,
+not runtime ABI or production stability). No main merge, push or deployment;
+user BACKLOG.md edits remain unstaged and untouched.
