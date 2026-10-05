@@ -1207,5 +1207,18 @@ compaction but was discarded by the server allowlist. The follow-up keeps its
 bounded timestamp/type/reason/lag/generation and scalar causal drift snapshot.
 Free-form messages, arbitrary nested data and buffer arrays remain excluded;
 ownership/authentication and the payload/history bounds are unchanged. Native
-allowlist regression tests pass; endpoint/durable-restart validation and an updated
-native deployable package remain pending at this checkpoint.
+allowlist regression tests pass. The normal-authenticated full-server fixture also
+passed in 14.282 seconds across two starts, verifying the same summary through
+POST, asynchronous durable storage, GET and server restart. Anonymous health and
+history access remained forbidden. The first invocation failed before starting
+the server because its inherited stdin handle was invalid; the successful rerun
+used an explicit DEVNULL stdin. No production database or session was used.
+
+The updated server/frontend build succeeded with existing Sass/chunk advisories.
+The separately packaged candidate is
+`build-vs2026-stable/deploy/client-health-recovery-2d206fa-native-369a82b441e1`,
+native `369a82b441e1` / web `5686d78a4693`, 91 files / 122,140,627 bytes (without
+optional PDBs). `artifacts/client-health-recovery-package-verified.json` confirms
+inventory/identity/byte coherence. Dependencies were reused. This package has not
+yet received a new long mixed-stream browser run, production deployment or the
+equivalent native diagnostics-overhead A/B acceptance test.
