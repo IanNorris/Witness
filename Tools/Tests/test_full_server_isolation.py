@@ -29,6 +29,21 @@ from processing_sample_collector import ProcessingSampleCollector
 RECORDING_FAILURE_ROOT = Path(__file__).resolve().parents[2] / 'artifacts'
 
 
+def artifact_directory(repository, namespace=None):
+    """Opt-in exclusive run directory; never overwrite another invocation's evidence."""
+    root = Path(repository) / 'artifacts'
+    root.mkdir(exist_ok=True)
+    if root.is_symlink() or root.is_junction() or not root.is_dir():
+        raise ValueError('Artifact root must be an unlinked directory')
+    if namespace is None:
+        return root
+    if not isinstance(namespace, str) or not re.fullmatch('[a-z0-9][a-z0-9-]{0,63}', namespace):
+        raise ValueError('Invalid artifact namespace')
+    target = root / ('run-' + namespace)
+    target.mkdir()  # Exclusive: existing names, including links, fail closed.
+    return target
+
+
 def sample_coverage(samples, duration, max_gap=10):
     """Reject suspended/partial observation windows, including missing endpoints."""
     times = [0.0] + [sample['elapsedSeconds'] for sample in samples] + [float(duration)]
@@ -123,7 +138,7 @@ def replay_sender_failures(processes, root, inputs, urls):
     return failures
 
 
-def verify_recordings(db, cache, previous_clip_uid, previous_segment_uid, progress_path=None):
+def verify_recordings(db, cache, previous_clip_uid, previous_segment_uid, progress_path=None, failure_root=None):
     """Inspect only fresh fixture-owned local outputs, never arbitrary DB paths."""
     recordings = []
     for uid, camera, timestamp, mode in db.execute(
@@ -157,7 +172,7 @@ def verify_recordings(db, cache, previous_clip_uid, previous_segment_uid, progre
         except (ValueError, OSError, subprocess.TimeoutExpired) as error:
             # Keep only this already validated, fixture-owned bounded recording.
             # Never preserve a live DB/session, external path, or raw command line.
-            evidence = RECORDING_FAILURE_ROOT / ('recording-inspection-failed-' + secrets.token_hex(8))
+            evidence = (Path(failure_root) if failure_root is not None else RECORDING_FAILURE_ROOT) / ('recording-inspection-failed-' + secrets.token_hex(8))
             saved = evidence.with_suffix('.mp4')
             if path.stat().st_size <= 512 * 1024 * 1024:
                 with path.open('rb') as source, saved.open('xb') as destination:
@@ -275,7 +290,8 @@ class FullServerIsolationTests(unittest.TestCase):
             self.assertTrue((server.parent / 'models/yolo26n.onnx').is_file())
         urls = [f'http://127.0.0.1:{loopback_port()}/replay' for _ in inputs]
         repository = Path(__file__).resolve().parents[2]
-        with tempfile.TemporaryDirectory(prefix='full-server-isolation-', dir=repository / 'artifacts') as directory:
+        artifacts = artifact_directory(repository, os.environ.get('WITNESS_TEST_ARTIFACT_NAMESPACE'))
+        with tempfile.TemporaryDirectory(prefix='full-server-isolation-', dir=artifacts) as directory:
             root = Path(directory).resolve()
             data = root / 'private data'
             cache = root / 'private cache'; cache.mkdir()
@@ -442,20 +458,20 @@ class FullServerIsolationTests(unittest.TestCase):
                                         for private in [token, csrf, str(root), *map(str, inputs), *urls]:
                                             tail = tail.replace(private, '[fixture]')
                                         server_logs.append(tail)
-                                    report = repository / 'artifacts' / ('replay-sender-failed-' + secrets.token_hex(8) + '.json')
+                                    report = artifacts / ('replay-sender-failed-' + secrets.token_hex(8) + '.json')
                                     with report.open('x', encoding='utf-8') as destination:
                                         json.dump({'nativeBuildId': identity, 'senders': failures, 'health': health,
                                                    'serverLogTails': server_logs}, destination, indent=2)
                                     print('replaySenderFailure=' + str(report), flush=True)
                                 self.assertFalse(failures, 'replay sender exited; bounded evidence preserved')
                                 if time.monotonic() >= deadline:
-                                    (repository / 'artifacts/full-server-replay-readiness-failure.json').write_text(
+                                    (artifacts / 'full-server-replay-readiness-failure.json').write_text(
                                         json.dumps(health, indent=2), encoding='utf-8')
                                     for source in (data / 'logs').glob('*.log'):
-                                        shutil.copyfile(source, repository / 'artifacts/full-server-replay-readiness-failure.log')
+                                        shutil.copyfile(source, artifacts / 'full-server-replay-readiness-failure.log')
                                     for index in range(min(2, len(senders))):
                                         shutil.copyfile(root / f'replay-{index}.log',
-                                                        repository / f'artifacts/full-server-replay-sender-{index}.log')
+                                                        artifacts / f'full-server-replay-sender-{index}.log')
                                 self.assertLess(time.monotonic(), deadline, 'camera ingress readiness timeout')
                                 time.sleep(0.25)
                             initial = {camera['cameraId']: camera['streams'][0]['acceptedVideoPackets'] for camera in cameras}
@@ -526,7 +542,7 @@ class FullServerIsolationTests(unittest.TestCase):
                             if browser_hold:
                                 code, history = request('/debug/client-health')
                                 self.assertEqual(code, 200)
-                                (repository / 'artifacts/full-server-browser-history.json').write_bytes(history)
+                                (artifacts / 'full-server-browser-history.json').write_bytes(history)
                             coverage = sample_coverage(samples, duration)
                             for name, expected in expected_server_traces.items():
                                 if expected is None:
@@ -589,7 +605,7 @@ class FullServerIsolationTests(unittest.TestCase):
                                     self.assertLessEqual(work['samples'], work['samplesSinceReset'])
                                     if not work['samples']:
                                         self.assertIsNone(work['p95Ms'])
-                            (repository / f'artifacts/full-server-replay-run-{run}.json').write_text(
+                            (artifacts / f'full-server-replay-run-{run}.json').write_text(
                                 json.dumps({'nativeBuildId': identity, 'cameraCount': len(inputs),
                                     'limits': 'Paced loopback packet-copy replay; browser attachment is externally verified; no baseline phase; not the full load gate',
                                     'coverage': coverage,
@@ -606,7 +622,7 @@ class FullServerIsolationTests(unittest.TestCase):
                                                  'motionThreshold': 0.01 if active_detection else 0.99},
                                     'samples': samples}, indent=2), encoding='utf-8')
                             if work_collector is not None:
-                                raw_path = repository / f'artifacts/full-server-processing-samples-run-{run}.json.gz'
+                                raw_path = artifacts / f'full-server-processing-samples-run-{run}.json.gz'
                                 with gzip.open(raw_path, 'wt', encoding='utf-8') as raw_file:
                                     json.dump(work_collector.raw_evidence(), raw_file, separators=(',', ':'))
                                 self.assertTrue(full_phase_work and all(row['complete'] for row in full_phase_work),
@@ -617,13 +633,13 @@ class FullServerIsolationTests(unittest.TestCase):
                         except BaseException:
                             # Preserve a failing lifecycle before private fixture cleanup.
                             log.flush()
-                            shutil.copyfile(root / f'run-{run}.log', repository / 'artifacts/full-server-isolation-failed-run.log')
+                            shutil.copyfile(root / f'run-{run}.log', artifacts / 'full-server-isolation-failed-run.log')
                             for source in (data / 'logs').glob('*.log'):
-                                shutil.copyfile(source, repository / 'artifacts/full-server-isolation-failed-server.log')
+                                shutil.copyfile(source, artifacts / 'full-server-isolation-failed-server.log')
                             debugger = Path('C:/Program Files (x86)/Windows Kits/10/Debuggers/x64/cdb.exe')
                             if process.poll() is None:
                                 try:
-                                    dump = repository / 'artifacts' / f'owned-shutdown-{secrets.token_hex(8)}.dmp'
+                                    dump = artifacts / f'owned-shutdown-{secrets.token_hex(8)}.dmp'
                                     capture_owned_process_dump(process, dump)
                                     print(f'Owned shutdown dump: {dump}', flush=True)
                                     if debugger.is_file():
@@ -641,9 +657,9 @@ class FullServerIsolationTests(unittest.TestCase):
                                 process.wait(timeout=5)
                     if process.returncode != 0:
                         log.flush()
-                        shutil.copyfile(root / f'run-{run}.log', repository / 'artifacts/full-server-isolation-failed-run.log')
+                        shutil.copyfile(root / f'run-{run}.log', artifacts / 'full-server-isolation-failed-run.log')
                         for source in (data / 'logs').glob('*.log'):
-                            shutil.copyfile(source, repository / 'artifacts/full-server-isolation-failed-server.log')
+                            shutil.copyfile(source, artifacts / 'full-server-isolation-failed-server.log')
                     self.assertEqual(process.returncode, 0, 'graceful shutdown failed')
                     if active_recording:
                         log.flush()
@@ -656,11 +672,11 @@ class FullServerIsolationTests(unittest.TestCase):
                         evidence = list({json.dumps(row, sort_keys=True): row for row in evidence}.values())
                         with contextlib.closing(sqlite3.connect(data / 'server.db')) as db:
                             clips, segments = recording_evidence(db, previous_clip_uid, previous_segment_uid)
-                            progress_path = (repository / f'artifacts/full-server-recording-progress-run-{run}.json'
+                            progress_path = (artifacts / f'full-server-recording-progress-run-{run}.json'
                                 if os.environ.get('WITNESS_TEST_LONG_RECORDING_INSPECTION') == '1' else None)
                             decoded = verify_recordings(db, cache, previous_clip_uid, previous_segment_uid,
-                                                        progress_path) if verify_outputs else []
-                        (repository / f'artifacts/full-server-workload-run-{run}.json').write_text(
+                                                        progress_path, artifacts) if verify_outputs else []
+                        (artifacts / f'full-server-workload-run-{run}.json').write_text(
                             json.dumps({'completedInferenceWindows': evidence, 'clipRows': clips,
                                         'continuousSegmentRows': segments,
                                         'recordingInspection': decoded,

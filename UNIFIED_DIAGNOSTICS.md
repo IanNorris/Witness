@@ -2255,3 +2255,30 @@ independent browsers/devices. Full-server browser-to-history stream evidence,
 independent profiles and matched long-run performance gates remain open. The
 separate endurance recording-verifier handle is still live, not restarted or
 relabelled as a passed full test.
+
+### Exclusive full-server test evidence and diagnostic-build lifecycle smoke
+
+`codex/isolated-full-server-test-evidence` adds an opt-in
+`WITNESS_TEST_ARTIFACT_NAMESPACE`. A validated lowercase, bounded name creates
+an exclusive `artifacts/run-<name>` directory; existing names, linked roots and
+path traversal are rejected. All reports, browser-history export, raw-sample
+archive, recording progress/failures, shutdown dump and private temporary test
+root use that directory. Default callers retain their existing paths. Twelve
+evidence-validator tests pass, including untouched other-run sentinel files,
+linked roots, namespace reuse and failure routing into the selected directory.
+
+The diagnostic package native `648a3dfc9a0c` / web `7c71d142b7f3` completed two
+authenticated full-server AAC replay lifecycles in 62.619 seconds. Each lifecycle
+created and strictly inspected its fresh manual clip and continuous DVR output;
+four outputs total passed full streaming decode/timestamp inspection. Both
+recording-progress reports are complete and passing. Normal session/CSRF checks,
+durable synthetic health history and clean server shutdown/restart checks passed.
+Evidence is isolated under
+`artifacts/run-gap-build-auth-smoke-20261005/full-server-{replay,workload,recording-progress}-run-{0,1}.json`
+with console log `artifacts/gap-build-isolated-auth-smoke.log`. This smoke has one
+saved AAC replay input, no live browser and no object-inference workload; it does
+not prove actual-player gap telemetry, sixteen-stream performance or production
+stability. The original long verifier remains live and was observed at camera
+10 frame-timestamp inspection; its generic outputs were not overwritten by this
+test. No source/binary changes beyond the previously packaged passive gap
+instrumentation were introduced by the namespace harness changes.

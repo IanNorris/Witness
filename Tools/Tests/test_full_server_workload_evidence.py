@@ -9,10 +9,34 @@ from unittest.mock import Mock
 from copy import deepcopy
 from check_preview_decode import RecordingInspectionError
 
-from test_full_server_isolation import browser_playback_ready, inference_evidence, recording_evidence, replay_sender_failures, sample_coverage, verify_recordings
+from test_full_server_isolation import artifact_directory, browser_playback_ready, inference_evidence, recording_evidence, replay_sender_failures, sample_coverage, verify_recordings
 
 
 class WorkloadEvidenceTests(unittest.TestCase):
+    def test_artifact_namespaces_are_exclusive_and_leave_other_runs_untouched(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory)
+            shared = artifact_directory(repository)
+            sentinel = shared / 'full-server-workload-run-0.json'
+            sentinel.write_text('other live run')
+            first = artifact_directory(repository, 'gap-stream-check')
+            second = artifact_directory(repository, 'another-run')
+            self.assertNotEqual(first, second)
+            self.assertEqual(first.parent, shared)
+            self.assertTrue(first.name.startswith('run-'))
+            with self.assertRaises(FileExistsError):
+                artifact_directory(repository, 'gap-stream-check')
+            for name in ('', '../escape', 'a/b', 'A', 'a'*65, 'a.b', 'a\\b', 1):
+                with self.assertRaises(ValueError):
+                    artifact_directory(repository, name)
+            self.assertEqual(sentinel.read_text(), 'other live run')
+
+    def test_artifact_root_links_are_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with patch('pathlib.Path.is_junction', return_value=True):
+                with self.assertRaises(ValueError):
+                    artifact_directory(Path(directory), 'linked-root')
+
     def test_partial_recording_progress_survives_later_failure_without_private_paths(self):
         with tempfile.TemporaryDirectory() as root:
             root = Path(root)
@@ -97,6 +121,15 @@ class WorkloadEvidenceTests(unittest.TestCase):
                 self.assertEqual((evidence / details['savedRecording']).read_bytes(), recording.read_bytes())
                 self.assertNotIn(str(cache), reports[0].read_text(encoding='utf-8'))
                 self.assertEqual(len(list(evidence.iterdir())), 2)
+                isolated = evidence / 'isolated'; isolated.mkdir()
+                with patch('test_full_server_isolation.RECORDING_FAILURE_ROOT', Path(root) / 'must-not-create'), \
+                     patch('test_full_server_isolation.inspect_recording', side_effect=failure), \
+                     patch('builtins.print'):
+                    with self.assertRaises(RecordingInspectionError):
+                        verify_recordings(db, cache, 0, 0, failure_root=isolated)
+                self.assertEqual(len(list(isolated.glob('*.json'))), 1)
+                self.assertEqual(len(list(isolated.glob('*.mp4'))), 1)
+                self.assertFalse((Path(root) / 'must-not-create').exists())
             finally:
                 db.close()
 
