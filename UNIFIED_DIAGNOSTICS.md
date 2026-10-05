@@ -3661,7 +3661,17 @@ owned-child cleanup, not inside the deadline. Fast exits produce no dump;
 observation failure does not replace the server result. Five offline timing/
 sender-input regressions pass, including time spent observing counting toward
 the deadline and timeout propagation without another 30-second allowance.
-A fresh latest-package run with the unchanged qualified workload is active in
-`artifacts/run-health-contention-mixed-codecs-early-stacks-20261005/`; its final
-result remains pending. These changes affect diagnostic tooling, not the
-packaged server, and do not fix or dismiss the earlier shutdown failure.
+A fresh latest-package run with the unchanged qualified workload under
+`artifacts/run-health-contention-mixed-codecs-early-stacks-20261005/` reproduced
+the shutdown timeout (139.093s invocation, first lifecycle only). Its exclusive
+ten-second dump `owned-slow-shutdown-7607f6aab438dfda` was manually symbolized
+against the immutable package into `.early-stacks.log`: the main thread again
+waits on the control mutex and the reprocessing worker is sleeping. Windows
+again denied access to the console-handler thread, even before console detach.
+The normal minidump lacks the worker object's heap memory, so its shutdown flag
+could not be read. These observations do not prove which join/operation the
+handler is executing or that idle sleep alone caused the failure. The final
+timeout dump `owned-shutdown-4bd8e920cf0020d7` remains private and ignored too.
+Targeted shutdown-stage tracing or richer test-owned evidence is still needed.
+These changes affect diagnostic tooling, not the packaged server, and do not
+fix or dismiss the earlier shutdown failure. No new deployable build is claimed.
