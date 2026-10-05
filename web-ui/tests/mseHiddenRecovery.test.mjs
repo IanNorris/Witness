@@ -8,13 +8,15 @@ const moduleUrl = source => 'data:text/javascript;base64,' + Buffer.from(ts.tran
   compilerOptions: { module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2020 },
 }).outputText).toString('base64')
 const vueUrl = moduleUrl('export const ref = value => ({value}); export const onUnmounted = fn => { window.fixtureUnmount = fn; };')
-const guardUrl = moduleUrl((await readFile('src/composables/playbackGuard.ts', 'utf8')).replace("'vue'", JSON.stringify(vueUrl)))
-const visibilityUrl = moduleUrl(await readFile('src/composables/msePlaybackVisibility.ts', 'utf8'))
+const guardUrl = moduleUrl((await readFile(new URL('../src/composables/playbackGuard.ts', import.meta.url), 'utf8')).replace("'vue'", JSON.stringify(vueUrl)))
+const visibilityUrl = moduleUrl(await readFile(new URL('../src/composables/msePlaybackVisibility.ts', import.meta.url), 'utf8'))
 const baseline = process.env.WITNESS_MSE_WATCHDOG_BASELINE_REV
 if (baseline && !/^[a-f0-9]{7,40}$/.test(baseline)) throw Error('Expected a local commit hash')
 const originalSource = baseline
-  ? execFileSync('git', ['show', `${baseline}:web-ui/src/composables/useMseStream.ts`], {encoding: 'utf8'})
-  : await readFile('src/composables/useMseStream.ts', 'utf8')
+  ? execFileSync('git', ['show', `${baseline}:web-ui/src/composables/useMseStream.ts`], {
+    encoding: 'utf8', cwd: new URL('../..', import.meta.url),
+  })
+  : await readFile(new URL('../src/composables/useMseStream.ts', import.meta.url), 'utf8')
 const source = originalSource
   .replace("'vue'", JSON.stringify(vueUrl))
   .replace("'./playbackGuard'", JSON.stringify(guardUrl))

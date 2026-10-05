@@ -1153,3 +1153,34 @@ the same cases against read-only pre-fix source `a621c7c` fails all three as the
 negative control (`artifacts/mse-hidden-recovery-baseline-regression.log`).
 The later fragment-timeout change is not present in the initial candidate
 package above and still requires a newly built package/live validation.
+
+The final fragment-timeout candidate built/type-checked successfully and was
+packaged separately as
+`build-vs2026-stable/deploy/mse-hidden-delivery-2fd84da-native-e6f74ec3f350`:
+native `e6f74ec3f350` / web `001cf059def2`, 94 files / 177,677,267 bytes.
+`artifacts/mse-hidden-delivery-package-verified.json` confirms byte/identity
+coherence against stable build output. No dependency rebuild, native recompile,
+main merge, remote push or deployment occurred. Existing Sass/chunk warnings
+remain. The new in-memory watchdog and visibility tests now resolve their source
+relative to the test file and pass from the repository root as well.
+
+A fresh authenticated three-input browser fixture (accepted Tapo H.264 720p
+replay, qualified HEVC 1080p20 and HEVC 4K25) passed in 127.463 seconds including
+setup/readiness/shutdown. Its 60 measured seconds contained 60 native samples,
+maximum gap 1.027 seconds; all inputs stayed connected. The final persisted
+player heartbeat had readyState 4 and zero restarts/stalls/media errors for all
+three, headroom 1.19/1.28/1.21 seconds, and frames/dropped counters
+1212/2, 1474/0 and 1845/87 respectively. The roughly 4.7% 4K frame drop fraction
+is an observed rendering limitation, not loss-free playback. Browser history
+pending/rejected/storage failures were zero. Evidence:
+`artifacts/mse-hidden-delivery-browser-{run-0,history}.json`,
+`artifacts/mse-hidden-delivery-browser.log`, and the live pre-shutdown screenshot
+`artifacts/mse-hidden-delivery-mixed-live.jpg`. Fixture-owned processes/data and
+all agent-created browser tabs were cleaned up; no wake lock was held.
+
+This confirms normal mixed-codec startup/persisted health with the final bundle.
+The hidden-frozen/eviction/resume and actual silent-delivery paths are covered by
+the real-composable **mocked primitive** regression tests; prolonged actual
+browser suspension/SourceBuffer behavior still needs qualification. Neither this
+short replay nor the earlier 30-minute native run establishes production
+stability or incremental diagnostics overhead against an equivalent baseline.
