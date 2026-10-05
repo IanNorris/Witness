@@ -6,6 +6,7 @@
 #include "TimestampRequalification.h"
 #include "TimestampPauseRecovery.h"
 #include "RecentWrittenVideoPackets.h"
+#include "FFmpegLogClusters.h"
 #include <mutex>
 
 namespace Witness::Camera {
@@ -215,6 +216,8 @@ struct LiveOutputStreamData
 	// handling remain active. Read once when this stream instance is created.
 	bool _RetainPacketTrace = true;
 	bool _RetainMuxTrace = true;
+	bool _RetainMediaTrace = true;
+	FFmpegLogClusters _FFmpegLogClusters;
 	// Summary state must not depend on optional retained segment history.
 	bool _LastCompletedSegmentNormalizationActive = false;
 	PacketDiagEntry _PacketDiagRing[PACKET_DIAG_RING_SIZE] = {};

@@ -1707,3 +1707,77 @@ Evidence: `artifacts/mux-trace-disabled-full-server.log` and
 playback were off; these are not the 30-minute representative 16-stream gate,
 network reproduction or full diagnostics-overhead qualification. No main merge,
 remote push, production change or user-owned backlog edit/staging occurred.
+
+### Optional media-event retention and independent log limiting (2026-10-05)
+
+Branch `codex/media-event-trace-baseline` adds `WITNESS_MEDIA_TRACE=0`, read
+once per live-stream instance, with missing/invalid values retaining default-on
+history. Summary and detailed administrator exports expose `mediaTraceEnabled`.
+Disabled mode retains no passive FFmpeg, decode hold/recovery or packet-derived
+media events. FFmpeg error counters and scope `HasError`, activity IDs, packet
+clocks/hashes/structure checks and player hold/recover controls remain active.
+
+Raw-log repeat limiting is now a separate Camera-owned bounded 128-cluster
+structure rather than a side effect of the optional media history. It retains
+bounded normalized signatures and context, not raw messages or packet payloads.
+Severity/phase/component/generation, 60-second inactivity and five-minute total
+age limits remain; clearing optional event history no longer resets raw-log
+suppression. Default-on logging may therefore suppress repeated errors longer
+when unrelated media events previously evicted a still-active FFmpeg cluster.
+That is an intentional log-flood protection change, not a corruption-handling
+change. The limiter's functional clocks/context remain in the off baseline.
+
+Actual FFmpeg callback and production-mux tests pass H.264 and HEVC with the
+environment absent, off, on and invalid (eight invocations). Each compares
+retained and disabled history: identical media bytes, metadata, durations,
+transport hashes and hold/recovery ordering; the recovery control must precede
+the exact independent fragment. FFmpeg error/warning counts and `HasError` stay
+active, corruption/recovery counters agree, and enabled history retains the
+first/latest numeric error variants with their activity correlation. Tests also
+cover repeat-count independence after history clearing, clock/generation/context
+isolation, expiry boundaries and cluster-capacity eviction. Two additional
+invocations pass with packet, mux and media histories all disabled. Evidence:
+`artifacts/media-event-trace-observer-regressions.log`.
+
+Combined all-off duplicate rejection and cadence/pause regressions pass; four
+written cadence generations pass strict decode and packet/frame timestamp checks
+with no missing/duplicate/regressing values. Evidence:
+`artifacts/media-event-trace-all-off-media-regressions.log` and
+`artifacts/media-event-trace-cadence-output-inspections.json`.
+Nine pure workload-evidence validator tests pass, including bounded sender-log
+tail preservation without private paths. Sender startup failures now preserve
+exit codes, bounded owned log tails and the authenticated health snapshot;
+fixture server log tails have session/CSRF/path/URL replacements before retention.
+
+The added four-source AAC integration workload fails during startup on both new
+native `0a3114dc38ac` and prior immutable native `02e07138f108`. The captured
+control log identifies MPEG-TS ADTS-framed AAC rejected by the live MP4 muxer:
+`Malformed AAC bitstream detected: use the audio bitstream filter aac_adtstoasc`.
+The producer consequently exits with connection-reset error -10054. This is a
+reproduced pre-existing format-handling bug, not a passed AAC integration result
+or an attribution to optional event retention. It remains to be fixed separately.
+Evidence: `artifacts/media-event-trace-disabled-four-stream-repeat.log`,
+`artifacts/media-event-trace-aac-prior-build-control.log` and
+`artifacts/replay-sender-failed-36495a31c2fbfde3.json`.
+
+Native `0a3114dc38ac` / web `a0f360243279` built with unchanged pinned dependency
+environment and bootstrap/manifest installation off. No native compiler/linker
+warnings appeared; Sass/chunk warnings remain. Matching rebuilt consumers and
+private-state regressions are required for new snapshot/state fields. Separate
+package `build-vs2026-stable/deploy/media-event-trace-baseline-native-0a3114dc38ac`
+verifies at 94 files / 177,798,996 bytes including symbols; output:
+`artifacts/media-event-trace-baseline-native-0a3114dc38ac-package-verified.json`.
+Host sampling, browser reporting/history and processing histograms still remain
+to be mapped before full off/on overhead qualification. No production change,
+main merge, remote push or user-owned backlog staging/edit occurred.
+
+Normal-authenticated three-source video integration with packet, mux, media,
+HTTP and SQLite tracing disabled passed in 112.879 seconds: two lifecycle phases,
+10 sampled seconds each, continued ingest/processing, manual clips and DVR,
+authenticated persisted health and clean shutdown. All 12 recorded outputs
+passed strict decoding and packet timestamp inspection. Actual disabled coverage
+flags and empty media feeds were asserted. Evidence:
+`artifacts/media-event-trace-disabled-three-stream.log` and
+`artifacts/media-event-trace-disabled-three-stream-{replay,workload}-{0,1}.json`.
+Detection and browser playback were off. This validates the diagnostics work
+piece's video path, not AAC transport, long-run stability or the full load gate.

@@ -340,6 +340,7 @@ public:
 		std::vector<FragmentDiagEntry> RecentFragments; // last 180 MSE partials
 		bool PacketTraceEnabled = true;
 		bool MuxTraceEnabled = true;
+		bool MediaTraceEnabled = true;
 		std::vector<PacketDiagEntry> RecentPackets; // last 1024 audio/video access units
 		std::vector<MediaDiagnosticEvent> RecentMediaEvents; // last 48 warnings/errors/actions
 		struct AnomalyCapture

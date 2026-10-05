@@ -27,7 +27,7 @@ static const uint64_t Fnv1aOffsetBasis = 14695981039346656037ULL;
 static const uint64_t Fnv1aPrime = 1099511628211ULL;
 
 // Fail open to evidence collection for absent/invalid values. This is only an
-// optional packet-observer switch, never a general stream-validation bypass.
+// optional history switch, never a general stream-validation bypass.
 static bool RetainStreamTraceFromEnvironment(const char* Name)
 {
 #ifdef _WIN32
@@ -373,6 +373,7 @@ LiveOutputStreamData::LiveOutputStreamData(const std::string& LiveCachePath, Inp
     _PacketCaptureState = new PacketCaptureState();
     _RetainPacketTrace = RetainStreamTraceFromEnvironment("WITNESS_PACKET_TRACE");
     _RetainMuxTrace = RetainStreamTraceFromEnvironment("WITNESS_MUX_TRACE");
+    _RetainMediaTrace = RetainStreamTraceFromEnvironment("WITNESS_MEDIA_TRACE");
 }
 
 LiveOutputStreamData::~LiveOutputStreamData()
@@ -559,22 +560,30 @@ void LiveOutputStream::CaptureInputPacket(const AVPacket* Packet, uint64_t Activ
 uint64_t LiveOutputStream::RecordFFmpegLog( int Level, const char* Phase,
 	const char* Component, const char* Message, uint64_t ActivityID )
 {
+	const auto ElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+		std::chrono::steady_clock::now() - _LiveData->_PacketDiagEpoch).count();
+	const std::string PhaseText = Phase ? std::string(Phase).substr(0, 64) : "unknown";
+	const std::string ComponentText = Component ? std::string(Component).substr(0, 128) : "unknown";
+	const std::string MessageText = RedactUrlCredentials(Message).substr(0, 1024);
+	const std::string Signature = FFmpegMessageSignature(MessageText);
+	const std::lock_guard<std::mutex> Guard( *_LiveData->_SegmentsMutex );
+	const auto ClusterCount = _LiveData->_FFmpegLogClusters.Record(Level <= AV_LOG_ERROR,
+		PhaseText, ComponentText, Signature, _LiveData->_InitGeneration, ElapsedMs);
+	if (!_LiveData->_RetainMediaTrace) return ClusterCount;
 	MediaDiagnosticEvent Event;
 	Event.TimestampUnixMs = std::chrono::duration_cast<std::chrono::milliseconds>(
 		std::chrono::system_clock::now().time_since_epoch()).count();
-	Event.ElapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-		std::chrono::steady_clock::now() - _LiveData->_PacketDiagEpoch).count();
+	Event.ElapsedMs = ElapsedMs;
 	Event.LastTimestampUnixMs = Event.TimestampUnixMs;
 	Event.LastElapsedMs = Event.ElapsedMs;
 	Event.ActivityID = ActivityID;
 	Event.Category = "ffmpeg";
 	Event.Severity = Level <= AV_LOG_ERROR ? "error" : "warning";
-	Event.Phase = Phase ? std::string( Phase ).substr( 0, 64 ) : "unknown";
-	Event.Component = Component ? std::string( Component ).substr( 0, 128 ) : "unknown";
-	Event.Message = RedactUrlCredentials( Message ).substr( 0, 1024 );
-	Event.ClusterSignature = FFmpegMessageSignature( Event.Message );
+	Event.Phase = PhaseText;
+	Event.Component = ComponentText;
+	Event.Message = MessageText;
+	Event.ClusterSignature = Signature;
 
-	const std::lock_guard<std::mutex> Guard( *_LiveData->_SegmentsMutex );
 	// Keep repeated numeric variants of one FFmpeg warning in a single bounded
 	// event, preserving its first message and the latest sample. Other media
 	// events can no longer be displaced by hundreds of identical AAC warnings.
@@ -593,7 +602,7 @@ uint64_t LiveOutputStream::RecordFFmpegLog( int Level, const char* Phase,
 		Previous.LastTimestampUnixMs = Event.TimestampUnixMs;
 		Previous.LastElapsedMs = Event.ElapsedMs;
 		Previous.LastMessage = Event.Message;
-		return Previous.Count;
+		return ClusterCount;
 	}
 	Event.Sequence = ++_LiveData->_MediaEventSequence;
 	Event.PacketSequence = _LiveData->_PacketDiagSequence;
@@ -604,7 +613,7 @@ uint64_t LiveOutputStream::RecordFFmpegLog( int Level, const char* Phase,
 	++_LiveData->_MediaEventRingPos;
 	if( _LiveData->_MediaEventRingCount < _LiveData->MEDIA_EVENT_RING_SIZE )
 		++_LiveData->_MediaEventRingCount;
-	return 1;
+	return ClusterCount;
 }
 
 void LiveOutputStream::Shutdown()
@@ -956,6 +965,11 @@ void LiveOutputStream::NotifyDecodeCorruption(int ErrorFlags)
 
 	_LiveData->_DecodeCorruptionActive = true;
 	{
+		const std::lock_guard<std::mutex> Guard(*_LiveData->_SegmentsMutex);
+		++_LiveData->_DiagDecodeCorruptionEvents;
+	}
+	if (_LiveData->_RetainMediaTrace)
+	{
 		MediaDiagnosticEvent Event;
 		Event.TimestampUnixMs = std::chrono::duration_cast<std::chrono::milliseconds>(
 			std::chrono::system_clock::now().time_since_epoch()).count();
@@ -970,7 +984,6 @@ void LiveOutputStream::NotifyDecodeCorruption(int ErrorFlags)
 			std::to_string( ErrorFlags ) + ")";
 		Event.Disposition = "decodeCorruption";
 		const std::lock_guard<std::mutex> Guard( *_LiveData->_SegmentsMutex );
-		++_LiveData->_DiagDecodeCorruptionEvents;
 		Event.Sequence = ++_LiveData->_MediaEventSequence;
 		Event.PacketSequence = _LiveData->_PacketDiagSequence;
 		Event.Generation = _LiveData->_InitGeneration;
@@ -1270,7 +1283,7 @@ CameraStreamError LiveOutputStream::WritePacketWithKnownDuration(
 
 		const bool Noteworthy = DispositionText != "written" &&
 			DispositionText != "waitingForKeyframe";
-		if( Noteworthy )
+		if( Noteworthy && _LiveData->_RetainMediaTrace )
 		{
 			MediaDiagnosticEvent Event;
 			Event.Sequence = ++_LiveData->_MediaEventSequence;
@@ -2129,6 +2142,11 @@ void LiveOutputStream::PublishDecodeRecovery(int SegmentIndex, int PartialIndex)
 	Event.PartIndex = PartialIndex;
 	Event.Generation = _LiveData->_InitGeneration;
 	{
+		const std::lock_guard<std::mutex> Guard(*_LiveData->_SegmentsMutex);
+		++_LiveData->_DiagDecodeRecoveryEvents;
+	}
+	if (_LiveData->_RetainMediaTrace)
+	{
 		MediaDiagnosticEvent Diagnostic;
 		Diagnostic.TimestampUnixMs = std::chrono::duration_cast<std::chrono::milliseconds>(
 			std::chrono::system_clock::now().time_since_epoch()).count();
@@ -2146,7 +2164,6 @@ void LiveOutputStream::PublishDecodeRecovery(int SegmentIndex, int PartialIndex)
 		Diagnostic.Message = "Published an independently decodable recovery fragment";
 		Diagnostic.Disposition = "decodeRecovery";
 		const std::lock_guard<std::mutex> Guard( *_LiveData->_SegmentsMutex );
-		++_LiveData->_DiagDecodeRecoveryEvents;
 		Diagnostic.Sequence = ++_LiveData->_MediaEventSequence;
 		_LiveData->_MediaEventRing[_LiveData->_MediaEventRingPos % _LiveData->MEDIA_EVENT_RING_SIZE] = std::move(Diagnostic);
 		++_LiveData->_MediaEventRingPos;
@@ -2401,6 +2418,7 @@ LiveOutputStream::StreamingDiagnostics LiveOutputStream::GetStreamingDiagnostics
 	const std::lock_guard<std::mutex> guard(*_LiveData->_SegmentsMutex);
 	Diag.PacketTraceEnabled = _LiveData->_RetainPacketTrace;
 	Diag.MuxTraceEnabled = _LiveData->_RetainMuxTrace;
+	Diag.MediaTraceEnabled = _LiveData->_RetainMediaTrace;
 	Diag.TotalSegments = _LiveData->_DiagTotalSegments;
 	Diag.ReconnectCount = _LiveData->_InitGeneration;
 	Diag.TotalDtsDuration = _LiveData->_DiagTotalDtsDuration;

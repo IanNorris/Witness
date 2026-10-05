@@ -5,13 +5,33 @@ import json
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
+from unittest.mock import Mock
 from copy import deepcopy
 from check_preview_decode import RecordingInspectionError
 
-from test_full_server_isolation import browser_playback_ready, inference_evidence, recording_evidence, sample_coverage, verify_recordings
+from test_full_server_isolation import browser_playback_ready, inference_evidence, recording_evidence, replay_sender_failures, sample_coverage, verify_recordings
 
 
 class WorkloadEvidenceTests(unittest.TestCase):
+    def test_sender_failure_evidence_is_bounded_and_omits_private_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            fixture = root / 'private-fixture.mp4'
+            url = 'http://127.0.0.1:1234/fixture'
+            (root / 'replay-0.log').write_text('discarded-prefix' * 2000 + str(root) + ' ' + str(fixture) + ' ' + url,
+                                             encoding='utf-8')
+            running = Mock()
+            running.poll.return_value = None
+            failed = Mock()
+            failed.poll.return_value = 7
+            rows = replay_sender_failures([failed, running], root, [fixture, fixture], [url, url])
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]['cameraId'], 1)
+            self.assertEqual(rows[0]['returnCode'], 7)
+            self.assertLessEqual(len(rows[0]['diagnostics']), 16384)
+            for private in (str(root), str(fixture), url):
+                self.assertNotIn(private, rows[0]['diagnostics'])
+
     def test_failed_inspection_preserves_only_owned_recording_and_still_fails(self):
         with tempfile.TemporaryDirectory() as root:
             cache = Path(root) / 'cache'

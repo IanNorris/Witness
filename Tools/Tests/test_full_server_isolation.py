@@ -102,6 +102,24 @@ def recording_evidence(db, previous_clip_uid, previous_segment_uid):
     return clips, segments
 
 
+def replay_sender_failures(processes, root, inputs, urls):
+    """Bounded evidence from this fixture's owned senders, not server/session logs."""
+    failures = []
+    for index, process in enumerate(processes):
+        code = process.poll()
+        if code is None:
+            continue
+        path = root / f'replay-{index}.log'
+        with path.open('rb') as source:
+            source.seek(0, 2)
+            source.seek(max(0, source.tell() - 16384))
+            tail = source.read(16384).decode('utf-8', errors='replace')
+        for private in (str(root), str(inputs[index]), urls[index]):
+            tail = tail.replace(private, '[fixture]')
+        failures.append({'cameraId': index + 1, 'returnCode': code, 'diagnostics': tail})
+    return failures
+
+
 def verify_recordings(db, cache, previous_clip_uid, previous_segment_uid):
     """Inspect only fresh fixture-owned local outputs, never arbitrary DB paths."""
     recordings = []
@@ -203,6 +221,8 @@ class FullServerIsolationTests(unittest.TestCase):
         self.assertIn(expected_packet_trace, (None, '0', '1'))
         expected_mux_trace = os.environ.get('WITNESS_TEST_MUX_TRACE_MODE')
         self.assertIn(expected_mux_trace, (None, '0', '1'))
+        expected_media_trace = os.environ.get('WITNESS_TEST_MEDIA_TRACE_MODE')
+        self.assertIn(expected_media_trace, (None, '0', '1'))
         expected_server_traces = {
             'http': os.environ.get('WITNESS_TEST_HTTP_TRACE_MODE'),
             'database': os.environ.get('WITNESS_TEST_SQLITE_TRACE_MODE'),
@@ -381,7 +401,23 @@ class FullServerIsolationTests(unittest.TestCase):
                                 if all(camera['streams'] and camera['streams'][0].get('acceptedVideoPackets', 0) > 5
                                        for camera in cameras):
                                     break
-                                self.assertTrue(all(sender.poll() is None for sender in senders), 'replay sender exited')
+                                failures = replay_sender_failures(senders, root, inputs, urls)
+                                if failures:
+                                    server_logs = []
+                                    for log_path in sorted((data / 'logs').glob('*.log'))[-4:]:
+                                        with log_path.open('rb') as source:
+                                            source.seek(0, 2)
+                                            source.seek(max(0, source.tell() - 16384))
+                                            tail = source.read(16384).decode('utf-8', errors='replace')
+                                        for private in [token, csrf, str(root), *map(str, inputs), *urls]:
+                                            tail = tail.replace(private, '[fixture]')
+                                        server_logs.append(tail)
+                                    report = repository / 'artifacts' / ('replay-sender-failed-' + secrets.token_hex(8) + '.json')
+                                    with report.open('x', encoding='utf-8') as destination:
+                                        json.dump({'nativeBuildId': identity, 'senders': failures, 'health': health,
+                                                   'serverLogTails': server_logs}, destination, indent=2)
+                                    print('replaySenderFailure=' + str(report), flush=True)
+                                self.assertFalse(failures, 'replay sender exited; bounded evidence preserved')
                                 if time.monotonic() >= deadline:
                                     (repository / 'artifacts/full-server-replay-readiness-failure.json').write_text(
                                         json.dumps(health, indent=2), encoding='utf-8')
@@ -464,6 +500,12 @@ class FullServerIsolationTests(unittest.TestCase):
                                     self.assertEqual(request(f'/camera/record/{camera_id}',
                                         body={'csrf': csrf, 'record': False})[0], 200)
                             for camera in health['cameras']:
+                                if expected_media_trace is not None:
+                                    self.assertIs(camera['streams'][0]['mediaTraceEnabled'],
+                                                  expected_media_trace == '1',
+                                                  'health coverage does not match requested media-trace mode')
+                                    if expected_media_trace == '0':
+                                        self.assertEqual(camera['streams'][0]['recentMediaEvents'], [])
                                 if expected_mux_trace is not None:
                                     self.assertIs(camera['streams'][0]['muxTraceEnabled'],
                                                   expected_mux_trace == '1',
