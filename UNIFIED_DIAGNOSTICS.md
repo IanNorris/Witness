@@ -947,3 +947,37 @@ non-evidence, numeric-only log export, and old recording-row exclusion. Observat
 gaps over ten seconds invalidate a continuous test. The full 16-stream, 30-minute
 baseline/enabled CPU/processing/HTTP performance gate remains outstanding. Native
 product binaries are unchanged; the verified e6f74ec3f350 package is reused.
+
+Follow-up evidence: the identical two-camera AI/recording reproduction passed
+both 90-second sampled lifecycles, including restart/shutdown (227.047 seconds
+total). Each lifecycle created one new manual clip and one continuous segment
+per camera, and logged two completed baseline inferences per camera. Observed
+maximum sampling gaps were 1.027 / 1.027 seconds; health-request P95 was
+25.76 / 25.02 ms. These sparse baseline inferences must not be described as
+sustained 1 fps motion inference. Preserved results are
+`artifacts/recording-ai-e6f74ec3f350-{workload,health}-{0,1}.json` and
+`artifacts/representative-workload-shutdown-diagnosis.log`.
+
+`WITNESS_TEST_RECORDING=1` now separates actual recording from detection, and
+`WITNESS_TEST_LIFECYCLE_RUNS` allows 1–10 bounded lifecycle repetitions (default
+two; browser mode remains one). Six 10-second sampled recording-only lifecycles
+passed in 98.477 seconds, each requiring fresh clip/DVR rows for both cameras.
+Results are `artifacts/recording-only-e6f74ec3f350-{workload,health}-{0..5}.json`
+and `artifacts/recording-shutdown-six-lifecycle.log`. Thus the original timeout
+has **not** reproduced or been diagnosed; no native shutdown change was made.
+It remains an unresolved observation, not a proved recording deadlock.
+
+Optional `WITNESS_TEST_VERIFY_RECORDINGS=1` applies the existing bounded,
+local-only strict decoder/timestamp inspector to newly generated outputs before
+fixture cleanup. Paths must resolve inside the private cache. Two additional
+10-second sampled recording lifecycles passed in 93.077 seconds including full
+inspection: all eight output files decoded without diagnostics, packet/frame
+counts matched, and timestamps had no missing/duplicate/backward values. This
+checks the complete short files, not perception, original camera/network timing,
+or a 30-minute recording. Evidence:
+`artifacts/recording-integrity-e6f74ec3f350-{workload,health}-{0,1}.json` and
+`artifacts/recording-output-integrity.log`. Six pure validator tests now pass,
+including rejection of external DB paths before decoding and removal of private
+paths from exported inspection evidence. All fixture processes stopped and
+private runtime/database/cache folders were removed. No main merge, remote push,
+production deployment, camera movement or wake lock occurred.

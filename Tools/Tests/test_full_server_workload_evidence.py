@@ -1,8 +1,10 @@
 """Pure evidence-validator tests: no server, model, cameras or credentials."""
 import unittest
 import sqlite3
+from pathlib import Path
+from unittest.mock import patch
 
-from test_full_server_isolation import inference_evidence, recording_evidence, sample_coverage
+from test_full_server_isolation import inference_evidence, recording_evidence, sample_coverage, verify_recordings
 
 
 class WorkloadEvidenceTests(unittest.TestCase):
@@ -35,6 +37,22 @@ class WorkloadEvidenceTests(unittest.TestCase):
             self.assertEqual(recording_evidence(db, 3, 2), ([], []))
             self.assertEqual(recording_evidence(db, 2, 1),
                              ([{'cameraId': 2, 'clips': 1}], [{'cameraId': 2, 'segments': 1}]))
+        finally:
+            db.close()
+
+    def test_output_verifier_rejects_external_paths_before_decoding(self):
+        db = sqlite3.connect(':memory:')
+        try:
+            db.execute('CREATE TABLE Clip(ClipUID INTEGER,Camera INTEGER,Timestamp INTEGER,RecordMode INTEGER)')
+            db.execute('CREATE TABLE ContinuousSegment(SegmentUID INTEGER,CameraUID INTEGER,FilePath TEXT)')
+            db.execute('INSERT INTO ContinuousSegment VALUES(1,1,?)', (str(Path(__file__).resolve()),))
+            with patch('test_full_server_isolation.inspect_recording') as decoder:
+                with self.assertRaises(ValueError):
+                    verify_recordings(db, Path(__file__).resolve().parents[2] / 'artifacts', 0, 0)
+                decoder.assert_not_called()
+                decoder.return_value = {'file': 'private-path', 'passed': True}
+                reports = verify_recordings(db, Path(__file__).resolve().parent, 0, 0)
+                self.assertEqual(reports, [{'passed': True, 'kind': 'continuous', 'cameraId': 1, 'recordingId': 1}])
         finally:
             db.close()
 

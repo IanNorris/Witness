@@ -20,6 +20,7 @@ import time
 import unittest
 import urllib.error
 import urllib.request
+from check_preview_decode import inspect as inspect_recording
 
 
 def sample_coverage(samples, duration, max_gap=10):
@@ -52,6 +53,28 @@ def recording_evidence(db, previous_clip_uid, previous_segment_uid):
         'SELECT CameraUID,count(*) FROM ContinuousSegment WHERE SegmentUID>? GROUP BY CameraUID',
         (previous_segment_uid,))]
     return clips, segments
+
+
+def verify_recordings(db, cache, previous_clip_uid, previous_segment_uid):
+    """Inspect only fresh fixture-owned local outputs, never arbitrary DB paths."""
+    recordings = []
+    for uid, camera, timestamp, mode in db.execute(
+            'SELECT ClipUID,Camera,Timestamp,RecordMode FROM Clip WHERE ClipUID>?', (previous_clip_uid,)):
+        if mode not in (0, 1):
+            raise ValueError('Unexpected recording mode')
+        recordings.append(('clip', camera, uid, cache / f'{int(camera)}_{"Manual" if mode == 0 else "Auto"}_{int(timestamp)}.mp4'))
+    for uid, camera, path in db.execute(
+            'SELECT SegmentUID,CameraUID,FilePath FROM ContinuousSegment WHERE SegmentUID>?', (previous_segment_uid,)):
+        recordings.append(('continuous', camera, uid, Path(path)))
+    reports = []
+    for kind, camera, uid, path in recordings:
+        path = path.resolve(strict=True)
+        if not path.is_relative_to(cache.resolve()) or not path.is_file():
+            raise ValueError('Recording is outside the private cache')
+        result = inspect_recording(path)
+        result.pop('file', None)
+        reports.append(dict(result, kind=kind, cameraId=camera, recordingId=uid))
+    return reports
 
 
 def stop_console_process(process):
@@ -120,6 +143,12 @@ class FullServerIsolationTests(unittest.TestCase):
         self.assertTrue(browser_hold == 0 or 60 <= browser_hold <= 3600)
         self.assertTrue(not browser_hold or inputs, 'Browser mode requires replay inputs')
         active_detection = os.environ.get('WITNESS_TEST_ACTIVE_DETECTION') == '1'
+        active_recording = active_detection or os.environ.get('WITNESS_TEST_RECORDING') == '1'
+        verify_outputs = os.environ.get('WITNESS_TEST_VERIFY_RECORDINGS') == '1'
+        self.assertTrue(not verify_outputs or active_recording, 'Output verification requires recording mode')
+        lifecycle_runs = int(os.environ.get('WITNESS_TEST_LIFECYCLE_RUNS', '2'))
+        self.assertTrue(1 <= lifecycle_runs <= 10)
+        self.assertTrue(not active_recording or inputs, 'Recording mode requires replay inputs')
         self.assertTrue(not active_detection or (inputs and (browser_hold or replay_seconds) >= 90),
                         'Detection evidence needs replay inputs and at least 90 seconds')
         if active_detection:
@@ -163,8 +192,8 @@ class FullServerIsolationTests(unittest.TestCase):
                 for index, url in enumerate(urls):
                     db.execute('INSERT INTO Camera(CameraName,CameraString,CameraStringSub,Enabled,SkipFrames,MDFrameHeight,MDThreshold,MotionFilter,BlackoutMaskPath,FocusMaskPath,ContinuousRecording) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
                                (f'Fixture {index + 1}', url, '', 1, 1, 400,
-                                0.01 if active_detection else 0.99, 'motion_vectors', '', '', int(active_detection)))
-                if browser_hold or active_detection:
+                                0.01 if active_detection else 0.99, 'motion_vectors', '', '', int(active_recording)))
+                if browser_hold or active_recording:
                     db.execute('INSERT INTO CameraGroup(DisplayName,Description) VALUES(?,?)', ('Isolated replay', 'Test only'))
                     db.execute('INSERT INTO UserGroupMapping VALUES(?,?)', (1, 1))
                     db.executemany('INSERT INTO CameraGroupMapping VALUES(?,?)', [(index + 1, 1) for index in range(len(inputs))])
@@ -183,7 +212,7 @@ class FullServerIsolationTests(unittest.TestCase):
                 with response:
                     return response.status, response.read()
 
-            for run in range(1 if browser_hold else 2):
+            for run in range(1 if browser_hold else lifecycle_runs):
                 log_offsets = {path: path.stat().st_size for path in (data / 'logs').glob('*.log')}
                 with contextlib.closing(sqlite3.connect(data / 'server.db')) as db:
                     previous_clip_uid = db.execute('SELECT coalesce(max(ClipUID),0) FROM Clip').fetchone()[0]
@@ -259,7 +288,7 @@ class FullServerIsolationTests(unittest.TestCase):
                                 time.sleep(0.25)
                             initial = {camera['cameraId']: camera['streams'][0]['acceptedVideoPackets'] for camera in cameras}
                             initial_processing = {camera['cameraId']: camera['processing']['completedFrames'] for camera in cameras}
-                            if active_detection:
+                            if active_recording:
                                 # Normal authenticated recording path, not manufactured DB rows.
                                 # These are explicit manual clips, not proof of motion activation.
                                 for camera_id in initial:
@@ -285,7 +314,7 @@ class FullServerIsolationTests(unittest.TestCase):
                                 self.assertEqual(code, 200)
                                 (repository / 'artifacts/full-server-browser-history.json').write_bytes(history)
                             coverage = sample_coverage(samples, duration)
-                            if active_detection:
+                            if active_recording:
                                 for camera_id in initial:
                                     self.assertEqual(request(f'/camera/record/{camera_id}',
                                         body={'csrf': csrf, 'record': False})[0], 200)
@@ -321,7 +350,8 @@ class FullServerIsolationTests(unittest.TestCase):
                                     'coverage': coverage,
                                     'workload': {'objectDetection': active_detection, 'provider': 'cpu' if active_detection else None,
                                                  'maximumMotionInferenceFps': 1 if active_detection else None,
-                                                 'recording': 'continuous DVR plus authenticated manual clips' if active_detection else 'disabled',
+                                                 'recording': 'continuous DVR plus authenticated manual clips' if active_recording else 'disabled',
+                                                 'strictRecordingInspection': verify_outputs,
                                                  'motionThreshold': 0.01 if active_detection else 0.99},
                                     'samples': samples}, indent=2), encoding='utf-8')
                     finally:
@@ -354,7 +384,7 @@ class FullServerIsolationTests(unittest.TestCase):
                         for source in (data / 'logs').glob('*.log'):
                             shutil.copyfile(source, repository / 'artifacts/full-server-isolation-failed-server.log')
                     self.assertEqual(process.returncode, 0, 'graceful shutdown failed')
-                    if active_detection:
+                    if active_recording:
                         log.flush()
                         evidence = inference_evidence((root / f'run-{run}.log').read_text(encoding='utf-8', errors='replace'))
                         for source in (data / 'logs').glob('*.log'):
@@ -365,16 +395,22 @@ class FullServerIsolationTests(unittest.TestCase):
                         evidence = list({json.dumps(row, sort_keys=True): row for row in evidence}.values())
                         with contextlib.closing(sqlite3.connect(data / 'server.db')) as db:
                             clips, segments = recording_evidence(db, previous_clip_uid, previous_segment_uid)
+                            decoded = verify_recordings(db, cache, previous_clip_uid, previous_segment_uid) if verify_outputs else []
                         (repository / f'artifacts/full-server-workload-run-{run}.json').write_text(
                             json.dumps({'completedInferenceWindows': evidence, 'clipRows': clips,
                                         'continuousSegmentRows': segments,
-                                        'limits': 'Database rows prove creation, not decoded recording integrity; clips are manually triggered, not proof of MV activation; inferred frames include 30-second no-motion baselines'}, indent=2), encoding='utf-8')
-                        self.assertEqual({row['cameraId'] for row in evidence}, set(range(1, len(inputs) + 1)),
-                                         'Every camera must complete real inference, not just load a model')
+                                        'recordingInspection': decoded,
+                                        'limits': 'Rows alone prove creation; optional inspection checks strict decode and packet/frame timestamps, not perceptual smoothness; clips are manually triggered, not proof of MV activation; inferred frames include 30-second no-motion baselines'}, indent=2), encoding='utf-8')
+                        if active_detection:
+                            self.assertEqual({row['cameraId'] for row in evidence}, set(range(1, len(inputs) + 1)),
+                                             'Every camera must complete real inference, not just load a model')
                         self.assertEqual({row['cameraId'] for row in clips}, set(range(1, len(inputs) + 1)),
                                          'Every camera must create a new recorded clip')
                         self.assertEqual({row['cameraId'] for row in segments}, set(range(1, len(inputs) + 1)),
                                          'Every camera must create new continuous DVR segments')
+                        if verify_outputs:
+                            self.assertTrue(decoded and all(row['passed'] for row in decoded),
+                                            'Strict recording decode/timestamp inspection failed')
             self.assertTrue((data / 'client-health.db').is_file())
             self.assertFalse((root / 'server.db').exists())
             for path in root.rglob('*'):
