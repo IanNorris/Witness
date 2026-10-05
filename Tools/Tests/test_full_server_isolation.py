@@ -283,7 +283,12 @@ class FullServerIsolationTests(unittest.TestCase):
                             time.sleep(0.05)
                         if run == 0:
                             payload = {'csrf': csrf, 'snapshot': {'browserId': 'isolated-browser',
-                                'sessionId': 'isolated-session', 'visibilityState': 'visible', 'players': []}}
+                                'sessionId': 'isolated-session', 'visibilityState': 'visible', 'players': [{
+                                    'id': 'fixture_mse', 'lastDriftRestart': {
+                                        'type': 'driftRestart', 'reason': 'drift', 'lagMs': 148000,
+                                        'message': 'https://secret@camera',
+                                        'drift': {'paused': True, 'fragmentAgeMs': 76,
+                                                  'buffered': [[193, 222]], 'password': 'secret'}}}]}}
                             self.assertEqual(request('/debug/client-health', body=payload)[0], 202)
                         deadline = time.monotonic() + 10
                         while True:
@@ -296,6 +301,15 @@ class FullServerIsolationTests(unittest.TestCase):
                             time.sleep(0.05)
                         self.assertEqual(export['history'][0]['username'], 'fixture-admin')
                         self.assertEqual(export['history'][0]['browserId'], 'isolated-browser')
+                        # Must survive the real authenticated endpoint, asynchronous storage
+                        # and server restart; arbitrary nested payloads must not survive.
+                        recovery = export['history'][0]['snapshot']['players'][0]['lastDriftRestart']
+                        self.assertEqual(recovery['lagMs'], 148000)
+                        self.assertEqual(recovery['reason'], 'drift')
+                        self.assertEqual(recovery['drift']['fragmentAgeMs'], 76)
+                        self.assertTrue(recovery['drift']['paused'])
+                        self.assertNotIn('buffered', recovery['drift'])
+                        self.assertNotIn('secret', json.dumps(recovery))
                         if inputs:
                             deadline = time.monotonic() + 45
                             while True:

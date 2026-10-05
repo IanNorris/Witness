@@ -18,6 +18,22 @@ int main() {
         auto Clean = crow::json::load(Value.Json);
         Check(Clean["players"][0]["latencyMs"].d() == 1200, "numeric evidence lost");
         Check(std::string(Clean["path"].s()) == "/dashboard", "query stored");
+        auto Recovery = crow::json::load(R"({"players":[{"id":"8_mse","lastDriftRestart":{
+          "t":"2026-10-05T03:36:40Z","type":"driftRestart","reason":"drift","lagMs":148000,
+          "message":"https://secret@camera","driftSamples":[{"password":"secret"}],
+          "drift":{"visibility":"visible","paused":true,"currentTime":73,"bufferedEnd":222,
+            "lagMs":149000,"fragmentAgeMs":76,"appendAgeMs":75,"generation":1,
+            "buffered":[[193,222]],"password":"secret"}}}]})");
+        auto RecoveryValue = Sanitize(Recovery, 7, "server-user");
+        auto RecoveryClean = crow::json::load(RecoveryValue.Json);
+        const auto& Restart = RecoveryClean["players"][0]["lastDriftRestart"];
+        Check(Restart["lagMs"].d() == 148000 && std::string(Restart["reason"].s()) == "drift", "recovery summary lost");
+        Check(Restart["drift"]["fragmentAgeMs"].d() == 76 && Restart["drift"]["paused"].b(), "causal scalar snapshot lost");
+        Check(!Restart.has("driftSamples") && !Restart["drift"].has("buffered"), "unbounded recovery details persisted");
+        Check(RecoveryValue.Json.find("secret") == std::string::npos, "recovery credentials persisted");
+        auto MalformedRecovery = crow::json::load(R"({"players":[{"id":"8_mse","lastDriftRestart":"wrong"}]})");
+        auto MalformedClean = crow::json::load(Sanitize(MalformedRecovery, 7, "server-user").Json);
+        Check(!MalformedClean["players"][0].has("lastDriftRestart"), "malformed recovery accepted");
         auto Bad = crow::json::load(R"({"players":"wrong"})");
         bool Rejected = false;
         try { Sanitize(Bad, 7, "server-user"); } catch (const std::invalid_argument&) { Rejected = true; }

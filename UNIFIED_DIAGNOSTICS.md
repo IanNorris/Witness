@@ -1184,3 +1184,28 @@ the real-composable **mocked primitive** regression tests; prolonged actual
 browser suspension/SourceBuffer behavior still needs qualification. Neither this
 short replay nor the earlier 30-minute native run establishes production
 stability or incremental diagnostics overhead against an equivalent baseline.
+
+### Actual hidden/resume qualification and recovery-history follow-up
+
+The final candidate's two-HEVC browser qualification completed successfully in
+431.742 seconds (360-second measured browser phase). Normal authenticated history
+captured an 80-second hidden interval with frozen/paused playheads, fresh fragment
+and append progress, and no hidden playback restarts/stalls. After a longer untouched
+interval, actual DOM buffer ranges retained 29.25/29.76 seconds while the old
+playheads were outside those ranges. Foreground recovery required no reload or
+manual seek: both players returned to readyState 4, normal speed and roughly
+1.3 seconds of live headroom. Each recorded one visible drift restart, zero stalls.
+Evidence is preserved in `artifacts/mse-hidden-real-browser-{run-0,history}.json`,
+`artifacts/mse-hidden-real-browser-before-resume.json`,
+`artifacts/mse-hidden-real-browser-{resume,recovered}-dom.json` and
+`artifacts/mse-hidden-real-browser-recovered.jpg`. This validates actual hidden
+buffer eviction/resume for these two HEVC replays, not production or 16-stream
+overhead qualification. Fixture processes/data were cleaned up; no wake lock.
+
+This run exposed a separate backend omission: `lastDriftRestart` survived client
+compaction but was discarded by the server allowlist. The follow-up keeps its
+bounded timestamp/type/reason/lag/generation and scalar causal drift snapshot.
+Free-form messages, arbitrary nested data and buffer arrays remain excluded;
+ownership/authentication and the payload/history bounds are unchanged. Native
+allowlist regression tests pass; endpoint/durable-restart validation and an updated
+native deployable package remain pending at this checkpoint.

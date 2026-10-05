@@ -83,6 +83,17 @@ inline Sample Sanitize(const crow::json::rvalue& Source, int UserUID, std::strin
             "pipelineAgeMs", "lastAppendAgeMs", "totalVideoFrames", "droppedVideoFrames", "corruptedVideoFrames", "restartCount",
             "stallCount", "errorCount", "totalFragments", "integrityMismatchCount", "decodeCorruptionCount", "renderSuppressionCount"});
         Booleans(Player, Out, {"sourceBufferUpdating", "waitingForKeyframe", "hasInitialBuffer", "awaitingInit"});
+        // Preserve the causal snapshot after the rolling sample/event lists move on,
+        // using the same bounded scalar allowlist rather than arbitrary event JSON.
+        if (Player.has("lastDriftRestart") && Player["lastDriftRestart"].t() == crow::json::type::Object) {
+            const auto& Restart = Player["lastDriftRestart"];
+            crow::json::wvalue Event;
+            Texts(Restart, Event, {"t", "type", "reason"});
+            Numbers(Restart, Event, {"lagMs", "generation"});
+            if (Restart.has("drift") && Restart["drift"].t() == crow::json::type::Object)
+                Event["drift"] = Drift(Restart["drift"]);
+            Out["lastDriftRestart"] = std::move(Event);
+        }
         if (Player.has("driftSamples") && Player["driftSamples"].t() == crow::json::type::List) {
             std::vector<crow::json::wvalue> Samples;
             const auto& List = Player["driftSamples"];
