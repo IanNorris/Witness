@@ -214,6 +214,9 @@ struct LiveOutputStreamData
 	// Optional observer only. Functional payload history, clocks and corruption
 	// handling remain active. Read once when this stream instance is created.
 	bool _RetainPacketTrace = true;
+	bool _RetainMuxTrace = true;
+	// Summary state must not depend on optional retained segment history.
+	bool _LastCompletedSegmentNormalizationActive = false;
 	PacketDiagEntry _PacketDiagRing[PACKET_DIAG_RING_SIZE] = {};
 	int _PacketDiagRingPos = 0;
 	int _PacketDiagRingCount = 0;

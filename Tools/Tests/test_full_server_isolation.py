@@ -201,6 +201,8 @@ class FullServerIsolationTests(unittest.TestCase):
         identity = os.environ.get('WITNESS_TEST_DATA_ROOT_NATIVE_ID', '')
         expected_packet_trace = os.environ.get('WITNESS_TEST_PACKET_TRACE_MODE')
         self.assertIn(expected_packet_trace, (None, '0', '1'))
+        expected_mux_trace = os.environ.get('WITNESS_TEST_MUX_TRACE_MODE')
+        self.assertIn(expected_mux_trace, (None, '0', '1'))
         expected_server_traces = {
             'http': os.environ.get('WITNESS_TEST_HTTP_TRACE_MODE'),
             'database': os.environ.get('WITNESS_TEST_SQLITE_TRACE_MODE'),
@@ -462,6 +464,10 @@ class FullServerIsolationTests(unittest.TestCase):
                                     self.assertEqual(request(f'/camera/record/{camera_id}',
                                         body={'csrf': csrf, 'record': False})[0], 200)
                             for camera in health['cameras']:
+                                if expected_mux_trace is not None:
+                                    self.assertIs(camera['streams'][0]['muxTraceEnabled'],
+                                                  expected_mux_trace == '1',
+                                                  'health coverage does not match requested mux-trace mode')
                                 if expected_packet_trace is not None:
                                     self.assertIs(camera['streams'][0]['packetTraceEnabled'],
                                                   expected_packet_trace == '1',

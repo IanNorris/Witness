@@ -1645,3 +1645,65 @@ browser reporting/storage and processing histograms remain to be mapped. Full
 matched 30-minute, 16-representative-stream overhead and genuine hidden/resume
 validation remain open. No production configuration, main merge or remote push
 was performed, and user-owned backlog changes were not edited or staged.
+
+### Optional mux-history baseline preparation (2026-10-05)
+
+Branch `codex/mux-trace-baseline` adds `WITNESS_MUX_TRACE=0`, read once when a
+live-stream instance is created. Missing/invalid values retain default-on
+behavior. This stops retaining the 30-segment and 180-fragment observer rings.
+Summary exports expose `muxTraceEnabled`; disabled histories must not be
+interpreted as complete evidence. Segment totals, durations and maximum drift
+remain available. The last completed segment's normalization state is now
+independent of the optional ring, preserving the same summary semantics with
+history disabled. Passive anomaly snapshots are skipped when both mux and packet
+history are disabled; authenticated explicit packet capture is separate.
+
+Fragment/segment hashes and structure analysis, init checks, publication order,
+transport integrity, activity IDs, functional recent-payload history and cadence
+clocks remain active. The switch disables retention, not all construction or
+validation work: full-off overhead qualification remains pending. Media-event
+and FFmpeg retention, host/browser/history observations and processing histogram
+costs still require functional-dependency review.
+
+The production-mux regression now ingests 240 packets across actual fixture
+keyframes rather than 40 packets that did not complete a segment. It requires
+nonempty enabled segment/fragment history and empty disabled history, retained
+summary/structure checks and identical init/fragment bytes plus event metadata,
+durations, publication order and transport hashes. H.264 and HEVC pass six
+environment combinations (absent, both off, both on, invalid, and both mixed
+settings), with five observer scenarios plus the functional-history negative
+control per invocation. Twelve invocations passed; evidence:
+`artifacts/mux-trace-on-off-media-regressions.log`. The initial 40-packet assertion
+failed because no segment was completed; that fixture coverage gap was corrected.
+
+The virtual-time cadence/pause regression passes both fully retained and disabled
+packet/mux histories with the required long generated 20fps fixture, including
+normalization-active summaries, bounded rate learning, stable source-clock
+preservation, clean-keyframe pause resets and intentional unstable-rate rejection.
+All eight written control/pause/bounded-rate generations pass strict decode and
+packet/frame timestamp inspection. Each of the four on/off media pairs has an
+identical SHA-256 digest. Evidence:
+`artifacts/mux-trace-cadence-generated-{off,on}.log` and
+`artifacts/mux-trace-cadence-output-inspections.json`. An earlier attempt supplied
+the 29-second Tapo sample to the >=140-second cadence test and failed its
+too-short-fixture requirement; it is not a passed cadence result.
+
+Native `02e07138f108` / web `004541adaa38` built with dependency bootstrap and
+manifest installation off, against the unchanged pinned dependency environment.
+No native compiler/linker warnings appeared; existing Sass/chunk warnings remain.
+Matching rebuilt consumers and internal state-access tests are required for
+the added snapshot/private fields. The separate package
+`build-vs2026-stable/deploy/mux-trace-baseline-native-02e07138f108` verifies
+at 94 files / 177,773,396 bytes including matching symbols; output:
+`artifacts/mux-trace-baseline-native-02e07138f108-package-verified.json`.
+
+Normal-authenticated full-server recording validation with mux, packet, HTTP
+and SQLite observers disabled passed in 114.158 seconds: two lifecycle phases,
+three prerecorded sources, 10 sampled seconds per phase, manual clips and DVR,
+continued processing/packet progress and clean shutdown. All 12 outputs passed
+strict decode/timestamp inspection. Actual health coverage flags were asserted.
+Evidence: `artifacts/mux-trace-disabled-full-server.log` and
+`artifacts/mux-trace-disabled-{replay,workload}-{0,1}.json`. Detection and browser
+playback were off; these are not the 30-minute representative 16-stream gate,
+network reproduction or full diagnostics-overhead qualification. No main merge,
+remote push, production change or user-owned backlog edit/staging occurred.

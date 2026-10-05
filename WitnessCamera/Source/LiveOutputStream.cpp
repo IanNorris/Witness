@@ -28,16 +28,16 @@ static const uint64_t Fnv1aPrime = 1099511628211ULL;
 
 // Fail open to evidence collection for absent/invalid values. This is only an
 // optional packet-observer switch, never a general stream-validation bypass.
-static bool RetainPacketTraceFromEnvironment()
+static bool RetainStreamTraceFromEnvironment(const char* Name)
 {
 #ifdef _WIN32
 	char* Value = nullptr;
 	size_t Required = 0;
-	const auto Error = _dupenv_s(&Value, &Required, "WITNESS_PACKET_TRACE");
+	const auto Error = _dupenv_s(&Value, &Required, Name);
 	const std::unique_ptr<char, decltype(&std::free)> Owned(Value, &std::free);
 	return Error != 0 || !Value || std::string_view(Value) != "0";
 #else
-	const char* Value = std::getenv("WITNESS_PACKET_TRACE");
+	const char* Value = std::getenv(Name);
 	return !Value || std::string_view(Value) != "0";
 #endif
 }
@@ -371,7 +371,8 @@ LiveOutputStreamData::LiveOutputStreamData(const std::string& LiveCachePath, Inp
 {
     _PendingVideoPacket = av_packet_alloc();
     _PacketCaptureState = new PacketCaptureState();
-    _RetainPacketTrace = RetainPacketTraceFromEnvironment();
+    _RetainPacketTrace = RetainStreamTraceFromEnvironment("WITNESS_PACKET_TRACE");
+    _RetainMuxTrace = RetainStreamTraceFromEnvironment("WITNESS_MUX_TRACE");
 }
 
 LiveOutputStreamData::~LiveOutputStreamData()
@@ -2063,10 +2064,13 @@ bool LiveOutputStream::FlushPartialSegment(bool IsIndependent)
 		{
 			_LiveData->_StreamBacklog->back().Partials.push_back(Partial);
 		}
-		_LiveData->_FragmentDiagRing[_LiveData->_FragmentDiagRingPos % _LiveData->FRAGMENT_DIAG_RING_SIZE] = FragmentDiag;
-		++_LiveData->_FragmentDiagRingPos;
-		if (_LiveData->_FragmentDiagRingCount < _LiveData->FRAGMENT_DIAG_RING_SIZE)
-			++_LiveData->_FragmentDiagRingCount;
+		if (_LiveData->_RetainMuxTrace)
+		{
+			_LiveData->_FragmentDiagRing[_LiveData->_FragmentDiagRingPos % _LiveData->FRAGMENT_DIAG_RING_SIZE] = FragmentDiag;
+			++_LiveData->_FragmentDiagRingPos;
+			if (_LiveData->_FragmentDiagRingCount < _LiveData->FRAGMENT_DIAG_RING_SIZE)
+				++_LiveData->_FragmentDiagRingCount;
+		}
 	}
 	if (!PartialStructure.Valid)
 		CaptureDiagnosticAnomaly("invalidFragmentStructure");
@@ -2346,9 +2350,13 @@ CameraStreamError LiveOutputStream::FinishCurrentSegment(int64_t NextKeyframeDTS
 	Entry.FragmentErrorOffset = FragmentStructure.ErrorOffset;
 	{
 		const std::lock_guard<std::mutex> guard(*_LiveData->_SegmentsMutex);
-		_LiveData->_DiagRing[_LiveData->_DiagRingPos % _LiveData->DIAG_RING_SIZE] = Entry;
-		_LiveData->_DiagRingPos++;
-		if (_LiveData->_DiagRingCount < _LiveData->DIAG_RING_SIZE) _LiveData->_DiagRingCount++;
+		if (_LiveData->_RetainMuxTrace)
+		{
+			_LiveData->_DiagRing[_LiveData->_DiagRingPos % _LiveData->DIAG_RING_SIZE] = Entry;
+			_LiveData->_DiagRingPos++;
+			if (_LiveData->_DiagRingCount < _LiveData->DIAG_RING_SIZE) _LiveData->_DiagRingCount++;
+		}
+		_LiveData->_LastCompletedSegmentNormalizationActive = Entry.TimestampNormalizationActive;
 		_LiveData->_DiagTotalSegments++;
 		_LiveData->_DiagTotalDtsDuration += DtsDuration;
 		_LiveData->_DiagTotalAccumulatedDuration += _LiveData->_CurrentSegmentNominalDuration;
@@ -2392,6 +2400,7 @@ LiveOutputStream::StreamingDiagnostics LiveOutputStream::GetStreamingDiagnostics
 	StreamingDiagnostics Diag;
 	const std::lock_guard<std::mutex> guard(*_LiveData->_SegmentsMutex);
 	Diag.PacketTraceEnabled = _LiveData->_RetainPacketTrace;
+	Diag.MuxTraceEnabled = _LiveData->_RetainMuxTrace;
 	Diag.TotalSegments = _LiveData->_DiagTotalSegments;
 	Diag.ReconnectCount = _LiveData->_InitGeneration;
 	Diag.TotalDtsDuration = _LiveData->_DiagTotalDtsDuration;
@@ -2485,9 +2494,8 @@ LiveOutputStream::StreamingDiagnostics LiveOutputStream::GetStreamingDiagnostics
 	Diag.InitErrorOffset = _LiveData->_DiagInitErrorOffset;
 	Diag.BacklogSize = (int)_LiveData->_StreamBacklog->size();
 	const int count = _LiveData->_DiagRingCount;
-	if( count > 0 )
-		Diag.TimestampNormalizationActive =
-			_LiveData->_DiagRing[(_LiveData->_DiagRingPos - 1) % _LiveData->DIAG_RING_SIZE].TimestampNormalizationActive;
+	if( _LiveData->_DiagTotalSegments > 0 )
+		Diag.TimestampNormalizationActive = _LiveData->_LastCompletedSegmentNormalizationActive;
 	// A repeated FFmpeg cluster keeps its original ring slot. Rank by its last
 	// occurrence so a still-active cluster remains visible in the health export.
 	std::vector<const MediaDiagnosticEvent*> RecentMediaEvents;
@@ -2538,6 +2546,9 @@ LiveOutputStream::StreamingDiagnostics LiveOutputStream::GetStreamingDiagnostics
 
 void LiveOutputStream::CaptureDiagnosticAnomaly(const std::string& Reason)
 {
+	// No passive history exists to snapshot in the fully disabled ring mode.
+	// Explicit authenticated packet capture remains separate and operational.
+	if (!_LiveData->_RetainMuxTrace && !_LiveData->_RetainPacketTrace) return;
 	const int64_t CapturedAtMs = std::chrono::duration_cast<std::chrono::milliseconds>(
 		std::chrono::steady_clock::now() - _LiveData->_PacketDiagEpoch).count();
 	const std::lock_guard<std::mutex> guard(*_LiveData->_SegmentsMutex);
