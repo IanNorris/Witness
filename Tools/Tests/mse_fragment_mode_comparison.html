@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<title>Isolated MSE fragment mode comparison</title>
+<style>
+body { background:#111820; color:#e8eff6; font:15px system-ui; margin:20px }
+button { padding:10px; margin:4px; cursor:pointer } .players { display:flex; gap:20px }
+article { width:48% } video { width:100%; max-height:240px; background:black }
+pre { white-space:pre-wrap; font:12px monospace } #report { max-height:300px; overflow:auto }
+</style>
+<h1>Isolated MSE fragment mode comparison</h1>
+<p>Production-mux fixture bytes, two fresh SourceBuffers. Not the production player or a stability test.</p>
+<button id="adts">Append ADTS fixture</button><button id="raw">Append raw AAC fixture</button>
+<label><input id="late" type="checkbox"> Late join at the verified 3-second video keyframe</label>
+<button id="play" disabled>Play both for 12 seconds</button>
+<p id="status" role="status">Ready</p>
+<div class="players"><article><h2>sequence</h2><video id="sequence" muted playsinline></video></article>
+<article><h2>segments</h2><video id="segments" muted playsinline></video></article></div>
+<pre id="report" aria-label="Comparison report"></pre>
+<script type="module">
+const status = document.querySelector('#status'), report = document.querySelector('#report')
+const buttons = [...document.querySelectorAll('button')]
+let pipelines = [], evidence
+const ranges = buffered => Array.from({length:buffered.length}, (_,i) => [buffered.start(i),buffered.end(i)])
+const show = () => { report.textContent = JSON.stringify(evidence, null, 2) }
+function split(bytes) {
+  const view = new DataView(bytes), starts = []
+  for (let offset = 0, boxes = 0; offset < bytes.byteLength; boxes++) {
+    if (boxes > 100000 || offset + 8 > bytes.byteLength) throw Error('Invalid top-level boxes')
+    let length = view.getUint32(offset), header = 8
+    const kind = String.fromCharCode(...new Uint8Array(bytes,offset+4,4))
+    if (length === 1) {
+      if (offset+16 > bytes.byteLength) throw Error('Truncated extended box')
+      const extended = view.getBigUint64(offset+8)
+      if (extended > BigInt(Number.MAX_SAFE_INTEGER)) throw Error('Oversized box')
+      length = Number(extended); header = 16
+    } else if (!length) length = bytes.byteLength-offset
+    if (length < header || offset+length > bytes.byteLength) throw Error('Invalid box size')
+    if (kind === 'moof') starts.push(offset)
+    offset += length
+  }
+  if (!starts.length) throw Error('No fragments')
+  return [bytes.slice(0,starts[0]), ...starts.map((start,index) => bytes.slice(start,starts[index+1] ?? bytes.byteLength))]
+}
+function once(target, success) {
+  return new Promise((resolve,reject) => {
+    const timeout = setTimeout(() => finish(Error('Timed out: '+success)),10000)
+    const failed = () => finish(Error('MediaSource event failure: '+success))
+    const passed = () => finish()
+    const finish = error => {
+      clearTimeout(timeout); target.removeEventListener(success,passed); target.removeEventListener('error',failed)
+      error ? reject(error) : resolve()
+    }
+    target.addEventListener(success,passed,{once:true}); target.addEventListener('error',failed,{once:true})
+  })
+}
+async function open(mode) {
+  const video = document.querySelector('#'+mode), media = new MediaSource()
+  video.muted = true
+  const url = URL.createObjectURL(media), opened = once(media,'sourceopen')
+  video.src = url; await opened
+  // Both fixed fixtures have avcC profile/compatibility/level bytes 42 c0 0a.
+  const buffer = media.addSourceBuffer('video/mp4; codecs="avc1.42c00a,mp4a.40.2"')
+  buffer.mode = mode
+  return {mode,video,media,buffer,url,appends:[]}
+}
+async function append(pipeline, bytes, index) {
+  const completed = once(pipeline.buffer,'updateend')
+  try { pipeline.buffer.appendBuffer(bytes) } catch (error) { await completed.catch(()=>{}); throw error }
+  await completed
+  pipeline.appends.push({index, ranges:ranges(pipeline.buffer.buffered), timestampOffset:pipeline.buffer.timestampOffset})
+}
+function cleanup() {
+  for (const pipeline of pipelines) {
+    pipeline.video.pause(); pipeline.video.removeAttribute('src'); pipeline.video.load(); URL.revokeObjectURL(pipeline.url)
+  }
+  pipelines = []
+}
+async function run(fixture) {
+  buttons.forEach(button => button.disabled=true); cleanup()
+  const lateJoin = document.querySelector('#late').checked
+  evidence = {fixture,lateJoin,scope:'Same finite fMP4 fragments appended sequentially without pacing; no production websocket, watchdog, keyframe filtering, looped sender or reconnect coverage.',modes:{}}
+  status.textContent='Appending '+fixture; show()
+  try {
+    const response = await fetch('/'+fixture+'.mp4')
+    if (!response.ok) throw Error('Fixture request failed')
+    const chunks = split(await response.arrayBuffer())
+    pipelines = await Promise.all(['sequence','segments'].map(open))
+    // Both fixed files' fragment 21 contains the video keyframe at PTS 3s;
+    // verified with ffprobe key flags/packet positions and top-level mdat extents.
+    const selected = lateJoin ? [0,...Array.from({length:chunks.length-22},(_,i)=>i+22)] : chunks.map((_,i)=>i)
+    for (const i of selected) await Promise.all(pipelines.map(pipeline=>append(pipeline,chunks[i],i)))
+    for (const pipeline of pipelines) {
+      const buffered = ranges(pipeline.buffer.buffered)
+      evidence.modes[pipeline.mode] = {fragmentCount:selected.length-1,buffered,timestampOffset:pipeline.buffer.timestampOffset,appends:pipeline.appends}
+      if (buffered.length) pipeline.video.currentTime=buffered[0][0]
+    }
+    status.textContent='Append comparison complete'; show(); document.querySelector('#play').disabled=false
+  } catch (error) { evidence.error=String(error); status.textContent='Comparison failed'; show() }
+  document.querySelector('#adts').disabled=false; document.querySelector('#raw').disabled=false
+}
+document.querySelector('#adts').onclick=()=>run('adts')
+document.querySelector('#raw').onclick=()=>run('raw')
+document.querySelector('#play').onclick=async()=> {
+  buttons.forEach(button=>button.disabled=true); status.textContent='Playing both for 12 seconds'
+  evidence.playback=[]
+  try {
+    await Promise.all(pipelines.map(pipeline=>pipeline.video.play()))
+    const started=performance.now()
+    const sample=()=> ({elapsedMs:performance.now()-started,players:pipelines.map(({mode,video})=>({mode,
+      currentTime:video.currentTime,readyState:video.readyState,paused:video.paused,
+      error:video.error?{code:video.error.code,message:video.error.message}:null,
+      buffered:ranges(video.buffered),quality:video.getVideoPlaybackQuality().totalVideoFrames}))})
+    evidence.playback.push(sample())
+    for (let i=0;i<48;i++) { await new Promise(resolve=>setTimeout(resolve,250)); evidence.playback.push(sample()) }
+    pipelines.forEach(pipeline=>pipeline.video.pause()); status.textContent='Playback comparison complete'
+  } catch(error) { evidence.playbackError=String(error); status.textContent='Playback failed' }
+  show(); buttons.forEach(button=>button.disabled=false)
+}
+window.addEventListener('pagehide',cleanup)
+</script>
+</html>

@@ -2095,3 +2095,43 @@ keyframe-seek safety, native muxing, deployed bundle or production settings were
 changed by this audit. Late joins, reconnects and B-frame streams must be covered
 before adopting any mode change. The long recording verification remains live
 and pending, independently of this offline audit.
+
+### Real-browser finite-fragment comparison: sequence versus segments
+
+`codex/mse-fragment-mode-comparison` preserves an isolated test page and fixed-
+asset loopback server. It exposes only the page and two fixture outputs, no
+directory listing, arbitrary files, database, sessions or Witness routes. Media
+is bounded to 16 MiB per file and frozen after SHA-256 verification. Changed
+fixtures fail closed because codec bytes and the late-join RAP were verified
+against these exact files. Two asset tests cover freezing, changed hashes,
+missing files and oversize rejection. HTML JavaScript syntax and Python syntax
+checks pass. Direct requests verified the three allowed routes and rejection of
+five unlisted/query/traversal routes on the experimental server.
+
+Four real-browser comparisons completed in the Codex in-app browser:
+
+- ADTS full file: both modes buffered [0,11] seconds; 77 fragments.
+- Raw AAC full file: both buffered [0,11.999999]; 84 fragments.
+- ADTS late join at verified video RAP PTS 3s / fragment 21: sequence buffered
+  [0,8] with timestampOffset -3; segments buffered [3,11] with offset 0.
+- Raw AAC same late join: sequence [0,8.999999] / offset -3; segments
+  [3,11.999999] / offset 0. Both appended 63 fragments.
+
+Both players advanced through each remaining file without a media error during
+12-second playback observations. Raw frame counters can include frames decoded
+before the play promise resolves, so they are not interchangeable with full-file
+strict frame counts. The finite experiment intentionally did not signal EOS;
+readyState 2 at the media tail is expected exhaustion, not proof of a live stall.
+The server and tab were closed after collecting the observations.
+
+Evidence: `artifacts/browser-{adts,raw-aac,late-adts,late-raw-aac}-fragment-mode-comparison.json`
+and `artifacts/browser-fragment-mode-comparison.png`. Each report includes every
+append's ranges/offset and 49 playback snapshots. These observations do not
+reproduce the AAC drift: nonaligned fragment boundaries alone did not cause a
+timeline difference on full-file appends. Late-join rebasing confirms that raw
+server PTS cannot simply be treated as browser time in sequence mode. No default
+mode change is justified yet. This is a finite, unpaced H.264/AAC fixture, not the
+production websocket player, long loop/reconnect, B-frame or hidden-resume test.
+It does not qualify production stability or replace the active goal's longer
+matched-observer and real-stream gates. The recording-verifier handle remains
+live and was observed advancing to camera 6 strict decode.
