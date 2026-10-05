@@ -3536,3 +3536,35 @@ Audit handle58671 was confirmed live again and its progress reached 10/128
 recordings. The matched ON phase remains unstarted while recording inspection
 is active. This evidence-only branch changes no runtime/package, main, remote,
 production configuration, physical camera, private-media tracking or user backlog.
+
+### Reproducible matched replay numeric comparison (2026-10-05)
+
+Separate `codex/matched-replay-comparison` adds
+`Tools/Tests/compare_replay_phases.py OFF_SUMMARY ON_SUMMARY OFF_RECORDINGS ON_RECORDINGS`.
+Its summaries now retain actual per-sample observer modes and main-stream codec,
+resolution/audio profiles. Missing/mixed mode evidence or changing profiles stays
+unavailable rather than being inferred from requested environment flags.
+The comparison requires identical native/web identities, observed profiles and
+CPU-inference/clip+DVR workload, sixteen uniquely identified H.264/HEVC replay
+streams, each phase at least 1800s with sampling gaps no larger than 10s, browser
+attachment before the phase, complete ordinary-summary HTTP timings, exact
+per-camera filter task distributions, and completed passing recording inspection
+covering clips and DVR for every camera. Missing qualifications return incomplete.
+
+It reports CPU P50 and P95 changes separately in host percentage points (both must
+be below one), exact per-camera filter P95 increments (each below 5%), and each
+phase's ordinary-summary HTTP P95 (below 100ms). CLI exit is nonzero for failed or
+incomplete inputs. This is deliberately a replay numeric-threshold result, not
+a claim of full goal completion, production stability, physical-camera diversity,
+continuous playback, hidden/resume or independent-profile browser validation.
+Those separate requirements remain open even if numericThresholdsMet is reported.
+
+Three comparison and eighteen summary regression tests pass. Re-analysis of the
+actual frozen OFF phase reports all five observers disabled consistently across
+the sampled phase and sixteen stable main profiles. Ignored evidence:
+`artifacts/matched-cached-health-off-v2-qualified-summary.json` and
+`artifacts/matched-cached-health-comparison-pending-on.json`. Supplying no ON phase
+and the still-running OFF inspection correctly produces incomplete, not a pass.
+The audit58671 handle remains live; ON has not started. Runtime/package/source
+dependencies, main, remote, production, private-media tracking and user backlog
+are unchanged; no build is necessary for this offline test/analysis change.

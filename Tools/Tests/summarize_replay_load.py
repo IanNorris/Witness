@@ -151,6 +151,27 @@ def summarize(replay, history):
     if any(sorted(camera['cameraId'] for camera in sample['cameras']) != camera_ids
            for sample in samples):
         raise ValueError('Camera set changed during measurement')
+    # Preserve observed mode/profile provenance, not just caller-requested flags.
+    # Missing or mixed evidence stays unavailable rather than qualifying a phase.
+    modes = {name: [] for name in ('http', 'database', 'packet', 'mux', 'media')}
+    profiles = {camera_id: [] for camera_id in camera_ids}
+    for sample in samples:
+        for name in ('http', 'database'):
+            modes[name].append(sample['server'].get(name, {}).get('tracingEnabled'))
+        for camera in sample['cameras']:
+            main = [stream for stream in camera.get('streams', []) if stream.get('tier') == 'main']
+            stream = main[0] if len(main) == 1 else {}
+            for name in ('packet', 'mux', 'media'):
+                modes[name].append(stream.get(name + 'TraceEnabled'))
+            profile = {name: stream.get(name) for name in ('videoCodec', 'width', 'height', 'audioCodec')}
+            valid = (isinstance(profile['videoCodec'], str) and bool(profile['videoCodec']) and
+                     isinstance(profile['audioCodec'], str) and
+                     all(type(profile[name]) is int and profile[name] > 0 for name in ('width', 'height')))
+            profiles[camera['cameraId']].append(profile if valid else None)
+    observer_modes = {name: values[0] if values and all(type(value) is bool and value == values[0]
+                         for value in values) else None for name, values in modes.items()}
+    main_profiles = [{'cameraId': camera_id, **values[0]} for camera_id, values in profiles.items()
+                     if values[0] is not None and all(value == values[0] for value in values)]
     processing = []
     for camera_id in camera_ids:
         values = [next(camera for camera in sample['cameras'] if camera['cameraId'] == camera_id)
@@ -226,6 +247,9 @@ def summarize(replay, history):
             'measurementBoundaryObservations': boundary_observations,
             'players': player_reports})
     return {'nativeBuildId': native, 'webBuildId': build,
+        'observerModes': observer_modes,
+        'mainStreamProfiles': main_profiles if len(main_profiles) == len(camera_ids) else None,
+        'browserReadyBeforePhase': replay.get('browserReadyBeforePhase') is True,
         'cameraCount': len(camera_ids), 'sampleCount': len(samples),
         'coverage': replay.get('coverage'), 'workload': replay.get('workload'),
         'measurementWindow': window,

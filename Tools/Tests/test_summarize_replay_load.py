@@ -4,6 +4,25 @@ from summarize_replay_load import buffer_position_observations, presentation_obs
 
 
 class ReplaySummaryTests(unittest.TestCase):
+    def test_observer_modes_and_main_profiles_require_consistent_observed_evidence(self):
+        replay, row = self.fixture()
+        for sample in replay['samples']:
+            sample['server']['http'] = {'tracingEnabled': False}
+            sample['server']['database'] = {'tracingEnabled': False}
+            sample['cameras'][0]['streams'] = [{'tier': 'main', 'videoCodec': 'h264',
+                'width': 1280, 'height': 720, 'audioCodec': '',
+                'packetTraceEnabled': False, 'muxTraceEnabled': False, 'mediaTraceEnabled': False}]
+        report = summarize(replay, {'history': [row]})
+        self.assertTrue(all(value is False for value in report['observerModes'].values()))
+        self.assertEqual(report['mainStreamProfiles'][0]['width'], 1280)
+        replay['samples'][1]['cameras'][0]['streams'][0]['width'] = 256
+        replay['samples'][1]['server']['http']['tracingEnabled'] = True
+        replay['samples'][1]['cameras'][0]['streams'][0].pop('packetTraceEnabled')
+        report = summarize(replay, {'history': [row]})
+        self.assertIsNone(report['mainStreamProfiles'])
+        self.assertIsNone(report['observerModes']['http'])
+        self.assertIsNone(report['observerModes']['packet'])
+
     def test_presentation_does_not_bridge_missing_or_conflicting_evidence(self):
         def sample(t, frames):
             return {'t': t, 'generation': 1, 'presentationVisible': True,
