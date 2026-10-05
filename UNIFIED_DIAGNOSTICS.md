@@ -3732,6 +3732,57 @@ frozen OFF audit remains live and has advanced to 14/128 inspected outputs;
 ON remains deferred until background audits end. No main merge, remote push,
 production deployment, dependency mutation or private-media tracking occurred.
 
+### Completed mixed-codec shutdown validation (2026-10-05)
+
+Immutable native `38f1f29951b5` / web `75e216083a96` completed both qualified
+four-profile lifecycles in 681.976s; all eight outputs in each recording audit
+passed. The join-hardened native `90c2fae6e2a5` / web `743329f05c56` subsequently
+completed the same two-lifecycle test in 692.434s, with all sixteen recording
+inspections passing (`artifacts/run-worker-join-mixed-codecs-20261005/`). These
+are terminal test results, not inferred from progress files. Both tests retain
+90-second CPU inference/manual recording/DVR phases, five observer modes and
+the original 30-second shutdown deadline. They check authenticated history,
+processing evidence, qualified codecs, strict decode and packet/frame timestamp
+inspection. Neither attaches a browser or uses physical cameras, and the
+invocation duration includes slow offline recording audits: it is not a CPU/
+latency benchmark or the matched 30-minute load gate. The new package therefore
+has camera-loaded lifecycle evidence, not a production-stability claim.
+
+### Rendered automatic-slot and rectangle checks (2026-10-05)
+
+Branch `codex/dashboard-auto-slot-rendered-validation` records CUA validation
+of the compiled web `743329f05c56` dashboard using only the existing synthetic
+PTZ/SVG/JPEG fixture. Eight offline dashboard-layout tests pass. In Layout mode,
+fixed camera 10 remains visible while active cameras 15/14 occupy Auto 1/2 in
+priority order, with all five group camera cards still mounted. UI Arrange/Save
+successfully changes the activity rectangle to x9/y7/width3/height5, reflected
+as left75%/top58.3333%/width25%/height41.6667% in rendered DOM.
+
+The UI saves a 20-second automatic-slot hold. Camera 15 remains Auto 1 at the
+observation about 7.7 seconds after its stop event; a later observation about
+57.9 seconds afterward shows active camera 14 as Auto 1 and fallback camera 13
+as Auto 2. This checks retention and subsequent release, not exact threshold
+timing. The initial six-second observation missed the hold window and is not
+treated as a proven failure or pass. Five mounted cards do not prove continuous
+video decoding, hardware decoder capacity, keyframe readiness or promotion
+latency. Per-group persistence across independent browsers remains unverified.
+
+The first fixture was restarted with interactive input for motion injection;
+both initial fixtures ended through their existing bounded timers. A screenshot
+captured around fixture expiry shows a connection overlay, not a native server
+fault. A fresh synthetic fixture provides clean visual evidence in ignored
+`artifacts/dashboard-auto-slot-priority-20261005.png`; the screenshot depicts
+priority slots with the default rectangular panel, while the edited-rectangle
+and hold observations are recorded separately in ignored
+`artifacts/dashboard-auto-slot-observations-20261005.json`. The final tab/server
+were explicitly closed (owned PTY interrupt). No real feeds, camera movement,
+production authentication changes or private media were used in this UI check.
+
+One concrete responsive defect remains: at viewport width1280, playback and
+Activity toolbar buttons extend to x1330.45/x1401.30. This is visible in the clean
+screenshot and confirmed from DOM bounds; it is not a claim that every keyboard
+navigation path is unavailable. Responsive toolbar handling is the next UI fix.
+
 ### Explicit worker joins before normal teardown (2026-10-05)
 
 Branch `codex/worker-join-before-teardown` closes a normal-shutdown ordering
