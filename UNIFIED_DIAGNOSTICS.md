@@ -3568,3 +3568,50 @@ and the still-running OFF inspection correctly produces incomplete, not a pass.
 The audit58671 handle remains live; ON has not started. Runtime/package/source
 dependencies, main, remote, production, private-media tracking and user backlog
 are unchanged; no build is necessary for this offline test/analysis change.
+
+### Bounded browser-history SQLite contention recovery (2026-10-05)
+
+Separate `codex/client-health-storage-contention` reproduces a storage-worker
+liveness gap using a newly-created private telemetry DB: an external BEGIN
+IMMEDIATE held for 650ms made the old worker exit permanently after its 200ms
+busy timeout. Releasing the lock never made the accepted sample durable; the
+opt-in regression failed with history worker timed out. No real database,
+application sessions, recording files, physical camera or production setting
+were used.
+
+SQLite failures now retain their primary result code internally. Startup/load
+and batch transactions retry only SQLITE_BUSY/SQLITE_LOCKED, at most eight times
+with a 100ms interruptible worker wait and the existing 200ms SQLite busy timeout.
+Each unsuccessful transaction rolls back. The same accepted batch and sequence
+IDs are retried, without re-appending samples or advancing the durable watermark
+until commit. Storage availability is false during retries, failures remain
+cumulative evidence, and availability returns after successful storage. HTTP
+handlers never perform the wait. Shutdown interrupts backoff; other storage
+errors and exhausted contention still terminate with unavailable storage. This
+is bounded brief-contention recovery, not indefinite reopening/recovery from a
+prolonged lock, permission failure, full disk or corrupt database.
+
+`ClientHealthHistoryTests <NEW_PRIVATE_DB> --temporary-contention` passes: write
+and startup locks recover, accepted rows persist without duplication across
+restart, shutdown during retry completes within one second, and a lock exceeding
+the budget leaves durability unchanged and rejects new submissions. The full
+expanded contention suite passes twice on distinct fixtures. An intermediate
+run raced the fixture's zero-timeout COMMIT and failed at unlock; the external
+fixture connection now has a bounded 1000ms busy timeout and repeated tests pass.
+The full persistence/limits/concurrent-reader suite also passes, with near-limit
+export 16ms / 9,393,620 serialized bytes. Its initial run timed out while native
+compilation was active; a fresh standalone rerun passed. The cause of that first
+timeout is unproven, not dismissed as a confirmed compiler effect.
+
+Pinned native/frontend build passes with cached dependencies; frontend Sass and
+chunk advisories remain. Actual authenticated zero-camera packaged-server
+history/shutdown/restart passes two lifecycles in 18.599s
+(`artifacts/run-health-contention-runtime-20261005/`). It is not live-camera,
+hidden-tab, production-stability or full-load validation.
+Separate verified package:
+`build-vs2026-stable/deploy/health-contention-bc40858364cf-web-a4264754aefb`,
+94 files / 178,163,813 bytes; manifest `artifacts/health-contention-package-verified.json`.
+The older frozen load candidate is unchanged; its audit58671 remains live with
+13/128 inspections complete. Matched ON and validation of the latest candidate
+remain open. No main merge, remote push, production deployment, dependency or
+toolchain mutation, private-media tracking or user-owned backlog edit occurred.

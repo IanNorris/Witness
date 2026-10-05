@@ -1,5 +1,6 @@
 #include "ClientHealthHistory.h"
 #include <crow/json.h>
+#include <sqlite3.h>
 #include <atomic>
 #include <chrono>
 #include <filesystem>
@@ -31,12 +32,97 @@ static void Save(History& Store, Sample Value) {
     Await([&] { return Store.GetSnapshot().DurableThroughSequence > Previous; });
 }
 int main(int Argc, char** Argv) {
-    if (Argc != 2) return 2;
+    if (Argc != 2 && !(Argc == 3 && std::string(Argv[2]) == "--temporary-contention")) return 2;
     const std::filesystem::path Path = Argv[1];
     if (std::filesystem::exists(Path)) { std::cerr << "refusing existing fixture\n"; return 2; }
     try {
         std::atomic<int64_t> Time{1800000000000LL};
         auto Clock = [&] { return Time.load(); };
+        if (Argc == 3) {
+            // The external lock is confined to this newly-created private DB.
+            // No production auth, recording DB, camera or HTTP server is used.
+            {
+                History Store(Path.string(), Clock); Ready(Store); Save(Store, Row());
+                sqlite3* Raw = nullptr;
+                Check(sqlite3_open(Path.string().c_str(), &Raw) == SQLITE_OK, "contention fixture open failed");
+                std::unique_ptr<sqlite3, decltype(&sqlite3_close)> Locker(Raw, sqlite3_close);
+                sqlite3_busy_timeout(Raw, 1000); // Unlock may race the worker's short SQLite read lock.
+                Check(sqlite3_exec(Raw, "BEGIN IMMEDIATE", nullptr, nullptr, nullptr) == SQLITE_OK,
+                      "contention fixture lock failed");
+                const auto Previous = Store.GetSnapshot().DurableThroughSequence;
+                Time += 15000;
+                Check(Store.Submit(Row()) == History::SubmitResult::Accepted, "contention sample rejected prematurely");
+                std::this_thread::sleep_for(std::chrono::milliseconds(650));
+                Check(Store.GetSnapshot().DurableThroughSequence == Previous, "locked transaction claimed durability");
+                Check(sqlite3_exec(Raw, "COMMIT", nullptr, nullptr, nullptr) == SQLITE_OK,
+                      "contention fixture unlock failed");
+                Await([&] { return Store.GetSnapshot().DurableThroughSequence > Previous; });
+                Check(Store.GetSnapshot().StorageAvailable, "temporary lock permanently disabled history");
+                Check(Store.GetSnapshot().Samples.size() == 2, "retry lost or duplicated accepted sample");
+                Time += 15000; Save(Store, Row(8));
+            }
+            {
+                History Store(Path.string(), Clock); Ready(Store);
+                Check(Store.GetSnapshot().Samples.size() == 3, "contention recovery did not survive restart");
+            }
+            {
+                sqlite3* Raw = nullptr;
+                Check(sqlite3_open(Path.string().c_str(), &Raw) == SQLITE_OK, "startup contention open failed");
+                std::unique_ptr<sqlite3, decltype(&sqlite3_close)> Locker(Raw, sqlite3_close);
+                sqlite3_busy_timeout(Raw, 1000);
+                Check(sqlite3_exec(Raw, "BEGIN IMMEDIATE", nullptr, nullptr, nullptr) == SQLITE_OK,
+                      "startup contention lock failed");
+                History Store(Path.string(), Clock);
+                std::this_thread::sleep_for(std::chrono::milliseconds(650));
+                Check(!Store.GetSnapshot().StorageAvailable, "startup lock falsely advertised writable storage");
+                Check(sqlite3_exec(Raw, "COMMIT", nullptr, nullptr, nullptr) == SQLITE_OK,
+                      "startup contention unlock failed");
+                Ready(Store);
+                Check(Store.GetSnapshot().Samples.size() == 3, "startup retry changed persisted rows");
+                Check(Store.GetSnapshot().StorageFailures > 0, "retry hid contention evidence");
+            }
+            {
+                auto Store = std::make_unique<History>(Path.string(), Clock); Ready(*Store);
+                sqlite3* Raw = nullptr;
+                Check(sqlite3_open(Path.string().c_str(), &Raw) == SQLITE_OK, "shutdown contention open failed");
+                std::unique_ptr<sqlite3, decltype(&sqlite3_close)> Locker(Raw, sqlite3_close);
+                sqlite3_busy_timeout(Raw, 1000);
+                Check(sqlite3_exec(Raw, "BEGIN IMMEDIATE", nullptr, nullptr, nullptr) == SQLITE_OK,
+                      "shutdown contention lock failed");
+                Time += 15000;
+                Check(Store->Submit(Row()) == History::SubmitResult::Accepted, "shutdown contention sample rejected");
+                Await([&] { return Store->GetSnapshot().StorageFailures > 0; });
+                const auto Start = std::chrono::steady_clock::now();
+                Store.reset();
+                Check(std::chrono::steady_clock::now() - Start < std::chrono::seconds(1),
+                      "shutdown inherited retry backoff");
+                Check(sqlite3_exec(Raw, "ROLLBACK", nullptr, nullptr, nullptr) == SQLITE_OK,
+                      "shutdown contention rollback failed");
+            }
+            {
+                History Store(Path.string(), Clock); Ready(Store);
+                sqlite3* Raw = nullptr;
+                Check(sqlite3_open(Path.string().c_str(), &Raw) == SQLITE_OK, "retry budget fixture open failed");
+                std::unique_ptr<sqlite3, decltype(&sqlite3_close)> Locker(Raw, sqlite3_close);
+                sqlite3_busy_timeout(Raw, 1000);
+                Check(sqlite3_exec(Raw, "BEGIN IMMEDIATE", nullptr, nullptr, nullptr) == SQLITE_OK,
+                      "retry budget fixture lock failed");
+                const auto Previous = Store.GetSnapshot().DurableThroughSequence;
+                Time += 15000;
+                Check(Store.Submit(Row()) == History::SubmitResult::Accepted, "retry budget sample rejected");
+                Await([&] { return Store.GetSnapshot().StorageFailures >= 9; });
+                const auto State = Store.GetSnapshot();
+                Check(!State.StorageAvailable && State.Pending == 0 && State.DurableThroughSequence == Previous,
+                      "retry exhaustion claimed writable storage or false durability");
+                Check(Store.Submit(Row(8)) == History::SubmitResult::NotReady,
+                      "exhausted storage accepted another write");
+                Check(sqlite3_exec(Raw, "ROLLBACK", nullptr, nullptr, nullptr) == SQLITE_OK,
+                      "retry budget fixture rollback failed");
+            }
+            std::filesystem::remove(Path);
+            std::cout << "Client health temporary contention recovery passed\n";
+            return 0;
+        }
         {
             History Store(Path.string(), Clock); Ready(Store);
             Save(Store, Row());

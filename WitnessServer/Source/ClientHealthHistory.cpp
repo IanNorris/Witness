@@ -30,13 +30,19 @@ bool Valid(const Sample& Value) {
     return Value.UserUID >= 0 && Value.Username.size() <= 256 && Identifier(Value.BrowserID) &&
            Identifier(Value.SessionID) && !Value.Json.empty() && Value.Json.size() <= History::MaxPayloadBytes;
 }
+struct SqliteFailure : std::runtime_error {
+    int Code;
+    SqliteFailure(int Result, const char* Message) : std::runtime_error(Message), Code(Result & 0xff) {}
+};
 void Exec(sqlite3* DB, const char* SQL) {
-    if (sqlite3_exec(DB, SQL, nullptr, nullptr, nullptr) != SQLITE_OK) throw std::runtime_error("telemetry storage operation failed");
+    const int Result = sqlite3_exec(DB, SQL, nullptr, nullptr, nullptr);
+    if (Result != SQLITE_OK) throw SqliteFailure(Result, "telemetry storage operation failed");
 }
 struct Statement {
     sqlite3_stmt* Value = nullptr;
     Statement(sqlite3* DB, const char* SQL) {
-        if (sqlite3_prepare_v2(DB, SQL, -1, &Value, nullptr) != SQLITE_OK) throw std::runtime_error("telemetry statement failed");
+        const int Result = sqlite3_prepare_v2(DB, SQL, -1, &Value, nullptr);
+        if (Result != SQLITE_OK) throw SqliteFailure(Result, "telemetry statement failed");
     }
     ~Statement() { sqlite3_finalize(Value); }
     void Text(int Index, const std::string& ValueIn) {
@@ -44,7 +50,8 @@ struct Statement {
             throw std::runtime_error("telemetry binding failed");
     }
     void Done() {
-        if (sqlite3_step(Value) != SQLITE_DONE) throw std::runtime_error("telemetry write failed");
+        const int Result = sqlite3_step(Value);
+        if (Result != SQLITE_DONE) throw SqliteFailure(Result, "telemetry write failed");
         sqlite3_reset(Value);
         sqlite3_clear_bindings(Value);
     }
@@ -130,7 +137,7 @@ struct History::Impl {
                 LoadedBytes += Bytes(Row); Loaded.push_front(std::make_shared<const Sample>(std::move(Row)));
             } else Invalid.push_back(Sequence);
         }
-        if (Result != SQLITE_DONE) throw std::runtime_error("telemetry load failed");
+        if (Result != SQLITE_DONE) throw SqliteFailure(Result, "telemetry load failed");
         std::vector<uint64_t> Removed;
         { std::lock_guard Lock(Mutex); Samples = std::move(Loaded); Removed = Prune(Now()); }
         Exec(DB, "BEGIN IMMEDIATE");
@@ -140,16 +147,37 @@ struct History::Impl {
         sqlite3_bind_int64(Trim.Value, 1, Now() - RetentionMs); Trim.Done();
         Exec(DB, "COMMIT");
     }
+    template<class Operation> void RetryBusy(sqlite3* DB, Operation RunOperation) {
+        // Only this private storage worker waits. Accepted batch IDs remain
+        // unchanged, and durability advances only after a successful commit.
+        // Eight retries plus the 200ms SQLite busy timeout bound contention;
+        // the wake wait is interruptible so shutdown does not inherit backoff.
+        for (int Attempt = 0; ; ++Attempt) {
+            try {
+                RunOperation();
+                std::lock_guard Lock(Mutex); Available = true;
+                return;
+            } catch (const SqliteFailure& Error) {
+                if ((Error.Code != SQLITE_BUSY && Error.Code != SQLITE_LOCKED) || Attempt >= 8) throw;
+                sqlite3_exec(DB, "ROLLBACK", nullptr, nullptr, nullptr);
+                std::unique_lock Lock(Mutex);
+                Available = false; ++Failures;
+                if (Wake.wait_for(Lock, std::chrono::milliseconds(100), [this] { return Stopping; })) throw;
+            }
+        }
+    }
     void Run() noexcept {
         sqlite3* DB = nullptr;
         try {
             if (sqlite3_open_v2(Path.c_str(), &DB, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE | SQLITE_OPEN_NOMUTEX, nullptr) != SQLITE_OK)
                 throw std::runtime_error("telemetry open failed");
             sqlite3_busy_timeout(DB, 200);
-            Exec(DB, "PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; PRAGMA max_page_count=8192;"
-                "CREATE TABLE IF NOT EXISTS samples(seq INTEGER PRIMARY KEY,received INTEGER NOT NULL,user_uid INTEGER NOT NULL,"
-                "username TEXT NOT NULL,browser TEXT NOT NULL,session TEXT NOT NULL,payload TEXT NOT NULL)");
-            Load(DB);
+            RetryBusy(DB, [&] {
+                Exec(DB, "PRAGMA journal_mode=DELETE; PRAGMA synchronous=FULL; PRAGMA max_page_count=8192;"
+                    "CREATE TABLE IF NOT EXISTS samples(seq INTEGER PRIMARY KEY,received INTEGER NOT NULL,user_uid INTEGER NOT NULL,"
+                    "username TEXT NOT NULL,browser TEXT NOT NULL,session TEXT NOT NULL,payload TEXT NOT NULL)");
+                Load(DB);
+            });
             { std::lock_guard Lock(Mutex); Ready = Available = true; Durable = NextSequence; }
             while (true) {
                 std::deque<StoredSample> Batch;
@@ -163,19 +191,21 @@ struct History::Impl {
                     if (Stopping && Batch.empty() && Removed.empty()) break;
                 }
                 if (Batch.empty() && Removed.empty()) continue;
-                Exec(DB, "BEGIN IMMEDIATE");
-                DeleteRows(DB, Removed);
-                Statement Insert(DB, "INSERT INTO samples VALUES(?,?,?,?,?,?,?)");
-                for (const auto& StoredRow : Batch) {
-                    const Sample& Row = *StoredRow;
-                    if (std::find(Removed.begin(), Removed.end(), Row.Sequence) != Removed.end()) continue;
-                    sqlite3_bind_int64(Insert.Value, 1, static_cast<sqlite3_int64>(Row.Sequence));
-                    sqlite3_bind_int64(Insert.Value, 2, Row.ReceivedUnixMs);
-                    sqlite3_bind_int(Insert.Value, 3, Row.UserUID);
-                    Insert.Text(4, Row.Username); Insert.Text(5, Row.BrowserID); Insert.Text(6, Row.SessionID); Insert.Text(7, Row.Json);
-                    Insert.Done();
-                }
-                Exec(DB, "COMMIT");
+                RetryBusy(DB, [&] {
+                    Exec(DB, "BEGIN IMMEDIATE");
+                    DeleteRows(DB, Removed);
+                    Statement Insert(DB, "INSERT INTO samples VALUES(?,?,?,?,?,?,?)");
+                    for (const auto& StoredRow : Batch) {
+                        const Sample& Row = *StoredRow;
+                        if (std::find(Removed.begin(), Removed.end(), Row.Sequence) != Removed.end()) continue;
+                        sqlite3_bind_int64(Insert.Value, 1, static_cast<sqlite3_int64>(Row.Sequence));
+                        sqlite3_bind_int64(Insert.Value, 2, Row.ReceivedUnixMs);
+                        sqlite3_bind_int(Insert.Value, 3, Row.UserUID);
+                        Insert.Text(4, Row.Username); Insert.Text(5, Row.BrowserID); Insert.Text(6, Row.SessionID); Insert.Text(7, Row.Json);
+                        Insert.Done();
+                    }
+                    Exec(DB, "COMMIT");
+                });
                 if (!Batch.empty()) { std::lock_guard Lock(Mutex); Durable = Batch.back()->Sequence; }
             }
         } catch (...) {
