@@ -4671,3 +4671,16 @@ artifacts/deployment/validation trees are untracked, and review screenshots and
 reports are ignored. Only source/docs/tests are merged; existing user BACKLOG
 edits remain unstaged. Nothing is pushed or deployed, and separate PTZ credential
 confirmation remains outstanding. Overall goal completion is not claimed.
+
+Safe-keyframe recovery inspection (2026-10-05): native partial metadata marks
+KeyframeSeekSafe only when video has no multiplexed audio, no B-frames and active
+no-B-frame timestamp normalization. The browser additionally requires an
+independent first partial, completed append and a bounded in-buffer future RAP.
+An arbitrary SourceBuffer boundary is not promoted to a safe keyframe. Thus the
+H.264/AAC acceptance cannot qualify that path; a clean video-only HEVC input is
+also not automatically safe merely because it has keyframes. Its timestamps
+must satisfy the native normalization condition. The two genuine resume traces
+above prove the immediate reconnect fallback, not a decoder-qualified RAP seek.
+Inspection found no reason to weaken those guards; direct real-decoder seek
+acceptance remains a separate validation gap. No application or package changes
+are made by this inspection.
