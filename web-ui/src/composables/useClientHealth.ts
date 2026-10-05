@@ -336,12 +336,35 @@ export interface ClientHealthHistory {
 }
 
 export function compactHealthReport(session: ClientHealthSession): ClientHealthSession {
+  // Preserve the scalar evidence needed to distinguish suspended playback from
+  // delivery stalls even when full per-player ranges exceed the POST budget.
+  const compactDrift = (sample?: DriftSample): DriftSample | undefined => sample ? {
+    t: sample.t, generation: sample.generation, visibility: sample.visibility,
+    currentTime: sample.currentTime, bufferedEnd: sample.bufferedEnd, lagMs: sample.lagMs,
+    paused: sample.paused, readyState: sample.readyState, playbackRate: sample.playbackRate,
+    schedulingDelayMs: sample.schedulingDelayMs, sampleIntervalMs: sample.sampleIntervalMs,
+    playbackAdvanceMs: sample.playbackAdvanceMs, bufferAdvanceMs: sample.bufferAdvanceMs,
+    fragmentAgeMs: sample.fragmentAgeMs, appendAgeMs: sample.appendAgeMs,
+  } : undefined
+  const compactRestart = (event?: ClientPlayerEvent): ClientPlayerEvent | undefined => event ? {
+    t: event.t, type: event.type, reason: event.reason, lagMs: event.lagMs,
+    drift: compactDrift(event.drift),
+  } : undefined
+  const overBudget = () => new TextEncoder().encode(JSON.stringify(report)).length > 60 * 1024
   const report = { ...session, players: session.players.map(player => ({ ...player,
     recentEvents: player.recentEvents?.slice(-8).map(event => ({ ...event, message: undefined, driftSamples: undefined, drift: undefined })),
-    driftSamples: player.driftSamples?.slice(-4), lastDriftRestart: undefined,
+    driftSamples: player.driftSamples?.slice(-4), lastDriftRestart: compactRestart(player.lastDriftRestart),
   })) }
-  if (new TextEncoder().encode(JSON.stringify(report)).length > 60 * 1024) {
-    for (const player of report.players) { player.recentEvents = undefined; player.driftSamples = undefined }
+  if (overBudget()) {
+    for (const player of report.players) {
+      player.recentEvents = player.recentEvents?.slice(-2)
+      player.driftSamples = player.driftSamples?.slice(-1).map(sample => compactDrift(sample)!)
+    }
+  }
+  if (overBudget()) {
+    for (const player of report.players) {
+      player.recentEvents = undefined; player.driftSamples = undefined; player.lastDriftRestart = undefined
+    }
   }
   return report
 }

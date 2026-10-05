@@ -25,6 +25,7 @@ test('compact report bounds event/drift history without losing players or core h
   assert.equal(report.players[0].recentEvents.length, 8)
   assert.equal(report.players[0].recentEvents[0].message, undefined)
   assert.equal(report.players[0].driftSamples.length, 4)
+  assert.deepEqual(report.players[0].lastDriftRestart, { t, type: 'restart', reason: undefined, lagMs: undefined, drift: undefined })
   assert.equal(original.players[0].recentEvents.length, 40)
   const many = { ...original, players: Array.from({ length: 64 }, (_, index) => ({
     ...original.players[0], id: `${index}_mse`, driftSamples: Array(60).fill({ t, buffered: Array(8).fill([1, 2]),
@@ -33,6 +34,72 @@ test('compact report bounds event/drift history without losing players or core h
   const bounded = health.compactHealthReport(many)
   assert.equal(bounded.players.length, 64)
   assert.ok(new TextEncoder().encode(JSON.stringify(bounded)).length < 64 * 1024)
+})
+
+test('a rich 16-player report retains suspension and restart evidence under the POST budget', () => {
+  const t = '2026-10-05T01:53:51Z'
+  const drift = { t, currentTime: 11.4, bufferedEnd: 152.5, lagMs: 141100,
+    visibility: 'hidden', paused: true, readyState: 4, playbackRate: 1.08,
+    schedulingDelayMs: 59986, fragmentAgeMs: 158, appendAgeMs: 155,
+    buffered: Array(8).fill([11.4, 152.5]), sourceBuffered: Array(8).fill([11.4, 152.5]),
+    // Large but finite JSON numbers exercise compaction rather than only a tiny fixture.
+    appendQueueBytes: Number.MAX_VALUE, appendQueueLength: Number.MAX_VALUE,
+    timestampOffsetSeconds: Number.MAX_VALUE, maxAppendDurationMs: Number.MAX_VALUE,
+    maxFragmentGapMs: Number.MAX_VALUE, sampleIntervalMs: Number.MAX_VALUE,
+    playbackAdvanceMs: Number.MAX_VALUE, bufferAdvanceMs: Number.MAX_VALUE }
+  const session = { sessionId: 'tab', sampledAtUtc: t, buildHash: 'build', userAgent: 'test', path: '/',
+    visibilityState: 'hidden', playersTruncated: false, players: Array.from({length: 16}, (_, index) => ({
+      id: `${index + 1}_mse`, latencyMs: 141100, restartCount: 8, stallCount: 5,
+      recentEvents: Array(8).fill({ t, type: 'restart', reason: 'drift', message: 'omit', mimeType: 'a'.repeat(120) }),
+      driftSamples: Array(60).fill(drift),
+      lastDriftRestart: { t, type: 'driftRestart', lagMs: 141100, message: 'omit', drift, driftSamples: Array(20).fill(drift) },
+    })) }
+  const report = health.compactHealthReport(session)
+  assert.equal(report.players.length, 16)
+  assert.ok(new TextEncoder().encode(JSON.stringify(report)).length < 60 * 1024)
+  for (const player of report.players) {
+    assert.equal(player.driftSamples.length, 1)
+    assert.equal(player.driftSamples[0].schedulingDelayMs, 59986)
+    assert.equal(player.driftSamples[0].paused, true)
+    assert.equal(player.driftSamples[0].fragmentAgeMs, 158)
+    assert.equal(player.driftSamples[0].buffered, undefined)
+    assert.equal(player.lastDriftRestart.drift.lagMs, 141100)
+    assert.equal(player.lastDriftRestart.message, undefined)
+    assert.equal(player.lastDriftRestart.driftSamples, undefined)
+  }
+  assert.equal(session.players[0].driftSamples.length, 60)
+  assert.equal(session.players[0].lastDriftRestart.message, 'omit')
+})
+
+test('optional real-player export retains compact causal evidence', {
+  skip: !process.env.WITNESS_CLIENT_HEALTH_FIXTURE,
+}, async () => {
+  // Offline JSON only: never opens a browser or retrieves live credentials.
+  const fixture = JSON.parse(await readFile(process.env.WITNESS_CLIENT_HEALTH_FIXTURE, 'utf8')).client
+  const prior = { window: globalThis.window, document: globalThis.document,
+    location: globalThis.location, build: globalThis.__BUILD_HASH__ }
+  try {
+    globalThis.window = { _witnessMseDiag: Object.fromEntries(Object.entries(fixture.cameras)
+      .map(([id, data]) => [id, { snapshot: () => data }])) }
+    globalThis.document = { visibilityState: 'visible' }
+    globalThis.location = { pathname: '/' }
+    globalThis.__BUILD_HASH__ = fixture.buildHash
+    const original = health.collectLocalClientHealth()
+    const report = health.compactHealthReport(original)
+    assert.equal(report.players.length, Object.keys(fixture.cameras).length)
+    assert.ok(new TextEncoder().encode(JSON.stringify(report)).length < 60 * 1024)
+    for (const player of report.players) {
+      assert.ok(player.driftSamples?.length, `${player.id} lost drift evidence`)
+      if (fixture.cameras[player.id].lastDriftRestart)
+        assert.ok(player.lastDriftRestart, `${player.id} lost last drift recovery`)
+    }
+    console.info('Offline fixture compaction:', JSON.stringify({ players: report.players.length,
+      originalBytes: new TextEncoder().encode(JSON.stringify(original)).length,
+      compactBytes: new TextEncoder().encode(JSON.stringify(report)).length }))
+  } finally {
+    globalThis.window = prior.window; globalThis.document = prior.document
+    globalThis.location = prior.location; globalThis.__BUILD_HASH__ = prior.build
+  }
 })
 
 test('reporter keeps identity, sends hidden pages, retries and stops on logout', async () => {

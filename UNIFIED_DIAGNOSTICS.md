@@ -1025,3 +1025,39 @@ This evidence does not establish a server transport failure or production
 stability, and the final server measurement must not be labeled a full browser
 playback acceptance pass. Visibility at startup alone cannot guarantee that a
 browser stays scheduled/rendering throughout a long phase.
+
+### Endurance result and compact browser evidence (2026-10-05)
+
+The 16-stream recording/CPU-inference fixture finished successfully in
+1,859.170 seconds, including shutdown: 1,778 server samples across the 1,800-second
+phase, maximum observation gap 1.198 seconds. All 28,448 available stream
+observations were connected, with zero timestamp-normalization rejection and
+zero established drops/repairs, lifetime corrupt packets or missing DTS. Every
+fixture camera created one manual clip and seven DVR segment rows; completed
+inference windows were observed for every camera. This is sparse no-motion
+baseline inference, not sustained active-scene inference. Full strict decoding
+of the long recordings was not enabled. Process CPU averaged 33.69% of host
+logical capacity (P95 44.98%); snapshot request P50/P95/P99 were
+7.32/29.62/38.72 ms, maximum 197.76 ms. These are enabled-run observations, not
+incremental instrumentation overhead without a corresponding baseline.
+
+The history export contained 118 rows, zero pending/rejected/storage failures.
+Its final hidden-browser heartbeat still reported 3–11 player restarts and high
+latencies; this contradicts uninterrupted healthy browser playback. The native
+lifecycle pass must not be interpreted as a client stability pass. Preserved
+artifacts: `artifacts/mixed-recording-30minute-{health-0,history,workload-0}.json`
+and `artifacts/mixed-recording-browser-30minute.log`. The fixture stopped and
+removed its private runtime/cache/databases. No wake lock was held.
+
+The existing compact heartbeat discarded all drift/events when full evidence
+exceeded 60 KiB. It now first reduces each player to two events, one scalar drift
+sample, and a scalar last-drift-restart summary. This preserves visibility,
+pause state, timer delay, playhead/buffer end, and fragment/append age without
+buffer arrays, messages or nested histories. Only an additional over-budget
+fallback removes these details. Normal authentication, CSRF and server retention
+bounds are unchanged. Offline replay of this real 16-player export retained
+drift and last-drift-restart evidence for every player in 24,156 bytes (the
+uncompacted report was 1,610,149 bytes). Four reporter tests, including this
+optional offline export, three drift/privacy tests and four playback-guard tests
+passed. The tests confirm schema/bounds, not live persisted receipt of the new
+web bundle or resolution of the suspended-playback behavior.
