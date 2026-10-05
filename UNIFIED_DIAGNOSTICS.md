@@ -1282,3 +1282,21 @@ test compilation overlaps the current endurance phase, so its CPU measurements
 must not be represented as a clean overhead baseline. Integrated Camera/server
 build, timestamp/media regression fixtures and a separate deployable package for
 this source change remain pending after the frozen-package endurance run.
+
+`LiveDuplicateHistoryTests` adds an offline production-mux check: feed 40
+monotonic video packets, replay the same encoded payload with a bounded backward
+timestamp, and require duplicate rejection both with and without the optional
+trace retained. A third run deliberately clears functional evidence and requires
+acceptance/repair, so the check cannot pass merely because equal DTS is always
+rejected. Its object-only MSVC compile passed with zero warnings/errors in 5.99
+seconds; no Camera/server binaries were compiled or linked. Execution against a
+matching rebuilt Camera DLL remains pending. CMake reused the same managed
+dependencies (7.0-second configure / 1.3-second generation).
+
+The running 16-stream package later reported one error count per player after
+the foreground restart, despite continuing presentation, no additional restarts,
+and roughly 1.1–1.4 seconds headroom. The bounded persisted recent-event lists
+had already evicted the error events. Do not infer an AbortError, WebSocket close
+or decoder failure from that counter alone. This exposes another history
+requirement: retain a bounded structured last-error snapshot independently of
+the rolling routine-event list, without persisting free-form messages or secrets.

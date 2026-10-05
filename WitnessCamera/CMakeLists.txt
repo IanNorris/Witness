@@ -198,7 +198,7 @@ endif()
 
 # Offline fixtures only. Internal state access belongs to these test consumers,
 # never to the exported Camera DLL header.
-foreach(test_name LiveTimestampRecoveryTests LiveCadencePauseTests LiveStreamOwnershipTests)
+foreach(test_name LiveTimestampRecoveryTests LiveCadencePauseTests LiveStreamOwnershipTests LiveDuplicateHistoryTests)
     add_executable(${test_name} EXCLUDE_FROM_ALL ../Tools/Tests/${test_name}.cpp)
     target_include_directories(${test_name} PRIVATE Source ${FFMPEG_INCLUDE_DIRS} ${OpenCV_INCLUDE_DIRS})
     target_link_directories(${test_name} PRIVATE ${FFMPEG_LIBRARY_DIRS})
