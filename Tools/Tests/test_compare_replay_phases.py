@@ -15,6 +15,9 @@ class ReplayPhaseComparisonTests(unittest.TestCase):
             'observerModes': dict.fromkeys(('http', 'database', 'packet', 'mux', 'media'), False),
             'measurementWindow': {'startedUnixMs': 2000, 'observedDurationSeconds': 1800},
             'coverage': {'maximumGapSeconds': 1},
+            'sampledBrowserVisibility': [{'scope': 'authenticatedSessionReceiptsWithinMeasurementWindowNotContinuousVisibilityProof',
+                'retainedRows': 121, 'hiddenRows': 0, 'unknownVisibilityRows': 0, 'incompletePlayerRows': 0,
+                'startOffsetSeconds': 0, 'endGapSeconds': 0, 'maximumReceiptGapSeconds': 15}],
             'summaryHttpTiming': {'scope': 'authenticatedHealthWithoutRawWorkSamplesRequestAndResponseBodyOnly',
                                  'complete': True, 'availableSamples': 1800, 'totalSamples': 1800},
             'summaryHttpWallMs': {'p95': 20}, 'processCpuHostCapacityPercent': {'p50': 20, 'p95': 30},
@@ -51,6 +54,20 @@ class ReplayPhaseComparisonTests(unittest.TestCase):
         report = compare(off, on, recordings, recordings)
         self.assertEqual(report['status'], 'failed')
         self.assertEqual(len(report['thresholdFailures']), 3)
+
+    def test_hidden_unknown_sparse_or_partial_sessions_cannot_qualify(self):
+        for field, value in [('hiddenRows', 1), ('unknownVisibilityRows', 1),
+                             ('incompletePlayerRows', 1), ('retainedRows', 1),
+                             ('maximumReceiptGapSeconds', 31), ('startOffsetSeconds', 31),
+                             ('endGapSeconds', None), ('hiddenRows', False),
+                             ('scope', 'legacyUnanchoredHistory')]:
+            off, on, recordings = self.fixture()
+            on['sampledBrowserVisibility'][0][field] = value
+            with self.subTest(field=field, value=value):
+                self.assertEqual(compare(off, on, recordings, recordings)['status'], 'incomplete')
+        off, on, recordings = self.fixture()
+        on.pop('sampledBrowserVisibility')
+        self.assertEqual(compare(off, on, recordings, recordings)['status'], 'incomplete')
 
     def test_browser_proof_must_be_recent_visible_complete_and_same_viewport(self):
         for change in [lambda p: p.pop('browserLayoutEvidence'),

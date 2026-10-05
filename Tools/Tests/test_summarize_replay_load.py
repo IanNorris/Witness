@@ -255,6 +255,53 @@ class ReplaySummaryTests(unittest.TestCase):
         self.assertIsNone(session['maximumReceiptGapSeconds'])
         self.assertIsNone(session['measurementBoundaryObservations'])
 
+    def test_visibility_keeps_hidden_unknown_and_incomplete_receipts(self):
+        replay, row = self.fixture()
+        replay['measurementWindow'] = {'startedUnixMs': 1000, 'completedUnixMs': 61000}
+        rows = []
+        for index, visibility in enumerate(('visible', 'hidden', None, 'visible', 'visible')):
+            current = copy.deepcopy(row)
+            current['receivedUnixMs'] = 1000 + index * 15000
+            current['snapshot']['visibilityState'] = visibility
+            rows.append(current)
+        rows[3]['snapshot']['players'] = []
+        rows[4]['snapshot']['playersTruncated'] = True
+        result = summarize(replay, {'history': rows})['sampledBrowserVisibility'][0]
+        self.assertEqual(result['retainedRows'], 5)
+        self.assertEqual(result['hiddenRows'], 1)
+        self.assertEqual(result['unknownVisibilityRows'], 1)
+        self.assertEqual(result['incompletePlayerRows'], 2)
+        self.assertEqual(result['maximumReceiptGapSeconds'], 15)
+        self.assertEqual(result['startOffsetSeconds'], 0)
+        self.assertEqual(result['endGapSeconds'], 0)
+
+    def test_visibility_does_not_combine_sessions_or_other_builds(self):
+        replay, row = self.fixture()
+        other = copy.deepcopy(row)
+        other['sessionId'] = 'second'
+        other['snapshot']['visibilityState'] = 'hidden'
+        invalid = copy.deepcopy(row)
+        invalid['snapshot']['buildHash'] = 'other'
+        result = summarize(replay, {'history': [row, other, invalid]})['sampledBrowserVisibility']
+        self.assertEqual(len(result), 2)
+        self.assertEqual([session['retainedRows'] for session in result], [1, 1])
+        self.assertEqual([session['hiddenRows'] for session in result], [0, 1])
+        self.assertTrue(all(session['startOffsetSeconds'] is None for session in result))
+
+    def test_visibility_window_preserves_navigation_but_excludes_outside_receipts(self):
+        replay, row = self.fixture()
+        replay['measurementWindow'] = {'startedUnixMs': 1000, 'completedUnixMs': 31000}
+        navigation = copy.deepcopy(row)
+        navigation['receivedUnixMs'] = 16000
+        navigation['snapshot']['path'] = '/settings'
+        outside = copy.deepcopy(row)
+        outside['receivedUnixMs'] = 31001
+        outside['snapshot']['visibilityState'] = 'hidden'
+        result = summarize(replay, {'history': [row, navigation, outside]})['sampledBrowserVisibility'][0]
+        self.assertEqual(result['retainedRows'], 2)
+        self.assertEqual(result['incompletePlayerRows'], 1)
+        self.assertEqual(result['hiddenRows'], 0)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -4528,3 +4528,22 @@ invalid motion-duration count is zero. This proves genuine H.264/AAC resume
 reconnect recovery, not a real single-RAP seek, all-codec endurance or absence
 of production stalls. Original session5476 remains separate and live; do not
 restart it or mislabel its hidden intervals as continuous visible playback.
+
+Manual validation review follow-up (2026-10-05): replay summaries previously
+filtered hidden browser receipts out of the descriptive visible-player series.
+That series cannot qualify an uninterrupted-visible observer comparison. A new
+separate same-build authenticated session coverage report retains hidden,
+unknown, truncated, missing-player and navigated-away receipts within the actual
+measurement window. Numeric comparison now requires one complete sampled session
+with zero such disqualifying receipts, both boundaries within30 seconds and no
+receipt gap over30 seconds. Sessions cannot be combined and legacy unanchored
+history cannot pass. Heartbeat coverage remains sampled evidence, not continuous
+visibility, unchanged layout, decoder presentation or occlusion proof.
+
+The original16-player phase completed1800.756 seconds with1742 server samples
+and a maximum server-sample gap1.478 seconds. Its120 retained browser receipts
+include58 hidden receipts, zero unknown visibility receipts and zero incomplete
+player sets. The new gate correctly excludes it from a visible matched-overhead
+comparison. Full recording inspection is still underway (128 expected outputs);
+do not interpret partial progress as a completed pass. This is tool-only work:
+the verified native d63a3532fc76/web42f16c90ef9a package is unchanged.

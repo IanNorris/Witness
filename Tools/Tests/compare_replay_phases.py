@@ -57,6 +57,18 @@ def compare(off, on, off_recordings, on_recordings):
         except (ValueError, KeyError, TypeError, AttributeError, OverflowError):
             missing.append(label + ' independent browser layout evidence missing or invalid')
         coverage = phase.get('coverage') or {}
+        # Startup DOM proof cannot qualify a later hidden or unobserved phase.
+        # Require one entire same-session sampled window; never combine tabs.
+        visibility = phase.get('sampledBrowserVisibility') or []
+        if not any(isinstance(row, dict) and
+                row.get('scope') == 'authenticatedSessionReceiptsWithinMeasurementWindowNotContinuousVisibilityProof' and
+                type(row.get('retainedRows')) is int and row['retainedRows'] >= 2 and
+                all(type(row.get(name)) is int and row[name] == 0 for name in
+                    ('hiddenRows', 'unknownVisibilityRows', 'incompletePlayerRows')) and
+                all(finite(row.get(name)) and row[name] <= 30 for name in
+                    ('startOffsetSeconds', 'endGapSeconds', 'maximumReceiptGapSeconds'))
+                for row in visibility):
+            missing.append(label + ' sampled visible browser coverage incomplete or hidden')
         if (not finite(window.get('observedDurationSeconds')) or window['observedDurationSeconds'] < 1800 or
                 not finite(coverage.get('maximumGapSeconds')) or coverage['maximumGapSeconds'] > 10 or
                 phase.get('cameraCount') != 16 or phase.get('browserReadyBeforePhase') is not True):
@@ -118,6 +130,7 @@ def compare(off, on, off_recordings, on_recordings):
             'limits': ['Not production stability or sixteen independent physical cameras.',
                        'Playback, hidden/resume and independent browser-profile gates require separate evidence.',
                        'DOM layout proof qualifies startup only, not continuous visibility or unchanged layout.',
+                       'Visible heartbeats qualify sampled coverage only, not visibility between receipts or occlusion.',
                        'CPU P50 and P95 are both compared; task distributions exclude decode and queue wait.']}
 
 

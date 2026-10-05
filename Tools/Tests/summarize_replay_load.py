@@ -123,6 +123,28 @@ def presentation_observations(timeline):
         'scope': 'deduplicatedRetainedCallbacksNotContinuousPresentationOrOcclusionProof'}
 
 
+def sampled_visibility_coverage(rows, window, player_ids):
+    """Keep hidden/unknown receipts: filtering them out would invent visibility."""
+    hidden = sum(row['snapshot'].get('visibilityState') == 'hidden' for row in rows)
+    unknown = sum(row['snapshot'].get('visibilityState') not in ('visible', 'hidden') for row in rows)
+    incomplete = 0
+    for row in rows:
+        snapshot = row['snapshot']
+        players = snapshot.get('players')
+        if (snapshot.get('path') != '/' or not isinstance(players, list) or len(players) != len(player_ids) or
+                any(not isinstance(player, dict) for player in players) or
+                {player.get('id') for player in players} != player_ids or snapshot.get('playersTruncated')):
+            incomplete += 1
+    gaps = [(right['receivedUnixMs'] - left['receivedUnixMs']) / 1000
+            for left, right in zip(rows, rows[1:])]
+    return {'scope': 'authenticatedSessionReceiptsWithinMeasurementWindowNotContinuousVisibilityProof',
+        'retainedRows': len(rows), 'hiddenRows': hidden, 'unknownVisibilityRows': unknown,
+        'incompletePlayerRows': incomplete,
+        'startOffsetSeconds': (rows[0]['receivedUnixMs'] - window['startedUnixMs']) / 1000 if window else None,
+        'endGapSeconds': (window['completedUnixMs'] - rows[-1]['receivedUnixMs']) / 1000 if window else None,
+        'maximumReceiptGapSeconds': max(gaps) if gaps else None}
+
+
 def summarize(replay, history):
     samples = replay.get('samples', [])
     if not samples:
@@ -186,7 +208,7 @@ def summarize(replay, history):
             'filterScope': values[-1]['processing']['workLatency'].get('scope')})
     # Exclude synthetic fixture setup and other tabs/profiles/builds. Keep
     # sessions separate: counter resets/replacements must not look like recovery.
-    sessions = {}
+    sessions, visibility_sessions = {}, {}
     for row in sorted(history.get('history', []), key=lambda row: row.get('receivedUnixMs', 0)):
         received = row.get('receivedUnixMs')
         if type(received) is not int:
@@ -194,6 +216,10 @@ def summarize(replay, history):
         if window is not None and not window['startedUnixMs'] <= received <= window['completedUnixMs']:
             continue
         snapshot = row.get('snapshot', {})
+        if (row.get('userUid') == 1 and row.get('username') == 'fixture-admin' and
+                snapshot.get('buildHash') == build and
+                all(isinstance(row.get(name), str) and row[name] for name in ('browserId', 'sessionId'))):
+            visibility_sessions.setdefault((row['browserId'], row['sessionId']), []).append(row)
         players = snapshot.get('players', [])
         if (not isinstance(players, list) or len(players) != len(camera_ids) or
                 any(not isinstance(player, dict) for player in players)):
@@ -265,6 +291,8 @@ def summarize(replay, history):
         'summaryHttpWallMs': {name: quantile(summary_requests, percentile) if summary_complete else None
                               for name, percentile in (('p50', .5), ('p95', .95), ('p99', .99))},
         'processing': processing, 'browserSessions': browser,
+        'sampledBrowserVisibility': [sampled_visibility_coverage(rows, window,
+            {f'{uid}_mse' for uid in camera_ids}) for rows in visibility_sessions.values()],
         'processingTaskDistributions': replay.get('processingTaskDistributions', []),
         'limits': ['Rolling filter P95 summaries are not the full-phase processing P95.',
                    'Browser retained spans are not exact measurement-window coverage.',
