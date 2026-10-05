@@ -2049,3 +2049,15 @@ the finished browser tab was closed. Final recording/inference assertions and
 the overall test result remain pending. No new fixture, build, wake lock or
 production configuration change was introduced. The server/sample phase cannot
 be relabeled as a passed full test until its remaining inspections complete.
+
+`codex/recording-inspection-progress` adds optional atomically replaced progress
+JSON for future long-inspection harness runs. It retains one numeric inspection
+summary per completed output (private file paths removed), expected/completed
+counts and an explicit incomplete state. A later decoder exception leaves prior
+checks available; an inspection that returns `passed=false` cannot qualify the
+final report. The final `passed` flag requires nonempty, complete, all-passing
+results. Default callers remain unchanged. Ten workload-evidence tests pass,
+including later exception, later failed result and all-success cases. The live
+endurance fixture predates this edit, so no per-recording progress is invented
+for it. Its owned decoder was observed moving from timestamp probing to camera
+3 strict decode, which proves progress but not success of earlier recordings.

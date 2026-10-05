@@ -123,7 +123,7 @@ def replay_sender_failures(processes, root, inputs, urls):
     return failures
 
 
-def verify_recordings(db, cache, previous_clip_uid, previous_segment_uid):
+def verify_recordings(db, cache, previous_clip_uid, previous_segment_uid, progress_path=None):
     """Inspect only fresh fixture-owned local outputs, never arbitrary DB paths."""
     recordings = []
     for uid, camera, timestamp, mode in db.execute(
@@ -135,6 +135,18 @@ def verify_recordings(db, cache, previous_clip_uid, previous_segment_uid):
             'SELECT SegmentUID,CameraUID,FilePath FROM ContinuousSegment WHERE SegmentUID>?', (previous_segment_uid,)):
         recordings.append(('continuous', camera, uid, Path(path)))
     reports = []
+    def write_progress(complete):
+        if progress_path is None:
+            return
+        target = Path(progress_path)
+        temporary = target.with_suffix('.tmp')
+        temporary.write_text(json.dumps({
+            'schemaVersion': 1, 'inspectionComplete': complete,
+            'expectedOutputs': len(recordings), 'completedOutputs': len(reports),
+            'passed': complete and bool(reports) and all(row['passed'] for row in reports),
+            'recordingInspection': reports}, indent=2), encoding='utf-8')
+        temporary.replace(target)
+    write_progress(False)
     for kind, camera, uid, path in recordings:
         path = path.resolve(strict=True)
         if not path.is_relative_to(cache.resolve()) or not path.is_file():
@@ -167,6 +179,8 @@ def verify_recordings(db, cache, previous_clip_uid, previous_segment_uid):
             raise
         result.pop('file', None)
         reports.append(dict(result, kind=kind, cameraId=camera, recordingId=uid))
+        write_progress(False)
+    write_progress(True)
     return reports
 
 
@@ -642,7 +656,10 @@ class FullServerIsolationTests(unittest.TestCase):
                         evidence = list({json.dumps(row, sort_keys=True): row for row in evidence}.values())
                         with contextlib.closing(sqlite3.connect(data / 'server.db')) as db:
                             clips, segments = recording_evidence(db, previous_clip_uid, previous_segment_uid)
-                            decoded = verify_recordings(db, cache, previous_clip_uid, previous_segment_uid) if verify_outputs else []
+                            progress_path = (repository / f'artifacts/full-server-recording-progress-run-{run}.json'
+                                if os.environ.get('WITNESS_TEST_LONG_RECORDING_INSPECTION') == '1' else None)
+                            decoded = verify_recordings(db, cache, previous_clip_uid, previous_segment_uid,
+                                                        progress_path) if verify_outputs else []
                         (repository / f'artifacts/full-server-workload-run-{run}.json').write_text(
                             json.dumps({'completedInferenceWindows': evidence, 'clipRows': clips,
                                         'continuousSegmentRows': segments,

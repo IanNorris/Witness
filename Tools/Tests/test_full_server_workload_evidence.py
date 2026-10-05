@@ -13,6 +13,41 @@ from test_full_server_isolation import browser_playback_ready, inference_evidenc
 
 
 class WorkloadEvidenceTests(unittest.TestCase):
+    def test_partial_recording_progress_survives_later_failure_without_private_paths(self):
+        with tempfile.TemporaryDirectory() as root:
+            root = Path(root)
+            cache = root / 'cache'; cache.mkdir()
+            (cache / '1_Manual_100.mp4').touch()
+            (cache / '2_Manual_100.mp4').touch()
+            progress = root / 'progress.json'
+            db = sqlite3.connect(':memory:')
+            try:
+                db.execute('CREATE TABLE Clip(ClipUID INTEGER,Camera INTEGER,Timestamp INTEGER,RecordMode INTEGER)')
+                db.execute('CREATE TABLE ContinuousSegment(SegmentUID INTEGER,CameraUID INTEGER,FilePath TEXT)')
+                db.executemany('INSERT INTO Clip VALUES(?,?,?,?)', [(1,1,100,0),(2,2,100,0)])
+                for second in (RecordingInspectionError('frames', 7, 'failure'), {'passed': False}, {'passed': True}):
+                    with self.subTest(second=type(second).__name__), \
+                         patch('test_full_server_isolation.inspect_recording', side_effect=[
+                             {'passed': True, 'file': str(cache / 'private.mp4')}, second]), \
+                         patch('test_full_server_isolation.RECORDING_FAILURE_ROOT', root), patch('builtins.print'):
+                        if isinstance(second, Exception):
+                            with self.assertRaises(RecordingInspectionError):
+                                verify_recordings(db, cache, 0, 0, progress)
+                            expected_count, complete = 1, False
+                        else:
+                            verify_recordings(db, cache, 0, 0, progress)
+                            expected_count, complete = 2, True
+                    report = json.loads(progress.read_text())
+                    self.assertEqual(report['completedOutputs'], expected_count)
+                    self.assertEqual(report['expectedOutputs'], 2)
+                    self.assertEqual(report['inspectionComplete'], complete)
+                    expected_pass = isinstance(second, dict) and complete and second.get('passed', False)
+                    self.assertEqual(report['passed'], expected_pass)
+                    self.assertNotIn(str(cache), progress.read_text())
+                    self.assertFalse(progress.with_suffix('.tmp').exists())
+            finally:
+                db.close()
+
     def test_sender_failure_evidence_is_bounded_and_omits_private_paths(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
