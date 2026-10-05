@@ -121,7 +121,8 @@ int main(int Argc, char** Argv)
                 [&] { Order += 'S'; return true; }), "first reciprocal move failed");
             Check(Lease.Move(ReadPtzLaneId(Database, 11), [&] { Order += 'R'; return true; },
                 [&] { Order += 'T'; return true; }), "replacement reciprocal move failed");
-            Check(Lease.Stop(ReadPtzLaneId(Database, 14), [] { return false; }), "linked stop missed moving transport");
+            const auto Stopped = Lease.StopExisting(ReadPtzLaneId(Database, 14));
+            Check(Stopped.has_value() && *Stopped, "linked retained Stop missed moving transport");
             Check(Order == "LSRT", "reciprocal moves did not stop previous transport first");
         }
         { std::unique_lock<std::mutex> Lock(Database->GetQuery("GetPtzLaneId")->PrepareQueryMutex(), std::try_to_lock);
@@ -139,7 +140,8 @@ int main(int Argc, char** Argv)
             Check(Lease.Move(ReadPtzLaneId(Database, 13), [&] { ++Commands; return true; }, [] { return true; }),
                 "independent linked camera was blocked");
             AllowStop = true;
-            Check(Lease.Stop(ReadPtzLaneId(Database, 14), [] { return false; }), "linked Stop did not retain original transport");
+            const auto Stopped = Lease.StopExisting(ReadPtzLaneId(Database, 14));
+            Check(Stopped.has_value() && *Stopped, "linked Stop did not retain original transport");
         }
         std::cout << "PASS: production SQL, owned snapshots, graph lane identities, linked Stop guards and concurrent discovery\n";
     } catch (const std::exception& Error) { std::cerr << Error.what() << '\n'; return 1; }

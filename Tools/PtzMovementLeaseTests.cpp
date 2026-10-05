@@ -25,6 +25,30 @@ int main()
             Check(lease.Move(10, [] { return true; }, [&] { stopped.Set(); return true; }));
             Check(stopped.Wait());
         }
+        { // Retained Stop does not need a replacement transport or new lane.
+            int stopped = 0;
+            PtzMovementLease lease({}, 10s, 10ms);
+            for (int id = 1; id <= 100; ++id) Check(!lease.StopExisting(id).has_value());
+            Check(lease.Move(10, [] { return true; }, [&] { ++stopped; return true; }));
+            const auto result = lease.StopExisting(10);
+            Check(result.has_value() && *result && stopped == 1);
+            Check(!lease.StopExisting(10).has_value());
+            Check(stopped == 1);
+        }
+        { // Failed retained Stop stays armed; caller must not try a new transport.
+            Signal retried;
+            std::atomic<int> attempts{0};
+            PtzMovementLease lease({}, 10s, 20ms);
+            Check(lease.Move(10, [] { return true; }, [&] {
+                if (++attempts == 1) return false;
+                retried.Set(); return true;
+            }));
+            const auto result = lease.StopExisting(10);
+            Check(result.has_value() && !*result);
+            Check(retried.Wait());
+            Check(attempts == 2);
+            Check(!lease.StopExisting(10).has_value());
+        }
         { // Ambiguous move failure + failed Stop: retry without user involvement.
             Signal stopped; std::atomic<int> attempts{0};
             PtzMovementLease lease({}, 20ms, 10ms);

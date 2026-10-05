@@ -2717,3 +2717,49 @@ pre-existing frontend deprecation/chunk advisories remain. No main merge,
 remote push or production deployment occurred. The user's backlog remains dirty
 and untouched. The separate sixteen-source recording verifier is still live;
 this short isolated run is not the matched full-load performance gate.
+
+### Retained PTZ Stop before replacement discovery (2026-10-05)
+
+The existing route already excluded Stop from its no-client early return; the
+suspected disabled HTTP-only early-return regression was not present. A separate
+latency problem was confirmed by inspection: the Stop branch could run HTTP
+replacement/linked discovery before calling the movement lease, although the
+lease already retains the original moving transport. `codex/ptz-retained-stop-first`
+adds `StopExisting`: without creating a lane it returns no value when no pending
+movement exists, true on an acknowledged retained Stop, and false on failure
+while preserving that original callback and scheduling the normal retry.
+
+After existing per-camera authentication, speed/command validation and lane
+resolution, the production route tries that retained Stop first. A handled
+success/failure returns directly, avoiding discovery or a different transport.
+Only a missing pending movement falls back to the previous emergency-Stop
+discovery path. Disabled-setting Stop permission and the existing device-local
+serialization/watchdog remain unchanged. No global/database reference is added
+to retained callbacks; the class's private implementation layout remains intact.
+
+Native regressions cover no-active-movement calls across 100 IDs without
+allocating lanes, exactly-once retained Stop, failed retained Stop with retry,
+and linked aliases resolved by actual production SQL using the same original
+transport. Existing ambiguity, expiry, independent lanes, preset and shutdown
+checks still pass. Ten client PTZ ordering regressions also pass. Logs:
+`artifacts/ptz-retained-stop-native-tests.log`,
+`artifacts/ptz-retained-stop-linked-tests.log`, and
+`artifacts/ptz-retained-stop-ui-tests.log`.
+
+The full packaged server passes two configured-disabled PTZ route/authentication
+cycles and normal synthetic stream readiness, authenticated diagnostics, durable
+history and graceful restart checks in 46.838 seconds. Evidence namespace:
+`artifacts/run-ptz-retained-stop-20261005/`; console:
+`artifacts/ptz-retained-stop-full-server.log`. This fixture configures no PTZ
+transport, so active retained Stop is exercised by native callbacks/SQL tests,
+not a full HTTP-to-firmware movement. Exact physical motor stopping time,
+replacement-discovery latency under real firmware and concurrent link edits
+remain unverified. No physical camera command or production setting was changed.
+
+Verified candidate:
+`build-vs2026-stable/deploy/ptz-retained-stop-194a9b4dc0a7-web-9d19c738914b`, native
+`194a9b4dc0a7`, web `9d19c738914b`, 94 files / 177,848,032 bytes. Manifest:
+`artifacts/ptz-retained-stop-package-verified.json` (byte/identity coherence, not
+ABI or production stability proof). Pinned incremental build has no dependency
+installation or C++/linker warnings; existing frontend advisories remain. No main
+merge, remote push or deployment occurred; user backlog edits remain untouched.

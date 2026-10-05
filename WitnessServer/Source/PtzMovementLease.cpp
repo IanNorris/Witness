@@ -118,6 +118,23 @@ bool PtzMovementLease::Stop(int device, Send stop)
     lane->Changed.notify_all();
     return ok;
 }
+std::optional<bool> PtzMovementLease::StopExisting(int device)
+{
+    std::shared_ptr<Impl::Lane> lane;
+    {
+        std::lock_guard<std::mutex> lock(m_Impl->Mutex);
+        const auto found = m_Impl->Lanes.find(device);
+        if (m_Impl->Closing || found == m_Impl->Lanes.end()) return std::nullopt;
+        lane = found->second;
+    }
+    std::lock_guard<std::mutex> lock(lane->Mutex);
+    if (lane->Closing || !lane->PendingStop) return std::nullopt;
+    const bool ok = Impl::Call(lane->PendingStop);
+    if (ok) lane->PendingStop = {};
+    else lane->Deadline = Impl::Clock::now() + m_Impl->Retry;
+    lane->Changed.notify_all();
+    return ok;
+}
 bool PtzMovementLease::Position(int device, Send command)
 {
     auto lane = m_Impl->Get(device);

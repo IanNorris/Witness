@@ -241,6 +241,22 @@ void CrowListener::HandlePtzCommand(const crow::request& req, crow::response& re
 	{
 		res.code = 400; res.write("{\"error\":\"Unknown PTZ command\"}"); res.end(); return;
 	}
+	if (op == PtzOp::Stop)
+	{
+		// The lease owns the transport that may have moved the motor. Do not
+		// delay its Stop by rediscovering a replacement or linked HTTP client.
+		const auto stopped = lease->StopExisting(deviceId);
+		if (stopped.has_value())
+		{
+			crow::json::wvalue result;
+			result["success"] = *stopped;
+			if (!*stopped) result["error"] = "Could not stop the active PTZ movement; retrying";
+			res.code = *stopped ? 200 : 500;
+			res.write(result.dump());
+			res.end();
+			return;
+		}
+	}
 	if ((!bcClient || !bcClient->IsConnected()) && op != PtzOp::Stop)
 	{
 		client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
