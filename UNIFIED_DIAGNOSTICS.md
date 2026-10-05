@@ -4498,3 +4498,33 @@ These are simulated control-path and compilation proofs, not genuine browser
 decoder acceptance of the new branch. The original session5476 remains live;
 its package is unchanged and its hidden intervals exclude it from a strictly
 visible matched observer comparison. Bundle build/runtime retest remain pending.
+
+New bundle/runtime acceptance (2026-10-05): npm build exits0; existing Bootstrap
+Sass deprecations and the large-chunk advisory remain disclosed. A fresh separate
+package contains native d63a3532fc76/web42f16c90ef9a, 94 files /178,030,751 bytes.
+`artifacts/hidden-resume-package-20261005.json` verifies staged-runtime/package
+byte and identity coherence. Server/Camera/Common binaries also hash identically
+to the previously verified recording package; this frontend-only fix performs
+no native/dependency rebuild. Package:
+`build-vs2026-stable/deploy/hidden-resume-d63a3532fc76-web-42f16c90ef9a/`.
+
+The first new fixture launch times out during /createdb after30 seconds, before
+browser playback; the harness terminates and cleans its own process. A fresh
+exclusive retry succeeds in277.930 seconds. Cause of the initial launch delay
+remains unknown, not attributed to scanning, a lock or a source change.
+Retry evidence: `artifacts/run-hidden-resume-runtime-retry-20261005/`.
+Its actual persisted heartbeats capture hidden/paused playback at19:29:46Z,
+then evicted playhead gaps at19:30:18Z and19:30:34Z, with zero hidden restarts.
+Returning visible produces hiddenBufferEvictedRestart at19:30:36.899Z, without
+the former drift wait. The19:30:52Z and subsequent samples are unpaused/ready4,
+with advancing clock, no gap and about1.2 seconds of headroom; restart count
+remains one. No document visibility was mocked for this browser observation.
+
+The180-second measured phase has179 samples, maximum gap1.055 seconds; its
+clip and DVR files both pass strict whole-recording decode/timestamp inspection,
+and graceful shutdown exits0. Clip duration228 seconds includes pre-phase
+browser attachment/readiness, not a180-second recording duration claim;
+invalid motion-duration count is zero. This proves genuine H.264/AAC resume
+reconnect recovery, not a real single-RAP seek, all-codec endurance or absence
+of production stalls. Original session5476 remains separate and live; do not
+restart it or mislabel its hidden intervals as continuous visible playback.
