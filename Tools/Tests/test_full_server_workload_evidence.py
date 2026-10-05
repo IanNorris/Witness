@@ -13,6 +13,26 @@ from test_full_server_isolation import artifact_directory, browser_playback_read
 
 
 class WorkloadEvidenceTests(unittest.TestCase):
+    def test_long_inspection_receives_explicit_frame_thread_limit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            cache = Path(directory)
+            recording = cache / '1_Manual_100.mp4'
+            recording.touch()
+            db = sqlite3.connect(':memory:')
+            try:
+                db.execute('CREATE TABLE Clip(ClipUID INTEGER,Camera INTEGER,Timestamp INTEGER,RecordMode INTEGER)')
+                db.execute('CREATE TABLE ContinuousSegment(SegmentUID INTEGER,CameraUID INTEGER,FilePath TEXT)')
+                db.execute('INSERT INTO Clip VALUES(1,1,100,0)')
+                with patch.dict('os.environ', {'WITNESS_TEST_LONG_RECORDING_INSPECTION': '1'}), \
+                     patch('test_full_server_isolation.inspect_long', return_value={
+                         'passed': True, 'frameDecoderThreads': 4}) as inspect:
+                    reports = verify_recordings(db, cache, 0, 0, frame_decoder_threads=4)
+                inspect.assert_called_once_with(recording.resolve(), frame_decoder_threads=4)
+                self.assertEqual(reports[0]['frameDecoderThreads'], 4)
+                self.assertEqual(reports[0]['cameraId'], 1)
+            finally:
+                db.close()
+
     def test_artifact_namespaces_are_exclusive_and_leave_other_runs_untouched(self):
         with tempfile.TemporaryDirectory() as directory:
             repository = Path(directory)

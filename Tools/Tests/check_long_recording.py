@@ -96,7 +96,11 @@ def bounded_process(command, consume=None, timeout=1800, maximum_rows=2000000):
         process.stderr.close()
 
 
-def inspect_long(path, ffmpeg='ffmpeg', ffprobe='ffprobe', timeout=1800):
+def inspect_long(path, ffmpeg='ffmpeg', ffprobe='ffprobe', timeout=1800, frame_decoder_threads=1):
+    # Preserve the old single-thread default. Explicitly bounded opt-in avoids
+    # ffprobe's slow default without unbounded auto-threading or shorter scans.
+    if type(frame_decoder_threads) is not int or not 1 <= frame_decoder_threads <= 8:
+        raise ValueError('Frame decoder threads must be an integer in 1..8')
     path = Path(path).resolve()
     if not path.is_file() or path.stat().st_size > 8 * 1024**3:
         raise ValueError('expected a local recording no larger than 8 GiB')
@@ -108,11 +112,12 @@ def inspect_long(path, ffmpeg='ffmpeg', ffprobe='ffprobe', timeout=1800):
          '-enc_time_base', '1:1000000', '-fps_mode', 'passthrough', '-f', 'null', '-'],
         timeout=timeout)
     report = dict(file=str(path), strictDecodeExit=code, decodeDiagnosticLines=lines,
-                  inspectionMode='boundedStreamingFullRecording')
+                  inspectionMode='boundedStreamingFullRecording', frameDecoderThreads=frame_decoder_threads)
     for section, field in (('packets', 'dts'), ('frames', 'best_effort_timestamp')):
         accumulator = TimestampAccumulator(section[:-1], field)
         probe_code, probe_lines, probe_nonempty, diagnostics = bounded_process(
-            [ffprobe, *common, '-select_streams', 'v:0', '-show_' + section,
+            [ffprobe, *common, *(['-threads', str(frame_decoder_threads)] if section == 'frames' else []),
+             '-select_streams', 'v:0', '-show_' + section,
              '-show_entries', section[:-1] + '=' + field, '-of', 'compact=p=1:nk=0', str(path)],
             accumulator.add, timeout)
         if probe_code:

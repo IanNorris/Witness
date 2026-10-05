@@ -523,6 +523,27 @@ were checked without installing packages; required Linux development headers and
 libraries were not present at the probed standard paths, so no full Linux build
 is claimed from the earlier worker-only portability tests.
 
+### Bounded long-recording inspection concurrency
+
+The opt-in full-server recording harness supports
+`WITNESS_TEST_RECORDING_FRAME_THREADS=4` together with
+`WITNESS_TEST_LONG_RECORDING_INSPECTION=1`. This sets only ffprobe's full-frame
+timestamp decoder concurrency, accepts integers1..8 and retains the historical
+single-thread default when omitted. Every video packet/frame is still inspected;
+strict whole-file FFmpeg decode, protocol/size/row/time bounds and diagnostic
+failure checks are unchanged. The report records `frameDecoderThreads`.
+This is not server or compiler concurrency, and does not bound FFmpeg's separate
+strict-decode pass. It cannot change an already-running frozen audit.
+
+On the installed ffprobe, decoder threads default to1. A separate short
+3840x2160 HEVC workload comparison observed16.717 seconds at1 thread versus
+12.953 seconds at4, with all968 timestamp lines byte-identical and zero
+diagnostics. This occurred alongside an older audit: it is not an isolated
+benchmark or a runtime stability claim. The complete updated inspector at4
+threads passes H.264/AAC220-frame and HEVC968-frame files without missing,
+duplicate or regressing packet/frame timestamps; it does not sample or truncate
+the recordings to obtain a faster result.
+
 The consolidated `WitnessServer` build completed successfully. Existing Sass
 deprecation and frontend chunk-size advisories remain; no new C++ warning appeared
 in this run. A fresh package at

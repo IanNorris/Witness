@@ -163,7 +163,8 @@ def replay_sender_failures(processes, root, inputs, urls):
     return failures
 
 
-def verify_recordings(db, cache, previous_clip_uid, previous_segment_uid, progress_path=None, failure_root=None):
+def verify_recordings(db, cache, previous_clip_uid, previous_segment_uid, progress_path=None, failure_root=None,
+                      frame_decoder_threads=1):
     """Inspect only fresh fixture-owned local outputs, never arbitrary DB paths."""
     recordings = []
     for uid, camera, timestamp, mode in db.execute(
@@ -192,7 +193,8 @@ def verify_recordings(db, cache, previous_clip_uid, previous_segment_uid, progre
         if not path.is_relative_to(cache.resolve()) or not path.is_file():
             raise ValueError('Recording is outside the private cache')
         try:
-            result = (inspect_long(path) if os.environ.get('WITNESS_TEST_LONG_RECORDING_INSPECTION') == '1'
+            result = (inspect_long(path, frame_decoder_threads=frame_decoder_threads)
+                      if os.environ.get('WITNESS_TEST_LONG_RECORDING_INSPECTION') == '1'
                       else inspect_recording(path))
         except (ValueError, OSError, subprocess.TimeoutExpired) as error:
             # Keep only this already validated, fixture-owned bounded recording.
@@ -326,6 +328,8 @@ class FullServerIsolationTests(unittest.TestCase):
         active_detection = os.environ.get('WITNESS_TEST_ACTIVE_DETECTION') == '1'
         active_recording = active_detection or os.environ.get('WITNESS_TEST_RECORDING') == '1'
         verify_outputs = os.environ.get('WITNESS_TEST_VERIFY_RECORDINGS') == '1'
+        frame_decoder_threads = int(os.environ.get('WITNESS_TEST_RECORDING_FRAME_THREADS', '1'))
+        self.assertTrue(1 <= frame_decoder_threads <= 8)
         raw_processing = os.environ.get('WITNESS_TEST_RAW_PROCESSING_SAMPLES') == '1'
         cached_health = os.environ.get('WITNESS_TEST_CACHED_HEALTH') == '1'
         multi_client_history = os.environ.get('WITNESS_TEST_MULTI_CLIENT_HISTORY') == '1'
@@ -879,7 +883,8 @@ class FullServerIsolationTests(unittest.TestCase):
                             progress_path = (artifacts / f'full-server-recording-progress-run-{run}.json'
                                 if os.environ.get('WITNESS_TEST_LONG_RECORDING_INSPECTION') == '1' else None)
                             decoded = verify_recordings(db, cache, previous_clip_uid, previous_segment_uid,
-                                                        progress_path, artifacts) if verify_outputs else []
+                                                        progress_path, artifacts,
+                                                        frame_decoder_threads) if verify_outputs else []
                         (artifacts / f'full-server-workload-run-{run}.json').write_text(
                             json.dumps({'completedInferenceWindows': evidence, 'clipRows': clips,
                                         'continuousSegmentRows': segments,

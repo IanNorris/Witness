@@ -4627,3 +4627,18 @@ every audio codec, independent-profile endurance or observer overhead: the older
 128-output recording audit was concurrent and remains separately live. No
 deployment/package/source change, remote push, real-media commit or user BACKLOG
 edit is performed.
+
+Long-audit inspection review (2026-10-05): session5476 remains live. The owned
+ffprobe child has accumulated about9 minutes of CPU time; installed-tool help
+confirms a single-thread decoder default. The slow audit is not assumed hung.
+Branch `codex/bounded-recording-probe-threads` adds explicit opt-in1..8 frame
+decoder threads (default1), retained in each full-stream inspection report.
+Only the ffprobe frame pass changes; full strict decode, packet pass, complete
+timestamps, resource/timeout bounds and failure handling are preserved. No live
+process is restarted or reconfigured. Separate short HEVC1/4-thread timestamp
+outputs are byte-identical across968 lines. The updated full inspector passes
+H.264/AAC220-frame and2160p HEVC968-frame recordings, with zero decode diagnostics
+and no missing/duplicate/regressing timestamps. These are separate short files,
+not completion evidence for the128-output audit or isolated throughput proof.
+Production source, deployment package, authentication and user BACKLOG remain
+unchanged; this improves repeatable future validation without weakening gates.
