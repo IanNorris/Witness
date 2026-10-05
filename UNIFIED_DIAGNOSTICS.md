@@ -1836,3 +1836,35 @@ multi-RDB/CRC framing, silent advertised audio, real RTSP reconnect timing,
 browser playback, detection load, and long-run off/on overhead gates remain
 unqualified. Four saved sources are not sixteen independent physical cameras.
 This fixes a reproduced pre-existing failure, not all production Tapo stalls.
+
+### Current-candidate AAC/MSE endurance validation preparation
+
+Branch `codex/aac-mse-load-validation` adds
+`Tools/Tests/summarize_replay_load.py`: descriptive CPU/HTTP and rolling filter
+timings from completed replay reports, plus per-session browser counter deltas.
+It rejects mixed builds/camera sets, excludes synthetic/other-build/hidden or
+truncated/duplicate-player snapshots, keeps session replacements separate and
+flags counter decreases even when the final counter subsequently exceeds the
+first value. Four pure unit tests pass. Missing/nonfinite measurements remain
+unavailable rather than being replaced with zero. The tool expressly does not
+certify production stability, full-phase processing P95, or exact browser
+measurement-window coverage.
+
+A 30-minute current-candidate replay was started with 16 logical streams (the
+four saved sources repeated four times, including four ADTS AAC transports),
+CPU object detection capped at 1 fps, manual recording/DVR and strict recorded
+video inspection. Five selective observers are disabled; functional integrity
+and cadence machinery remains active. The real, normally authenticated browser
+passed the positive playback gate and independent DOM checks showed all sixteen
+players advancing with readyState 4, unpaused and no media error through roughly
+six minutes. This is IN PROGRESS, not a completed endurance result. Output log:
+`artifacts/aac-mse-16stream-selective-observers-off-30minute.log`; startup-view
+proof: `artifacts/aac-mse-16stream-observers-off-start.png`.
+
+The fixture owns its new DB/session/private cache and never alters production
+configuration. Candidate/native/web identities are unchanged from the AAC fix.
+No wake lock was taken, no build or fixture was restarted because of an
+observation timeout, and no user-owned backlog changes were edited/staged.
+After terminal completion, preserve its generic reports to unique evidence
+names before starting another fixture. A comparable observer-enabled run and
+actual representative-source/full-gate qualification remain outstanding.
