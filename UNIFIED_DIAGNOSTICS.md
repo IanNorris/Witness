@@ -1458,3 +1458,64 @@ package verifies at 94 files / 177,697,489 bytes with matching symbols; output:
 `artifacts/processing-queue-58d250ffc32a-package-verified.json`. Longer validation
 of this queue-fixed native build and rendered last-error UI verification remain
 pending.
+
+### Rendered persisted-error evidence and optional metadata (2026-10-05)
+
+The queue-fixed native `58d250ffc32a` / web `6c558bdd9d9e` completed the
+four-minute, three-stream, authenticated browser fixture with graceful shutdown
+(296.956 seconds total). Its 240-second measurement has 238 samples and a
+maximum observation gap of 1.029 seconds. All 18 retained real-player reports
+were visible; final players had readyState 4, zero restarts/stalls/errors and
+latencies 1,228/1,371/1,126 ms. Presentation drops were 11/4,139, 3/5,063 and
+308/6,331 frames respectively. These are paced H.264/1080p HEVC/4K HEVC
+recordings, not physical-camera or diagnostics-overhead qualification.
+Evidence is preserved in
+`artifacts/client-health-rendered-58d250ffc32a-final-{history,replay}.json` and
+`artifacts/client-health-rendered-58d250ffc32a-3stream.log`.
+
+Rendered inspection found that the fixture's minimal stored report displayed
+`Invalid Date` and an empty build identity. The health view now formats missing
+or invalid metadata as `Unknown`, retaining the otherwise useful report rather
+than rejecting it. Valid sample dates still use the browser's local formatting.
+Three new tests cover malformed/missing values, valid local formatting and the
+table's formatter wiring. The full client suite passed 58 tests, with one
+optional external-export case skipped (`artifacts/client-health-display-ui-regressions.log`);
+type-check and Vite production build also passed. Third-party Sass and chunk
+warnings remain.
+
+The standalone monitor route was inspected using a normal authenticated
+disposable fixture. Both the live players and persisted synthetic error row
+were rendered: `Build Unknown · sampled Unknown` and `Last error: socket error
+during deliberate close`. Proof: `artifacts/client-health-metadata-detail.jpg`.
+This proves display/retention of seeded error evidence, not reproduction of a
+real transport error. Popup behavior was not proved by direct route navigation.
+
+Package `build-vs2026-stable/deploy/client-health-display-native-58d250ffc32a`
+contains unchanged native `58d250ffc32a`, matching symbols and rebuilt web
+`b799900b1578`. Verification against a separate assembled reference passed at
+94 files / 177,697,696 bytes; report:
+`artifacts/client-health-display-native-58d250ffc32a-package-verified.json`.
+Native files came from the previously verified queue-fixed package; no compiler
+or dependency changes were made for this UI patch.
+
+The in-app browser visibility control hid its UI but the replay page continued
+to report `document.visibilityState = visible`. This action is not evidence of
+hidden-tab recovery. The production-composable mocked 90-second hidden test
+passes, but a genuine hidden/resume browser test and the full matched
+diagnostics-off/on load comparison remain open. No production deployment,
+main merge or push occurred; the user-owned backlog edits remain untouched.
+
+The rebuilt-web fixture subsequently completed its 240-second phase and clean
+shutdown in 296.390 seconds total. It has 238 native samples (maximum gap 1.038
+seconds), 18 real-player history samples and zero storage failures. Final
+readyState is 4 for all three players, with zero restart/stall/error counters
+and playback lags 1,203/1,305/1,218 ms. Presentation drops are 10/4,152,
+4/5,057 and 325/6,324 frames; particularly the 4K result is not a claim of
+perfect rendering. All retained document visibility states are `visible`.
+Final evidence: `artifacts/client-health-display-b799900b1578-final-{history,replay}.json`,
+compact `artifacts/client-health-display-b799900b1578-audit.json` and
+`artifacts/client-health-hide-resume-58d250ffc32a.log` (the log name records test
+intent, not a passed hide/resume assertion). Detection and recording were off;
+client regressions ran concurrently, so this is not an overhead benchmark.
+Fixture processes/data were cleaned up and both owned tabs closed; browser
+visibility was restored to background mode. No wake lock was taken.

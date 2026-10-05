@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { api } from '../../composables/useApi'
 import { openHealthMonitor } from '../../composables/useHealthMonitor'
 import { formatCpuPercent } from '../../composables/healthCpuUsage'
+import { formatHealthTimestamp, formatHealthBuild } from '../../composables/healthDisplay'
 import {
   collectClientHealthSessions,
   type ClientHealthSession,
@@ -577,7 +578,7 @@ onBeforeUnmount(() => {
           <div class="card h-100"><div class="card-body py-3">
             <div class="health-secondary small">Snapshot</div>
             <div class="fs-6 d-flex align-items-center gap-2">
-              {{ new Date(snapshot.sampledAtUtc).toLocaleString() }}
+              {{ formatHealthTimestamp(snapshot.sampledAtUtc) }}
               <span class="badge" :class="snapshotAge.className">{{ snapshotAge.label }}</span>
             </div>
             <div class="small">Collected in {{ snapshot.collectionDurationMs }} ms · {{ snapshot.server.collectionMode }}</div>
@@ -821,7 +822,7 @@ onBeforeUnmount(() => {
                     <span v-if="session.username" class="health-secondary ms-2">{{ session.username }} · browser {{ session.browserId?.slice(0, 8) }}</span>
                     <span v-if="session.receivedUnixMs" class="health-secondary ms-2">last heard {{ new Date(session.receivedUnixMs).toLocaleTimeString() }}</span>
                     <span class="badge ms-2" :class="session.visibilityState === 'visible' ? 'bg-success' : 'bg-secondary'">{{ session.visibilityState }}</span>
-                    <span class="health-secondary ms-2">Build {{ session.buildHash }} · sampled {{ new Date(session.sampledAtUtc).toLocaleTimeString() }}<span v-if="session.playersTruncated"> · truncated</span></span>
+                    <span class="health-secondary ms-2">Build {{ formatHealthBuild(session.buildHash) }} · sampled {{ formatHealthTimestamp(session.sampledAtUtc, true) }}<span v-if="session.playersTruncated"> · truncated</span></span>
                   </td>
                 </tr>
                 <tr v-for="player in session.players" :key="`${session.sessionId}-${player.id}`">
