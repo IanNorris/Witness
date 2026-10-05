@@ -516,6 +516,8 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 	const auto CurrentHttpRequest = m_App.get_context<HttpTracingMiddleware>( req ).Token;
 	const auto HttpSnapshot = Witness::HttpDiagnostics::GetSnapshot( CurrentHttpRequest.Id );
 	crow::json::wvalue Http;
+	Http["tracingEnabled"] = HttpSnapshot.TracingEnabled;
+	Http["unavailableReason"] = HttpSnapshot.TracingEnabled ? "" : "disabledByConfiguration";
 	Http["started"] = HttpSnapshot.Started;
 	Http["completed"] = HttpSnapshot.Completed;
 	Http["errors"] = HttpSnapshot.Errors;
@@ -591,10 +593,19 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 		ActiveRequests.push_back( std::move( Value ) );
 	}
 	Http["activeRequests"] = std::move( ActiveRequests );
+	if (!HttpSnapshot.TracingEnabled)
+	{
+		for (const char* Key : {"started", "completed", "errors", "slowRequests", "inFlight", "maxInFlight", "observedWorkers"})
+			Http[Key] = nullptr;
+		for (const char* Kind : {"handlerDuration", "eventLoopOccupancy"})
+			for (const char* Key : {"p50Ms", "p95Ms", "p99Ms", "maxMs"}) Http[Kind][Key] = nullptr;
+	}
 	Server["http"] = std::move( Http );
 
 	const auto SQLiteSnapshot = GetSQLiteDiagnosticsSnapshot();
 	crow::json::wvalue SQLite;
+	SQLite["tracingEnabled"] = SQLiteSnapshot.TracingEnabled;
+	SQLite["unavailableReason"] = SQLiteSnapshot.TracingEnabled ? "" : "disabledByConfiguration";
 	SQLite["queries"] = SQLiteSnapshot.Queries;
 	SQLite["contendedQueries"] = SQLiteSnapshot.ContendedQueries;
 	SQLite["slowQueries"] = SQLiteSnapshot.SlowQueries;
@@ -619,6 +630,9 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 		SlowQueries.push_back( std::move( Value ) );
 	}
 	SQLite["recentSlowQueries"] = std::move( SlowQueries );
+	if (!SQLiteSnapshot.TracingEnabled)
+		for (const char* Key : {"queries", "contendedQueries", "slowQueries", "meanMutexWaitMs", "maxMutexWaitMs", "meanScopeMs", "maxScopeMs", "meanExecuteMs", "maxExecuteMs"})
+			SQLite[Key] = nullptr;
 	Server["database"] = std::move( SQLite );
 
 	crow::json::wvalue Coverage;
@@ -630,9 +644,9 @@ void CrowListener::HandleDebugHealth( const crow::request& req, crow::response& 
 	Coverage["rateCalculationSupported"] = false;
 	Coverage["rateCalculationReason"] = "worker and processing counter epochs are not yet exposed";
 	Coverage["mediaEventFeed"] = "last 48 warning, error, packet disposition, and recovery events per stream";
-	Coverage["httpTracing"] =
+	Coverage["httpTracing"] = !HttpSnapshot.TracingEnabled ? "disabledByConfiguration" :
 		"handler time ends before Crow's synchronous response write; event-loop release delay includes that write and queued callbacks; percentiles use the latest 1024 finalized requests";
-	Coverage["databaseTracing"] =
+	Coverage["databaseTracing"] = !SQLiteSnapshot.TracingEnabled ? "disabledByConfiguration" :
 		"prepared-query mutex wait >=25ms or query scope >=100ms retained in the last 64 events; execute timing measures sqlite3_step calls only";
 
 	const auto CollectionEnd = std::chrono::steady_clock::now();

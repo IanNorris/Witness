@@ -6,6 +6,15 @@ import subprocess
 import sys
 
 
+class RecordingInspectionError(ValueError):
+    """Bounded local failure details; the command-line interface stays generic."""
+    def __init__(self, stage, return_code, diagnostics):
+        super().__init__('timestamp inspection failed')
+        self.stage = stage
+        self.return_code = return_code
+        self.diagnostics = diagnostics[:16384]
+
+
 def timestamp_evidence(rows, field):
     values = [int(row[field]) for row in rows if row.get(field) not in (None, "N/A")]
     steps = [right - left for left, right in zip(values, values[1:])]
@@ -38,7 +47,7 @@ def inspect(path, ffmpeg="ffmpeg", ffprobe="ffprobe"):
             capture_output=True, text=True, timeout=120,
         )
         if result.returncode:
-            raise ValueError("timestamp inspection failed")
+            raise RecordingInspectionError(section, result.returncode, result.stderr)
         rows = json.loads(result.stdout).get(section, [])
         report[section] = timestamp_evidence(rows, field)
         report[section]["diagnosticLines"] = len(result.stderr.splitlines())

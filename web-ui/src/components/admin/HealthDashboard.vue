@@ -109,10 +109,10 @@ interface CameraHealth {
 }
 
 interface HttpDurationSummary {
-  p50Ms: number
-  p95Ms: number
-  p99Ms: number
-  maxMs: number
+  p50Ms: number | null
+  p95Ms: number | null
+  p99Ms: number | null
+  maxMs: number | null
 }
 
 interface HttpRequestTrace {
@@ -136,13 +136,15 @@ interface HttpRequestTrace {
 }
 
 interface HttpHealth {
-  started: number
-  completed: number
-  errors: number
-  slowRequests: number
-  inFlight: number
-  maxInFlight: number
-  observedWorkers: number
+  tracingEnabled?: boolean
+  unavailableReason?: string
+  started: number | null
+  completed: number | null
+  errors: number | null
+  slowRequests: number | null
+  inFlight: number | null
+  maxInFlight: number | null
+  observedWorkers: number | null
   handlerDuration: HttpDurationSummary
   eventLoopOccupancy: HttpDurationSummary
   recentSlowRequests: HttpRequestTrace[]
@@ -160,15 +162,17 @@ interface DatabaseQueryTrace {
 }
 
 interface DatabaseHealth {
-  queries: number
-  contendedQueries: number
-  slowQueries: number
-  meanMutexWaitMs: number
-  maxMutexWaitMs: number
-  meanScopeMs: number
-  maxScopeMs: number
-  meanExecuteMs: number
-  maxExecuteMs: number
+  tracingEnabled?: boolean
+  unavailableReason?: string
+  queries: number | null
+  contendedQueries: number | null
+  slowQueries: number | null
+  meanMutexWaitMs: number | null
+  maxMutexWaitMs: number | null
+  meanScopeMs: number | null
+  maxScopeMs: number | null
+  meanExecuteMs: number | null
+  maxExecuteMs: number | null
   recentSlowQueries: DatabaseQueryTrace[]
 }
 
@@ -364,7 +368,7 @@ function playerLabel(id: string): string {
   return camera ? `${camera.name} (#${cameraId})` : id.replace(/_mse$/i, '')
 }
 
-function formatCount(value: number | undefined): string {
+function formatCount(value: number | null | undefined): string {
   return value == null ? '—' : value.toLocaleString()
 }
 
@@ -610,13 +614,16 @@ onBeforeUnmount(() => {
       <div v-if="snapshot.server.http" class="card mb-3">
         <div class="card-header d-flex flex-wrap justify-content-between gap-2">
           <span>HTTP server</span>
-          <span class="health-secondary small">
+          <span v-if="snapshot.server.http.tracingEnabled !== false" class="health-secondary small">
             {{ snapshot.server.http.observedWorkers }} workers observed ·
             {{ snapshot.server.http.inFlight }} active now ·
             {{ snapshot.server.http.slowRequests }} slow
           </span>
         </div>
-        <div class="card-body py-2 small">
+        <div v-if="snapshot.server.http.tracingEnabled === false" class="card-body py-2 small health-secondary">
+          HTTP timing disabled by configuration. Request handling and authentication remain active.
+        </div>
+        <div v-else class="card-body py-2 small">
           <div class="d-flex flex-wrap gap-4 mb-2">
             <span>
               <strong>{{ formatMs(snapshot.server.http.handlerDuration.p95Ms) }}</strong> handler p95
@@ -626,9 +633,9 @@ onBeforeUnmount(() => {
               <strong>{{ formatMs(snapshot.server.http.eventLoopOccupancy.p95Ms) }}</strong> event-loop release p95
               <span class="health-secondary"> · p99 {{ formatMs(snapshot.server.http.eventLoopOccupancy.p99Ms) }}</span>
             </span>
-            <span><strong>{{ snapshot.server.http.completed.toLocaleString() }}</strong> completed</span>
+            <span><strong>{{ formatCount(snapshot.server.http.completed) }}</strong> completed</span>
             <span :class="snapshot.server.http.errors ? 'text-danger' : ''">
-              {{ snapshot.server.http.errors.toLocaleString() }} server errors
+              {{ formatCount(snapshot.server.http.errors) }} server errors
             </span>
           </div>
           <div class="health-secondary">
@@ -663,8 +670,11 @@ onBeforeUnmount(() => {
           </table>
         </div>
         <div v-if="snapshot.server.database" class="card-footer small">
-          <div class="d-flex flex-wrap gap-4">
-            <span><strong>{{ snapshot.server.database.queries.toLocaleString() }}</strong> SQLite query scopes</span>
+          <div v-if="snapshot.server.database.tracingEnabled === false" class="health-secondary">
+            Database timing disabled by configuration. Queries and their locks remain active.
+          </div>
+          <div v-else class="d-flex flex-wrap gap-4">
+            <span><strong>{{ formatCount(snapshot.server.database.queries) }}</strong> SQLite query scopes</span>
             <span><strong>{{ formatMs(snapshot.server.database.meanMutexWaitMs) }}</strong> mean mutex wait <span class="health-secondary">· max {{ formatMs(snapshot.server.database.maxMutexWaitMs) }}</span></span>
             <span><strong>{{ formatMs(snapshot.server.database.meanScopeMs) }}</strong> mean scope <span class="health-secondary">· max {{ formatMs(snapshot.server.database.maxScopeMs) }}</span></span>
             <span><strong>{{ formatMs(snapshot.server.database.meanExecuteMs) }}</strong> mean execute <span class="health-secondary">· max {{ formatMs(snapshot.server.database.maxExecuteMs) }}</span></span>

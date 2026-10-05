@@ -1,4 +1,5 @@
 #include "HttpServerDiagnostics.h"
+#include "DiagnosticsSettings.h"
 
 #include <Log.h>
 
@@ -232,9 +233,16 @@ namespace Witness::HttpDiagnostics
 		}
 	}
 
+	bool TracingEnabled()
+	{
+		static const bool Enabled = Witness::Diagnostics::ReadObserverSetting("WITNESS_HTTP_TRACE");
+		return Enabled;
+	}
+
 	RequestToken BeginRequest( const std::string& Method, const std::string& Path,
 		const void* EventLoop, size_t RequestBytes )
 	{
+		if (!TracingEnabled()) return {};
 		auto& Diagnostics = GetState();
 		std::lock_guard Lock( Diagnostics.Mutex );
 		MakeRequestTrackingRoom( Diagnostics );
@@ -360,6 +368,12 @@ namespace Witness::HttpDiagnostics
 
 	Snapshot GetSnapshot( uint64_t ExcludeActiveRequest )
 	{
+		if (!TracingEnabled())
+		{
+			Snapshot Disabled;
+			Disabled.TracingEnabled = false;
+			return Disabled;
+		}
 		auto& Diagnostics = GetState();
 		std::lock_guard Lock( Diagnostics.Mutex );
 		Snapshot Result;

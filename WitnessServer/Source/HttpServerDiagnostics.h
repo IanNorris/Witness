@@ -67,6 +67,7 @@ namespace Witness::HttpDiagnostics
 
 	struct Snapshot
 	{
+		bool TracingEnabled = true;
 		uint64_t Started = 0;
 		uint64_t Completed = 0;
 		uint64_t Errors = 0;
@@ -81,6 +82,7 @@ namespace Witness::HttpDiagnostics
 		std::vector<ActiveRequestSnapshot> ActiveRequests;
 	};
 
+	bool TracingEnabled();
 	RequestToken BeginRequest( const std::string& Method, const std::string& Path,
 		const void* EventLoop, size_t RequestBytes );
 	void CompleteRequest( RequestToken Token, int Status, size_t ResponseBytes );

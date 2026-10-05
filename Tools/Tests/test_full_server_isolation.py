@@ -23,6 +23,8 @@ import urllib.request
 from check_preview_decode import inspect as inspect_recording
 from owned_process_dump import capture_owned_process_dump
 
+RECORDING_FAILURE_ROOT = Path(__file__).resolve().parents[2] / 'artifacts'
+
 
 def sample_coverage(samples, duration, max_gap=10):
     """Reject suspended/partial observation windows, including missing endpoints."""
@@ -116,7 +118,31 @@ def verify_recordings(db, cache, previous_clip_uid, previous_segment_uid):
         path = path.resolve(strict=True)
         if not path.is_relative_to(cache.resolve()) or not path.is_file():
             raise ValueError('Recording is outside the private cache')
-        result = inspect_recording(path)
+        try:
+            result = inspect_recording(path)
+        except (ValueError, OSError, subprocess.TimeoutExpired) as error:
+            # Keep only this already validated, fixture-owned bounded recording.
+            # Never preserve a live DB/session, external path, or raw command line.
+            evidence = RECORDING_FAILURE_ROOT / ('recording-inspection-failed-' + secrets.token_hex(8))
+            saved = evidence.with_suffix('.mp4')
+            if path.stat().st_size <= 512 * 1024 * 1024:
+                with path.open('rb') as source, saved.open('xb') as destination:
+                    shutil.copyfileobj(source, destination)
+            details = {
+                'passed': False, 'kind': kind, 'cameraId': camera, 'recordingId': uid,
+                'nativeBuildId': os.environ.get('WITNESS_TEST_DATA_ROOT_NATIVE_ID'),
+                'httpTraceMode': os.environ.get('WITNESS_TEST_HTTP_TRACE_MODE'),
+                'sqliteTraceMode': os.environ.get('WITNESS_TEST_SQLITE_TRACE_MODE'),
+                'stage': getattr(error, 'stage', None),
+                'returnCode': getattr(error, 'return_code', None),
+                'errorType': type(error).__name__,
+                'diagnostics': getattr(error, 'diagnostics', ''),
+                'savedRecording': saved.name if saved.is_file() else None,
+            }
+            with evidence.with_suffix('.json').open('x', encoding='utf-8') as destination:
+                json.dump(details, destination, indent=2)
+            print('recordingInspectionFailure=' + str(evidence.with_suffix('.json')), flush=True)
+            raise
         result.pop('file', None)
         reports.append(dict(result, kind=kind, cameraId=camera, recordingId=uid))
     return reports
@@ -175,6 +201,12 @@ class FullServerIsolationTests(unittest.TestCase):
         identity = os.environ.get('WITNESS_TEST_DATA_ROOT_NATIVE_ID', '')
         expected_packet_trace = os.environ.get('WITNESS_TEST_PACKET_TRACE_MODE')
         self.assertIn(expected_packet_trace, (None, '0', '1'))
+        expected_server_traces = {
+            'http': os.environ.get('WITNESS_TEST_HTTP_TRACE_MODE'),
+            'database': os.environ.get('WITNESS_TEST_SQLITE_TRACE_MODE'),
+        }
+        for expected in expected_server_traces.values():
+            self.assertIn(expected, (None, '0', '1'))
         self.assertRegex(identity, '^[0-9a-f]{12}$')
         binary = server.read_bytes()
         self.assertIn(identity.encode(), binary)
@@ -408,6 +440,23 @@ class FullServerIsolationTests(unittest.TestCase):
                                 self.assertEqual(code, 200)
                                 (repository / 'artifacts/full-server-browser-history.json').write_bytes(history)
                             coverage = sample_coverage(samples, duration)
+                            for name, expected in expected_server_traces.items():
+                                if expected is None:
+                                    continue
+                                trace = health['server'][name]
+                                self.assertIs(trace['tracingEnabled'], expected == '1')
+                                if expected == '0':
+                                    self.assertEqual(trace['unavailableReason'], 'disabledByConfiguration')
+                                    self.assertIsNone(trace['completed' if name == 'http' else 'queries'])
+                                    if name == 'http':
+                                        self.assertTrue(all(value is None for value in trace['handlerDuration'].values()))
+                                        self.assertEqual(trace['activeRequests'], [])
+                                        self.assertEqual(trace['recentSlowRequests'], [])
+                                    else:
+                                        self.assertIsNone(trace['meanExecuteMs'])
+                                        self.assertEqual(trace['recentSlowQueries'], [])
+                                else:
+                                    self.assertGreater(trace['completed' if name == 'http' else 'queries'], 0)
                             if active_recording:
                                 for camera_id in initial:
                                     self.assertEqual(request(f'/camera/record/{camera_id}',

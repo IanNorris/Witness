@@ -1,14 +1,50 @@
 """Pure evidence-validator tests: no server, model, cameras or credentials."""
 import unittest
 import sqlite3
+import json
+import tempfile
 from pathlib import Path
 from unittest.mock import patch
 from copy import deepcopy
+from check_preview_decode import RecordingInspectionError
 
 from test_full_server_isolation import browser_playback_ready, inference_evidence, recording_evidence, sample_coverage, verify_recordings
 
 
 class WorkloadEvidenceTests(unittest.TestCase):
+    def test_failed_inspection_preserves_only_owned_recording_and_still_fails(self):
+        with tempfile.TemporaryDirectory() as root:
+            cache = Path(root) / 'cache'
+            evidence = Path(root) / 'evidence'
+            cache.mkdir()
+            evidence.mkdir()
+            recording = cache / 'fixture.mp4'
+            recording.write_bytes(b'fixture recording bytes')
+            db = sqlite3.connect(':memory:')
+            try:
+                db.execute('CREATE TABLE Clip(ClipUID INTEGER,Camera INTEGER,Timestamp INTEGER,RecordMode INTEGER)')
+                db.execute('CREATE TABLE ContinuousSegment(SegmentUID INTEGER,CameraUID INTEGER,FilePath TEXT)')
+                db.execute('INSERT INTO ContinuousSegment VALUES(1,8,?)', (str(recording),))
+                failure = RecordingInspectionError('packets', 7, 'probe failure')
+                with patch('test_full_server_isolation.RECORDING_FAILURE_ROOT', evidence), \
+                     patch('test_full_server_isolation.inspect_recording', side_effect=failure), \
+                     patch('builtins.print'):
+                    with self.assertRaises(RecordingInspectionError) as caught:
+                        verify_recordings(db, cache, 0, 0)
+                self.assertIs(caught.exception, failure)
+                reports = list(evidence.glob('*.json'))
+                self.assertEqual(len(reports), 1)
+                details = json.loads(reports[0].read_text(encoding='utf-8'))
+                self.assertFalse(details['passed'])
+                self.assertEqual(details['cameraId'], 8)
+                self.assertEqual(details['returnCode'], 7)
+                self.assertEqual(details['diagnostics'], 'probe failure')
+                self.assertEqual((evidence / details['savedRecording']).read_bytes(), recording.read_bytes())
+                self.assertNotIn(str(cache), reports[0].read_text(encoding='utf-8'))
+                self.assertEqual(len(list(evidence.iterdir())), 2)
+            finally:
+                db.close()
+
     def test_browser_phase_requires_fresh_matching_playing_players(self):
         player = {'id': '1_mse', 'readyState': 4, 'wsReadyState': 1, 'lastEventType': 'media:playing',
                   'totalVideoFrames': 10, 'errorCount': 0, 'hasInitialBuffer': True,

@@ -41,6 +41,23 @@ class DecodeCheckTests(unittest.TestCase):
         self.assertEqual(CHECK.timestamp_evidence([], "dts")["samples"], 0)
         self.assertEqual(CHECK.timestamp_evidence([{}], "dts")["missing"], 1)
 
+    def test_probe_failure_retains_bounded_local_evidence_without_command_line(self):
+        with tempfile.TemporaryDirectory() as root:
+            recording = Path(root) / 'probe.mp4'
+            recording.touch()
+            with patch.object(CHECK.subprocess, 'run', side_effect=[
+                subprocess.CompletedProcess([], 0, '', ''),
+                subprocess.CompletedProcess(['private command'], 7, '', 'probe failure\n' * 10000),
+            ]):
+                with self.assertRaises(CHECK.RecordingInspectionError) as caught:
+                    CHECK.inspect(recording)
+            error = caught.exception
+            self.assertEqual(error.stage, 'packets')
+            self.assertEqual(error.return_code, 7)
+            self.assertEqual(len(error.diagnostics), 16384)
+            self.assertEqual(str(error), 'timestamp inspection failed')
+            self.assertNotIn('private command', str(error))
+
 
 if __name__ == "__main__":
     unittest.main()

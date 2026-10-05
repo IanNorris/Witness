@@ -1,5 +1,6 @@
 #include "SQLite.h"
 #include "Common.h"
+#include "DiagnosticsSettings.h"
 
 #include <Log.h>
 #include <atomic>
@@ -11,6 +12,12 @@
 
 namespace
 {
+	bool SQLiteTracingEnabled()
+	{
+		static const bool Enabled = Witness::Diagnostics::ReadObserverSetting("WITNESS_SQLITE_TRACE");
+		return Enabled;
+	}
+
 	constexpr uint64_t SQLiteContentionThresholdUS = 1000;
 	constexpr uint64_t SQLiteTraceWaitThresholdUS = 25000;
 	constexpr uint64_t SQLiteTraceScopeThresholdUS = 100000;
@@ -92,18 +99,21 @@ SQLiteDatabaseQueryInstance::SQLiteDatabaseQueryInstance(
 	const std::shared_ptr<SQLiteDatabase>& DB, const char* QueryName )
 :	m_Query( DB->GetQuery( QueryName ) )
 ,	m_Lock( m_Query->PrepareQueryMutex(), std::defer_lock )
-,	m_WaitStarted( std::chrono::steady_clock::now() )
-,	m_StartedSystem( std::chrono::system_clock::now() )
+,	m_TraceEnabled( SQLiteTracingEnabled() )
+,	m_WaitStarted( m_TraceEnabled ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{} )
+,	m_StartedSystem( m_TraceEnabled ? std::chrono::system_clock::now() : std::chrono::system_clock::time_point{} )
 {
 	m_Lock.lock();
-	m_LockAcquired = std::chrono::steady_clock::now();
 	m_Query->ResetInstanceExecuteTime();
+	if (!m_TraceEnabled) return;
+	m_LockAcquired = std::chrono::steady_clock::now();
 	m_MutexWaitUS = static_cast<uint64_t>( std::chrono::duration_cast<std::chrono::microseconds>(
 		m_LockAcquired - m_WaitStarted ).count() );
 }
 
 SQLiteDatabaseQueryInstance::~SQLiteDatabaseQueryInstance() noexcept
 {
+	if (!m_TraceEnabled) return; // unique_lock still releases the functional query lock.
 	const uint64_t ScopeUS = static_cast<uint64_t>( std::chrono::duration_cast<std::chrono::microseconds>(
 		std::chrono::steady_clock::now() - m_LockAcquired ).count() );
 	const std::string& QueryName = m_Query->GetQueryName();
@@ -121,6 +131,12 @@ SQLiteDatabaseQueryInstance::~SQLiteDatabaseQueryInstance() noexcept
 
 SQLiteDiagnosticsSnapshot GetSQLiteDiagnosticsSnapshot()
 {
+	if (!SQLiteTracingEnabled())
+	{
+		SQLiteDiagnosticsSnapshot Disabled;
+		Disabled.TracingEnabled = false;
+		return Disabled;
+	}
 	auto& Diagnostics = GetSQLiteDiagnosticsState();
 	SQLiteDiagnosticsSnapshot Result;
 	Result.Queries = Diagnostics.Queries.load( std::memory_order_relaxed );
@@ -269,6 +285,7 @@ int SQLiteDatabaseQuery::Execute( const std::function< bool(const SQLiteDatabase
 {
 	auto Step = [this]( sqlite3_stmt* Statement )
 	{
+		if (!SQLiteTracingEnabled()) return sqlite3_step(Statement);
 		const auto Started = std::chrono::steady_clock::now();
 		const int Result = sqlite3_step( Statement );
 		m_instanceExecuteUS += static_cast<uint64_t>( std::chrono::duration_cast<std::chrono::microseconds>(

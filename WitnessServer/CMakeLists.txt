@@ -199,6 +199,14 @@ if(MSVC)
 endif()
 
 # Explicit telemetry limit/privacy regressions, with caller-owned temporary DBs.
+add_executable(ServerTraceObserverTests EXCLUDE_FROM_ALL
+    ../Tools/Tests/ServerTraceObserverTests.cpp Source/HttpServerDiagnostics.cpp Source/SQLite.cpp Source/Common.cpp)
+target_include_directories(ServerTraceObserverTests PRIVATE Source)
+target_link_libraries(ServerTraceObserverTests PRIVATE WitnessCommon unofficial::sqlite3::sqlite3 Threads::Threads)
+if(MSVC)
+    target_compile_options(ServerTraceObserverTests PRIVATE /utf-8 /W3)
+endif()
+
 add_executable(CpuUsageTests EXCLUDE_FROM_ALL ../Tools/Tests/CpuUsageTests.cpp Source/CpuUsage.cpp)
 target_include_directories(CpuUsageTests PRIVATE Source)
 target_link_libraries(CpuUsageTests PRIVATE Threads::Threads Crow::Crow)

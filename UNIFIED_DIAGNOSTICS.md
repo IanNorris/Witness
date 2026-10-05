@@ -1577,3 +1577,71 @@ shutdown. Detection/recording/browser playback were not enabled. Evidence:
 `artifacts/packet-trace-mode-{0,1}-full-server-run-{0,1}.json`.
 No claim about long-run stability, full diagnostics overhead, or representative
 16-camera load follows from these short lifecycle tests.
+
+### Optional HTTP/SQLite observer baseline preparation (2026-10-05)
+
+Branch `codex/server-trace-baseline` adds `WITNESS_HTTP_TRACE=0` and
+`WITNESS_SQLITE_TRACE=0`, cached once per process. Missing, empty, `1` and invalid
+values preserve default-on behavior. HTTP baseline mode avoids request-detail
+allocation, observer mutexes and observer-only event-loop posts. SQLite baseline
+mode avoids query timing clocks and retention, but still acquires/releases the
+actual prepared-query mutex and executes the same statements and callbacks.
+Authentication, response handling, database semantics and functional stream
+checks are unchanged. Restart is required to change either setting.
+
+Authenticated health exports explicitly identify `tracingEnabled: false` and
+`unavailableReason: disabledByConfiguration`, with null unavailable timings/counts
+and empty trace lists. The web health panel labels disabled timing instead of
+reporting artificial zeros. The actual prepared-query wrapper and HTTP observer
+pass all six environment combinations (0/0, 0/1, 1/0, 1/1, absent/absent and
+invalid/invalid), including immutable settings, concurrent HTTP accounting,
+query binding/read/write, callback exception propagation and mutex release.
+Evidence: `artifacts/server-trace-observer-regressions.log`.
+
+Native `23c905449993` / web `520d85d0b3da` built against unchanged pinned
+dependencies with bootstrap/manifest installation off. No native compiler or
+linker warnings appeared; Sass/chunk warnings remain. Matching rebuilt consumers
+are required for the internal snapshot/query-instance field additions. Package
+`build-vs2026-stable/deploy/server-trace-baseline-native-23c905449993` verifies
+at 94 files / 177,757,012 bytes including matching symbols; verifier output:
+`artifacts/server-trace-baseline-native-23c905449993-package-verified.json`.
+The client suite passed 58 tests with one optional export test skipped.
+
+Normal-authenticated full-server recording tests passed with HTTP, SQLite and
+packet observers all off (117.380 seconds) and all on in a repeat (114.197
+seconds). Each mode ran two lifecycle phases, three prerecorded sources and
+10-second sampled windows per phase, with manual clips and continuous DVR.
+All 24 output inspections passed strict decoding with zero missing, duplicate or
+regressing packet timestamps. Evidence:
+`artifacts/server-trace-mode-0-{replay,workload}-{0,1}.json` and
+`artifacts/server-trace-mode-1-repeat-{replay,workload}-{0,1}.json`.
+
+The first tracing-on run failed ffprobe inspection after 87.644 seconds. Its
+recording/stderr were not preserved by the older fixture, so the cause remains
+unknown; the passing repeat does not diagnose or fix that failure. Log:
+`artifacts/server-trace-mode-1-full-server.log`. Future inspection exceptions
+preserve only the already path-validated fixture recording (at most 512 MiB)
+and bounded probe evidence before cleanup, while still failing the test. Eight
+workload-validator and four inspector tests passed, including injected probe
+failure preservation/rethrow and external-path rejection. This preservation
+path has not yet captured a real server recording failure.
+
+A separate authenticated browser fixture completed in 357.688 seconds overall,
+including waiting for real playback readiness followed by a 60-second sampled
+window (60 samples, maximum gap 1.027 seconds). All three players ended readyState
+4 with zero restart/stall/error counters and lag 1,247/1,211/1,157 ms. Presentation
+drops were 4/1,201, 0/1,465 and 94/1,849, so especially 4K is not flawless rendering.
+Seven real-player history rows were retained with zero storage failures. The
+rendered disabled HTTP/SQLite labels were verified, with no health-page console
+errors and advancing video times on the concurrent dashboard. Evidence:
+`artifacts/server-trace-disabled-browser-{history,replay}.json`,
+`artifacts/server-trace-disabled-browser.log` and
+`artifacts/server-trace-disabled-health.jpg`. Both owned tabs were closed and
+browser visibility restored to background mode; no wake lock was taken.
+
+These switches still do not provide a complete instrumentation-off baseline:
+fragment/segment/media-event observers, FFmpeg retention, host sampling,
+browser reporting/storage and processing histograms remain to be mapped. Full
+matched 30-minute, 16-representative-stream overhead and genuine hidden/resume
+validation remain open. No production configuration, main merge or remote push
+was performed, and user-owned backlog changes were not edited or staged.

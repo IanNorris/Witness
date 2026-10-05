@@ -24,9 +24,10 @@ struct HttpTracingMiddleware
 	void before_handle( crow::request& req, crow::response&, context& ctx )
 	{
 		// WebSocket upgrades do not run Crow's normal after middleware path.
-		if( req.upgrade ) return;
+		if( req.upgrade || !Witness::HttpDiagnostics::TracingEnabled() ) return;
 		ctx.Token = Witness::HttpDiagnostics::BeginRequest(
 			crow::method_name( req.method ), req.url, req.io_context, req.body.size() );
+		if (ctx.Token.Id == 0) return; // No observer-only event-loop post in baseline mode.
 		if( req.io_context )
 		{
 			const auto Token = ctx.Token;

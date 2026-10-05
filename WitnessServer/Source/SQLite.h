@@ -25,6 +25,7 @@ struct SQLiteQueryTimingEvent
 
 struct SQLiteDiagnosticsSnapshot
 {
+	bool TracingEnabled = true;
 	uint64_t Queries = 0;
 	uint64_t ContendedQueries = 0;
 	uint64_t SlowQueries = 0;
@@ -144,6 +145,7 @@ private:
 
 	std::shared_ptr<SQLiteDatabaseQuery> m_Query;
 	std::unique_lock<std::mutex> m_Lock;
+	bool m_TraceEnabled = true;
 	std::chrono::steady_clock::time_point m_WaitStarted;
 	std::chrono::steady_clock::time_point m_LockAcquired;
 	std::chrono::system_clock::time_point m_StartedSystem;
