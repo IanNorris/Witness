@@ -3961,3 +3961,47 @@ fixture in 16.106s, under `artifacts/run-worker-callback-multi-client-20261005/`
 Live-stream endurance, physical PTZ and Linux compilation remain open. Frozen
 OFF audit58671 is still live: 63/128 outputs inspected, none failed so far;
 matched ON is not started. No push, production deployment or backlog edit.
+
+### Fresh native warning and DLL audit (2026-10-05)
+
+Branch `codex/clean-native-warning-audit` records an actual `--clean-first`
+RelWithDebInfo rebuild of WitnessServer, WitnessCommon, WitnessCamera,
+BaichuanLifetimeTests, LiveStreamOwnershipTests and WorkerShutdownDelayTests with
+the pinned compiler and `/m:2 /nr:false`. Log:
+`artifacts/native-clean-warning-audit-20261005.log`. All targets finish with
+exit zero; the complete log contains zero `warning C...` or `warning LNK...`
+lines. Camera/server targets retain explicit `/W3`, and the inspected project
+files/export headers do not disable C4251/C4275. Existing frontend Sass
+deprecations and the large-chunk advisory remain. This is the current Windows
+configuration, not every platform/configuration or general ABI compatibility.
+
+The freshly linked DLL passes 20 synthetic loopback Baichuan snapshot/stalled
+TCP shutdown cycles. The live ownership consumer passes eight H264 video-only
+reconnect/destruction cycles using the bounded offline H264 fixture. The real
+held timer callback and idle shutdown tests pass. The short ADTS/AAC fixture
+fails the live ownership test's `retained segment ownership` assertion; the
+same newly compiled consumer also fails with the previous immutable native90c
+DLLs in `artifacts/live-ownership-control-90c2fae6e2a5/`. This is an open AAC
+validation issue, not evidence of a regression caused by the latest includes.
+The test feeds exactly 100 packets per generation and only checks that the
+backlog is nonempty, while GetSegments can include an unfinished entry without
+Data. GOP/audio packet-count dependence is the next investigation, not yet a
+confirmed root cause. Do not count the AAC ownership gate as passed.
+
+Fresh full dependency capture `artifacts/dependency-clean-native-after-20261005.json`
+matches the pre-rebuild inventory exactly: 2,673 files / 759,367,637 bytes,
+zero additions, removals or content changes. No installed dependencies were
+cleaned/rebuilt. The available second compiler is a different 14.44 family,
+not a same-family servicing A/B control; compiler-servicing ABI proof remains
+unperformed.
+
+Clean-rebuilt package
+`build-vs2026-stable/deploy/native-clean-c96b97f1c1b9-web-2c02a751180d`
+passes byte/inventory/identity verification (94 files / 174,735,166 bytes;
+`artifacts/native-clean-package-verified.json`) and actual zero-camera
+authenticated two-lifecycle multi-client history checks in 15.296s, under
+`artifacts/run-native-clean-runtime-20261005/`. Native source identity is
+unchanged; a clean link changes binary/symbol bytes, so prior package sizes are
+not expected to match. Frozen OFF audit58671 is confirmed live at 72/128,
+with zero inspected failures; overall inspection and matched ON remain open.
+No push, main merge, production deployment, media tracking or backlog edit.
