@@ -3843,3 +3843,30 @@ directory was retained as `Web-toolbar-prior-743329f05c56`, not deleted. No
 new native runtime, live-stream, Linux or production-stability claim follows
 from these frontend checks. Frozen OFF recording audit session58671 remains
 live; matched ON has not started. No push or production deployment.
+
+### Long camera-group toolbar validation (2026-10-05)
+
+Branch `codex/dashboard-toolbar-group-validation` adds bounded synthetic
+`--many-groups` and `--few-long-groups` fixtures. Rendered testing caught a real
+mobile overflow in the preceding wrapping-button rule: a later equal-specificity
+nowrap declaration overrode it. The corrected rule is more specific and caps
+individual button width. More than three camera groups now use a compact
+accessible select rather than making the toolbar several rows taller. A long
+selected group title also wraps inside the dashboard heading.
+
+At 390px, the six-group picker selected the longest name successfully with no
+clipped toolbar controls (215px header versus the prior six-button 430px header).
+The final two-group button case also selected the longest name successfully:
+all controls fit, and the selected heading stayed within the viewport. Its
+screenshot is `artifacts/dashboard-toolbar-small-long-groups-20261005.png`.
+The DVR rendered header remains 52px with wrapping opt-in absent. Viewport
+overrides were reset; owned tabs and synthetic fixtures were closed. Fixture
+API consistency tests (empty/six/two groups), eight layout tests and Vue type
+checking pass; production frontend build retains existing Sass/chunk warnings.
+
+Package `build-vs2026-stable/deploy/toolbar-groups-90c2fae6e2a5-web-a2c81ac6bfeb`
+is separately byte/inventory/identity verified by
+`artifacts/toolbar-groups-package-verified.json`. Native binaries are unchanged;
+this is frontend validation, not new stream endurance or production stability
+evidence. Prior runtime Web is recoverable as `Web-toolbar-prior-2b399a208d85`.
+No real camera media is part of these fixtures, and no push/deployment occurred.

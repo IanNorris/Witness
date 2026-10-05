@@ -8,12 +8,19 @@ import { createInterface } from 'node:readline'
 import { createRequire } from 'node:module'
 import { loadMuxReplay, streamMuxReplay } from './muxReplay.mjs'
 
-export async function startPtzDashboard({ layout = false, automaticSlots = false, muxFile, seconds = 120, evidenceFile } = {}) {
+export async function startPtzDashboard({ layout = false, automaticSlots = false, manyGroups = false, fewLongGroups = false, muxFile, seconds = 120, evidenceFile } = {}) {
   const replay = muxFile ? await loadMuxReplay(muxFile, seconds) : null
   // Resolve from repository rather than the caller's current directory.
   const webRoot = resolve(fileURLToPath(new URL('../../../WitnessServer/Web', import.meta.url)))
+  const groupNames = [
+    'Driveway and front entrance', 'Garden and rear boundary', 'Indoor monitoring',
+    'Workshop and storage buildings', 'LongUnbrokenSyntheticCameraGroupNameForResponsiveTesting',
+    'All exterior cameras including side paths',
+  ]
+  const groups = (manyGroups ? groupNames : fewLongGroups ? [groupNames[0], groupNames[4]] : [])
+    .map((displayName, index) => ({ id: index + 1, displayName, description: 'Synthetic responsive validation group' }))
   const cameras = (layout ? [10, 12, 13, 14, 15] : [10, 12]).map((id, index) => ({ id, name: `Fixture PTZ ${index + 1}`,
-    groups: [], status: 'Connected', recording: layout && index < 2, ptzEnabled: 1, codec: 'h264', width: 1920, height: 1080 }))
+    groups: groups.map(group => group.id), status: 'Connected', recording: layout && index < 2, ptzEnabled: 1, codec: 'h264', width: 1920, height: 1080 }))
   const commands = []
   const sockets = new Set()
   const streamConnections = new Map()
@@ -37,7 +44,7 @@ export async function startPtzDashboard({ layout = false, automaticSlots = false
       }
       if (path === '/auth/profile') return json(res, { csrf: 'fixture-only', username: 'fixture', admin: false })
       if (path === '/camera/enum') return json(res, cameras)
-      if (path === '/group/enum') return json(res, { groups: [] })
+      if (path === '/group/enum') return json(res, { count: groups.length, groups })
       if (path.startsWith('/clip/')) return json(res, { clips: [], total: 0 })
       if (path === '/debug/client-health') { res.statusCode = 202; return json(res, {}) }
       if (path.match(/^\/ptz\/\d+\/zoom$/)) return json(res, { valid: false })
@@ -133,6 +140,8 @@ if (process.argv.includes('--serve')) {
   const muxIndex = process.argv.indexOf('--mux')
   const evidenceIndex = process.argv.indexOf('--evidence')
   const fixture = await startPtzDashboard({ layout: process.argv.includes('--layout'), automaticSlots: process.argv.includes('--auto-slots'),
+    manyGroups: process.argv.includes('--many-groups'),
+    fewLongGroups: process.argv.includes('--few-long-groups'),
     muxFile: muxIndex >= 0 ? process.argv[muxIndex + 1] : undefined,
     evidenceFile: evidenceIndex >= 0 ? process.argv[evidenceIndex + 1] : undefined })
   console.log('PTZ fixture: ' + fixture.origin)

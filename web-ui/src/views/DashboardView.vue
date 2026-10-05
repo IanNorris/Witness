@@ -564,7 +564,14 @@ onMounted(async () => {
           <option value="grid16">16 small</option>
         </select>
         <!-- Group picker -->
-        <div v-if="groupStore.activeGroups.length > 0" class="dashboard-groups d-flex flex-wrap gap-1" role="group" aria-label="Camera group">
+        <select v-if="groupStore.activeGroups.length > 3"
+          class="form-select form-select-sm dashboard-group-select" aria-label="Camera group"
+          :value="selectedGroupId ?? ''"
+          @change="selectGroup(($event.target as HTMLSelectElement).value === '' ? null : Number(($event.target as HTMLSelectElement).value))">
+          <option value="">All cameras</option>
+          <option v-for="group in groupStore.activeGroups" :key="group.id" :value="group.id">{{ group.displayName }}</option>
+        </select>
+        <div v-else-if="groupStore.activeGroups.length > 0" class="dashboard-groups d-flex flex-wrap gap-1" role="group" aria-label="Camera group">
           <button
             class="btn"
             :class="selectedGroupId === null ? 'btn-primary' : 'btn-outline-secondary'"
@@ -798,8 +805,11 @@ onMounted(async () => {
 .dashboard-toolbar { padding: 0.25rem 0; flex-wrap: wrap; width: 100%; min-width: 0; }
 .dashboard-toolbar > * { flex-shrink: 0; max-width: 100%; }
 .dashboard-groups { min-width: 0; }
-.dashboard-groups .btn { white-space: normal; overflow-wrap: anywhere; }
 .dashboard-toolbar .btn { white-space: nowrap; }
+.dashboard-toolbar .dashboard-groups .btn { min-width: 0; max-width: 100%; white-space: normal; overflow-wrap: anywhere; }
+.dashboard-group-select { width: auto; max-width: 260px; }
+.view-heading > div { min-width: 0; }
+.view-heading h1 { overflow-wrap: anywhere; }
 .mode-detail { margin-left: 0.35rem; font-size: 0.65rem; opacity: 0.75; }
 .dashboard-stage { position: relative; }
 .dashboard-preset { width: auto; max-width: 260px; }
