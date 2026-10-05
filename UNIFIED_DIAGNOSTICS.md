@@ -835,3 +835,56 @@ timestamp-normalized container. This is a candidate cause, not an A/B-proven
 diagnosis. Correctly distinguish live inputs from recorded-file pacing and
 rerun the same matrix before using this fixture for performance acceptance or
 claiming a production playback fix.
+
+### Live-input versus recorded-input worker pacing (2026-10-05)
+
+`InputStream::RequiresPacketPacing` now caches the opened demuxer's normal
+seekability after probing. A seekable local/remote recording keeps the worker's
+existing nominal-rate pacing; a non-seekable transport, or demuxer without a
+generic AVIO context (such as RTSP), does not receive a second worker sleep.
+Before opening and after shutdown the policy is conservatively reset to pacing.
+The cached value is queried on the owning camera worker, not exposed as an
+unsynchronized cross-thread snapshot. State remains private to WitnessCamera's
+PIMPL; the public class layout is unchanged, but the new exported method requires
+deploying the matching rebuilt server and camera DLL together.
+
+This replaces the worker's old RTSP-URL-only special case, rather than assuming
+every HTTP URL is live. Seekability is a transport capability, not a universal
+semantic live/file classifier: a finite non-seekable recording cannot be
+distinguished from a live transport by this policy and receives no nominal-rate
+sleep. Existing file pacing itself still uses codec frame duration, not a new
+DTS-based audio/video replay scheduler. Neither behavior is claimed solved here.
+
+`InputPacingProbe` is an opt-in native test binary, excluded from deployment.
+The integration test opened actual H.264 720p and HEVC 4K local files, the same
+files from ephemeral loopback HTTP byte-range servers, and live paced HTTP
+MPEG-TS senders. It verified pacing true/true/false respectively, as well as the
+before-open and after-shutdown reset. All six media/transport cases passed in
+4.639 seconds (`artifacts/live-input-pacing-range-integration.log`). No physical
+cameras or production configuration/database were accessed.
+
+Coherent package: `build-vs2026-stable/deploy/live-input-pacing-e6f74ec3f350`,
+native e6f74ec3f350 / web b9437265ce28, 94 files / 177,675,740 bytes, verified
+against runtime in `artifacts/live-input-pacing-package-verified.json`. Native
+build completed with no C++/linker warnings and reused the immutable dependency
+environment; no vcpkg install occurred. Frontend chunk-size advisories remain.
+
+The sixteen-stream mixed matrix passed both 60-second sampled runs, actual
+authenticated health/history checks and percentile resets, and graceful restart
+and shutdown (150.300 seconds including initialization/cleanup). Preserved
+reports: `artifacts/live-pacing-e6f74ec3f350-run-{0,1}.json` and
+`artifacts/live-input-pacing-server-regression.log`. Across 960 camera snapshots
+per run, none reported disconnected state, established packet drops or timestamp
+rejection. End-to-end health-request P95 was 26.61 / 26.59 ms.
+
+For representative camera IDs 1/9/13, accepted-packet slopes between first and
+last sampled snapshots were respectively 16.66/20.00/25.01 packets/s in run 0
+and 16.65/20.01/24.99 in run 1. The earlier identical server-only replay run on
+native 15b2da5f9014 measured 16.63/19.85/23.78. This supports removal of additional
+HTTP worker pacing as the fix for the replay's under-delivery; it is not a new
+RTSP/Tapo-production fix. Process CPU increased to mean 28.67 / 27.53 percent
+with the higher delivered workload, so this is not a diagnostic-overhead A/B
+comparison. Browser rendering after the pacing fix and the representative
+30-minute baseline/enabled phases still need verification; zero server drops
+must not be used as a smooth-browser-playback claim. All test-owned processes
+stopped. No main merge, remote push, production deployment or wake lock occurred.
