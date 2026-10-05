@@ -7,6 +7,7 @@
 #include "UrlHelpers.h"
 #include "PtzMovementLease.h"
 #include "PtzConfiguration.h"
+#include <Log.h>
 
 static int PtzLaneId(GlobalContext& ctx, int cameraId)
 {

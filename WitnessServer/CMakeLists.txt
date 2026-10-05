@@ -37,6 +37,7 @@ set(SERVER_SOURCES
     Source/Common.cpp
     Source/Database.cpp
     Source/FaceRecognitionCache.cpp
+    Source/GlobalContext.cpp
     Source/ImageProcessorWorker.cpp
     Source/HttpServerDiagnostics.cpp
     Source/Init.cpp
@@ -164,6 +165,15 @@ target_include_directories(MessageHeaderIsolationTests PRIVATE Source ${OpenCV_I
 target_link_libraries(MessageHeaderIsolationTests PRIVATE WitnessCamera)
 if(MSVC)
     target_compile_options(MessageHeaderIsolationTests PRIVATE /utf-8 /W3)
+endif()
+
+add_executable(GlobalContextHeaderIsolationTests EXCLUDE_FROM_ALL
+    ../Tools/Tests/GlobalContextHeaderIsolationTests.cpp
+    Source/GlobalContext.cpp)
+target_include_directories(GlobalContextHeaderIsolationTests PRIVATE Source)
+target_link_libraries(GlobalContextHeaderIsolationTests PRIVATE WitnessCamera Crow::Crow unofficial::sqlite3::sqlite3)
+if(MSVC)
+    target_compile_options(GlobalContextHeaderIsolationTests PRIVATE /utf-8 /W3)
 endif()
 
 add_executable(DetectionCleanupTests EXCLUDE_FROM_ALL

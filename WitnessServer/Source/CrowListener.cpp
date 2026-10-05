@@ -1,4 +1,6 @@
 #include "CrowListener.h"
+#include "EventBroadcaster.h"
+#include "StreamBroadcaster.h"
 #include "CrowAuth.h"
 #include "CameraWorker.h"
 #include "Messages.h"

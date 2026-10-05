@@ -1,6 +1,8 @@
 #include "Common.h"
 #include "Witness.h"
 #include "CrowListener.h"
+#include "EventBroadcaster.h"
+#include "StreamBroadcaster.h"
 
 void WitnessServer::Shutdown()
 {

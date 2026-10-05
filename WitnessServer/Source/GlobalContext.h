@@ -6,8 +6,6 @@
 #include "CameraState.h"
 #include "SettingsMap.h"
 #include "LongPoll.h"
-#include "EventBroadcaster.h"
-#include "StreamBroadcaster.h"
 
 #include "FaceRecognitionCache.h"
 #include "SoundManager.h"
@@ -20,6 +18,8 @@ namespace Witness{ namespace Camera{ struct ImageProcessingJobQueue; } }
 class CameraWorker;
 class ReolinkClient;
 class PtzMovementLease;
+class EventBroadcaster;
+class StreamBroadcaster;
 namespace Witness::ClientHealth { class History; }
 
 struct CameraStateToggleRecordMessage : public Message
@@ -36,12 +36,7 @@ class GlobalContext
 {
 public:
 
-	GlobalContext()
-	: Mutex()
-	, LongPoll(std::make_shared<LongPollDispatch>())
-	, Events(std::make_shared<EventBroadcaster>())
-	, Streams(std::make_shared<StreamBroadcaster>())
-	{}
+	GlobalContext();
 
 	CameraState* FindCameraById(int Id)
 	{

@@ -1,6 +1,7 @@
 #include "Witness.h"
 #include "CameraWorker.h"
 #include "GlobalContext.h"
+#include "EventBroadcaster.h"
 
 #include <Log.h>
 

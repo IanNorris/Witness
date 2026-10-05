@@ -1,6 +1,7 @@
 #include "AudioIntelligenceWorker.h"
 #include "SQLite.h"
 #include "GlobalContext.h"
+#include "EventBroadcaster.h"
 
 #include <Log.h>
 #include <algorithm>

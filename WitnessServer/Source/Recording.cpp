@@ -4,6 +4,7 @@
 #include "ObservingMotionFilter.h"
 #include "Witness.h"
 #include "GlobalContext.h"
+#include "EventBroadcaster.h"
 #include "TagHelpers.h"
 
 #include <Log.h>

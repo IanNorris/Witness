@@ -3387,3 +3387,46 @@ The package itself is unchanged; only test sources/evidence notes are added.
 No private clip was tracked/staged, no user backlog edit or main merge/push/deploy
 occurred. Recording-audit handle58671 remains live; 3/128 outputs completed so far.
 The matched OFF/ON overhead gate remains open.
+
+### Measured GlobalContext broadcaster-header decoupling (2026-10-05)
+
+On separate `codex/global-context-header-decoupling`, `GlobalContext.h` no longer
+imports the full EventBroadcaster/StreamBroadcaster implementations and Crow
+through them. The same eager constructor body is defined in `GlobalContext.cpp`;
+field declarations and ownership remain unchanged. Consumers invoking broadcaster
+methods explicitly include their definitions. The full build caught an existing
+transitive logging dependency in the PTZ route, now fixed with explicit `Log.h`.
+This is header hygiene/outline construction, not wholesale PIMPL or proof of DLL ABI.
+
+Identical pinned no-PCH TU probes ran three alternating repetitions before/after
+the edit, with compiler19.51.36257.0 and the same input TU hash. Context-control
+median wall time fell from 7.6377666s to 2.8022738s; preprocessed bytes fell from
+10,229,571 to 5,025,223. Unchanged isolated control medians were 2.5492324s and
+2.5328541s. Evidence:
+`artifacts/message-header-probe-2588956119c94674bc191cdea3e0a74d/summary.json`,
+`artifacts/message-header-probe-5600dd28433e46bea162b0658e87412a/summary.json`,
+`artifacts/global-context-header-probe-comparison.json` (also records both context
+header hashes). A recording audit was running during both probes. These are TU
+wall-clock/preprocess measurements, not full-project PCH CPU or runtime speedup.
+An initial probe using a nonexistent default triplet failed preflight; the actual
+cached `x64-windows-witness-v145-release` triplet was then used consistently.
+
+Final server build native07bf7a9a88f8 succeeded after correcting the logging include;
+frontend Sass deprecations/chunk advisories remain. CMake regenerated to add source
+and the opt-in test target while reporting the same immutable dependency environment
+6b27239cefa9921f3d82643ccc48e50ce241b30f5ea7ce1761240cb59532dc61; no dependency install
+or toolchain/global-vcpkg change occurred. `GlobalContextHeaderIsolationTests`
+includes the header first, with no server Crow PCH, asserts both broadcasters are
+incomplete while shared-pointer member types remain unchanged, and checks eager
+service ownership at runtime without starting sockets, threads or cameras. It and
+`MessageHeaderIsolationTests` pass. The actual authenticated three-stream replay,
+HTTP motor-mock relink and durable-history shutdown/restart fixture passes across
+two lifecycles in 54.749s (`artifacts/run-global-context-header-runtime-20261005/`).
+Linux compilation and general ABI/production stability remain unverified.
+
+Separate verified package:
+`build-vs2026-stable/deploy/context-header-07bf7a9a88f8-web-dbcadd4ab7f8`,
+94 files / 178,128,253 bytes; manifest `artifacts/global-context-header-package-verified.json`.
+The frozen load package is unchanged. Recording audit58671 remains live; matched
+ON has not started. No main merge, remote push, production deployment, private-media
+tracking or user-owned backlog edit occurred.

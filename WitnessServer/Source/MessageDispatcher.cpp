@@ -1,6 +1,7 @@
 #include "Common.h"
 #include "Database.h"
 #include "GlobalContext.h"
+#include "EventBroadcaster.h"
 #include "ObservingMotionFilter.h"
 #include "Witness.h"
 #include "TagHelpers.h"

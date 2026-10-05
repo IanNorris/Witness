@@ -1,5 +1,6 @@
 #include "SubStreamWorker.h"
 #include "GlobalContext.h"
+#include "StreamBroadcaster.h"
 #include "Common.h"
 #include "UrlHelpers.h"
 #include <Log.h>
