@@ -264,8 +264,11 @@ bool ObservingMotionFilter::ProcessFrame( SharedClassificationTask TaskData )
 
 			ClipStats.TimestampClipStarted = TimestampNow;
 			ClipStats.TimestampMotionStarted = TimestampNow;
-			ClipStats.TimestampMotionEnded = INT64_MIN;
-			ClipStats.TimestampClipEnded = INT64_MIN;
+			// These timestamps are unsigned; a negative sentinel becomes 2^63
+			// and defeats SetManualClipEnd's max(current time, previous end).
+			// Match ClipStatistics::Clear's unset-end value instead.
+			ClipStats.TimestampMotionEnded = 0;
+			ClipStats.TimestampClipEnded = 0;
 			ClipStats.LargestMotionDelta = MotionMessage->MotionPercentage = TaskData->Result.MotionAmount;
 
 			MotionMessage->ClipStats = ClipStats;

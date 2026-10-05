@@ -5,6 +5,14 @@ import unittest
 
 
 class ShutdownJoinOrderTests(unittest.TestCase):
+    def test_unsigned_clip_end_timestamps_use_zero_not_negative_sentinels(self):
+        root = Path(__file__).resolve().parents[2] / 'WitnessServer/Source'
+        source = re.sub(r'//[^\n]*|/\*.*?\*/', '',
+                        (root / 'ObservingMotionFilter.cpp').read_text(encoding='utf8'), flags=re.S)
+        for field in ('TimestampMotionEnded', 'TimestampClipEnded'):
+            self.assertNotRegex(source, r'ClipStats\.' + field + r'\s*=\s*INT64_MIN')
+            self.assertRegex(source, r'ClipStats\.' + field + r'\s*=\s*0;')
+
     def test_final_clip_metadata_drain_is_serialized_after_all_worker_joins(self):
         root = Path(__file__).resolve().parents[2] / 'WitnessServer/Source'
         source = (root / 'Shutdown.cpp').read_text(encoding='utf8')

@@ -213,22 +213,27 @@ class WorkloadEvidenceTests(unittest.TestCase):
             db.executemany('INSERT INTO ContinuousSegment VALUES(?,?)', [(1, 1), (2, 2)])
             self.assertEqual(recording_evidence(db, 3, 2), ([], []))
             self.assertEqual(recording_evidence(db, 2, 1),
-                             ([{'cameraId': 2, 'clips': 1, 'minimumDurationSeconds': 30}],
+                             ([{'cameraId': 2, 'clips': 1, 'minimumDurationSeconds': 30, 'maximumDurationSeconds': 30}],
                               [{'cameraId': 2, 'segments': 1}]))
         finally:
             db.close()
 
     def test_recording_metadata_requires_every_new_clip_to_be_finalized(self):
-        self.assertFalse(recording_metadata_finalized([]))
+        self.assertFalse(recording_metadata_finalized([], 120))
         for duration in (None, 0, -1, True, '20'):
             self.assertFalse(recording_metadata_finalized([
-                {'minimumDurationSeconds': 20}, {'minimumDurationSeconds': duration}]))
-        self.assertTrue(recording_metadata_finalized([{'minimumDurationSeconds': 20}]))
+                {'minimumDurationSeconds': 20, 'maximumDurationSeconds': 20},
+                {'minimumDurationSeconds': duration, 'maximumDurationSeconds': 20}], 120))
+        self.assertTrue(recording_metadata_finalized([
+            {'minimumDurationSeconds': 20, 'maximumDurationSeconds': 20}], 120))
+        for duration in (None, True, 19, 121, 2**63):
+            self.assertFalse(recording_metadata_finalized([
+                {'minimumDurationSeconds': 20, 'maximumDurationSeconds': duration}], 120))
         with sqlite3.connect(':memory:') as db:
             db.execute('CREATE TABLE Clip(ClipUID INTEGER,Camera INTEGER,Duration INTEGER)')
             db.execute('CREATE TABLE ContinuousSegment(SegmentUID INTEGER,CameraUID INTEGER)')
             db.executemany('INSERT INTO Clip VALUES(?,?,?)', [(1, 1, 20), (2, 1, 0)])
-            self.assertFalse(recording_metadata_finalized(recording_evidence(db, 0, 0)[0]))
+            self.assertFalse(recording_metadata_finalized(recording_evidence(db, 0, 0)[0], 120))
 
     def test_output_verifier_rejects_external_paths_before_decoding(self):
         db = sqlite3.connect(':memory:')

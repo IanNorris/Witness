@@ -4384,3 +4384,15 @@ nonblocking empty case. Runtime evidence now requires a positive persisted
 duration for every new clip, not merely rows/files. Sixteen pure workload and
 source-order tests pass. The expanded native tests/build and multi-camera green
 runtime check are still pending; no merge, push or production deployment.
+
+The expanded Windows native queue/shutdown target now builds and runs successfully:
+finite FIFO snapshot, late-message preservation, empty snapshot, actual held timer
+callback joining and idle cancellation all pass. The full server build also
+completed. Review additionally found motion-start code assigned INT64_MIN to
+unsigned end timestamps, turning the sentinel into2^63 and defeating the manual
+end max(). Those initializations now match ClipStatistics::Clear's zero end
+sentinel. Seventeen pure regressions pass; metadata evidence now checks both
+minimum and maximum durations against the replay window plus its bounded startup
+allowance, rejecting huge positive values as well as zero/negative durations.
+This last source change still requires a rebuild and runtime validation. No new
+package or merge is inferred from the preceding native test pass.
