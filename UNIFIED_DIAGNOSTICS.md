@@ -4294,3 +4294,23 @@ No other applications were stopped. All new owned browser tabs/fixture servers
 are closed, and the temporary viewport override was reset. The matched ON gate
 and genuine hidden/resume validation remain open; master/runtime/dependencies,
 remote, production and user BACKLOG edits are unchanged by this validation piece.
+
+### Retained browser proof in replay comparisons (2026-10-05)
+
+Branch `codex/replay-layout-comparison-proof` retains the independently captured
+DOM proof and its validation timestamp in the measured replay artifact, and
+preserves both through summarization. The comparison revalidates the proof at
+validation time and measurement start, requires an integer viewport with bounded
+dimensions, and refuses an OFF/ON comparison with different observed viewports.
+Missing proof, a future validation boundary, stale capture, hidden documents,
+incomplete player membership or unready players produce an incomplete result.
+Separate phase capture times are permitted; the actual viewport must match.
+
+All 32 profile, summary and comparison tests pass, including negative cases and
+legacy evidence remaining explicitly unavailable. Python sources parse and the
+diff has no whitespace errors. No production source, deployable binary, web
+bundle or dependency changed. The completed earlier OFF run lacks retained
+startup proof and cannot be retroactively qualified by manufacturing it. Fresh
+paired runs are required. Startup DOM proof does not establish uninterrupted
+visibility, identical tile geometry throughout the phase, hidden/resume behavior,
+or absence of external host contention. Those validation limits remain open.

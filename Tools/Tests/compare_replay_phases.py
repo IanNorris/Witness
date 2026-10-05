@@ -3,6 +3,7 @@ import argparse
 import json
 import math
 from pathlib import Path
+from replay_profiles import validate_browser_layout_proof
 
 
 def finite(value):
@@ -22,6 +23,7 @@ def compare(off, on, off_recordings, on_recordings):
         missing.append('expected sixteen uniquely identified replay profiles')
     if {row.get('videoCodec') for row in profiles} != {'h264', 'hevc'}:
         missing.append('expected H.264 and HEVC profiles')
+    browser_viewports = []
     for label, phase, recordings, enabled in (('off', off, off_recordings, False),
                                               ('on', on, on_recordings, True)):
         workload = phase.get('workload') or {}
@@ -34,6 +36,26 @@ def compare(off, on, off_recordings, on_recordings):
         if any(modes.get(name) is not enabled for name in ('http', 'database', 'packet', 'mux', 'media')):
             missing.append(label + ' observer modes missing, mixed or incorrect')
         window = phase.get('measurementWindow') or {}
+        # Revalidate retained independent DOM evidence against the phase start,
+        # not the time this offline comparison happens. A readiness boolean is
+        # not evidence of the actual viewport or visible player workload.
+        try:
+            evidence = phase['browserLayoutEvidence']
+            proof = evidence['proof']
+            viewport = proof['viewport']
+            if (not isinstance(viewport, dict) or set(viewport) != {'width', 'height'} or
+                    any(type(value) is not int or not 1 <= value <= 10000 for value in viewport.values()) or
+                    type(evidence['validatedUnixMs']) is not int or
+                    type(window['startedUnixMs']) is not int or
+                    not 0 <= window['startedUnixMs'] - evidence['validatedUnixMs'] <= 60000):
+                raise ValueError('Invalid browser proof validation boundary')
+            validate_browser_layout_proof(proof, phase['mainStreamProfiles'], viewport,
+                                          evidence['validatedUnixMs'])
+            validate_browser_layout_proof(proof, phase['mainStreamProfiles'], viewport,
+                                          window['startedUnixMs'])
+            browser_viewports.append(viewport)
+        except (ValueError, KeyError, TypeError, AttributeError, OverflowError):
+            missing.append(label + ' independent browser layout evidence missing or invalid')
         coverage = phase.get('coverage') or {}
         if (not finite(window.get('observedDurationSeconds')) or window['observedDurationSeconds'] < 1800 or
                 not finite(coverage.get('maximumGapSeconds')) or coverage['maximumGapSeconds'] > 10 or
@@ -57,6 +79,8 @@ def compare(off, on, off_recordings, on_recordings):
         elif p95 >= 100:
             failures.append(label + ' summary HTTP P95 is not below 100ms')
         metrics[label + 'SummaryHttpP95Ms'] = p95
+    if len(browser_viewports) == 2 and browser_viewports[0] != browser_viewports[1]:
+        missing.append('mismatched independently observed browser viewport')
     for percentile in ('p50', 'p95'):
         left = off.get('processCpuHostCapacityPercent', {}).get(percentile)
         right = on.get('processCpuHostCapacityPercent', {}).get(percentile)
@@ -93,6 +117,7 @@ def compare(off, on, off_recordings, on_recordings):
             'processing': tasks,
             'limits': ['Not production stability or sixteen independent physical cameras.',
                        'Playback, hidden/resume and independent browser-profile gates require separate evidence.',
+                       'DOM layout proof qualifies startup only, not continuous visibility or unchanged layout.',
                        'CPU P50 and P95 are both compared; task distributions exclude decode and queue wait.']}
 
 

@@ -13,7 +13,7 @@ class ReplayPhaseComparisonTests(unittest.TestCase):
             'mainStreamProfiles': [{'cameraId': i, 'videoCodec': 'h264' if i % 2 else 'hevc',
                                    'width': 1920, 'height': 1080, 'audioCodec': ''} for i in range(1, 17)],
             'observerModes': dict.fromkeys(('http', 'database', 'packet', 'mux', 'media'), False),
-            'measurementWindow': {'observedDurationSeconds': 1800},
+            'measurementWindow': {'startedUnixMs': 2000, 'observedDurationSeconds': 1800},
             'coverage': {'maximumGapSeconds': 1},
             'summaryHttpTiming': {'scope': 'authenticatedHealthWithoutRawWorkSamplesRequestAndResponseBodyOnly',
                                  'complete': True, 'availableSamples': 1800, 'totalSamples': 1800},
@@ -21,6 +21,13 @@ class ReplayPhaseComparisonTests(unittest.TestCase):
             'processingTaskDistributions': [{'cameraId': i, 'complete': True, 'unavailableReasons': [],
                 'scope': 'filterStageWallTimeExcludingQueueWaitAndDecode',
                 'boundary': 'perCameraSnapshotSequenceCursors', 'p95Ms': 1} for i in range(1, 17)]}
+        off['browserLayoutEvidence'] = {'validatedUnixMs': 1500, 'proof': {
+            'capturedUtc': '1970-01-01T00:00:01Z',
+            'viewport': {'width': 2172, 'height': 1550},
+            'visibility': 'visible', 'fullscreen': True, 'activityVisible': False,
+            'players': [{'width': 1920, 'height': 1080, 'insideViewport': True,
+                         'paused': False, 'readyState': 4, 'error': None, 'currentTime': 10}
+                        for _ in range(16)]}}
         on = copy.deepcopy(off)
         on['observerModes'] = dict.fromkeys(off['observerModes'], True)
         rows = [{'cameraId': i, 'kind': kind, 'passed': True}
@@ -44,6 +51,32 @@ class ReplayPhaseComparisonTests(unittest.TestCase):
         report = compare(off, on, recordings, recordings)
         self.assertEqual(report['status'], 'failed')
         self.assertEqual(len(report['thresholdFailures']), 3)
+
+    def test_browser_proof_must_be_recent_visible_complete_and_same_viewport(self):
+        for change in [lambda p: p.pop('browserLayoutEvidence'),
+                       lambda p: p.update(browserLayoutEvidence=None),
+                       lambda p: p['browserLayoutEvidence']['proof'].update(viewport={'width': 1280, 'height': 720}),
+                       lambda p: p['browserLayoutEvidence']['proof'].update(viewport={'width': True, 'height': 720}),
+                       lambda p: p['browserLayoutEvidence']['proof'].update(visibility='hidden'),
+                       lambda p: p['browserLayoutEvidence']['proof'].update(activityVisible=True),
+                       lambda p: p['browserLayoutEvidence']['proof']['players'].pop(),
+                       lambda p: p['browserLayoutEvidence']['proof']['players'][0].update(readyState=2),
+                       lambda p: p['browserLayoutEvidence']['proof'].update(capturedUtc='invalid'),
+                       lambda p: p['browserLayoutEvidence'].update(validatedUnixMs=True),
+                       lambda p: p['browserLayoutEvidence'].update(validatedUnixMs=3000),
+                       lambda p: p['measurementWindow'].update(startedUnixMs=62000),
+                       lambda p: p['measurementWindow'].pop('startedUnixMs')]:
+            off, on, recordings = self.fixture()
+            change(on)
+            with self.subTest(change=change):
+                self.assertEqual(compare(off, on, recordings, recordings)['status'], 'incomplete')
+
+    def test_phase_capture_times_need_not_match_but_each_proof_must_qualify(self):
+        off, on, recordings = self.fixture()
+        on['measurementWindow']['startedUnixMs'] = 86402000
+        on['browserLayoutEvidence']['validatedUnixMs'] = 86401500
+        on['browserLayoutEvidence']['proof']['capturedUtc'] = '1970-01-02T00:00:01Z'
+        self.assertEqual(compare(off, on, recordings, recordings)['status'], 'numericThresholdsMet')
 
     def test_missing_nonfinite_and_incomplete_evidence_never_pass(self):
         for change in [lambda p: p.update(nativeBuildId='different'),

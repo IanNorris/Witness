@@ -250,6 +250,7 @@ def summarize(replay, history):
         'observerModes': observer_modes,
         'mainStreamProfiles': main_profiles if len(main_profiles) == len(camera_ids) else None,
         'browserReadyBeforePhase': replay.get('browserReadyBeforePhase') is True,
+        'browserLayoutEvidence': replay.get('browserLayoutEvidence'),
         'cameraCount': len(camera_ids), 'sampleCount': len(samples),
         'coverage': replay.get('coverage'), 'workload': replay.get('workload'),
         'measurementWindow': window,

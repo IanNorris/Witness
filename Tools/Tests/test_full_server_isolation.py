@@ -634,6 +634,7 @@ class FullServerIsolationTests(unittest.TestCase):
                                 for camera_id in initial:
                                     self.assertEqual(request(f'/camera/record/{camera_id}',
                                         body={'csrf': csrf, 'record': True})[0], 200)
+                            browser_layout_evidence = None
                             if browser_hold:
                                 print(f'isolatedBrowserUrl=http://127.0.0.1:{port}/', flush=True)
                                 # Do not count browser attachment/startup as measured playback.
@@ -650,8 +651,9 @@ class FullServerIsolationTests(unittest.TestCase):
                                             if proof_path.stat().st_size > 65536:
                                                 raise ValueError('Browser proof exceeds the bounded size')
                                             proof = json.loads(proof_path.read_text(encoding='utf8'))
+                                            proof_validated_unix_ms = int(time.time() * 1000)
                                             validate_browser_layout_proof(proof, profiles, browser_gate_viewport,
-                                                                          int(time.time() * 1000))
+                                                                          proof_validated_unix_ms)
                                         except (OSError, ValueError, KeyError, TypeError, AttributeError):
                                             self.assertLess(time.monotonic(), deadline, 'Browser layout proof timeout')
                                             time.sleep(1)
@@ -660,6 +662,9 @@ class FullServerIsolationTests(unittest.TestCase):
                                             health['server']['webBuildHash'], int(time.time() * 1000),
                                             os.environ.get('WITNESS_TEST_PRESENTATION_MONITOR') == '1'):
                                         print('browserPlaybackReady=true', flush=True)
+                                        if browser_gate_viewport is not None:
+                                            browser_layout_evidence = {'proof': proof,
+                                                'validatedUnixMs': proof_validated_unix_ms}
                                         break
                                     self.assertLess(time.monotonic(), deadline, 'browser playback readiness timeout')
                                     time.sleep(1)
@@ -780,6 +785,7 @@ class FullServerIsolationTests(unittest.TestCase):
                                     'processingTaskDistributions': full_phase_work,
                                     'replayProfiles': profiles,
                                     'browserReadyBeforePhase': bool(browser_hold),
+                                    'browserLayoutEvidence': browser_layout_evidence,
                                     'workload': {'objectDetection': active_detection, 'provider': 'cpu' if active_detection else None,
                                                  'maximumMotionInferenceFps': 1 if active_detection else None,
                                                  'recording': 'continuous DVR plus authenticated manual clips' if active_recording else 'disabled',

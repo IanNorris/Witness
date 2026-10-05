@@ -4,6 +4,13 @@ from summarize_replay_load import buffer_position_observations, presentation_obs
 
 
 class ReplaySummaryTests(unittest.TestCase):
+    def test_browser_proof_is_retained_without_manufacturing_legacy_evidence(self):
+        replay, row = self.fixture()
+        self.assertIsNone(summarize(replay, {'history': [row]})['browserLayoutEvidence'])
+        evidence = {'validatedUnixMs': 1000, 'proof': {'viewport': {'width': 2172, 'height': 1550}}}
+        replay['browserLayoutEvidence'] = evidence
+        self.assertEqual(summarize(replay, {'history': [row]})['browserLayoutEvidence'], evidence)
+
     def test_observer_modes_and_main_profiles_require_consistent_observed_evidence(self):
         replay, row = self.fixture()
         for sample in replay['samples']:
