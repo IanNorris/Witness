@@ -206,6 +206,13 @@ endif()
 
 # Isolated PTZ safety/query tests: never initialize a camera transport.
 find_package(Threads REQUIRED)
+add_executable(WorkerShutdownDelayTests EXCLUDE_FROM_ALL
+    ../Tools/Tests/WorkerShutdownDelayTests.cpp Source/MessageBus.cpp)
+target_include_directories(WorkerShutdownDelayTests PRIVATE Source)
+target_link_libraries(WorkerShutdownDelayTests PRIVATE Threads::Threads)
+if(MSVC)
+    target_compile_options(WorkerShutdownDelayTests PRIVATE /utf-8 /W3)
+endif()
 add_executable(PtzMovementLeaseTests EXCLUDE_FROM_ALL
     ../Tools/PtzMovementLeaseTests.cpp Source/PtzMovementLease.cpp)
 add_executable(PtzConfigurationTests EXCLUDE_FROM_ALL

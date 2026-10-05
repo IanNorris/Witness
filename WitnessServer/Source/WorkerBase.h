@@ -3,6 +3,9 @@
 #include <thread>
 #include <chrono>
 #include <atomic>
+#include <condition_variable>
+#include <mutex>
+#include <memory>
 
 #include "Common.h"
 
@@ -44,7 +47,14 @@ public:
 
 	void RequestShutdown()
 	{
-		if( !Shutdown.exchange( true ) )
+		bool FirstRequest;
+		{
+			// Synchronize with predicate-check + wait to avoid a missed wakeup.
+			std::lock_guard Lock( ShutdownWaitMutex );
+			FirstRequest = !Shutdown.exchange( true );
+		}
+		ShutdownWaitCondition.notify_all();
+		if( FirstRequest )
 			MessageBusObject->SendToClient( this, std::make_shared<ThreadShutdownMessage>() );
 	}
 
@@ -77,6 +87,13 @@ protected:
 
 	bool IsShutdownRequested() const { return Shutdown.load(); }
 
+	// Preserve normal idle/backoff durations, but never sleep through a stop.
+	bool WaitForShutdown( std::chrono::milliseconds Duration )
+	{
+		std::unique_lock Lock( ShutdownWaitMutex );
+		return ShutdownWaitCondition.wait_for( Lock, Duration, [this] { return Shutdown.load(); } );
+	}
+
 private:
 
 	virtual void WorkerInit() {};
@@ -91,4 +108,6 @@ private:
 
 	std::atomic<bool> Shutdown;
 	std::atomic<bool> Complete;
+	std::mutex ShutdownWaitMutex;
+	std::condition_variable ShutdownWaitCondition;
 };

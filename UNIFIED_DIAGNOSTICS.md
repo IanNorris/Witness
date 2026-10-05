@@ -3692,3 +3692,42 @@ This proves an accepted reprocessing stop cannot interrupt its idle sleep.
 The shutdown implementation joins reprocessing before requesting audio stop,
 consistent with the audio state. It does not prove every other teardown stage
 is healthy. Stack and worker-state logs remain ignored alongside the dumps.
+
+### Interruptible worker idle cancellation (in progress, 2026-10-05)
+
+Branch `codex/interruptible-worker-idle-shutdown` adds a predicate-based idle
+condition variable to server-only `WorkerBase`. Stop publication and wait entry
+share a small mutex to prevent missed wakeups; stop wakes all idle waiters before
+the existing first-request message-bus notification. Normal waits retain their
+original duration. Reprocessing (including AI reservation backoff), audio,
+watchdog and timer waits use this helper. It does not interrupt inference,
+filesystem, database, camera reads or other work already in progress, and does
+not claim to fix every potential shutdown blocker. No DLL-exported WorkerBase
+usage was found in WitnessCamera or WitnessCommon; full server consumers must
+be rebuilt because the private base layout changes.
+
+The rebuilt native `WorkerShutdownDelayTests` executable passes ordinary timeout,
+pre-existing/repeated cancellation, multiple waiters and 100 request-before/
+during-wait races. It passes again alongside existing HealthSnapshotCacheTests
+and PtzMovementLeaseTests. Full pinned native/frontend build passes (session37708),
+using unchanged immutable dependency fingerprint
+`6b27239cefa9921f3d82643ccc48e50ce241b30f5ea7ce1761240cb59532dc61`.
+The sandbox invocation built the native test then stopped before server build;
+the scoped elevated invocation completed rebuilding server consumers. Existing
+frontend Sass deprecations/chunk-size advisories remain; this is not a warning-
+free build claim. Separate package
+`build-vs2026-stable/deploy/worker-idle-38f1f29951b5-web-75e216083a96` is verified
+against build output (94 files / 178,199,141 bytes; manifest
+`artifacts/worker-idle-package-verified.json`). This verifies byte/inventory/
+native/web identity coherence, not broad ABI or production stability.
+
+Qualified four-profile replay against that immutable package is running under
+`artifacts/run-worker-idle-mixed-codecs-20261005/` (session69740), retaining the
+90-second CPU inference/manual recording/DVR workload, five observers and
+original 30-second shutdown deadline. Its first shutdown completed and two of
+eight first-lifecycle recording inspections have passed; the remaining recording
+checks and second lifecycle are pending. This partial result is not a final
+camera-loaded integration pass or the matched 30-minute endurance gate. The
+frozen OFF audit remains live and has advanced to 14/128 inspected outputs;
+ON remains deferred until background audits end. No main merge, remote push,
+production deployment, dependency mutation or private-media tracking occurred.

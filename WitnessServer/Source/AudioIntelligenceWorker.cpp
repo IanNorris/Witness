@@ -142,7 +142,7 @@ void AudioIntelligenceWorker::WorkerMain()
 	UpdateLastTimedAction( "Waiting for idle audio work" );
 	if( IsIdle && !IsIdle() )
 	{
-		std::this_thread::sleep_for( std::chrono::seconds( 2 ) );
+		WaitForShutdown( std::chrono::seconds( 2 ) );
 		return;
 	}
 
@@ -169,13 +169,13 @@ void AudioIntelligenceWorker::WorkerMain()
 		UpdateLastTimedAction( "Audio queue idle" );
 		// Keep shutdown latency bounded; the query is indexed and intentionally
 		// cheap when the queue is empty.
-		std::this_thread::sleep_for( std::chrono::seconds( 2 ) );
+		WaitForShutdown( std::chrono::seconds( 2 ) );
 		return;
 	}
 
 	UpdateLastTimedAction( "Classifying clip audio" );
 	ProcessClip( ClipUID, Timestamp, Camera, RecordMode, Threshold );
-	std::this_thread::sleep_for( std::chrono::milliseconds( 100 ) );
+	WaitForShutdown( std::chrono::milliseconds( 100 ) );
 }
 
 void AudioIntelligenceWorker::MarkProcessed( int64_t ClipUID )

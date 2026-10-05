@@ -107,7 +107,7 @@ void ClipReprocessWorker::WorkerMain()
 		if( !LightingBackfillComplete )
 			BackfillLighting();
 
-		std::this_thread::sleep_for( std::chrono::seconds( 30 ) );
+		WaitForShutdown( std::chrono::seconds( 30 ) );
 		return;
 	}
 
@@ -140,9 +140,9 @@ void ClipReprocessWorker::WorkerMain()
 
 	// Throttle harder when cameras are actively recording
 	if( !IsIdle() )
-		std::this_thread::sleep_for( std::chrono::milliseconds( 500 ) );
+		WaitForShutdown( std::chrono::milliseconds( 500 ) );
 	else
-		std::this_thread::sleep_for( std::chrono::milliseconds( 100 ) );
+		WaitForShutdown( std::chrono::milliseconds( 100 ) );
 }
 
 void ClipReprocessWorker::MarkClipProcessed( int64_t clipUID )
@@ -364,7 +364,7 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 					HasAIReservation = true;
 					break;
 				}
-				std::this_thread::sleep_for( std::chrono::milliseconds( 50 ) );
+				WaitForShutdown( std::chrono::milliseconds( 50 ) );
 			}
 			if( IsShutdownRequested() )
 			{
