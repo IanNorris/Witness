@@ -2577,3 +2577,70 @@ induces a freeze nor qualifies real Tapo traffic/high-resolution decoding or
 observer overhead. The older sixteen-source audit is still live, currently in
 continuous-recording frame timestamp inspection, so competing inspection CPU
 also prevents treating this run as an overhead benchmark.
+
+### Actual-composable browser freeze recovery audit (2026-10-05)
+
+`codex/mse-browser-freeze-recovery-audit` adds a private fixed-asset loopback test
+page that bundles the actual `useMseStream` and Vue modules. MediaSource,
+SourceBuffer, decoding, timers, IntersectionObserver and presented-frame callbacks
+are real browser implementations. The WebSocket constructor is replaced only
+inside that test page by a paced finite synthetic transport; a MediaSource
+subclass retains its real SourceBuffer for an explicit unsafe-removal control.
+This deliberately bypasses the production dependency-safe trim policy to exercise
+its fallback watchdog, without changing production code or authentication.
+
+Fixture generation uses installed ffmpeg with lavfi testsrc2 160x96 at 24fps and
+mono 48kHz sine, duration 35 seconds, libx264 baseline level 1.0, yuv420p,
+`-g 240 -keyint_min 240 -sc_threshold 0 -bf 0`, AAC 48k,
+`-movflags +empty_moov+default_base_moof -frag_duration 250000`. The resulting
+`artifacts/mse-browser-freeze-gop10-input.mp4` SHA256 is
+`a68f1cbe6b0985370e4e383a4fecbe52fa62a29b366fa1f2756b5a152fed8c0f`, pinned
+in the server. ffprobe confirms keyframe PTS 0, 10.021403, 20.021403 and 30.021403;
+full `ffmpeg -v error -xerror` video decode passes. The synthetic producer uses
+six fragments for initial reserve, then one 250ms fragment per 250ms wall time,
+with independent metadata at each forty-fragment boundary and no safe-seek flag.
+
+Build the test bundle from `web-ui` using installed esbuild: entry
+`tests/mseBrowserFreezeFixture.ts`, bundle=true, format=esm, platform=browser,
+outfile `../artifacts/mse-browser-freeze-recovery.js`. Run
+`python Tools/Tests/serve_mse_browser_freeze_recovery.py`; it binds only
+127.0.0.1 with a random port, serves exactly three frozen bounded assets, and
+automatically stops after fifteen minutes. Listed assets return 200; unknown,
+query and traversal paths return 404. No application data/session route is served.
+Open the printed URL, click Start player, then Arm unsafe eviction. The page
+injects the fault at media time 11–14 seconds rather than depending on automation
+round-trip timing. TypeScript checking of the fixture and Python syntax checks
+pass. Generated fixture uses Lavf/Lavc63.1.100, not the production FFmpeg library.
+
+The first manually timed attempt missed the permitted injection window and made
+no removal. A first armed run reproduced the presentation-specific restart and
+resumed callbacks, but its excessive repeated diagnostic serialization continued
+running and later acquired a second restart; it is not a clean recovery pass.
+Evidence is preserved as `artifacts/mse-browser-freeze-recovery-initial.json` and
+matching PNG. The bounded rerun retains the causal restart once and ends only
+after a replacement generation advances at least 24 callbacks and one second of
+presented media time, readyState >=3, geometric monitoring active, and clock
+within one second of presentation. It also requires exactly one restart/stall
+and no errors; it does not rely on the page status text alone.
+
+The actual bounded rerun passes. Removal ends at 10.038590 seconds while clock is
+11.038590; the browser removes the future decode chain. Presented video freezes
+at 11.313069 seconds while retained same-generation clock observations advance
+by 1.957558 seconds. The production watchdog emits `presentationFrozenRestart`
+with 3,013ms runnable stall, recent fragment age 217ms and no queued append.
+Replacement generation 4 advances from 8 callbacks / mediaTime .354736 to
+52 callbacks / mediaTime 2.563069, readyState 4, zero presentation stall. Total
+restart/stall/error counters are exactly 1/1/0. Causal event occurs 4.123 seconds
+after injection; callback resumption verification completes 6.124 seconds later,
+including the normal reconnect backoff. Raw saved report independently satisfies
+these assertions. Tested bundle SHA256:
+`050a5322b83ef5d5ea9a7c016900189ad3d7425483b3b4ed5538ef4b1c61c43e`.
+Evidence: `artifacts/mse-browser-freeze-recovery-verified.json`, matching PNG,
+and `artifacts/mse-browser-freeze-recovery-summary.json`. The test player unmounts
+after verification, its tab is closed and the owned asset server stopped.
+
+This proves real-browser recovery from the deliberately injected dependency-loss
+failure with the actual client composable. It is not a production WebSocket/
+server test, quota-exhaustion reproduction, all-codec qualification or a long-term
+stability/observer-overhead gate. The separately packaged healthy native replay
+and earlier actual safe-eviction prevention evidence remain complementary.

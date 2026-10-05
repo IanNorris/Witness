@@ -1,0 +1,10 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Production MSE presentation recovery audit</title>
+<style>body{background:#111820;color:#e8eff6;font:15px system-ui;margin:20px}button{padding:10px;margin-right:12px}video{width:480px;background:black}pre{white-space:pre-wrap;font:12px monospace;max-height:450px;overflow:auto}</style>
+<h1>Production MSE presentation recovery audit</h1>
+<p>Actual player composable and browser decoder; paced synthetic H.264/AAC with ten-second keyframes. The fault deliberately bypasses safe eviction. No application sessions or production camera access.</p>
+<button id="start">Start player</button><button id="fault" disabled>Arm unsafe eviction at 11 seconds</button>
+<p id="status" role="status">Ready</p>
+<div data-playback-viewport><video id="video" muted playsinline></video></div><div id="mount"></div>
+<pre id="report" aria-label="Recovery report"></pre>
+<script type="module" src="/recovery.js"></script></html>
