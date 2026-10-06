@@ -4955,3 +4955,25 @@ loads successfully and correctly identifies256x144,979 producer fragments.
 This verifies fixture metadata, not HEVC or hidden-eviction real-decoder seeking.
 The immutable staged runtime measured above was not rebuilt or changed by these
 test-only edits. ON endurance, remaining seek gates and PTZ approval remain open.
+
+Targeted real-decoder HEVC safe-RAP follow-up: the existing 256x14420fps/no-B
+fixture generated a new native sidecar with the corrected WitnessCamera runtime.
+LiveCadencePauseTests passed its control, pause, bounded-rate, stable-clock and
+unstable-delivery assertions. The capture also passes strict FFmpeg decode.
+After correcting the proof panel to retain seeks separately from routine keyframe
+arrivals, the real browser recorded18.214295s ->22s, three skipped keyframes and
+600ms remaining lag. The matched native target is generation0/segment22/part0,
+independent=true, keyframeSeekSafe=true, verified FNV530b4917. The retained
+134.881-second report has zero restart/stall/error/integrity/decode-corruption
+counters, readyState4 and advancing playback; dropped presentation frames are
+retained and this is not a perfect-smoothness claim.
+
+Ignored evidence is `hevc-native-safe-rap-repeat-target-20261006.json/.png` and
+`hevc-native-safe-rap-repeat-report-20261006.json`. The finite capture exhausted
+near139.9s and the terminal snapshot consequently has readyState2; this targeted
+pre-exhaustion seek qualification is not an overall continuous-stream pass.
+An earlier probe is explicitly unqualified because its rolling panel lost the
+target and it ran past exhaustion into a stall/restart. No rejected probe is
+silently converted to a pass. Ordinary H.264 and HEVC seeking are now exercised;
+genuine hidden-eviction seeking remains unqualified, and physical PTZ still needs
+the pending local-credential approval. The full OFF recording audit remains live.

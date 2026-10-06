@@ -112,7 +112,10 @@ const server = createServer(async (req, res) => {
           pipeline: { queue: snapshot.liveState?.appendQueueLength,
             queueBytes: snapshot.liveState?.appendQueueBytes, lastFragAge: snapshot.liveState?.lastFragAge,
             latencyMs: snapshot.liveState?.latencyMs, selectedStream: snapshot.liveState?.selectedStream },
-          seekEvidence: snapshot.importantEvents?.filter(e => /keyframeBuffered|keyframeCatchUpSeek|hiddenBufferEvictedSeek/.test(e.type)).slice(-8),
+          // Keyframe arrivals must not immediately push the actual seek out of
+          // the visible proof panel while browser observations are in flight.
+          seekEvidence: snapshot.importantEvents?.filter(e => /keyframeCatchUpSeek|hiddenBufferEvictedSeek/.test(e.type)).slice(-8),
+          keyframeEvidence: snapshot.importantEvents?.filter(e => e.type === 'keyframeBuffered').slice(-4),
         }, null, 2);
       }, 1000);
     </script></head>`)
