@@ -4806,3 +4806,19 @@ previous different source/cadence workload. H.264 timing is explicitly replaced
 for load qualification, so original camera VFR/cadence acceptance remains
 separate evidence. Latest-package recording audit session93312 is still live;
 its final integrity result and the fresh matched pair remain outstanding.
+
+Matched-source guard (2026-10-06): future full-server replay reports also retain
+`replaySourceIdentity`, consisting of bounded whole-file SHA-256/byte-count rows
+per fixture camera immediately before and after the measured phase. Repeated
+inputs are hashed once per boundary; private paths are not retained. The
+comparison requires valid, unchanged boundary rows covering every camera and
+byte-identical sources in OFF and ON. Missing legacy fingerprints, changed
+sources or merely matching codec/resolution profiles cannot qualify a comparison.
+This proves equality at the hash boundaries, not continuous immutability or
+original physical-camera timing. The already-running audit has loaded the old
+harness; do not manufacture these new fields retroactively in its reports.
+Four identity, seven comparison, twenty-three summary and eight profile tests
+pass (42 total). A helper-only preflight hashes the exact next sixteen inputs,
+confirms four distinct source digests and matching second-boundary results.
+The opt-in full-server module imports successfully with its native lifecycle
+test skipped; this is not a completed run of the newly instrumented harness.

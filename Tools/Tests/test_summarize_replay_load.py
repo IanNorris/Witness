@@ -4,6 +4,13 @@ from summarize_replay_load import buffer_position_observations, presentation_obs
 
 
 class ReplaySummaryTests(unittest.TestCase):
+    def test_source_identity_is_retained_without_inventing_legacy_fingerprints(self):
+        replay, row = self.fixture()
+        self.assertIsNone(summarize(replay, {'history': [row]})['replaySourceIdentity'])
+        evidence = {'scope': 'retained-test-evidence', 'before': [], 'after': [], 'unchanged': False}
+        replay['replaySourceIdentity'] = evidence
+        self.assertEqual(summarize(replay, {'history': [row]})['replaySourceIdentity'], evidence)
+
     def test_browser_proof_is_retained_without_manufacturing_legacy_evidence(self):
         replay, row = self.fixture()
         self.assertIsNone(summarize(replay, {'history': [row]})['browserLayoutEvidence'])

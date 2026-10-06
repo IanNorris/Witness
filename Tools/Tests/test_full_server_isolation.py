@@ -28,6 +28,7 @@ from owned_process_dump import capture_owned_process_dump
 from processing_sample_collector import ProcessingSampleCollector
 from health_request_timing import sample_health
 from replay_profiles import qualify_profiles, validate_live_profiles, validate_browser_layout_proof
+from replay_source_identity import fingerprint_inputs, SCOPE as SOURCE_IDENTITY_SCOPE
 from ptz_update_scope_fixture import check_update_scope
 from ptz_http_relink_fixture import check_http_relink
 from multi_client_history_fixture import check_multi_client_history
@@ -692,6 +693,7 @@ class FullServerIsolationTests(unittest.TestCase):
                                            for camera in phase_health['cameras']}
                                 initial_processing = {camera['cameraId']: camera['processing']['completedFrames']
                                                       for camera in phase_health['cameras']}
+                            source_identity_before = fingerprint_inputs(inputs)
                             samples = []
                             duration = browser_hold or replay_seconds
                             work_collector = None
@@ -724,6 +726,9 @@ class FullServerIsolationTests(unittest.TestCase):
                                 full_phase_work = work_collector.report()
                             measurement_completed_unix_ms = int(time.time() * 1000)
                             measurement_elapsed_seconds = time.monotonic() - measurement_started_monotonic
+                            source_identity_after = fingerprint_inputs(inputs)
+                            self.assertEqual(source_identity_before, source_identity_after,
+                                             'Replay inputs changed during the measured phase')
                             if browser_hold:
                                 code, history = request('/debug/client-health')
                                 self.assertEqual(code, 200)
@@ -800,6 +805,9 @@ class FullServerIsolationTests(unittest.TestCase):
                                         'observedDurationSeconds': measurement_elapsed_seconds},
                                     'processingTaskDistributions': full_phase_work,
                                     'replayProfiles': profiles,
+                                    'replaySourceIdentity': {'scope': SOURCE_IDENTITY_SCOPE,
+                                        'before': source_identity_before, 'after': source_identity_after,
+                                        'unchanged': source_identity_before == source_identity_after},
                                     'browserReadyBeforePhase': bool(browser_hold),
                                     'browserLayoutEvidence': browser_layout_evidence,
                                     'workload': {'objectDetection': active_detection, 'provider': 'cpu' if active_detection else None,

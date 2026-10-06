@@ -273,6 +273,7 @@ def summarize(replay, history):
             'measurementBoundaryObservations': boundary_observations,
             'players': player_reports})
     return {'nativeBuildId': native, 'webBuildId': build,
+        'replaySourceIdentity': replay.get('replaySourceIdentity'),
         'observerModes': observer_modes,
         'mainStreamProfiles': main_profiles if len(main_profiles) == len(camera_ids) else None,
         'browserReadyBeforePhase': replay.get('browserReadyBeforePhase') is True,

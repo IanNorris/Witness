@@ -1,6 +1,7 @@
 import copy
 import unittest
 from compare_replay_phases import compare
+from replay_source_identity import SCOPE
 
 
 class ReplayPhaseComparisonTests(unittest.TestCase):
@@ -32,6 +33,10 @@ class ReplayPhaseComparisonTests(unittest.TestCase):
                          'paused': False, 'readyState': 4, 'error': None, 'currentTime': 10}
                         for _ in range(16)]}}
         on = copy.deepcopy(off)
+        source_rows = [{'cameraId': i, 'bytes': 1000, 'sha256': 'a' * 64} for i in range(1, 17)]
+        off['replaySourceIdentity'] = {'scope': SCOPE, 'before': source_rows,
+                                      'after': copy.deepcopy(source_rows), 'unchanged': True}
+        on['replaySourceIdentity'] = copy.deepcopy(off['replaySourceIdentity'])
         on['observerModes'] = dict.fromkeys(off['observerModes'], True)
         rows = [{'cameraId': i, 'kind': kind, 'passed': True}
                 for kind in ('clip', 'continuous') for i in range(1, 17)]
@@ -54,6 +59,21 @@ class ReplayPhaseComparisonTests(unittest.TestCase):
         report = compare(off, on, recordings, recordings)
         self.assertEqual(report['status'], 'failed')
         self.assertEqual(len(report['thresholdFailures']), 3)
+
+    def test_same_profiles_cannot_hide_different_or_unverified_input_bytes(self):
+        off, on, recordings = self.fixture()
+        on['replaySourceIdentity']['before'][0]['sha256'] = 'b' * 64
+        on['replaySourceIdentity']['after'][0]['sha256'] = 'b' * 64
+        report = compare(off, on, recordings, recordings)
+        self.assertEqual(report['status'], 'incomplete')
+        self.assertIn('mismatched whole-file replay sources', report['incompleteReasons'])
+        for change in (lambda p: p.pop('replaySourceIdentity'),
+                       lambda p: p['replaySourceIdentity'].update(unchanged=False),
+                       lambda p: p['replaySourceIdentity']['after'].pop(),
+                       lambda p: p['mainStreamProfiles'][0].update(cameraId=True)):
+            off, on, recordings = self.fixture()
+            change(on)
+            self.assertEqual(compare(off, on, recordings, recordings)['status'], 'incomplete')
 
     def test_hidden_unknown_sparse_or_partial_sessions_cannot_qualify(self):
         for field, value in [('hiddenRows', 1), ('unknownVisibilityRows', 1),

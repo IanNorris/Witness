@@ -4,6 +4,7 @@ import json
 import math
 from pathlib import Path
 from replay_profiles import validate_browser_layout_proof
+from replay_source_identity import validate_identity
 
 
 def finite(value):
@@ -19,10 +20,19 @@ def compare(off, on, off_recordings, on_recordings):
             missing.append('mismatched ' + name)
     profiles = off.get('mainStreamProfiles') or []
     ids = [row.get('cameraId') for row in profiles]
-    if len(ids) != 16 or len(set(ids)) != 16:
+    if len(ids) != 16 or any(type(uid) is not int or uid <= 0 for uid in ids) or len(set(ids)) != 16:
         missing.append('expected sixteen uniquely identified replay profiles')
     if {row.get('videoCodec') for row in profiles} != {'h264', 'hevc'}:
         missing.append('expected H.264 and HEVC profiles')
+    identities = []
+    for label, phase in (('off', off), ('on', on)):
+        try:
+            phase_ids = [row.get('cameraId') for row in phase.get('mainStreamProfiles') or []]
+            identities.append(validate_identity(phase.get('replaySourceIdentity'), phase_ids))
+        except (ValueError, TypeError, KeyError, AttributeError):
+            missing.append(label + ' replay source boundary identity missing or invalid')
+    if len(identities) == 2 and identities[0] != identities[1]:
+        missing.append('mismatched whole-file replay sources')
     browser_viewports = []
     for label, phase, recordings, enabled in (('off', off, off_recordings, False),
                                               ('on', on, on_recordings, True)):
