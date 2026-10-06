@@ -35,6 +35,7 @@ static LiveOutputStream::StreamingDiagnostics Run(const char* Fixture, bool Paus
     // clock rather than the fixture MP4's encoder-selected timebase.
     Input.GetData().FormatContext->streams[Input.GetData().ChosenStreamIndex]->time_base = {1, 90000};
     std::ofstream Output;
+    std::ofstream Metadata;
     SegmentBuffer Init;
     bool Started = false;
     int Discontinuities = 0;
@@ -48,16 +49,29 @@ static LiveOutputStream::StreamingDiagnostics Run(const char* Fixture, bool Paus
         if (Event.EventType == LiveStreamEvent::InitSegmentReady) {
             Init = Event.Data;
             if (Output.is_open()) Output.close();
+            if (Metadata.is_open()) Metadata.close();
             Output.open(Prefix + "-" + std::to_string(Event.Generation) + ".mp4", std::ios::binary);
+            Metadata.open(Prefix + "-" + std::to_string(Event.Generation) + ".events.jsonl");
             Started = false;
         }
         if (Event.EventType != LiveStreamEvent::PartialReady || !Event.Data) return;
         if (!Started) {
             if (!Event.Independent || !Init) return;
             Output.write(reinterpret_cast<const char*>(Init->data()), Init->size());
+            Metadata << "{\"type\":\"init\",\"bytes\":" << Init->size() << "}\n";
             Started = true;
         }
         Output.write(reinterpret_cast<const char*>(Event.Data->data()), Event.Data->size());
+        // Preserve actual producer eligibility, never infer RAP safety from a
+        // container flag or label every fragment independent in a replay.
+        Metadata << "{\"type\":\"partial\",\"bytes\":" << Event.Data->size()
+                 << ",\"hash\":" << Event.TransportHash
+                 << ",\"segmentIndex\":" << Event.SegmentIndex
+                 << ",\"partIndex\":" << Event.PartIndex
+                 << ",\"generation\":" << Event.Generation
+                 << ",\"duration\":" << Event.Duration
+                 << ",\"independent\":" << (Event.Independent ? "true" : "false")
+                 << ",\"keyframeSeekSafe\":" << (Event.KeyframeSeekSafe ? "true" : "false") << "}\n";
     });
     AVPacket* Packet = av_packet_alloc();
     int Frames = 0;
@@ -89,7 +103,7 @@ static LiveOutputStream::StreamingDiagnostics Run(const char* Fixture, bool Paus
     if (Frames != 2800) throw std::runtime_error("fixture too short");
     const auto Stats = Live.GetStreamingDiagnostics(false);
     Live.SetEventCallback({});
-    if ((!Prefix.empty() && !Output.good()) || Discontinuities != (Pause ? 1 : 0))
+    if ((!Prefix.empty() && (!Output.good() || !Metadata.good())) || Discontinuities != (Pause ? 1 : 0))
         throw std::runtime_error("output/discontinuity failure");
     return Stats;
 }

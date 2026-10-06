@@ -4713,3 +4713,52 @@ The previously disclosed58 hidden browser samples remain part of this workload.
 Latest-package H.264/AAC and HEVC reconnect acceptance is separate evidence;
 real safe-RAP seek and physical PTZ acceptance remain open. Overall goal
 completion is not inferred from this successful recording audit.
+
+### Native RAP seek evidence and latest-bundle endurance findings (2026-10-06)
+
+The offline LiveCadencePauseTests capture now writes an ignored per-generation
+`.events.jsonl` sidecar alongside its private MP4. Each entry preserves the
+production producer's partial boundaries, generation, segment/part identity,
+duration, independence, KeyframeSeekSafe and transport hash. The replay fixture
+accepts it with `--native-events PATH`, verifies complete byte coverage and each
+partial hash, rejects mixed generations and audio captures claiming safe seek,
+and forwards the captured metadata without promoting container boundaries.
+Legacy replays continue to declare no safe seek targets. Five replay unit tests
+pass; the native helper builds and its cadence scenarios pass unchanged.
+
+Real-browser acceptance used the actual web42f16c90ef9a MSE implementation and
+the offline H.264 control capture, not a fake MediaSource or an injected safety
+flag. The fixture-only button moves the real media playhead backward; the
+production watchdog then chooses its own previously appended native RAP.
+At 00:10:10Z it logs keyframeCatchUpSeek from63.262261 to68 seconds, skipping
+four keyframes with600ms remaining lag. At130 seconds the decoder is unpaused,
+readyState4 and advancing, with no restarts, stalls, media errors, integrity
+mismatches or corruption reports. The final server receipt at137.716 seconds
+retains the same zero fault counters,2771 total decoded video frames and55
+dropped frames. Whole-file strict inspection passes2798 frames/packets with
+zero decode diagnostics and zero missing/duplicate/regressing timestamps.
+This validates the ordinary native-RAP catch-up seek, not the distinct genuine
+hidden-buffer-eviction seek branch, HEVC seeks, or production smoothness.
+Evidence is ignored under `artifacts/native-rap-real-decoder-*20261006.*`.
+
+The latest-package sixteen-player OFF run records1801.166 seconds with1717
+server samples and a maximum1.6825-second collection gap. It is not a qualified
+uninterrupted-visible baseline: ending the preceding turn closed its original
+test tab; the restored tab is a separate authenticated session. Retained sampled
+coverage is22 rows before the interruption and96 afterward, with one incomplete
+player row in the latter. The restored browser subsequently exhibits watchdog
+restarts, not just the intentional test shutdown: first restarts cluster at
+23:53:28Z for AAC fixtures4/8/12/16,23:55:18Z for H.264 fixtures1/5/9/13,
+23:55:22Z for2160p HEVC fixtures3/7/11/15 and around00:00:55Z for1080p HEVC
+fixtures2/6/10/14. Intentional WebSocket closes caused by those watchdogs are
+not independently counted as network faults. Host CPU P95 reaches100%, but
+that and source clustering do not by themselves establish the cause.
+
+Its128-output recording audit remains live in session93312; do not claim its
+final integrity or shutdown gate passed before the terminal harness result.
+Do not use this interrupted/unstable browser phase for a passed matched OFF/ON
+overhead comparison. Investigate source-loop timing and client resource pressure
+before repeating the clean baseline. No production source, package, private
+media/database/session, user BACKLOG edits, credential or remote deployment is
+changed by this validation-tooling work. Physical PTZ credential confirmation
+and the remaining endurance/observer comparison gates stay open.

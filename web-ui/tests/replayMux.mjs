@@ -17,7 +17,9 @@ import { loadMuxReplay, streamMuxReplay } from './fixtures/muxReplay.mjs'
 const { wsServer: WebSocketServer } = createRequire(import.meta.url)('../node_modules/playwright-core/lib/utilsBundle.js')
 
 const seconds = Number(process.argv[3] ?? 90)
-const replay = await loadMuxReplay(process.argv[2], seconds)
+const metadataOption = process.argv.indexOf('--native-events')
+if (metadataOption >= 0 && !process.argv[metadataOption + 1]) throw new Error('--native-events requires a captured sidecar file')
+const replay = await loadMuxReplay(process.argv[2], seconds, metadataOption < 0 ? undefined : process.argv[metadataOption + 1])
 const { fragments, hasAudio } = replay
 const root = resolve('../WitnessServer/Web')
 const firefoxMode = process.argv[4] === 'firefox'
@@ -74,6 +76,7 @@ const server = createServer(async (req, res) => {
     if (serveMode && extname(file) === '.html') body = body.toString().replace('</head>', `<script>
       const replayStarted = performance.now();
       let replayLastReport = 0;
+      const nativeEventsReplay = ${metadataOption >= 0};
       setInterval(() => {
         const d = Object.values(window._witnessMseDiag || {})[0];
         if (!d) return;
@@ -82,6 +85,17 @@ const server = createServer(async (req, res) => {
           panel = document.createElement('pre'); panel.id = 'replay-evidence';
           panel.style.cssText = 'position:fixed;right:12px;top:12px;z-index:99999;padding:12px;background:#111e;color:#eee;font:12px monospace;max-width:460px;max-height:80vh;overflow:auto;pointer-events:none';
           document.body.appendChild(panel);
+          if (nativeEventsReplay) {
+            const probe = document.createElement('button');
+            probe.textContent = 'Probe keyframe catch-up';
+            probe.style.cssText = 'position:fixed;left:12px;top:12px;z-index:99999';
+            probe.addEventListener('click', () => {
+              const video = document.querySelector('video');
+              if (video && video.buffered.length && video.currentTime > 8)
+                video.currentTime = Math.max(video.buffered.start(0) + .1, video.currentTime - 6);
+            });
+            document.body.appendChild(probe);
+          }
         }
         const snapshot = d.snapshot();
         const state = snapshot.currentState;
@@ -96,6 +110,7 @@ const server = createServer(async (req, res) => {
           pipeline: { queue: snapshot.liveState?.appendQueueLength,
             queueBytes: snapshot.liveState?.appendQueueBytes, lastFragAge: snapshot.liveState?.lastFragAge,
             latencyMs: snapshot.liveState?.latencyMs, selectedStream: snapshot.liveState?.selectedStream },
+          seekEvidence: snapshot.importantEvents?.filter(e => /keyframeBuffered|keyframeCatchUpSeek|hiddenBufferEvictedSeek/.test(e.type)).slice(-8),
         }, null, 2);
       }, 1000);
     </script></head>`)
