@@ -5004,3 +5004,18 @@ Timestamp correlation is retained as `ingress-gap-timestamps.json`: camera1's
 shared3.061s span at18:28:29.802Z before any rollover. DVR finalization remains a
 candidate for some stalls, not an explanation of all of them. Native processing,
 full-workload sender scheduling and delivery still require tracing correlation.
+
+Final frame-ownership review additionally checks a retained odd-sized planar
+YUV420P frame after the wrapper itself is destroyed, including both chroma
+planes. The isolated FrameOwnershipTests target rebuilds and passes with no
+compiler/linker warnings. This test-only extension does not rebuild or alter
+the immutable c9c0dc650865 server candidate used for the matched phases.
+
+Counter semantics were checked against production code: accepted video packets
+are counted after timestamp/monotonicity validation but before the actual live
+mux write. Input reading, live muxing, continuous recording callbacks and decode
+share the input worker's synchronous pipeline. Equal accepted-counter samples
+therefore do not isolate network arrival, mux completion, decoding or callback
+latency. Decoder thread count is not explicitly configured here. These are
+inspection findings and candidate mechanisms, not evidence of a root cause or
+a justification to change the candidate before the tracing-ON comparison.

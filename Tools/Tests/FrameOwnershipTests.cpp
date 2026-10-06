@@ -78,11 +78,32 @@ static void CheckScaling() {
     Require(Last[0] == 0 && Last[1] == 0 && Last[2] == 0, "scaled pixels/stride mismatch");
 }
 
+static void CheckRetainedReferenceAfterDestruction() {
+    AVFrame* Reference = nullptr;
+    {
+        Frame Value(159, 91, AV_PIX_FMT_YUV420P);
+        Value.Prepare();
+        for (int Plane = 0; Plane < 3; ++Plane)
+            Value.GetFrame()->data[Plane][0] = static_cast<uint8_t>(31 + Plane);
+        Reference = av_frame_clone(Value.GetFrame());
+        Require(Reference != nullptr, "planar clone failed");
+    }
+    // A retained decoder/encoder reference must outlive the owning wrapper.
+    // Exercise chroma planes too, rather than only a packed BGR allocation.
+    bool Valid = true;
+    for (int Plane = 0; Plane < 3; ++Plane)
+        Valid = Valid && av_frame_get_plane_buffer(Reference, Plane) != nullptr &&
+            Reference->data[Plane][0] == static_cast<uint8_t>(31 + Plane);
+    av_frame_free(&Reference);
+    Require(Valid, "wrapper destruction invalidated retained planar pixels");
+}
+
 int main() {
     try {
         for (int Width : {1, 159, 160, 711, 1280})
             for (int Alignment : {0, 1, 32}) Check(Width, 90, Alignment);
         CheckScaling();
+        CheckRetainedReferenceAfterDestruction();
         std::cout << "Frame ownership, writable reuse and retained references passed\n";
         return 0;
     } catch (const std::exception& Error) {
