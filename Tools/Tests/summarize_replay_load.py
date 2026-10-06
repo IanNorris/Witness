@@ -11,6 +11,23 @@ def quantile(values, percentile):
     return values[max(0, math.ceil(len(values) * percentile) - 1)] if values else None
 
 
+def sampled_playback_health(timeline):
+    """Receipt-weighted observations, not time-weighted or continuous playback proof."""
+    latencies = [p['latencyMs'] for p in timeline if
+                 type(p.get('latencyMs')) in (int, float) and
+                 math.isfinite(p['latencyMs']) and p['latencyMs'] >= 0]
+    readiness = [p['readyState'] for p in timeline if
+                 type(p.get('readyState')) is int and 0 <= p['readyState'] <= 4]
+    return {'scope': 'eligibleVisibleSessionReceiptSamplesNotContinuousOrTimeWeightedProof',
+            'retainedSamples': len(timeline),
+            'latencyMs': dict(
+                {name: quantile(latencies, percentile) for name, percentile in
+                 (('p50', .5), ('p95', .95), ('p99', .99), ('maximum', 1))},
+                availableSamples=len(latencies), unavailableSamples=len(timeline) - len(latencies)),
+            'readyStateCounts': {str(state): readiness.count(state) for state in range(5)},
+            'unknownReadyStateSamples': len(timeline) - len(readiness)}
+
+
 def buffer_position_observations(timeline):
     """Deduplicated retained snapshots only; never infer a gap from final latency."""
     seen = {}
@@ -250,6 +267,7 @@ def summarize(replay, history):
                 'counterResetObserved': reset,
                 'finalReadyState': last[player_id].get('readyState'),
                 'finalLatencyMs': last[player_id].get('latencyMs'),
+                'sampledPlaybackHealth': sampled_playback_health(timeline),
                 'sampledBufferPosition': buffer_position_observations(timeline),
                 'sampledPresentation': presentation_observations(timeline),
                 'finalLastEventType': last[player_id].get('lastEventType')})

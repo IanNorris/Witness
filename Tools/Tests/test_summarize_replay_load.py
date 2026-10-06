@@ -1,9 +1,36 @@
 import copy
 import unittest
-from summarize_replay_load import buffer_position_observations, presentation_observations, quantile, summarize
+from summarize_replay_load import buffer_position_observations, presentation_observations, quantile, summarize, sampled_playback_health
 
 
 class ReplaySummaryTests(unittest.TestCase):
+    def test_playback_percentiles_keep_missing_invalid_and_low_readiness_visible(self):
+        rows = [{'latencyMs': n, 'readyState': state} for n, state in
+                [(0, 0), (100, 4), (200, 4), (1000, 2)]]
+        rows += [{'latencyMs': v, 'readyState': v} for v in
+                 (None, True, -1, 5, float('nan'), float('inf'))]
+        report = sampled_playback_health(rows)
+        # 5 ms is a valid latency but not a valid readyState; unknown is not zero.
+        self.assertEqual(report['latencyMs'], dict(p50=100, p95=1000, p99=1000,
+            maximum=1000, availableSamples=5, unavailableSamples=5))
+        self.assertEqual(report['readyStateCounts'], {'0': 1, '1': 0, '2': 1, '3': 0, '4': 2})
+        self.assertEqual(report['unknownReadyStateSamples'], 6)
+        self.assertIn('NotContinuousOrTimeWeightedProof', report['scope'])
+
+    def test_empty_latency_observations_are_unavailable_not_zero(self):
+        report = sampled_playback_health([{'readyState': 4}, {}])
+        self.assertIsNone(report['latencyMs']['p95'])
+        self.assertEqual(report['latencyMs']['availableSamples'], 0)
+        self.assertEqual(report['latencyMs']['unavailableSamples'], 2)
+
+    def test_player_summary_retains_visible_session_playback_distributions(self):
+        replay, row = self.fixture()
+        row['snapshot']['players'][0]['latencyMs'] = 250
+        result = summarize(replay, {'history': [row]})
+        health = result['browserSessions'][0]['players'][0]['sampledPlaybackHealth']
+        self.assertEqual(health['latencyMs']['p50'], 250)
+        self.assertEqual(health['readyStateCounts']['4'], 1)
+
     def test_source_identity_is_retained_without_inventing_legacy_fingerprints(self):
         replay, row = self.fixture()
         self.assertIsNone(summarize(replay, {'history': [row]})['replaySourceIdentity'])

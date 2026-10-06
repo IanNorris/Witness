@@ -4849,3 +4849,18 @@ No visibility/media-state overrides were used, and the temporary pause control
 was removed. Ignored evidence is `native-rap-hidden-probe-unqualified-20261006.*`.
 The fixture and all three test tabs were closed; hidden-resume seek validation
 remains open rather than being inferred from ordinary playback.
+
+Playback comparison evidence (2026-10-06): each eligible visible session/player
+summary now retains receipt-sampled latency P50/P95/P99/maximum, valid/missing
+latency counts, readyState0..4 counts and unknown readiness counts. These are
+receipt-weighted observations, not time-weighted latency, continuous visibility,
+smoothness or a playback acceptance gate. Sessions remain separate; missing,
+nonfinite, boolean and negative latency values do not become zero. All26 summary
+tests pass, including missing evidence and the player-summary integration.
+The interrupted latest-package OFF workload's ignored descriptive report is
+`full-server-playback-distributions-20261006.json`: its initial session has22
+eligible rows across316.147s, while the restored session has95 eligible rows
+with restarts and several sampled latency maxima approaching93s. This reinforces
+that this workload cannot qualify the clean matched OFF/ON stability comparison;
+it does not establish whether input timing, saturation or another cause accounts
+for all observed instability. Recording audit93312 remains live and incomplete.
