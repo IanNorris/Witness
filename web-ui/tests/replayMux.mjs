@@ -60,7 +60,9 @@ const server = createServer(async (req, res) => {
   }
   let value
   if (path === '/auth/profile') value = { csrf: 'test', username: 'tester', admin: false }
-  else if (path === '/camera/enum') value = [{ id: cameraId, name: 'Private mux replay', groups: [], status: 'Connected', codec: 'h264', width: 896, height: 512, hasSubStream: true, subCodec: 'h264' }]
+  else if (path === '/camera/enum') value = [{ id: cameraId, name: 'Private mux replay', groups: [], status: 'Connected',
+    codec: replay.profile.videoCodec, width: replay.profile.width, height: replay.profile.height,
+    hasSubStream: true, subCodec: replay.profile.videoCodec }]
   else if (path === '/group/enum') value = { groups: [] }
   else if (path.startsWith('/camera/') || req.method === 'POST') value = {}
   if (value !== undefined) { res.setHeader('Content-Type', 'application/json'); return res.end(JSON.stringify(value)) }

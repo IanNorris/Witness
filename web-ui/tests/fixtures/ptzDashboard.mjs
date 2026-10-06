@@ -20,7 +20,8 @@ export async function startPtzDashboard({ layout = false, automaticSlots = false
   const groups = (manyGroups ? groupNames : fewLongGroups ? [groupNames[0], groupNames[4]] : [])
     .map((displayName, index) => ({ id: index + 1, displayName, description: 'Synthetic responsive validation group' }))
   const cameras = (layout ? [10, 12, 13, 14, 15] : [10, 12]).map((id, index) => ({ id, name: `Fixture PTZ ${index + 1}`,
-    groups: groups.map(group => group.id), status: 'Connected', recording: layout && index < 2, ptzEnabled: 1, codec: 'h264', width: 1920, height: 1080 }))
+    groups: groups.map(group => group.id), status: 'Connected', recording: layout && index < 2, ptzEnabled: 1,
+    codec: replay?.profile.videoCodec ?? 'h264', width: replay?.profile.width ?? 1920, height: replay?.profile.height ?? 1080 }))
   const commands = []
   const sockets = new Set()
   const streamConnections = new Map()
