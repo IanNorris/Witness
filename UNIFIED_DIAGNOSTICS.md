@@ -4920,3 +4920,38 @@ per-camera processing distributions. Its ignored artifacts are under
 browser endurance or full recording decode qualification; it does not replace
 either matched phase. Both matched endurance phases, remaining seek validation
 and approved physical PTZ testing remain outstanding. Main/production are unchanged.
+
+### Matched corrected-candidate tracing-OFF phase (2026-10-06)
+
+Native c9c0dc650865 / web7a452f34878d completed the full 1800.563-second
+tracing-OFF measurement: 16 players, fixed 2172x1550 fullscreen 16-small layout,
+activity hidden, CPU detection and DVR/manual recording enabled. Source SHA256
+and declared profiles matched at both measurement boundaries. There were1741
+server samples with a maximum1.965-second gap, and120 authenticated same-session
+browser receipts with no hidden/unknown/incomplete rows; maximum receipt gap
+was15.054 seconds. These are sampled coverage observations, not continuous
+visibility or occlusion proof. Independent visible-player checkpoints are retained.
+
+Ignored evidence is under `artifacts/run-matched-frame-owned-off-20261006`,
+including `phase-summary.json`, the full server/browser evidence and raw processing
+samples. Ordinary summary HTTP P95 was23.642ms; process CPU host-capacity P50/P95
+was28.978%/40.900%. All16 exact filter-task distributions were complete. This is
+not an overhead acceptance result until the matched ON phase is collected.
+
+The browser history contradicts a clean stability pass:13 of16 players have
+nonzero restart deltas, many final restart reasons are `stuck`, and media-frame
+counters reset on replacement. Zero final transport-integrity/decode-corruption
+counters do not erase those restarts. Some retained `wsError` entries explicitly
+describe intentional socket closure after recovery, so error counts alone must
+not be labelled decoder corruption. The full128-output video/audio audit is still
+running; its progress file is not a completed acceptance result.
+
+Seek-fixture groundwork is committed separately as430315f on
+`codex/mux-replay-captured-profiles`: codec/dimensions/audio now come from actual
+structured MP4 init tracks rather than hard-coded H.264896x512 or payload text.
+Seven fixture tests pass with Node test isolation disabled (the sandbox denied
+the test runner's child-process spawn). The existing native H.264 sidecar capture
+loads successfully and correctly identifies256x144,979 producer fragments.
+This verifies fixture metadata, not HEVC or hidden-eviction real-decoder seeking.
+The immutable staged runtime measured above was not rebuilt or changed by these
+test-only edits. ON endurance, remaining seek gates and PTZ approval remain open.
