@@ -4879,3 +4879,44 @@ Future fixes are collected on `codex/final-validation-integration`, not main,
 following the updated goal. The computer's overnight manual sleep occurred after
 the measured browser/server phase; it paused offline decoding and is excluded
 from runtime estimates. The existing wake lock is left unchanged.
+
+### Completed latest-package audit and frame-ownership follow-up (2026-10-06)
+
+The original audit session93312 exited successfully. Its ignored
+`run-latest-bundle-16-visible-off-20261006/full-server-recording-progress-run-0.json`
+now reports inspectionComplete=true, expectedOutputs=completedOutputs=128 and
+passed=true:16 manual clips and112 continuous segments across all16 cameras.
+Full strict decoding and timestamp checks covered1,262,723 video frames/packets,
+with no failed recordings. The separate full audio audit also passed all32
+audio-bearing outputs (four clips and28 segments from cameras4,8,12,16).
+This completes recording-integrity coverage for native d63a3532fc76; it does not
+retroactively qualify the interrupted browser workload or the new candidate.
+
+The first fresh matched OFF attempt did not qualify an endurance phase. Its
+retained shutdown dump shows a worker in Windows unhandled-exception reporting
+after an aligned-free failure during FFmpeg frame destruction, while holding
+the processing queue mutex. Other camera workers and the health sampler were
+waiting on that mutex. This is not evidence of a completed OFF/ON comparison.
+
+Branch codex/ffmpeg-frame-ownership fixes an independently reproduced ownership
+defect:Frame::Prepare previously allocated AVBufferRefs, replaced their plane
+pointers with a separate av_image_alloc allocation and discarded padded strides.
+The offline FrameOwnershipTests fails against the original implementation and
+passes with one reference-counted allocation, writable reuse/copy-on-write,
+retained-reference and unref/reprepare checks, plus odd-width YUV-to-BGR scaling.
+The OpenCV view now uses the actual output row stride. This proves the ownership
+fix, not by itself that every endurance crash has been eliminated.
+
+The fix is committed and fast-forwarded into codex/final-validation-integration.
+The corrected server builds with the existing immutable dependencies and six
+workers; FrameOwnershipTests and ImageQueueShutdownTests pass. A separate staged
+and deployment package verifies byte/identity coherence for native c9c0dc650865,
+web7a452f34878d (94 files). Ignored evidence is
+`artifacts/frame-ownership-package-verification-20261006.json`. A separate
+16-source90-second active-detection/recording lifecycle test completed in113.358s
+with a successful process exit,88 health samples across90.880s and complete
+per-camera processing distributions. Its ignored artifacts are under
+`run-frame-ownership-startup-90s-20261006`. This short server-only check has no
+browser endurance or full recording decode qualification; it does not replace
+either matched phase. Both matched endurance phases, remaining seek validation
+and approved physical PTZ testing remain outstanding. Main/production are unchanged.
