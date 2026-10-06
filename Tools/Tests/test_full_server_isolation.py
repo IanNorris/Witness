@@ -23,7 +23,7 @@ import unittest
 import urllib.error
 import urllib.request
 from check_preview_decode import inspect as inspect_recording
-from check_long_recording import inspect_long
+from check_long_recording import inspect_long, inspect_audio
 from owned_process_dump import capture_owned_process_dump
 from processing_sample_collector import ProcessingSampleCollector
 from health_request_timing import sample_health
@@ -165,7 +165,7 @@ def replay_sender_failures(processes, root, inputs, urls):
 
 
 def verify_recordings(db, cache, previous_clip_uid, previous_segment_uid, progress_path=None, failure_root=None,
-                      frame_decoder_threads=1):
+                      frame_decoder_threads=1, expected_audio_cameras=()):
     """Inspect only fresh fixture-owned local outputs, never arbitrary DB paths."""
     recordings = []
     for uid, camera, timestamp, mode in db.execute(
@@ -197,6 +197,11 @@ def verify_recordings(db, cache, previous_clip_uid, previous_segment_uid, progre
             result = (inspect_long(path, frame_decoder_threads=frame_decoder_threads)
                       if os.environ.get('WITNESS_TEST_LONG_RECORDING_INSPECTION') == '1'
                       else inspect_recording(path))
+            if os.environ.get('WITNESS_TEST_VERIFY_AUDIO_RECORDINGS') == '1':
+                result['audio'] = inspect_audio(path)
+                result['audio']['required'] = camera in expected_audio_cameras
+                result['passed'] = (result['passed'] and result['audio']['passed'] and
+                    (not result['audio']['required'] or result['audio']['audioPresent']))
         except (ValueError, OSError, subprocess.TimeoutExpired) as error:
             # Keep only this already validated, fixture-owned bounded recording.
             # Never preserve a live DB/session, external path, or raw command line.
@@ -892,7 +897,9 @@ class FullServerIsolationTests(unittest.TestCase):
                                 if os.environ.get('WITNESS_TEST_LONG_RECORDING_INSPECTION') == '1' else None)
                             decoded = verify_recordings(db, cache, previous_clip_uid, previous_segment_uid,
                                                         progress_path, artifacts,
-                                                        frame_decoder_threads) if verify_outputs else []
+                                                        frame_decoder_threads,
+                                                        [i + 1 for i, p in enumerate(profiles or [])
+                                                         if p['audioCodec']]) if verify_outputs else []
                         (artifacts / f'full-server-workload-run-{run}.json').write_text(
                             json.dumps({'completedInferenceWindows': evidence, 'clipRows': clips,
                                         'continuousSegmentRows': segments,

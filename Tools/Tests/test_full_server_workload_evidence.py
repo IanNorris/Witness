@@ -13,6 +13,23 @@ from test_full_server_isolation import artifact_directory, browser_playback_read
 
 
 class WorkloadEvidenceTests(unittest.TestCase):
+    def test_required_audio_cannot_pass_when_track_is_missing(self):
+        with tempfile.TemporaryDirectory() as directory, sqlite3.connect(':memory:') as db:
+            cache = Path(directory)
+            (cache / '1_Manual_100.mp4').touch()
+            db.execute('CREATE TABLE Clip(ClipUID INTEGER,Camera INTEGER,Timestamp INTEGER,RecordMode INTEGER)')
+            db.execute('CREATE TABLE ContinuousSegment(SegmentUID INTEGER,CameraUID INTEGER,FilePath TEXT)')
+            db.execute('INSERT INTO Clip VALUES(1,1,100,0)')
+            for present, audio_passed, expected in ((False, True, False), (True, False, False), (True, True, True)):
+                with self.subTest(present=present, audio_passed=audio_passed), \
+                     patch.dict('os.environ', {'WITNESS_TEST_VERIFY_AUDIO_RECORDINGS': '1'}), \
+                     patch('test_full_server_isolation.inspect_recording', return_value={'passed': True}), \
+                     patch('test_full_server_isolation.inspect_audio', return_value={
+                         'audioPresent': present, 'passed': audio_passed}):
+                    report = verify_recordings(db, cache, 0, 0, expected_audio_cameras=[1])[0]
+                self.assertEqual(report['passed'], expected)
+                self.assertTrue(report['audio']['required'])
+
     def test_long_inspection_receives_explicit_frame_thread_limit(self):
         with tempfile.TemporaryDirectory() as directory:
             cache = Path(directory)

@@ -4822,3 +4822,17 @@ pass (42 total). A helper-only preflight hashes the exact next sixteen inputs,
 confirms four distinct source digests and matching second-boundary results.
 The opt-in full-server module imports successfully with its native lifecycle
 test skipped; this is not a completed run of the newly instrumented harness.
+
+Audio audit coverage (2026-10-06): `check_long_recording.inspect_audio` performs
+bounded, local-only full strict decoding plus packet DTS and decoded-frame
+timestamp checks for every audio track. No-track media is explicitly reported
+as `audioPresent: false`, not as proof of audio coverage. Set
+`WITNESS_TEST_VERIFY_AUDIO_RECORDINGS=1` in both future matched endurance phases;
+the harness requires audio to exist on cameras whose qualified source profile
+contains audio, and folds every track's result into recording qualification.
+This checks decode/timestamp integrity, not perceptual audio quality or A/V sync.
+The already-loaded audit remains video-only. A separate read-only audit of its
+32 audio-bearing fixture-owned outputs is running, with progressive results in
+the ignored run directory's `full-server-audio-inspection.jsonl`. Neither audit
+is complete yet. Twelve streaming-inspector and fifteen workload-evidence tests
+pass, including missing expected audio and failed audio decode/timestamp gates.

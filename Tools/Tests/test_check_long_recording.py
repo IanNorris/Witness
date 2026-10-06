@@ -8,6 +8,53 @@ from check_preview_decode import RecordingInspectionError
 
 
 class LongRecordingTests(unittest.TestCase):
+    def test_audio_checks_each_track_and_does_not_claim_absent_audio(self):
+        for indices in ([], [1, 2]):
+            commands = []
+            def process(command, consume=None, timeout=1800, maximum_rows=2000000):
+                commands.append(command)
+                if 'stream=index' in command:
+                    for index in indices:
+                        consume(f'program|stream|index={index}\n'.encode())
+                    consume(b'\n')
+                    for index in indices:
+                        consume(f'stream|index={index}\n'.encode())
+                elif consume:
+                    section, field = ('packet', 'dts') if '-show_packets' in command else ('frame', 'best_effort_timestamp')
+                    for tick in (0, 1024):
+                        consume(f'{section}|{field}={tick}\n'.encode())
+                else:
+                    self.assertIn('-xerror', command)
+                    self.assertNotIn('-t', command)
+                    self.assertNotIn('-ss', command)
+                return 0, 0, False, ''
+            with self.subTest(indices=indices), patch.object(checker.Path, 'is_file', return_value=True), \
+                 patch.object(checker.Path, 'stat', return_value=SimpleNamespace(st_size=1)), \
+                 patch.object(checker, 'bounded_process', side_effect=process):
+                report = checker.inspect_audio('owned-fixture.mp4')
+            self.assertTrue(report['passed'])
+            self.assertEqual(report['audioPresent'], bool(indices))
+            self.assertEqual([t['streamIndex'] for t in report['tracks']], indices)
+            self.assertEqual(len(commands), 1 + 3 * len(indices))
+
+    def test_audio_decode_and_timestamp_faults_fail(self):
+        for fault in ('decode', 'timestamp', 'diagnostic'):
+            def process(command, consume=None, timeout=1800, maximum_rows=2000000):
+                if 'stream=index' in command:
+                    consume(b'stream|index=1\n')
+                elif consume:
+                    section, field = ('packet', 'dts') if '-show_packets' in command else ('frame', 'best_effort_timestamp')
+                    for tick in (0, 0 if fault == 'timestamp' else 1024):
+                        consume(f'{section}|{field}={tick}\n'.encode())
+                    return 0, int(fault == 'diagnostic'), fault == 'diagnostic', ''
+                elif fault == 'decode':
+                    return 1, 1, True, 'decode error'
+                return 0, 0, False, ''
+            with self.subTest(fault=fault), patch.object(checker.Path, 'is_file', return_value=True), \
+                 patch.object(checker.Path, 'stat', return_value=SimpleNamespace(st_size=1)), \
+                 patch.object(checker, 'bounded_process', side_effect=process):
+                self.assertFalse(checker.inspect_audio('owned-fixture.mp4')['passed'])
+
     def test_large_file_uses_full_strict_decode_and_both_timestamp_passes(self):
         def process(command, consume=None, timeout=1800):
             self.assertIn('file,pipe', command)

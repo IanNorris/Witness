@@ -130,3 +130,61 @@ def inspect_long(path, ffmpeg='ffmpeg', ffprobe='ffprobe', timeout=1800, frame_d
             report[s]['duplicates'] == 0 and report[s]['regressions'] == 0 and
             not report[s]['diagnosticNonempty'] for s in ('packets', 'frames')))
     return report
+
+
+def inspect_audio(path, ffmpeg='ffmpeg', ffprobe='ffprobe', timeout=1800):
+    """Inspect every audio track fully; absence is reported, not invented as coverage."""
+    if type(timeout) is not int or not 1 <= timeout <= 1800:
+        raise ValueError('Invalid inspection timeout')
+    path = Path(path).resolve()
+    if not path.is_file() or not 0 < path.stat().st_size <= 8 * 1024**3:
+        raise ValueError('expected a nonempty local recording no larger than 8 GiB')
+    common = ['-v', 'error', '-protocol_whitelist', 'file,pipe']
+    indices = []
+
+    def stream_row(line):
+        parts = line.decode('utf-8', errors='strict').strip().split('|')
+        # MPEG-TS also lists each stream under its program. Only the canonical
+        # top-level stream list owns the index; do not inspect the same track twice.
+        if parts == ['']:
+            return
+        if (len(parts) == 3 and parts[:2] == ['program', 'stream'] and
+                parts[2].startswith('index=') and int(parts[2][6:]) >= 0):
+            return
+        if len(parts) != 2 or parts[0] != 'stream' or not parts[1].startswith('index='):
+            raise ValueError('Unexpected audio stream record')
+        index = int(parts[1][6:])
+        if index < 0 or index in indices:
+            raise ValueError('Invalid or duplicate audio stream index')
+        indices.append(index)
+
+    code, _, nonempty, diagnostics = bounded_process(
+        [ffprobe, *common, '-select_streams', 'a', '-show_entries', 'stream=index',
+         '-of', 'compact=p=1:nk=0', str(path)], stream_row, timeout, maximum_rows=32)
+    if code or nonempty:
+        raise RecordingInspectionError('audioStreams', code, diagnostics)
+    tracks = []
+    for index in indices:
+        code, lines, nonempty, _ = bounded_process(
+            [ffmpeg, *common, '-xerror', '-i', str(path), '-map', f'0:{index}',
+             '-f', 'null', '-'], timeout=timeout)
+        track = dict(streamIndex=index, strictDecodeExit=code,
+                     decodeDiagnosticLines=lines, decodeDiagnosticNonempty=nonempty)
+        for section, field in (('packets', 'dts'), ('frames', 'best_effort_timestamp')):
+            accumulator = TimestampAccumulator(section[:-1], field)
+            probe_code, probe_lines, probe_nonempty, diagnostics = bounded_process(
+                [ffprobe, *common, '-select_streams', str(index), '-show_' + section,
+                 '-show_entries', section[:-1] + '=' + field, '-of', 'compact=p=1:nk=0', str(path)],
+                accumulator.add, timeout)
+            if probe_code:
+                raise RecordingInspectionError('audio' + section, probe_code, diagnostics)
+            track[section] = accumulator.report()
+            track[section]['diagnosticLines'] = probe_lines
+            track[section]['diagnosticNonempty'] = probe_nonempty
+        track['passed'] = (code == 0 and not nonempty and all(
+            track[s]['samples'] > 1 and track[s]['missing'] == 0 and
+            track[s]['duplicates'] == 0 and track[s]['regressions'] == 0 and
+            not track[s]['diagnosticNonempty'] for s in ('packets', 'frames')))
+        tracks.append(track)
+    return dict(inspectionMode='boundedStreamingFullAudio', audioPresent=bool(tracks),
+                tracks=tracks, passed=all(track['passed'] for track in tracks))
