@@ -4977,3 +4977,13 @@ target and it ran past exhaustion into a stall/restart. No rejected probe is
 silently converted to a pass. Ordinary H.264 and HEVC seeking are now exercised;
 genuine hidden-eviction seeking remains unqualified, and physical PTZ still needs
 the pending local-credential approval. The full OFF recording audit remains live.
+
+Additional OFF review: `native-ingress-review.json` retains per-camera spans of
+equal accepted-packet counter samples. Maxima range from1.965s to8.182s (HEVC4K
+cameras3/15); each main stream stays in init generation0 with zero max reported
+dropped/corrupt/repaired video packets. These are lower-bound sampled periods
+without accepted-counter progress, not exact network-arrival gaps. They prevent
+attributing the browser restarts solely to MSE or decoder corruption: fixture
+delivery and native processing stalls need correlation in the matched ON run.
+Neither counter stability nor absence of corruption makes this a clean playback
+pass. The immutable candidate/source set is retained for the comparison.
