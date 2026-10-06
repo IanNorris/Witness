@@ -177,6 +177,7 @@ def verify_recordings(db, cache, previous_clip_uid, previous_segment_uid, progre
             'SELECT SegmentUID,CameraUID,FilePath FROM ContinuousSegment WHERE SegmentUID>?', (previous_segment_uid,)):
         recordings.append(('continuous', camera, uid, Path(path)))
     reports = []
+    current_inspection = None
     def write_progress(complete):
         if progress_path is None:
             return
@@ -186,7 +187,7 @@ def verify_recordings(db, cache, previous_clip_uid, previous_segment_uid, progre
             'schemaVersion': 1, 'inspectionComplete': complete,
             'expectedOutputs': len(recordings), 'completedOutputs': len(reports),
             'passed': complete and bool(reports) and all(row['passed'] for row in reports),
-            'recordingInspection': reports}, indent=2), encoding='utf-8')
+            'recordingInspection': reports, 'currentInspection': current_inspection}, indent=2), encoding='utf-8')
         temporary.replace(target)
     write_progress(False)
     def preserve_failure(kind, camera, uid, path, error=None, result=None):
@@ -217,12 +218,19 @@ def verify_recordings(db, cache, previous_clip_uid, previous_segment_uid, progre
         path = path.resolve(strict=True)
         if not path.is_relative_to(cache.resolve()) or not path.is_file():
             raise ValueError('Recording is outside the private cache')
+        current_inspection = dict(kind=kind, cameraId=camera, recordingId=uid,
+                                  startedUnixMs=int(time.time() * 1000))
+        def stage_progress(phase, stream_index=None):
+            current_inspection.update(stage=phase, streamIndex=stream_index,
+                                      stageStartedUnixMs=int(time.time() * 1000))
+            write_progress(False)
         try:
-            result = (inspect_long(path, frame_decoder_threads=frame_decoder_threads)
+            result = (inspect_long(path, frame_decoder_threads=frame_decoder_threads,
+                                   progress_callback=stage_progress)
                       if os.environ.get('WITNESS_TEST_LONG_RECORDING_INSPECTION') == '1'
                       else inspect_recording(path))
             if os.environ.get('WITNESS_TEST_VERIFY_AUDIO_RECORDINGS') == '1':
-                result['audio'] = inspect_audio(path)
+                result['audio'] = inspect_audio(path, progress_callback=stage_progress)
                 result['audio']['required'] = camera in expected_audio_cameras
                 result['passed'] = (result['passed'] and result['audio']['passed'] and
                     (not result['audio']['required'] or result['audio']['audioPresent']))
@@ -233,6 +241,7 @@ def verify_recordings(db, cache, previous_clip_uid, previous_segment_uid, progre
         if result.get('passed') is not True:
             preserve_failure(kind, camera, uid, path, result=result)
         reports.append(dict(result, kind=kind, cameraId=camera, recordingId=uid))
+        current_inspection = None
         write_progress(False)
     write_progress(True)
     return reports

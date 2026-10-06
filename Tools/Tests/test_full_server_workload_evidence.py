@@ -5,7 +5,7 @@ import json
 import tempfile
 from pathlib import Path
 from unittest.mock import patch
-from unittest.mock import Mock
+from unittest.mock import Mock, ANY
 from copy import deepcopy
 from contextlib import closing
 from check_preview_decode import RecordingInspectionError
@@ -45,11 +45,47 @@ class WorkloadEvidenceTests(unittest.TestCase):
                      patch('test_full_server_isolation.inspect_long', return_value={
                          'passed': True, 'frameDecoderThreads': 4}) as inspect:
                     reports = verify_recordings(db, cache, 0, 0, frame_decoder_threads=4)
-                inspect.assert_called_once_with(recording.resolve(), frame_decoder_threads=4)
+                inspect.assert_called_once_with(recording.resolve(), frame_decoder_threads=4,
+                                                progress_callback=ANY)
+                self.assertTrue(callable(inspect.call_args.kwargs['progress_callback']))
                 self.assertEqual(reports[0]['frameDecoderThreads'], 4)
                 self.assertEqual(reports[0]['cameraId'], 1)
             finally:
                 db.close()
+
+    def test_active_inspection_stage_is_incomplete_and_final_result_clears_it(self):
+        with tempfile.TemporaryDirectory() as directory, closing(sqlite3.connect(':memory:')) as db:
+            cache = Path(directory)
+            (cache / '1_Manual_100.mp4').touch()
+            progress = cache / 'progress.json'
+            db.execute('CREATE TABLE Clip(ClipUID INTEGER,Camera INTEGER,Timestamp INTEGER,RecordMode INTEGER)')
+            db.execute('CREATE TABLE ContinuousSegment(SegmentUID INTEGER,CameraUID INTEGER,FilePath TEXT)')
+            db.execute('INSERT INTO Clip VALUES(1,1,100,0)')
+            stages = []
+            def inspect(path, frame_decoder_threads, progress_callback):
+                for phase in ('videoStrictDecode', 'videoPackets', 'videoFrames'):
+                    progress_callback(phase, None)
+                    row = json.loads(progress.read_text(encoding='utf8'))
+                    self.assertFalse(row['inspectionComplete'])
+                    self.assertFalse(row['passed'])
+                    self.assertEqual(row['completedOutputs'], 0)
+                    current = row['currentInspection']
+                    self.assertEqual((current['kind'], current['cameraId'], current['recordingId']), ('clip', 1, 1))
+                    self.assertEqual(set(current), {'kind', 'cameraId', 'recordingId', 'startedUnixMs',
+                                                   'stage', 'streamIndex', 'stageStartedUnixMs'})
+                    self.assertGreaterEqual(current['stageStartedUnixMs'], current['startedUnixMs'])
+                    stages.append(current['stage'])
+                return {'passed': True}
+            with patch.dict('os.environ', {'WITNESS_TEST_LONG_RECORDING_INSPECTION': '1',
+                                          'WITNESS_TEST_VERIFY_AUDIO_RECORDINGS': '0'}), \
+                 patch('test_full_server_isolation.inspect_long', side_effect=inspect):
+                verify_recordings(db, cache, 0, 0, progress_path=progress)
+            self.assertEqual(stages, ['videoStrictDecode', 'videoPackets', 'videoFrames'])
+            final = json.loads(progress.read_text(encoding='utf8'))
+            self.assertTrue(final['inspectionComplete'])
+            self.assertTrue(final['passed'])
+            self.assertIsNone(final['currentInspection'])
+            self.assertEqual(final['completedOutputs'], 1)
 
     def test_artifact_namespaces_are_exclusive_and_leave_other_runs_untouched(self):
         with tempfile.TemporaryDirectory() as directory:

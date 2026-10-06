@@ -5019,3 +5019,16 @@ therefore do not isolate network arrival, mux completion, decoding or callback
 latency. Decoder thread count is not explicitly configured here. These are
 inspection findings and candidate mechanisms, not evidence of a root cause or
 a justification to change the candidate before the tracing-ON comparison.
+
+The subsequent audit progress helper additionally exposes the active recording's
+kind, camera/recording IDs, inspection stage, optional audio stream index and
+file/stage start timestamps. It contains no recording path or session data.
+An active stage remains explicitly incomplete/unpassed; the active record clears
+only after the result is appended. All strict decode/timestamp commands, thread
+limits and acceptance criteria are unchanged, as checked by callback-on/off
+equivalence tests. Fourteen inspection tests, seventeen harness evidence tests
+and eight comparison tests pass. This is post-measurement test infrastructure,
+not runtime tracing or an additional workload during the matched measurement.
+The already-running OFF Python process retains its loaded earlier implementation;
+the richer stage progress applies to the subsequent ON audit without restarting
+or shortening the current inspection.

@@ -8,6 +8,40 @@ from check_preview_decode import RecordingInspectionError
 
 
 class LongRecordingTests(unittest.TestCase):
+    def test_stage_progress_does_not_change_commands_or_results(self):
+        for audio in (False, True):
+            commands, stages = [], []
+            def process(command, consume=None, timeout=1800, maximum_rows=2000000):
+                commands.append(command)
+                if 'stream=index' in command:
+                    consume(b'stream|index=1\n')
+                elif consume:
+                    section, field = ('packet', 'dts') if '-show_packets' in command else ('frame', 'best_effort_timestamp')
+                    for tick in (0, 1024):
+                        consume(f'{section}|{field}={tick}\n'.encode())
+                return 0, 0, False, ''
+            inspect = checker.inspect_audio if audio else checker.inspect_long
+            with self.subTest(audio=audio), patch.object(checker.Path, 'is_file', return_value=True), \
+                 patch.object(checker.Path, 'stat', return_value=SimpleNamespace(st_size=1)), \
+                 patch.object(checker, 'bounded_process', side_effect=process):
+                baseline = inspect('owned-fixture.mp4')
+                baseline_commands = commands[:]
+                commands.clear()
+                observed = inspect('owned-fixture.mp4', progress_callback=lambda phase, index: stages.append((phase, index)))
+            self.assertEqual(observed, baseline)
+            self.assertEqual(commands, baseline_commands)
+            self.assertEqual(stages, [('audioTrackDiscovery', None), ('audioStrictDecode', 1),
+                                     ('audioPackets', 1), ('audioFrames', 1)] if audio else
+                                    [('videoStrictDecode', None), ('videoPackets', None), ('videoFrames', None)])
+
+    def test_invalid_stage_callback_fails_before_access_or_launch(self):
+        for inspect in (checker.inspect_long, checker.inspect_audio):
+            with patch.object(checker.Path, 'is_file') as exists, \
+                 patch.object(checker, 'bounded_process') as run, self.assertRaises(ValueError):
+                inspect('owned-fixture.mp4', progress_callback=True)
+            exists.assert_not_called()
+            run.assert_not_called()
+
     def test_audio_checks_each_track_and_does_not_claim_absent_audio(self):
         for indices in ([], [1, 2]):
             commands = []

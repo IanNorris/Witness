@@ -96,17 +96,26 @@ def bounded_process(command, consume=None, timeout=1800, maximum_rows=2000000):
         process.stderr.close()
 
 
-def inspect_long(path, ffmpeg='ffmpeg', ffprobe='ffprobe', timeout=1800, frame_decoder_threads=1):
+def inspection_stage(callback, phase, stream_index=None):
+    if callback is not None:
+        callback(phase, stream_index)
+
+
+def inspect_long(path, ffmpeg='ffmpeg', ffprobe='ffprobe', timeout=1800, frame_decoder_threads=1,
+                 progress_callback=None):
     # Preserve the old single-thread default. Explicitly bounded opt-in avoids
     # ffprobe's slow default without unbounded auto-threading or shorter scans.
     if type(frame_decoder_threads) is not int or not 1 <= frame_decoder_threads <= 8:
         raise ValueError('Frame decoder threads must be an integer in 1..8')
+    if progress_callback is not None and not callable(progress_callback):
+        raise ValueError('Inspection progress callback must be callable')
     path = Path(path).resolve()
     if not path.is_file() or path.stat().st_size > 8 * 1024**3:
         raise ValueError('expected a local recording no larger than 8 GiB')
     if type(timeout) is not int or not 1 <= timeout <= 1800:
         raise ValueError('Invalid inspection timeout')
     common = ['-v', 'error', '-protocol_whitelist', 'file,pipe']
+    inspection_stage(progress_callback, 'videoStrictDecode')
     code, lines, nonempty, _ = bounded_process(
         [ffmpeg, *common, '-xerror', '-i', str(path), '-map', '0:v:0',
          '-enc_time_base', '1:1000000', '-fps_mode', 'passthrough', '-f', 'null', '-'],
@@ -114,6 +123,7 @@ def inspect_long(path, ffmpeg='ffmpeg', ffprobe='ffprobe', timeout=1800, frame_d
     report = dict(file=str(path), strictDecodeExit=code, decodeDiagnosticLines=lines,
                   inspectionMode='boundedStreamingFullRecording', frameDecoderThreads=frame_decoder_threads)
     for section, field in (('packets', 'dts'), ('frames', 'best_effort_timestamp')):
+        inspection_stage(progress_callback, 'video' + section.title())
         accumulator = TimestampAccumulator(section[:-1], field)
         probe_code, probe_lines, probe_nonempty, diagnostics = bounded_process(
             [ffprobe, *common, *(['-threads', str(frame_decoder_threads)] if section == 'frames' else []),
@@ -132,10 +142,12 @@ def inspect_long(path, ffmpeg='ffmpeg', ffprobe='ffprobe', timeout=1800, frame_d
     return report
 
 
-def inspect_audio(path, ffmpeg='ffmpeg', ffprobe='ffprobe', timeout=1800):
+def inspect_audio(path, ffmpeg='ffmpeg', ffprobe='ffprobe', timeout=1800, progress_callback=None):
     """Inspect every audio track fully; absence is reported, not invented as coverage."""
     if type(timeout) is not int or not 1 <= timeout <= 1800:
         raise ValueError('Invalid inspection timeout')
+    if progress_callback is not None and not callable(progress_callback):
+        raise ValueError('Inspection progress callback must be callable')
     path = Path(path).resolve()
     if not path.is_file() or not 0 < path.stat().st_size <= 8 * 1024**3:
         raise ValueError('expected a nonempty local recording no larger than 8 GiB')
@@ -158,6 +170,7 @@ def inspect_audio(path, ffmpeg='ffmpeg', ffprobe='ffprobe', timeout=1800):
             raise ValueError('Invalid or duplicate audio stream index')
         indices.append(index)
 
+    inspection_stage(progress_callback, 'audioTrackDiscovery')
     code, _, nonempty, diagnostics = bounded_process(
         [ffprobe, *common, '-select_streams', 'a', '-show_entries', 'stream=index',
          '-of', 'compact=p=1:nk=0', str(path)], stream_row, timeout, maximum_rows=32)
@@ -165,12 +178,14 @@ def inspect_audio(path, ffmpeg='ffmpeg', ffprobe='ffprobe', timeout=1800):
         raise RecordingInspectionError('audioStreams', code, diagnostics)
     tracks = []
     for index in indices:
+        inspection_stage(progress_callback, 'audioStrictDecode', index)
         code, lines, nonempty, _ = bounded_process(
             [ffmpeg, *common, '-xerror', '-i', str(path), '-map', f'0:{index}',
              '-f', 'null', '-'], timeout=timeout)
         track = dict(streamIndex=index, strictDecodeExit=code,
                      decodeDiagnosticLines=lines, decodeDiagnosticNonempty=nonempty)
         for section, field in (('packets', 'dts'), ('frames', 'best_effort_timestamp')):
+            inspection_stage(progress_callback, 'audio' + section.title(), index)
             accumulator = TimestampAccumulator(section[:-1], field)
             probe_code, probe_lines, probe_nonempty, diagnostics = bounded_process(
                 [ffprobe, *common, '-select_streams', str(index), '-show_' + section,
