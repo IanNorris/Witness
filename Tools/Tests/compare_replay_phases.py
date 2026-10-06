@@ -92,6 +92,19 @@ def compare(off, on, off_recordings, on_recordings):
         if any({row.get('cameraId') for row in rows if row.get('kind') == kind} != set(ids)
                for kind in ('clip', 'continuous')):
             missing.append(label + ' clip/DVR inspection camera coverage incomplete')
+        audio_ids = {p.get('cameraId') for p in phase.get('mainStreamProfiles') or []
+                     if p.get('audioCodec')}
+        for row in rows:
+            if row.get('cameraId') not in audio_ids:
+                continue
+            audio = row.get('audio') or {}
+            tracks = audio.get('tracks')
+            if (audio.get('inspectionMode') != 'boundedStreamingFullAudio' or
+                    audio.get('required') is not True or audio.get('audioPresent') is not True or
+                    audio.get('passed') is not True or not isinstance(tracks, list) or not tracks or
+                    any(not isinstance(t, dict) or t.get('passed') is not True for t in tracks)):
+                missing.append(label + ' expected recording audio inspection missing or failed')
+                break
         timing = phase.get('summaryHttpTiming') or {}
         p95 = (phase.get('summaryHttpWallMs') or {}).get('p95')
         if (timing.get('scope') != 'authenticatedHealthWithoutRawWorkSamplesRequestAndResponseBodyOnly' or

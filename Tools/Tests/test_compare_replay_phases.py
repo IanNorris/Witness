@@ -51,6 +51,21 @@ class ReplayPhaseComparisonTests(unittest.TestCase):
         self.assertEqual(len(report['processing']), 16)
         self.assertIn('Not production stability', report['limits'][0])
 
+    def test_expected_audio_requires_its_own_completed_inspection(self):
+        off, on, recordings = self.fixture()
+        off['mainStreamProfiles'][3]['audioCodec'] = 'aac'
+        on['mainStreamProfiles'][3]['audioCodec'] = 'aac'
+        report = compare(off, on, recordings, recordings)
+        self.assertEqual(report['status'], 'incomplete')
+        self.assertIn('off expected recording audio inspection missing or failed', report['incompleteReasons'])
+        for row in recordings['recordingInspection']:
+            if row['cameraId'] == 4:
+                row['audio'] = dict(inspectionMode='boundedStreamingFullAudio', required=True,
+                                    audioPresent=True, passed=True, tracks=[{'passed': True}])
+        self.assertEqual(compare(off, on, recordings, recordings)['status'], 'numericThresholdsMet')
+        recordings['recordingInspection'][3]['audio']['tracks'][0]['passed'] = False
+        self.assertEqual(compare(off, on, recordings, recordings)['status'], 'incomplete')
+
     def test_thresholds_are_strict_and_each_camera_is_checked(self):
         off, on, recordings = self.fixture()
         on['processCpuHostCapacityPercent']['p95'] += 1

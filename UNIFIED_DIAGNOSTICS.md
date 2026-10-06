@@ -4837,3 +4837,15 @@ clips and 28 DVR segments passed full audio decoding and timestamp checks.
 Results are in the ignored run directory's `full-server-audio-inspection.jsonl`.
 The video audit remains live and incomplete. Twelve streaming-inspector and fifteen workload-evidence tests
 pass, including missing expected audio and failed audio decode/timestamp gates.
+
+The OFF/ON comparison now also rejects missing/failed full-audio inspection on
+any recording from an audio-bearing source profile; a video-only `passed` flag
+cannot qualify that source. Eight comparison tests pass, including this gate.
+An additional native-RAP browser probe could not exercise genuine hidden resume:
+the available IAB surface continued reporting `document.visibilityState` as
+visible after tab switching and browser hiding. Its roughly 48-second ordinary
+playback receipt is explicitly unqualified for hidden-buffer-eviction acceptance.
+No visibility/media-state overrides were used, and the temporary pause control
+was removed. Ignored evidence is `native-rap-hidden-probe-unqualified-20261006.*`.
+The fixture and all three test tabs were closed; hidden-resume seek validation
+remains open rather than being inferred from ordinary playback.
