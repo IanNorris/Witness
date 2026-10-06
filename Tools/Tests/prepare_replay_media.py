@@ -25,11 +25,22 @@ def probe(path, entries, packets=False):
     return json.loads(result.stdout)
 
 
+def exact_rate(value):
+    if isinstance(value, bool) or not isinstance(value, (int, str, Fraction)):
+        raise ValueError('fps must be an exact integer or rational rate')
+    try:
+        rate = Fraction(value)
+    except (ValueError, ZeroDivisionError) as error:
+        raise ValueError('invalid fps') from error
+    if not 1 <= rate <= 60 or rate.denominator > 1001:
+        raise ValueError('fps must be a bounded exact rate in 1..60')
+    return rate
+
+
 def validate_stream(stream, fps):
     if stream.get('codec_name') not in ('h264', 'hevc') or stream.get('has_b_frames') != 0:
         raise ValueError('only explicit no-B-frame H.264/HEVC media can be normalized')
-    if not 1 <= fps <= 60:
-        raise ValueError('fps must be 1..60')
+    exact_rate(fps)
     if not (0 < stream.get('width', 0) <= 7680 and 0 < stream.get('height', 0) <= 4320):
         raise ValueError('invalid dimensions')
 
@@ -43,6 +54,7 @@ def payload_hashes(path):
 
 
 def prepare(source, output, fps):
+    fps = exact_rate(fps)
     source, output = Path(source).resolve(strict=True), Path(output).absolute()
     if not source.is_file() or source.stat().st_size > 512 * 1024 * 1024:
         raise ValueError('expected local media no larger than 512 MiB')
@@ -71,7 +83,8 @@ def prepare(source, output, fps):
         # another process creates it after the initial existence check.
         os.link(staged, output)
     return {'passed': True, 'codec': stream['codec_name'], 'width': stream['width'], 'height': stream['height'],
-            'fps': fps, 'packets': len(original_hashes), 'decodedFrames': checked['frames']['samples'],
+            'fps': fps.numerator if fps.denominator == 1 else str(fps),
+            'packets': len(original_hashes), 'decodedFrames': checked['frames']['samples'],
             'packetPayloadsIdentical': True, 'strictDecodePassed': True,
             'limits': 'Timing normalized and audio removed; decoder workload only, not original pacing or A/V sync'}
 
@@ -80,7 +93,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('source', type=Path)
     parser.add_argument('output', type=Path)
-    parser.add_argument('--fps', type=int, required=True)
+    parser.add_argument('--fps', required=True, help='Exact integer or rational cadence, e.g. 20 or 50/3')
     args = parser.parse_args()
     try:
         report = prepare(args.source, args.output, args.fps)

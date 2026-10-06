@@ -4762,3 +4762,47 @@ before repeating the clean baseline. No production source, package, private
 media/database/session, user BACKLOG edits, credential or remote deployment is
 changed by this validation-tooling work. Physical PTZ credential confirmation
 and the remaining endurance/observer comparison gates stay open.
+
+### Replay load-clock qualification follow-up (2026-10-06)
+
+Single-pass packet-clock inspection finds no >2ms gaps, overlaps, duplicate or
+regressing DTS in any of the four original workload inputs. However, a bounded
+120-second packet-copy MPEG-TS remux using the sender's `-stream_loop -1` reveals
+288ms of video-duration gaps in the original12-second AAC fixture (nine32ms loop
+gaps), and1972.97ms of duration gaps in the original H.264 capture, including a
+maximum368.43ms discontinuity. Neither HEVC workload copy exhibits clock gaps.
+This changes the next validation action; it does not establish that these gaps
+caused all browser watchdog restarts. Preserve the failed phase and do not
+reinterpret it as a qualified overhead baseline or repair production clocks
+merely to make an artificial loop workload pass.
+
+A20fps MP4-only retiming of the H.264 capture is also unsuitable: the MPEG-TS
+demuxer derives60ms packet durations from the codec while its DTS steps50ms,
+producing10ms overlaps on every packet. prepare_replay_media therefore supports
+bounded exact rational rates without float rounding. The chosen50/3 copy keeps
+all477 compressed packet payload hashes unchanged, passes strict decode, and
+has zero gaps/overlaps/duplicate/regressing DTS across2000 packets in a120-second
+MPEG-TS loop audit. The five preparation regression tests pass, including rate
+validation and the unchanged no-overwrite, no-B-frame, payload/decode/cadence
+failure and publication-race checks. Incorrect20fps and original-clock test
+outputs remain ignored as rejected qualification evidence, not chosen inputs.
+
+The replacement AAC workload is a generated40-minute160x90 H.26420fps/AAC file,
+not private camera media. All48000 video frames/packets pass strict full-file
+decode and timestamp inspection. All112501 audio packets have no >2ms gaps,
+overlaps, duplicate or regressing DTS; the37.5ms cumulative printed-duration
+rounding difference is not a measured gap. A120-second MPEG-TS copy retains
+continuous video/audio clocks. Its2400-second duration avoids a loop during the
+thirty-minute measurement plus bounded startup/gate headroom; do not reuse it
+for a phase long enough to cross its end without separate loop qualification.
+
+Independent60-second loopback sender/packet-copy receiver checks report
+0.999571852 media seconds per wall second for the50/3 H.264 fixture and
+1.000368344 for the new AAC fixture, with zero receiver diagnostic bytes.
+These are short sender-only checks, not Witness/browser endurance or an
+overhead comparison. The next OFF/ON pair must use the exact same newly
+qualified inputs and viewport in both phases; never compare its metrics to the
+previous different source/cadence workload. H.264 timing is explicitly replaced
+for load qualification, so original camera VFR/cadence acceptance remains
+separate evidence. Latest-package recording audit session93312 is still live;
+its final integrity result and the fresh matched pair remain outstanding.

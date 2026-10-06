@@ -14,6 +14,13 @@ ARTIFACTS = Path(__file__).resolve().parents[2] / 'artifacts'
 
 
 class ReplayPreparationTests(unittest.TestCase):
+    def test_exact_rational_codec_cadence_is_supported_without_float_rounding(self):
+        self.assertEqual(MEDIA.exact_rate('50/3'), MEDIA.Fraction(50, 3))
+        self.assertEqual(MEDIA.exact_rate('20'), MEDIA.Fraction(20))
+        for value in (True, 20.0, '0/1', '61', '1/0', 'not-a-rate', '10001/10000'):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                MEDIA.exact_rate(value)
+
     def test_no_b_frames_and_supported_codec_are_required(self):
         valid = {'codec_name': 'hevc', 'has_b_frames': 0, 'width': 3840, 'height': 2160}
         MEDIA.validate_stream(valid, 25)
