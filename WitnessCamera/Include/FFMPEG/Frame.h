@@ -12,7 +12,7 @@ class CAMERA_API Frame
 {
 public:
 	
-	Frame( unsigned int Width, unsigned int Height, unsigned int Format, unsigned int Alignment = 1 );
+	Frame( unsigned int Width, unsigned int Height, unsigned int Format, unsigned int Alignment = 0 );
 	virtual ~Frame();
 
 	void Prepare();

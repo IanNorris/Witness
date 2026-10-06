@@ -214,3 +214,15 @@ target_link_libraries(ImageQueueShutdownTests PRIVATE WitnessCamera)
 if(MSVC)
     target_compile_options(ImageQueueShutdownTests PRIVATE /utf-8 /W3)
 endif()
+
+# Compile the wrapper directly so its ownership contract can be tested without
+# rebuilding the server or running any camera/database/network services.
+add_executable(FrameOwnershipTests EXCLUDE_FROM_ALL
+    ../Tools/Tests/FrameOwnershipTests.cpp Source/FFMPEG/Frame.cpp)
+target_compile_definitions(FrameOwnershipTests PRIVATE WITNESSCAMERA_EXPORTS)
+target_include_directories(FrameOwnershipTests PRIVATE Include ${FFMPEG_INCLUDE_DIRS})
+target_link_directories(FrameOwnershipTests PRIVATE ${FFMPEG_LIBRARY_DIRS})
+target_link_libraries(FrameOwnershipTests PRIVATE ${FFMPEG_LIBRARIES})
+if(MSVC)
+    target_compile_options(FrameOwnershipTests PRIVATE /utf-8 /W3)
+endif()

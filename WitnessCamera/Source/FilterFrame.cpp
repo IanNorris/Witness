@@ -72,7 +72,8 @@ cv::Mat& FilterFrame::GetOrDecodeFrame()
 
 	sws_scale( FrameContext->ConversionContext, InputFrame->GetFrame()->data, InputFrame->GetFrame()->linesize, 0, InputFrame->GetHeight(), OutputFrame->GetFrame()->data, OutputFrame->GetFrame()->linesize );
 
-	DecodedFrame = cv::Mat( cv::Size( OutputWidth, OutputHeight ), CV_8UC3, OutputFrame->GetFrame()->data[0] );
+	DecodedFrame = cv::Mat( cv::Size( OutputWidth, OutputHeight ), CV_8UC3,
+		OutputFrame->GetFrame()->data[0], OutputFrame->GetFrame()->linesize[0] );
 
 	return DecodedFrame;
 }

@@ -1,5 +1,7 @@
 #include "FFMPEG/Frame.h"
 #include "Common.h"
+#include <new>
+#include <stdexcept>
 
 namespace Witness{
 namespace Camera{
@@ -14,35 +16,45 @@ Frame::Frame( unsigned int Width, unsigned int Height, unsigned int Format, unsi
 , m_Prepared( false )
 {
 	m_Frame = av_frame_alloc();
+	if (!m_Frame)
+		throw std::bad_alloc();
 	m_Frame->width = Width;
 	m_Frame->height = Height;
 	m_Frame->format = Format;
 	
-	//Prepare();
 }
 
 Frame::~Frame()
 {
-	if (m_Prepared)
-	{
-		av_freep( &m_Frame->data[0] );
-
-	}
-	
+	// data[] is owned by the AVBufferRefs, including decoder-produced frames.
+	// Releasing a plane separately breaks retained references and can double-free.
 	av_frame_free( &m_Frame );
 }
 
 void Frame::Prepare()
 {
-	av_frame_get_buffer( m_Frame, m_Alignment );
-	av_image_alloc( m_Frame->data, m_Frame->linesize, m_Width, m_Height, (AVPixelFormat)m_Format, m_Alignment );
-	av_image_fill_linesizes( m_Frame->linesize, (AVPixelFormat)m_Format, m_Width );
+	int Result;
+	if (!m_Prepared)
+	{
+		av_frame_unref(m_Frame);
+		m_Frame->width = m_Width;
+		m_Frame->height = m_Height;
+		m_Frame->format = m_Format;
+		// One allocation owns both data[] and buf[]. Preserve its padded strides.
+		Result = av_frame_get_buffer(m_Frame, m_Alignment);
+	}
+	else
+	{
+		// Encoders can retain a previous output frame. Reuse only if writable;
+		// otherwise let FFmpeg perform copy-on-write instead of overwriting it.
+		Result = av_frame_make_writable(m_Frame);
+	}
+	if (Result < 0)
+		throw std::runtime_error("Could not prepare FFmpeg frame buffer");
 
 	m_Frame->sample_aspect_ratio.num = 1;
 	m_Frame->sample_aspect_ratio.den = 1;
 	m_Frame->pts = AV_NOPTS_VALUE;
-
-	av_frame_make_writable( m_Frame );
 
 	m_Prepared = true;
 }
@@ -50,6 +62,7 @@ void Frame::Prepare()
 void Frame::Unref()
 {
 	av_frame_unref( m_Frame );
+	m_Prepared = false;
 }
 
 }}}
