@@ -5,6 +5,7 @@ This is a workload qualification tool, not a camera or production stability test
 """
 import argparse
 import json
+import math
 from pathlib import Path
 import subprocess
 import tempfile
@@ -14,6 +15,10 @@ from test_full_server_isolation import loopback_port, replay_senders
 
 
 def delivery_rate(samples, warmup=10):
+    if any(type(sample.get(name)) not in (int, float) or
+           not math.isfinite(sample[name]) or sample[name] < 0
+           for sample in samples for name in ('wallSeconds', 'mediaSeconds')):
+        raise ValueError('invalid progress clock sample')
     usable = [sample for sample in samples if sample['wallSeconds'] >= warmup]
     if len(usable) < 2:
         raise ValueError('insufficient progress after warmup')
@@ -22,7 +27,21 @@ def delivery_rate(samples, warmup=10):
     media = last['mediaSeconds'] - first['mediaSeconds']
     if wall <= 0 or media <= 0:
         raise ValueError('non-advancing progress')
-    return {'wallSpanSeconds': wall, 'mediaSpanSeconds': media, 'mediaPerWallSecond': media / wall}
+    steps = [(right['wallSeconds'] - left['wallSeconds'],
+              right['mediaSeconds'] - left['mediaSeconds'])
+             for left, right in zip(usable, usable[1:])]
+    if any(wall_step <= 0 or media_step < 0 for wall_step, media_step in steps):
+        raise ValueError('non-monotonic progress clock')
+    gaps = sorted(wall_step for wall_step, _ in steps)
+    return {'wallSpanSeconds': wall, 'mediaSpanSeconds': media, 'mediaPerWallSecond': media / wall,
+            'progressCadence': {
+                'scope': 'FFmpegReceiverProgressReceiptIntervalsNotExactPacketArrivalTiming',
+                'samplesAfterWarmup': len(usable),
+                'maximumReceiptGapSeconds': gaps[-1],
+                'p95ReceiptGapSeconds': gaps[math.ceil(len(gaps) * .95) - 1],
+                'maximumObservedMediaStepSeconds': max(media_step for _, media_step in steps),
+                'maximumWallMinusMediaStepSeconds': max(wall_step - media_step for wall_step, media_step in steps),
+            }}
 
 
 def inspect(source, seconds):

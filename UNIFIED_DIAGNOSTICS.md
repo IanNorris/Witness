@@ -4987,3 +4987,20 @@ attributing the browser restarts solely to MSE or decoder corruption: fixture
 delivery and native processing stalls need correlation in the matched ON run.
 Neither counter stability nor absence of corruption makes this a clean playback
 pass. The immutable candidate/source set is retained for the comparison.
+
+The sender qualification helper now reports receiver progress receipt gaps as
+well as average media/wall rate; four pure regression tests pass, including a
+mean-rate1.0 fixture whose receipts still have an8-second gap. No sender options,
+replay inputs or staged runtime were changed. A complete120s packet-copy-only
+check of the same4K HEVC source retained114 progress rows, media/wall0.999946,
+maximum post-warmup receipt gap1.029608s and zero receiver diagnostic bytes.
+Evidence is `artifacts/replay-pacing-hevc-2160-complete-20261006.json`. This lighter
+single-source check is not a16-source workload or exact packet-arrival proof.
+
+Timestamp correlation is retained as `ingress-gap-timestamps.json`: camera1's
+18:29:39.636Z-18:29:44.534Z equal-counter span overlaps its first DVR registration
+(server-local19:29:44.187). But cameras3/15 have a shared8.182s span at
+18:29:57.263Z-18:30:05.445Z, after their first DVR registrations, and another
+shared3.061s span at18:28:29.802Z before any rollover. DVR finalization remains a
+candidate for some stalls, not an explanation of all of them. Native processing,
+full-workload sender scheduling and delivery still require tracing correlation.
