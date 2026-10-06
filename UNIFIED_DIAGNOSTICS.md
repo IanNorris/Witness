@@ -4832,7 +4832,8 @@ the harness requires audio to exist on cameras whose qualified source profile
 contains audio, and folds every track's result into recording qualification.
 This checks decode/timestamp integrity, not perceptual audio quality or A/V sync.
 The already-loaded audit remains video-only. A separate read-only audit of its
-32 audio-bearing fixture-owned outputs is running, with progressive results in
-the ignored run directory's `full-server-audio-inspection.jsonl`. Neither audit
-is complete yet. Twelve streaming-inspector and fifteen workload-evidence tests
+32 audio-bearing fixture-owned outputs completed successfully: all four long
+clips and 28 DVR segments passed full audio decoding and timestamp checks.
+Results are in the ignored run directory's `full-server-audio-inspection.jsonl`.
+The video audit remains live and incomplete. Twelve streaming-inspector and fifteen workload-evidence tests
 pass, including missing expected audio and failed audio decode/timestamp gates.
