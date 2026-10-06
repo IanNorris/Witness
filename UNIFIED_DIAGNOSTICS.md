@@ -4864,3 +4864,18 @@ with restarts and several sampled latency maxima approaching93s. This reinforces
 that this workload cannot qualify the clean matched OFF/ON stability comparison;
 it does not establish whether input timing, saturation or another cause accounts
 for all observed instability. Recording audit93312 remains live and incomplete.
+
+Failure-evidence review (2026-10-06): future recording audits preserve the same
+bounded fixture-owned media/report for ordinary negative integrity results as
+for raised inspection exceptions. Previously, a `passed: false` result remained
+in the progress report but its media disappeared during private-root cleanup.
+The new path keeps failed results failed, continues the full audit, strips the
+top-level private file path from retained inspection results, and retains the
+existing512MiB media-copy cap. No database/session or external media path is
+copied. Sixteen workload-evidence and eight comparison regressions pass without
+SQLite resource warnings; disposable test connections are explicitly closed.
+The already-running audit keeps its loaded code and is not retroactively changed.
+Future fixes are collected on `codex/final-validation-integration`, not main,
+following the updated goal. The computer's overnight manual sleep occurred after
+the measured browser/server phase; it paused offline decoding and is excluded
+from runtime estimates. The existing wake lock is left unchanged.

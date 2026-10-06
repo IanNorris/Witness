@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import patch
 from unittest.mock import Mock
 from copy import deepcopy
+from contextlib import closing
 from check_preview_decode import RecordingInspectionError
 
 from test_full_server_isolation import artifact_directory, browser_playback_ready, inference_evidence, recording_evidence, recording_metadata_finalized, replay_sender_failures, sample_coverage, verify_recordings
@@ -14,7 +15,7 @@ from test_full_server_isolation import artifact_directory, browser_playback_read
 
 class WorkloadEvidenceTests(unittest.TestCase):
     def test_required_audio_cannot_pass_when_track_is_missing(self):
-        with tempfile.TemporaryDirectory() as directory, sqlite3.connect(':memory:') as db:
+        with tempfile.TemporaryDirectory() as directory, closing(sqlite3.connect(':memory:')) as db:
             cache = Path(directory)
             (cache / '1_Manual_100.mp4').touch()
             db.execute('CREATE TABLE Clip(ClipUID INTEGER,Camera INTEGER,Timestamp INTEGER,RecordMode INTEGER)')
@@ -24,9 +25,9 @@ class WorkloadEvidenceTests(unittest.TestCase):
                 with self.subTest(present=present, audio_passed=audio_passed), \
                      patch.dict('os.environ', {'WITNESS_TEST_VERIFY_AUDIO_RECORDINGS': '1'}), \
                      patch('test_full_server_isolation.inspect_recording', return_value={'passed': True}), \
-                     patch('test_full_server_isolation.inspect_audio', return_value={
+                     patch('builtins.print'), patch('test_full_server_isolation.inspect_audio', return_value={
                          'audioPresent': present, 'passed': audio_passed}):
-                    report = verify_recordings(db, cache, 0, 0, expected_audio_cameras=[1])[0]
+                    report = verify_recordings(db, cache, 0, 0, failure_root=cache, expected_audio_cameras=[1])[0]
                 self.assertEqual(report['passed'], expected)
                 self.assertTrue(report['audio']['required'])
 
@@ -170,6 +171,36 @@ class WorkloadEvidenceTests(unittest.TestCase):
             finally:
                 db.close()
 
+    def test_negative_integrity_result_preserves_repro_without_stopping_full_audit(self):
+        with tempfile.TemporaryDirectory() as directory, closing(sqlite3.connect(':memory:')) as db:
+            root = Path(directory)
+            cache = root / 'cache'; cache.mkdir()
+            evidence = root / 'evidence'; evidence.mkdir()
+            recording = cache / 'fixture.mp4'
+            recording.write_bytes(b'only synthetic fixture bytes')
+            db.execute('CREATE TABLE Clip(ClipUID INTEGER,Camera INTEGER,Timestamp INTEGER,RecordMode INTEGER)')
+            db.execute('CREATE TABLE ContinuousSegment(SegmentUID INTEGER,CameraUID INTEGER,FilePath TEXT)')
+            db.execute('INSERT INTO ContinuousSegment VALUES(1,8,?)', (str(recording),))
+            progress = root / 'progress.json'
+            result = {'file': str(recording), 'passed': False, 'strictDecodeExit': 1,
+                      'packets': {'duplicates': 1}}
+            with patch('test_full_server_isolation.inspect_recording', return_value=result), \
+                 patch('builtins.print'):
+                reports = verify_recordings(db, cache, 0, 0, progress, evidence)
+            self.assertFalse(reports[0]['passed'])
+            status = json.loads(progress.read_text())
+            self.assertTrue(status['inspectionComplete'])
+            self.assertFalse(status['passed'])
+            self.assertEqual(status['completedOutputs'], 1)
+            details = json.loads(next(evidence.glob('*.json')).read_text())
+            self.assertEqual(details['stage'], 'reportedIntegrityFailure')
+            self.assertEqual(details['returnCode'], 1)
+            self.assertEqual(details['inspectionResult']['packets']['duplicates'], 1)
+            self.assertNotIn('file', details['inspectionResult'])
+            self.assertNotIn(str(cache), json.dumps(details))
+            self.assertEqual((evidence / details['savedRecording']).read_bytes(), recording.read_bytes())
+            self.assertEqual(len(list(evidence.iterdir())), 2)
+
     def test_browser_phase_requires_fresh_matching_playing_players(self):
         player = {'id': '1_mse', 'readyState': 4, 'wsReadyState': 1, 'lastEventType': 'media:playing',
                   'totalVideoFrames': 10, 'errorCount': 0, 'hasInitialBuffer': True,
@@ -267,7 +298,7 @@ class WorkloadEvidenceTests(unittest.TestCase):
         for duration in (None, True, 19, 121, 2**63):
             self.assertFalse(recording_metadata_finalized([
                 {'minimumDurationSeconds': 20, 'maximumDurationSeconds': duration, 'invalidMotionDurationCount': 0}], 120))
-        with sqlite3.connect(':memory:') as db:
+        with closing(sqlite3.connect(':memory:')) as db:
             db.execute('CREATE TABLE Clip(ClipUID INTEGER,Camera INTEGER,Duration INTEGER,ActiveDuration INTEGER)')
             db.execute('CREATE TABLE ContinuousSegment(SegmentUID INTEGER,CameraUID INTEGER)')
             db.executemany('INSERT INTO Clip VALUES(?,?,?,?)', [(1, 1, 20, 0), (2, 1, 0, 0)])

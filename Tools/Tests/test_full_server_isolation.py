@@ -189,6 +189,30 @@ def verify_recordings(db, cache, previous_clip_uid, previous_segment_uid, progre
             'recordingInspection': reports}, indent=2), encoding='utf-8')
         temporary.replace(target)
     write_progress(False)
+    def preserve_failure(kind, camera, uid, path, error=None, result=None):
+        # Both raised inspection errors and negative integrity results must
+        # survive private-root cleanup. Only retain bounded fixture-owned media.
+        evidence = (Path(failure_root) if failure_root is not None else RECORDING_FAILURE_ROOT) / ('recording-inspection-failed-' + secrets.token_hex(8))
+        saved = evidence.with_suffix('.mp4')
+        if path.stat().st_size <= 512 * 1024 * 1024:
+            with path.open('rb') as source, saved.open('xb') as destination:
+                shutil.copyfileobj(source, destination)
+        details = {
+            'passed': False, 'kind': kind, 'cameraId': camera, 'recordingId': uid,
+            'nativeBuildId': os.environ.get('WITNESS_TEST_DATA_ROOT_NATIVE_ID'),
+            'httpTraceMode': os.environ.get('WITNESS_TEST_HTTP_TRACE_MODE'),
+            'sqliteTraceMode': os.environ.get('WITNESS_TEST_SQLITE_TRACE_MODE'),
+            'stage': getattr(error, 'stage', None) if error is not None else 'reportedIntegrityFailure',
+            'returnCode': getattr(error, 'return_code', None) if error is not None else result.get('strictDecodeExit'),
+            'errorType': type(error).__name__ if error is not None else None,
+            'diagnostics': getattr(error, 'diagnostics', '') if error is not None else '',
+            'savedRecording': saved.name if saved.is_file() else None,
+        }
+        if result is not None:
+            details['inspectionResult'] = result
+        with evidence.with_suffix('.json').open('x', encoding='utf-8') as destination:
+            json.dump(details, destination, indent=2)
+        print('recordingInspectionFailure=' + str(evidence.with_suffix('.json')), flush=True)
     for kind, camera, uid, path in recordings:
         path = path.resolve(strict=True)
         if not path.is_relative_to(cache.resolve()) or not path.is_file():
@@ -203,29 +227,11 @@ def verify_recordings(db, cache, previous_clip_uid, previous_segment_uid, progre
                 result['passed'] = (result['passed'] and result['audio']['passed'] and
                     (not result['audio']['required'] or result['audio']['audioPresent']))
         except (ValueError, OSError, subprocess.TimeoutExpired) as error:
-            # Keep only this already validated, fixture-owned bounded recording.
-            # Never preserve a live DB/session, external path, or raw command line.
-            evidence = (Path(failure_root) if failure_root is not None else RECORDING_FAILURE_ROOT) / ('recording-inspection-failed-' + secrets.token_hex(8))
-            saved = evidence.with_suffix('.mp4')
-            if path.stat().st_size <= 512 * 1024 * 1024:
-                with path.open('rb') as source, saved.open('xb') as destination:
-                    shutil.copyfileobj(source, destination)
-            details = {
-                'passed': False, 'kind': kind, 'cameraId': camera, 'recordingId': uid,
-                'nativeBuildId': os.environ.get('WITNESS_TEST_DATA_ROOT_NATIVE_ID'),
-                'httpTraceMode': os.environ.get('WITNESS_TEST_HTTP_TRACE_MODE'),
-                'sqliteTraceMode': os.environ.get('WITNESS_TEST_SQLITE_TRACE_MODE'),
-                'stage': getattr(error, 'stage', None),
-                'returnCode': getattr(error, 'return_code', None),
-                'errorType': type(error).__name__,
-                'diagnostics': getattr(error, 'diagnostics', ''),
-                'savedRecording': saved.name if saved.is_file() else None,
-            }
-            with evidence.with_suffix('.json').open('x', encoding='utf-8') as destination:
-                json.dump(details, destination, indent=2)
-            print('recordingInspectionFailure=' + str(evidence.with_suffix('.json')), flush=True)
+            preserve_failure(kind, camera, uid, path, error=error)
             raise
         result.pop('file', None)
+        if result.get('passed') is not True:
+            preserve_failure(kind, camera, uid, path, result=result)
         reports.append(dict(result, kind=kind, cameraId=camera, recordingId=uid))
         write_progress(False)
     write_progress(True)
