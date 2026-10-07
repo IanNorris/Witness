@@ -358,6 +358,9 @@ export function compactHealthReport(session: ClientHealthSession): ClientHealthS
     sourceBufferMode: sample.sourceBufferMode, timestampOffsetSeconds: sample.timestampOffsetSeconds,
     presentedMediaTime: sample.presentedMediaTime, presentedFrames: sample.presentedFrames,
     presentationStallMs: sample.presentationStallMs, presentationVisible: sample.presentationVisible,
+    safeKeyframes: sample.safeKeyframes, futureSafeKeyframes: sample.futureSafeKeyframes,
+    partialSeekSafe: sample.partialSeekSafe, seeking: sample.seeking,
+    catchUpActive: sample.catchUpActive, highLatencyMs: sample.highLatencyMs,
   } : undefined
   const compactRestart = (event?: ClientPlayerEvent): ClientPlayerEvent | undefined => event ? {
     t: event.t, type: event.type, reason: event.reason, lagMs: event.lagMs,

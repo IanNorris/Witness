@@ -68,6 +68,8 @@ test('a rich 16-player report retains suspension and restart evidence under the 
     bufferedRangeCount: 2, playheadBuffered: false, nextBufferedStartSeconds: 13,
     playheadGapMs: 1600, headroomInCurrentRangeMs: 0, hasAudio: true, sourceBufferMode: 'sequence',
     presentedMediaTime: 8.1, presentedFrames: 73, presentationStallMs: 3250, presentationVisible: true,
+    safeKeyframes: 3, futureSafeKeyframes: 2, partialSeekSafe: false,
+    seeking: false, catchUpActive: true, highLatencyMs: 3001,
     buffered: Array(8).fill([11.4, 152.5]), sourceBuffered: Array(8).fill([11.4, 152.5]),
     // Large but finite JSON numbers exercise compaction rather than only a tiny fixture.
     appendQueueBytes: Number.MAX_VALUE, appendQueueLength: Number.MAX_VALUE,
@@ -101,6 +103,14 @@ test('a rich 16-player report retains suspension and restart evidence under the 
     assert.equal(player.driftSamples[0].presentedFrames,73)
     assert.equal(player.driftSamples[0].presentationStallMs,3250)
     assert.equal(player.driftSamples[0].presentationVisible,true)
+    for (const evidence of [player.driftSamples[0], player.lastDriftRestart.drift, player.lastError.drift]) {
+      assert.equal(evidence.safeKeyframes, 3)
+      assert.equal(evidence.futureSafeKeyframes, 2)
+      assert.equal(evidence.partialSeekSafe, false)
+      assert.equal(evidence.seeking, false)
+      assert.equal(evidence.catchUpActive, true)
+      assert.equal(evidence.highLatencyMs, 3001)
+    }
     assert.equal(player.driftSamples[0].buffered, undefined)
     assert.equal(player.lastDriftRestart.drift.lagMs, 141100)
     assert.equal(player.lastDriftRestart.message, undefined)
