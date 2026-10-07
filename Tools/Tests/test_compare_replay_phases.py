@@ -28,7 +28,7 @@ class ReplayPhaseComparisonTests(unittest.TestCase):
         off['browserLayoutEvidence'] = {'validatedUnixMs': 1500, 'proof': {
             'capturedUtc': '1970-01-01T00:00:01Z',
             'viewport': {'width': 2172, 'height': 1550},
-            'visibility': 'visible', 'fullscreen': True, 'activityVisible': False,
+            'visibility': 'visible', 'browserPresented': True, 'fullscreen': True, 'activityVisible': False,
             'players': [{'width': 1920, 'height': 1080, 'insideViewport': True,
                          'paused': False, 'readyState': 4, 'error': None, 'currentTime': 10}
                         for _ in range(16)]}}
@@ -110,6 +110,8 @@ class ReplayPhaseComparisonTests(unittest.TestCase):
                        lambda p: p['browserLayoutEvidence']['proof'].update(viewport={'width': 1280, 'height': 720}),
                        lambda p: p['browserLayoutEvidence']['proof'].update(viewport={'width': True, 'height': 720}),
                        lambda p: p['browserLayoutEvidence']['proof'].update(visibility='hidden'),
+                       lambda p: p['browserLayoutEvidence']['proof'].pop('browserPresented'),
+                       lambda p: p['browserLayoutEvidence']['proof'].update(browserPresented=False),
                        lambda p: p['browserLayoutEvidence']['proof'].update(activityVisible=True),
                        lambda p: p['browserLayoutEvidence']['proof']['players'].pop(),
                        lambda p: p['browserLayoutEvidence']['proof']['players'][0].update(readyState=2),

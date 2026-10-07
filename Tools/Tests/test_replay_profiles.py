@@ -12,7 +12,8 @@ class BrowserLayoutProofTests(unittest.TestCase):
         self.profiles = [{'width': 1280, 'height': 720}]
         self.viewport = {'width': 2172, 'height': 1550}
         self.proof = {'capturedUtc': datetime.fromtimestamp(self.now / 1000, timezone.utc).isoformat(),
-                      'viewport': dict(self.viewport), 'visibility': 'visible', 'fullscreen': True,
+                      'viewport': dict(self.viewport), 'visibility': 'visible', 'browserPresented': True,
+                      'fullscreen': True,
                       'activityVisible': False, 'players': [{'width': 1280, 'height': 720,
                           'insideViewport': True, 'paused': False, 'readyState': 4,
                           'error': None, 'currentTime': 10.0}]}
@@ -22,7 +23,8 @@ class BrowserLayoutProofTests(unittest.TestCase):
 
     def test_viewport_visibility_layout_age_and_membership_fail_closed(self):
         for key, value in [('viewport', {'width': 1280, 'height': 720}),
-                           ('visibility', 'hidden'), ('fullscreen', False),
+                           ('visibility', 'hidden'), ('browserPresented', False),
+                           ('browserPresented', None), ('browserPresented', 1), ('fullscreen', False),
                            ('activityVisible', True), ('players', []),
                            ('capturedUtc', '2020-01-01T00:00:00Z'),
                            ('capturedUtc', '2030-01-01T00:00:00Z'),
@@ -30,6 +32,12 @@ class BrowserLayoutProofTests(unittest.TestCase):
             with self.subTest(key=key, value=value), self.assertRaises(ValueError):
                 proof = deepcopy(self.proof); proof[key] = value
                 validate_browser_layout_proof(proof, self.profiles, self.viewport, self.now)
+
+    def test_dom_visibility_alone_cannot_qualify_presented_playback(self):
+        proof = deepcopy(self.proof)
+        del proof['browserPresented']
+        with self.assertRaisesRegex(ValueError, 'presented'):
+            validate_browser_layout_proof(proof, self.profiles, self.viewport, self.now)
 
     def test_player_state_must_be_observed_not_assumed(self):
         for key, value in [('insideViewport', False), ('paused', True), ('readyState', 2),

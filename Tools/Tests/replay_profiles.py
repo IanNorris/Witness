@@ -57,13 +57,16 @@ def validate_browser_layout_proof(proof, profiles, viewport, now_ms):
     """Require recent independently captured DOM evidence before load timing.
 
     Browser-side capture is performed through the approved browser UI tools,
-    not this harness. Visible layout evidence cannot qualify hidden/resume.
+    not this harness. browserPresented must come from the browser visibility
+    capability, independently of DOM visibility. A page can report visible
+    while its unpresented browser is throttled. Neither proves hidden/resume.
     """
     if not isinstance(proof, dict) or proof.get('viewport') != viewport:
         raise ValueError('Browser viewport does not match the measured baseline')
-    if (proof.get('visibility') != 'visible' or proof.get('fullscreen') is not True or
+    if (proof.get('browserPresented') is not True or
+            proof.get('visibility') != 'visible' or proof.get('fullscreen') is not True or
             proof.get('activityVisible') is not False):
-        raise ValueError('Browser layout is not the required visible fullscreen grid')
+        raise ValueError('Browser is not presented with the required visible fullscreen grid')
     captured = datetime.fromisoformat(proof['capturedUtc'].replace('Z', '+00:00'))
     if captured.tzinfo is None or not 0 <= now_ms - captured.timestamp() * 1000 <= 60000:
         raise ValueError('Browser DOM proof is stale or has no timezone')
