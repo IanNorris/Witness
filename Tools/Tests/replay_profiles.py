@@ -4,6 +4,7 @@ import math
 from datetime import datetime
 from pathlib import Path
 import subprocess
+from quiet_subprocess import quiet_process_options
 
 
 def qualify_profiles(inputs, expected, probe=subprocess.run):
@@ -23,7 +24,7 @@ def qualify_profiles(inputs, expected, probe=subprocess.run):
         if source not in cached:
             result = probe(['ffprobe', '-v', 'error', '-show_entries',
                             'stream=codec_type,codec_name,width,height', '-of', 'json', str(source)],
-                           capture_output=True, text=True, timeout=15)
+                           capture_output=True, text=True, timeout=15, **quiet_process_options())
             if result.returncode or result.stderr.strip() or len(result.stdout) > 65536:
                 raise ValueError('Replay profile probe failed')
             streams = json.loads(result.stdout)['streams']

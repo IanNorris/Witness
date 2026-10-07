@@ -8,6 +8,7 @@ import sqlite3
 import subprocess
 import sys
 import threading
+from quiet_subprocess import quiet_process_options
 
 
 def safe_report(line):
@@ -83,7 +84,7 @@ def main():
         env["WITNESS_PROBE_PAUSE_SECONDS"] = str(args.pause_for)
     with subprocess.Popen([str(args.probe.resolve()), str(args.seconds), str(output), str(args.camera)],
                           env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                          text=True, errors="replace") as process:
+                          text=True, errors="replace", **quiet_process_options()) as process:
         # Independent bound also covers initialization and a stuck native read.
         deadline = threading.Timer(args.seconds + 60, process.kill)
         deadline.daemon = True

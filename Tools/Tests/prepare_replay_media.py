@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 from check_preview_decode import inspect
+from quiet_subprocess import quiet_process_options
 
 
 def probe(path, entries, packets=False):
@@ -19,7 +20,7 @@ def probe(path, entries, packets=False):
     if packets:
         command += ['-show_packets', '-show_data_hash', 'sha256']
     command += ['-show_entries', entries, '-of', 'json', str(path)]
-    result = subprocess.run(command, capture_output=True, text=True, timeout=120)
+    result = subprocess.run(command, capture_output=True, text=True, timeout=120, **quiet_process_options())
     if result.returncode or result.stderr.strip():
         raise ValueError('media probe diagnostics')
     return json.loads(result.stdout)
@@ -70,7 +71,8 @@ def prepare(source, output, fps):
         result = subprocess.run(['ffmpeg', '-nostdin', '-n', '-v', 'error',
             '-protocol_whitelist', 'file,pipe', '-i', str(source), '-map', '0:v:0', '-an', '-c:v', 'copy',
             '-bsf:v', f'setts=pts=N/({fps}*TB):dts=N/({fps}*TB):duration=1/({fps}*TB)',
-            '-video_track_timescale', '90000', str(staged)], capture_output=True, text=True, timeout=120)
+            '-video_track_timescale', '90000', str(staged)], capture_output=True, text=True, timeout=120,
+            **quiet_process_options())
         if result.returncode or result.stderr.strip():
             raise ValueError('workload remux diagnostics')
         checked = inspect(staged)

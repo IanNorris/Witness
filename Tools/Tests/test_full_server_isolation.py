@@ -32,6 +32,7 @@ from replay_source_identity import fingerprint_inputs, SCOPE as SOURCE_IDENTITY_
 from ptz_update_scope_fixture import check_update_scope
 from ptz_http_relink_fixture import check_http_relink
 from multi_client_history_fixture import check_multi_client_history
+from quiet_subprocess import quiet_process_options
 
 RECORDING_FAILURE_ROOT = Path(__file__).resolve().parents[2] / 'artifacts'
 
@@ -165,7 +166,7 @@ def replay_sender_failures(processes, root, inputs, urls):
 
 
 def verify_recordings(db, cache, previous_clip_uid, previous_segment_uid, progress_path=None, failure_root=None,
-                      frame_decoder_threads=1, expected_audio_cameras=()):
+                      frame_decoder_threads=1, expected_audio_cameras=(), completed_reports=()):
     """Inspect only fresh fixture-owned local outputs, never arbitrary DB paths."""
     recordings = []
     for uid, camera, timestamp, mode in db.execute(
@@ -176,7 +177,29 @@ def verify_recordings(db, cache, previous_clip_uid, previous_segment_uid, progre
     for uid, camera, path in db.execute(
             'SELECT SegmentUID,CameraUID,FilePath FROM ContinuousSegment WHERE SegmentUID>?', (previous_segment_uid,)):
         recordings.append(('continuous', camera, uid, Path(path)))
-    reports = []
+    # Only an exact, successful prefix from this same stopped fixture can resume.
+    # Validate all paths before reusing results or replacing the progress file.
+    for kind, camera, uid, path in recordings:
+        resolved = path.resolve(strict=True)
+        if not resolved.is_relative_to(cache.resolve()) or not resolved.is_file():
+            raise ValueError('Recording is outside the private cache')
+    reports = list(completed_reports)
+    if len(reports) > len(recordings):
+        raise ValueError('Completed inspection exceeds the current output set')
+    for report, (kind, camera, uid, _) in zip(reports, recordings):
+        if (report.get('passed') is not True or
+                (report.get('kind'), report.get('cameraId'), report.get('recordingId')) != (kind, camera, uid)):
+            raise ValueError('Completed inspection is not a successful matching prefix')
+        if os.environ.get('WITNESS_TEST_LONG_RECORDING_INSPECTION') == '1' and (
+                report.get('inspectionMode') != 'boundedStreamingFullRecording' or
+                report.get('frameDecoderThreads') != frame_decoder_threads):
+            raise ValueError('Completed inspection used different video inspection settings')
+        if os.environ.get('WITNESS_TEST_VERIFY_AUDIO_RECORDINGS') == '1':
+            audio = report.get('audio', {})
+            if (audio.get('passed') is not True or
+                    audio.get('required') != (camera in expected_audio_cameras) or
+                    (camera in expected_audio_cameras and audio.get('audioPresent') is not True)):
+                raise ValueError('Completed inspection lacks the required audio checks')
     current_inspection = None
     def write_progress(complete):
         if progress_path is None:
@@ -214,7 +237,7 @@ def verify_recordings(db, cache, previous_clip_uid, previous_segment_uid, progre
         with evidence.with_suffix('.json').open('x', encoding='utf-8') as destination:
             json.dump(details, destination, indent=2)
         print('recordingInspectionFailure=' + str(evidence.with_suffix('.json')), flush=True)
-    for kind, camera, uid, path in recordings:
+    for kind, camera, uid, path in recordings[len(reports):]:
         path = path.resolve(strict=True)
         if not path.is_relative_to(cache.resolve()) or not path.is_file():
             raise ValueError('Recording is outside the private cache')
@@ -383,7 +406,7 @@ class FullServerIsolationTests(unittest.TestCase):
             cache = root / 'private cache'; cache.mkdir()
             environment = dict(os.environ, WITNESS_DATA_ROOT=str(data))
             created = subprocess.run([str(server), '/createdb'], cwd=root, env=environment,
-                                     capture_output=True, timeout=30)
+                                     capture_output=True, timeout=30, **quiet_process_options())
             self.assertEqual(created.returncode, 0)
             port = loopback_port()
             token, csrf = secrets.token_hex(32), secrets.token_hex(32)

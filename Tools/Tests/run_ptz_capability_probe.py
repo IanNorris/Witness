@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import sqlite3
 import subprocess
+from quiet_subprocess import quiet_process_options
 from urllib.parse import unquote, urlsplit
 
 
@@ -31,7 +32,8 @@ def main():
     env = os.environ.copy()
     env.update(WITNESS_PTZ_PROBE_HOST=host,WITNESS_PTZ_PROBE_USERNAME=user,
                WITNESS_PTZ_PROBE_PASSWORD=password,WITNESS_PTZ_PROBE_PORT=str(port if port and port > 0 else 443))
-    result = subprocess.run([str(args.probe.resolve())],env=env,capture_output=True,text=True,timeout=100)
+    result = subprocess.run([str(args.probe.resolve())],env=env,capture_output=True,text=True,timeout=100,
+                            **quiet_process_options())
     # Never relay transport logs, URLs, credentials or arbitrary exception text.
     for line in result.stdout.splitlines():
         if re.fullmatch(r'authenticated=[01](?: positionValid=[01] zoomValid=[01] zoomMin=-?\d+ zoomMax=-?\d+ zoomPosition=-?\d+ presetCount=\d+ enabledPresets=\d+ elapsedMs=\d+)?',line): print(line)

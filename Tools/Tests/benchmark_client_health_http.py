@@ -12,6 +12,7 @@ import tempfile
 import threading
 import time
 import urllib.request
+from quiet_subprocess import quiet_process_options
 
 
 def distribution(values):
@@ -54,7 +55,7 @@ def main():
                         [(i + 1, now, 100 + i % 2, 'fixture-reporter', f'live-browser-{i % 16}', f'live-tab-{i % 16}', payload) for i in range(126)])
                     db.commit()
             process = subprocess.Popen([str(args.fixture.resolve()), str(root), str(repository / 'WitnessServer/Source/Database.cpp')],
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+                stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, **quiet_process_options())
             deadline = threading.Timer(110, process.kill); deadline.daemon = True; deadline.start()
             lines = queue.Queue()
             def read_lines():

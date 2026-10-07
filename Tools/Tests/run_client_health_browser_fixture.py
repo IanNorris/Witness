@@ -7,6 +7,7 @@ import sqlite3
 import subprocess
 import tempfile
 import threading
+from quiet_subprocess import quiet_process_options
 
 
 def main():
@@ -28,7 +29,7 @@ def main():
             db.commit()
         with subprocess.Popen([str(args.fixture.resolve()), str(root),
                                str(repository / 'WitnessServer/Source/Database.cpp'),
-                               str(root / 'reporter.js')]) as process:
+                               str(root / 'reporter.js')], **quiet_process_options()) as process:
             deadline = threading.Timer(315, process.kill)
             deadline.daemon = True
             deadline.start()

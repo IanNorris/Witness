@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+from quiet_subprocess import quiet_process_options
 
 
 class RecordingInspectionError(ValueError):
@@ -36,7 +37,7 @@ def inspect(path, ffmpeg="ffmpeg", ffprobe="ffprobe"):
     decoded = subprocess.run(
         [ffmpeg, *common, "-xerror", "-i", str(path), "-map", "0:v:0",
          "-enc_time_base", "1:1000000", "-fps_mode", "passthrough", "-f", "null", "-"],
-        capture_output=True, text=True, timeout=120,
+        capture_output=True, text=True, timeout=120, **quiet_process_options(),
     )
     report = {"file": str(path), "strictDecodeExit": decoded.returncode,
               "decodeDiagnosticLines": len(decoded.stderr.splitlines())}
@@ -44,7 +45,7 @@ def inspect(path, ffmpeg="ffmpeg", ffprobe="ffprobe"):
         result = subprocess.run(
             [ffprobe, *common, "-select_streams", "v:0", "-show_" + section,
              "-show_entries", section[:-1] + "=" + field, "-of", "json", str(path)],
-            capture_output=True, text=True, timeout=120,
+            capture_output=True, text=True, timeout=120, **quiet_process_options(),
         )
         if result.returncode:
             raise RecordingInspectionError(section, result.returncode, result.stderr)

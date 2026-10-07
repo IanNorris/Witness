@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 import sqlite3
 import subprocess
+from quiet_subprocess import quiet_process_options
 from urllib.parse import unquote, urlsplit
 
 
@@ -37,7 +38,7 @@ def main():
                WITNESS_PTZ_PROBE_PORT=str(port if port and port > 0 else 443))
     # Never impose subprocess timeout mid-movement: native watchdog owns Stop.
     result = subprocess.run([str(args.probe.resolve(strict=True))], env=env,
-                            capture_output=True, text=True)
+                            capture_output=True, text=True, **quiet_process_options())
     for line in result.stdout.splitlines():
         if re.fullmatch(r'preflightHttpStop=[01](?: preflightBaichuanStop=[01](?: moveAck=[01] baichuanStopAck=[01] httpFallbackStopAck=[01] stopDispatchMs=\d+ stopAckMs=\d+)?)?', line):
             print(line, flush=True)

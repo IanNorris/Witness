@@ -2,6 +2,7 @@
 from pathlib import Path
 import subprocess
 import threading
+from quiet_subprocess import quiet_process_options
 
 from check_preview_decode import RecordingInspectionError
 
@@ -40,7 +41,7 @@ class TimestampAccumulator:
 def bounded_process(command, consume=None, timeout=1800, maximum_rows=2000000):
     """Drain both pipes; retain only 16 KiB stderr and one bounded stdout line."""
     process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE)
+                               stderr=subprocess.PIPE, **quiet_process_options())
     diagnostic = bytearray()
     diagnostic_lines = 0
     diagnostic_nonempty = False

@@ -14,6 +14,37 @@ from test_full_server_isolation import artifact_directory, browser_playback_read
 
 
 class WorkloadEvidenceTests(unittest.TestCase):
+    def test_resume_keeps_only_matching_passed_prefix_and_inspects_remaining(self):
+        with tempfile.TemporaryDirectory() as directory, closing(sqlite3.connect(':memory:')) as db:
+            cache = Path(directory)
+            for camera in (1, 2):
+                (cache / f'{camera}_Manual_100.mp4').touch()
+            db.execute('CREATE TABLE Clip(ClipUID INTEGER,Camera INTEGER,Timestamp INTEGER,RecordMode INTEGER)')
+            db.execute('CREATE TABLE ContinuousSegment(SegmentUID INTEGER,CameraUID INTEGER,FilePath TEXT)')
+            db.executemany('INSERT INTO Clip VALUES(?,?,100,0)', [(1, 1), (2, 2)])
+            first = dict(kind='clip', cameraId=1, recordingId=1, passed=True)
+            with patch.dict('os.environ', {'WITNESS_TEST_LONG_RECORDING_INSPECTION': '0',
+                                          'WITNESS_TEST_VERIFY_AUDIO_RECORDINGS': '0'}), \
+                    patch('test_full_server_isolation.inspect_recording', return_value={'passed': True}) as inspect:
+                reports = verify_recordings(db, cache, 0, 0, completed_reports=[first])
+                self.assertEqual(reports[0], first)
+                self.assertEqual(len(reports), 2)
+                inspect.assert_called_once_with((cache / '2_Manual_100.mp4').resolve())
+                inspect.reset_mock()
+                for invalid in ([{**first, 'passed': False}], [{**first, 'cameraId': 2}],
+                                [first, first, first]):
+                    with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                        verify_recordings(db, cache, 0, 0, completed_reports=invalid)
+                inspect.assert_not_called()
+            with patch.dict('os.environ', {'WITNESS_TEST_VERIFY_AUDIO_RECORDINGS': '1'}), \
+                    self.assertRaisesRegex(ValueError, 'audio'):
+                verify_recordings(db, cache, 0, 0, completed_reports=[first], expected_audio_cameras=[1])
+            with patch.dict('os.environ', {'WITNESS_TEST_LONG_RECORDING_INSPECTION': '1',
+                                          'WITNESS_TEST_VERIFY_AUDIO_RECORDINGS': '0'}), \
+                    self.assertRaisesRegex(ValueError, 'settings'):
+                verify_recordings(db, cache, 0, 0, frame_decoder_threads=4, completed_reports=[
+                    dict(first, inspectionMode='boundedStreamingFullRecording', frameDecoderThreads=1)])
+
     def test_required_audio_cannot_pass_when_track_is_missing(self):
         with tempfile.TemporaryDirectory() as directory, closing(sqlite3.connect(':memory:')) as db:
             cache = Path(directory)
