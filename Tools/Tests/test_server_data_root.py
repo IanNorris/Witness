@@ -49,6 +49,17 @@ class ServerDataRootTests(unittest.TestCase):
                 legacy_columns = [row[1] for row in db.execute('PRAGMA table_info(Clip)')]
                 db.executemany("INSERT INTO Clip (Timestamp,Camera,Duration,Tags,DetectionVersion,AudioDetectionVersion) "
                                "VALUES (?,1,?,'synthetic-pir',0,0)", [(100, 12), (200, 0)])
+                tag_uid = db.execute("INSERT INTO Tag (Name,Display,Icon,SortOrder,Hidden) "
+                                     "VALUES ('fixture-upgrade-pir','Synthetic PIR','fixture',99,1)").lastrowid
+                clip_uids = [row[0] for row in db.execute('SELECT ClipUID FROM Clip ORDER BY Timestamp')]
+                db.executemany('INSERT INTO ClipTag (ClipUID,TagUID) VALUES (?,?)',
+                               [(uid, tag_uid) for uid in clip_uids])
+                db.executemany("INSERT INTO ClipExternalTag (ClipUID,Name) VALUES (?,'fixture-upgrade-pir')",
+                               [(uid,) for uid in clip_uids])
+                tag_queries = {'Tag': 'SELECT * FROM Tag ORDER BY TagUID',
+                               'ClipTag': 'SELECT * FROM ClipTag ORDER BY ClipUID,TagUID',
+                               'ClipExternalTag': 'SELECT * FROM ClipExternalTag ORDER BY ClipUID,Name'}
+                legacy_tags = {table: db.execute(query).fetchall() for table, query in tag_queries.items()}
                 db.commit()
                 legacy_rows = db.execute('SELECT * FROM Clip ORDER BY Timestamp').fetchall()
             for upgrade_attempt in range(2):
@@ -61,6 +72,8 @@ class ServerDataRootTests(unittest.TestCase):
                     upgraded_rows = db.execute('SELECT * FROM Clip ORDER BY Timestamp').fetchall()
                     self.assertEqual([row[:-1] for row in upgraded_rows], legacy_rows)
                     self.assertEqual([row[-1] for row in upgraded_rows], [None, None])
+                    for table, query in tag_queries.items():
+                        self.assertEqual(db.execute(query).fetchall(), legacy_tags[table], table)
                     self.assertEqual(db.execute('PRAGMA integrity_check').fetchall(), [('ok',)])
             before = (data / 'server.db').read_bytes()
             environment['WITNESS_DATA_ROOT'] = 'relative-fixture'
