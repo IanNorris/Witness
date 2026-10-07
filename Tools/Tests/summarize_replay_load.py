@@ -70,6 +70,34 @@ def buffer_position_observations(timeline):
         'scope': 'retainedMediaElementPositionSnapshotsNotContinuousPlaybackOrSeparateTrackReadiness'}
 
 
+def scheduling_observations(timeline):
+    """Visibility is not proof that a browser schedules its media watchdog."""
+    seen = {}
+    for player in timeline:
+        samples = player.get('driftSamples', [])
+        if not isinstance(samples, list):
+            continue
+        for sample in samples:
+            if not isinstance(sample, dict) or not isinstance(sample.get('t'), str):
+                continue
+            generation = sample.get('generation')
+            if type(generation) is not int or generation < 0:
+                continue
+            key = generation, sample['t']
+            value = sample.get('schedulingDelayMs')
+            value = value if type(value) in (int, float) and math.isfinite(value) and value >= 0 else None
+            if key in seen and seen[key] != value:
+                seen[key] = None
+            else:
+                seen[key] = value
+    measured = [value for value in seen.values() if value is not None]
+    return {'observedUniqueSamples': len(seen),
+        'unknownSamples': len(seen) - len(measured),
+        'maximumObservedCallbackIntervalMs': max(measured) if measured else None,
+        'callbackIntervalsOver5Seconds': sum(value > 5000 for value in measured),
+        'scope': 'deduplicatedRetainedWatchdogIntervalsNotContinuousSchedulingProof'}
+
+
 def presentation_observations(timeline):
     """Report retained frame callbacks separately from the advancing media clock."""
     seen = {}
@@ -270,6 +298,7 @@ def summarize(replay, history):
                 'sampledPlaybackHealth': sampled_playback_health(timeline),
                 'sampledBufferPosition': buffer_position_observations(timeline),
                 'sampledPresentation': presentation_observations(timeline),
+                'sampledScheduling': scheduling_observations(timeline),
                 'finalLastEventType': last[player_id].get('lastEventType')})
         first_received = rows[0]['receivedUnixMs']
         last_received = rows[-1]['receivedUnixMs']

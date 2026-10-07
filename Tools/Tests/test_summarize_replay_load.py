@@ -1,9 +1,28 @@
 import copy
 import unittest
-from summarize_replay_load import buffer_position_observations, presentation_observations, quantile, summarize, sampled_playback_health
+from summarize_replay_load import buffer_position_observations, presentation_observations, quantile, summarize, sampled_playback_health, scheduling_observations
 
 
 class ReplaySummaryTests(unittest.TestCase):
+    def test_visible_browser_throttling_is_retained_and_duplicates_are_not_counted(self):
+        sample = {'t': '2026-10-07T00:46:51Z', 'generation': 7,
+                  'schedulingDelayMs': 60000, 'presentationVisible': True}
+        result = scheduling_observations([{'driftSamples': [sample, sample]},
+            {'driftSamples': [dict(sample, t='later', schedulingDelayMs=250)]}])
+        self.assertEqual(result['observedUniqueSamples'], 2)
+        self.assertEqual(result['callbackIntervalsOver5Seconds'], 1)
+        self.assertEqual(result['maximumObservedCallbackIntervalMs'], 60000)
+
+    def test_scheduling_conflicts_and_invalid_values_remain_unknown(self):
+        samples = [{'t': 'same', 'generation': 1, 'schedulingDelayMs': value}
+                   for value in (60000, 250, 60000)]
+        samples += [{'t': str(index), 'generation': 1, 'schedulingDelayMs': value}
+                    for index, value in enumerate((True, -1, float('nan'), None))]
+        result = scheduling_observations([{'driftSamples': samples}])
+        self.assertEqual(result['unknownSamples'], 5)
+        self.assertIsNone(result['maximumObservedCallbackIntervalMs'])
+        self.assertEqual(result['callbackIntervalsOver5Seconds'], 0)
+
     def test_playback_percentiles_keep_missing_invalid_and_low_readiness_visible(self):
         rows = [{'latencyMs': n, 'readyState': state} for n, state in
                 [(0, 0), (100, 4), (200, 4), (1000, 2)]]
