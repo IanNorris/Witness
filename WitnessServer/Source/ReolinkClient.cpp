@@ -9,6 +9,7 @@
 #include <unordered_map>
 #include <cmath>
 #include <limits>
+#include <atomic>
 
 // An HTTP 200 alone is not a command acknowledgement. In particular, an
 // ambiguous Stop must remain failed so the movement lease keeps retrying it.
@@ -41,17 +42,32 @@ static std::shared_mutex s_FailureCacheMutex;
 static std::unordered_map<std::string, std::chrono::steady_clock::time_point> s_FailureCache;
 static constexpr auto FAILURE_CACHE_DURATION = std::chrono::seconds(60);
 
+struct PtzDiscoveryFlight
+{
+    std::mutex Mutex;
+    std::weak_ptr<ReolinkClient> Client;
+    std::atomic<uint64_t> Version{0};
+    uint64_t CachedVersion = 0;
+};
+static std::mutex s_DiscoveryMutex;
+static std::unordered_map<std::string, std::shared_ptr<PtzDiscoveryFlight>> s_Discovery;
+
 void ReolinkClient::ClearFailureCache(const std::string& host)
 {
+	{
 	std::unique_lock<std::shared_mutex> lock(s_FailureCacheMutex);
 	// Clear all entries matching this host (any port)
 	for (auto it = s_FailureCache.begin(); it != s_FailureCache.end();)
 	{
-		if (it->first.find(host) == 0)
+		if (it->first.find(host + ":") == 0)
 			it = s_FailureCache.erase(it);
 		else
 			++it;
 	}
+	}
+    std::lock_guard lock(s_DiscoveryMutex);
+    for (const auto& [key, flight] : s_Discovery)
+        if (key.find(host + ":") == 0) ++flight->Version;
 }
 
 ReolinkClient::ReolinkClient(const std::string& host, int port, bool useTls, const std::string& username, const std::string& password)
@@ -85,8 +101,33 @@ std::shared_ptr<ReolinkClient> ReolinkClient::AutoDetect(const std::string& host
 		return nullptr;
 	}
 
-	// Check failure cache to avoid hammering a camera with repeated failed logins
-	std::string cacheKey = host + ":" + std::to_string(port) + ":" + username;
+	// Coalesce concurrent discovery for the same endpoint and credentials. A
+	// changed configuration cannot inherit an earlier authenticated result.
+	const std::string cacheKey = host + ":" + std::to_string(port) + ":" + username + '\0' + password;
+    std::shared_ptr<PtzDiscoveryFlight> flight;
+    {
+        std::lock_guard lock(s_DiscoveryMutex);
+        auto found = s_Discovery.find(cacheKey);
+        if (found != s_Discovery.end()) flight = found->second;
+        else {
+            for (auto it = s_Discovery.begin(); it != s_Discovery.end();) {
+                if (it->second.use_count() == 1 && it->second->Client.expired()) it = s_Discovery.erase(it);
+                else ++it;
+            }
+            if (s_Discovery.size() >= 128) return nullptr;
+            flight = std::make_shared<PtzDiscoveryFlight>();
+            s_Discovery.emplace(cacheKey, flight);
+        }
+    }
+    std::lock_guard flightLock(flight->Mutex);
+    const auto version = flight->Version.load();
+    if (flight->CachedVersion == version)
+        if (auto existing = flight->Client.lock()) return existing;
+    auto remember = [&](const std::shared_ptr<ReolinkClient>& value) {
+        flight->Client = value; flight->CachedVersion = version;
+        return value;
+    };
+	// Recheck after joining an in-flight attempt, not before waiting for it.
 	{
 		std::shared_lock<std::shared_mutex> lock(s_FailureCacheMutex);
 		auto it = s_FailureCache.find(cacheKey);
@@ -104,7 +145,7 @@ std::shared_ptr<ReolinkClient> ReolinkClient::AutoDetect(const std::string& host
 	if (client->Login())
 	{
 		LOG_INFO("ReolinkClient: Connected via HTTPS to %s:%d", host.c_str(), port);
-		return client;
+		return remember(client);
 	}
 
 	// Try HTTP on the given port
@@ -112,7 +153,7 @@ std::shared_ptr<ReolinkClient> ReolinkClient::AutoDetect(const std::string& host
 	if (client->Login())
 	{
 		LOG_INFO("ReolinkClient: Connected via HTTP to %s:%d", host.c_str(), port);
-		return client;
+		return remember(client);
 	}
 
 	// If port wasn't 443, try HTTPS on 443
@@ -122,7 +163,7 @@ std::shared_ptr<ReolinkClient> ReolinkClient::AutoDetect(const std::string& host
 		if (client->Login())
 		{
 			LOG_INFO("ReolinkClient: Connected via HTTPS to %s:443", host.c_str());
-			return client;
+			return remember(client);
 		}
 	}
 
@@ -133,7 +174,7 @@ std::shared_ptr<ReolinkClient> ReolinkClient::AutoDetect(const std::string& host
 		if (client->Login())
 		{
 			LOG_INFO("ReolinkClient: Connected via HTTP to %s:80", host.c_str());
-			return client;
+			return remember(client);
 		}
 	}
 
@@ -149,7 +190,7 @@ std::shared_ptr<ReolinkClient> ReolinkClient::AutoDetect(const std::string& host
 
 bool ReolinkClient::Login()
 {
-	std::lock_guard<std::mutex> lock(m_Mutex);
+	std::lock_guard lock(m_Mutex);
 
 	std::string body = R"([{"cmd":"Login","action":0,"param":{"User":{"userName":")" +
 		m_Username + R"(","password":")" + m_Password + R"("}}}])";
@@ -210,9 +251,10 @@ bool ReolinkClient::Login()
 	return false;
 }
 
-std::string ReolinkClient::SendCommand(const std::string& cmd, const std::string& body)
+std::string ReolinkClient::SendCommand(const std::string& cmd, const std::string& body, SendAllowed allowed)
 {
-	std::lock_guard<std::mutex> lock(m_Mutex);
+	std::lock_guard lock(m_Mutex);
+	if (allowed && !allowed()) { m_LastError = "Movement cancelled before dispatch"; return ""; }
 
 	if (m_Token.empty() || std::chrono::steady_clock::now() >= m_TokenExpiry)
 	{
@@ -250,6 +292,7 @@ std::string ReolinkClient::SendCommand(const std::string& cmd, const std::string
 	}
 
 	std::string path = "/api.cgi?cmd=" + cmd + "&token=" + m_Token;
+	if (allowed && !allowed()) { m_LastError = "Movement cancelled before dispatch"; return ""; }
 	auto result = m_HttpClient->Post(path, body, "application/json");
 
 	if (!result)
@@ -291,6 +334,7 @@ std::string ReolinkClient::SendCommand(const std::string& cmd, const std::string
 		}
 
 		path = "/api.cgi?cmd=" + cmd + "&token=" + m_Token;
+		if (allowed && !allowed()) { m_LastError = "Movement cancelled before retry"; return ""; }
 		result = m_HttpClient->Post(path, body, "application/json");
 		if (!result || result->status != 200)
 		{
@@ -330,8 +374,9 @@ const char* ReolinkClient::PtzOpToString(PtzOp op)
 	}
 }
 
-bool ReolinkClient::PtzControl(PtzOp op, int speed)
+bool ReolinkClient::PtzControl(PtzOp op, int speed, SendAllowed allowed)
 {
+	std::lock_guard lock(m_Mutex);
 	if (speed < 1) speed = 1;
 	if (speed > 64) speed = 64;
 
@@ -339,7 +384,7 @@ bool ReolinkClient::PtzControl(PtzOp op, int speed)
 		std::string(PtzOpToString(op)) +
 		R"(","speed":)" + std::to_string(speed) + R"(}}])";
 
-	std::string response = SendCommand("PtzCtrl", body);
+	std::string response = SendCommand("PtzCtrl", body, allowed);
 	if (response.empty())
 	{
 		// For zoom ops, try alternative names (some firmware uses ZoomIn/ZoomOut)
@@ -348,7 +393,7 @@ bool ReolinkClient::PtzControl(PtzOp op, int speed)
 			const char* altOp = (op == PtzOp::ZoomInc) ? "ZoomIn" : "ZoomOut";
 			body = R"([{"cmd":"PtzCtrl","action":0,"param":{"channel":0,"op":")" +
 				std::string(altOp) + R"(","speed":)" + std::to_string(speed) + R"(}}])";
-			response = SendCommand("PtzCtrl", body);
+			response = SendCommand("PtzCtrl", body, allowed);
 		}
 		if (response.empty())
 		{
@@ -377,7 +422,7 @@ bool ReolinkClient::PtzControl(PtzOp op, int speed)
 			const char* altOp = (op == PtzOp::ZoomInc) ? "ZoomIn" : "ZoomOut";
 			body = R"([{"cmd":"PtzCtrl","action":0,"param":{"channel":0,"op":")" +
 				std::string(altOp) + R"(","speed":)" + std::to_string(speed) + R"(}}])";
-			response = SendCommand("PtzCtrl", body);
+			response = SendCommand("PtzCtrl", body, allowed);
 			if (!response.empty())
 			{
 				// Keep the original response alive: resp below refers into it.
@@ -407,12 +452,13 @@ bool ReolinkClient::PtzStop()
 	return PtzControl(PtzOp::Stop);
 }
 
-bool ReolinkClient::PtzGoToPreset(int presetId)
+bool ReolinkClient::PtzGoToPreset(int presetId, SendAllowed allowed)
 {
+	std::lock_guard lock(m_Mutex);
 	std::string body = R"([{"cmd":"PtzCtrl","action":0,"param":{"channel":0,"op":"ToPos","id":)" +
 		std::to_string(presetId) + R"(,"speed":32}}])";
 
-	std::string response = SendCommand("PtzCtrl", body);
+	std::string response = SendCommand("PtzCtrl", body, allowed);
 	if (response.empty())
 		return false;
 
@@ -429,6 +475,7 @@ bool ReolinkClient::PtzGoToPreset(int presetId)
 
 PtzPosition ReolinkClient::GetPosition()
 {
+	std::lock_guard lock(m_Mutex);
 	PtzPosition pos;
 
 	std::string body = R"([{"cmd":"GetPtzCurPos","action":0,"param":{"channel":0}}])";
@@ -453,6 +500,7 @@ PtzPosition ReolinkClient::GetPosition()
 
 ReolinkClient::ZoomFocusState ReolinkClient::GetZoomFocus()
 {
+	std::lock_guard lock(m_Mutex);
 	ZoomFocusState state;
 
 	// action:1 returns both current value AND range (min/max)
@@ -517,13 +565,14 @@ ReolinkClient::ZoomFocusState ReolinkClient::GetZoomFocus()
 	return state;
 }
 
-bool ReolinkClient::SetZoomPos(int zoomPos)
+bool ReolinkClient::SetZoomPos(int zoomPos, SendAllowed allowed)
 {
+	std::lock_guard lock(m_Mutex);
 	// Use StartZoomFocus command with ZoomFocus wrapper and "pos" field
 	std::string body = R"([{"cmd":"StartZoomFocus","action":0,"param":{"ZoomFocus":{"channel":0,"op":"ZoomPos","pos":)" +
 		std::to_string(zoomPos) + R"(}}}])";
 
-	std::string response = SendCommand("StartZoomFocus", body);
+	std::string response = SendCommand("StartZoomFocus", body, allowed);
 	if (response.empty())
 	{
 		LOG_ERROR("ReolinkClient::SetZoomPos: empty response, lastError=%s", m_LastError.c_str());
@@ -537,6 +586,7 @@ bool ReolinkClient::SetZoomPos(int zoomPos)
 
 bool ReolinkClient::SetFocusPos(int focusPos)
 {
+	std::lock_guard lock(m_Mutex);
 	// Use StartZoomFocus command with ZoomFocus wrapper and "pos" field
 	std::string body = R"([{"cmd":"StartZoomFocus","action":0,"param":{"ZoomFocus":{"channel":0,"op":"FocusPos","pos":)" +
 		std::to_string(focusPos) + R"(}}}])";
@@ -550,6 +600,7 @@ bool ReolinkClient::SetFocusPos(int focusPos)
 
 std::vector<PtzPreset> ReolinkClient::GetPresets()
 {
+	std::lock_guard lock(m_Mutex);
 	std::vector<PtzPreset> presets;
 
 	std::string body = R"([{"cmd":"GetPtzPreset","action":0,"param":{"channel":0}}])";
@@ -583,6 +634,7 @@ std::vector<PtzPreset> ReolinkClient::GetPresets()
 
 bool ReolinkClient::SetPreset(int id, const std::string& name)
 {
+	std::lock_guard lock(m_Mutex);
 	crow::json::wvalue EscapedName(name);
 	std::string body = R"([{"cmd":"SetPtzPreset","action":0,"param":{"channel":0,"enable":1,"id":)" +
 		std::to_string(id) + R"(,"name":)" + EscapedName.dump() + R"(}}])";
@@ -596,6 +648,7 @@ bool ReolinkClient::SetPreset(int id, const std::string& name)
 
 bool ReolinkClient::DeletePreset(int id)
 {
+	std::lock_guard lock(m_Mutex);
 	std::string body = R"([{"cmd":"SetPtzPreset","action":0,"param":{"channel":0,"enable":0,"id":)" +
 		std::to_string(id) + R"(}}])";
 
@@ -605,6 +658,7 @@ bool ReolinkClient::DeletePreset(int id)
 
 bool ReolinkClient::GetMotionState(int channel)
 {
+	std::lock_guard lock(m_Mutex);
 	std::string body = R"([{"cmd":"GetMdState","action":0,"param":{"channel":)" +
 		std::to_string(channel) + R"(}}])";
 
@@ -625,6 +679,7 @@ bool ReolinkClient::GetMotionState(int channel)
 
 bool ReolinkClient::Reboot()
 {
+	std::lock_guard lock(m_Mutex);
 	LOG_INFO("ReolinkClient: Sending reboot command to %s:%d", m_Host.c_str(), m_Port);
 
 	std::string body = R"([{"cmd":"Reboot","action":0,"param":{}}])";
@@ -659,6 +714,7 @@ bool ReolinkClient::Reboot()
 
 bool ReolinkClient::IsReachable()
 {
+	std::lock_guard lock(m_Mutex);
 	auto result = m_HttpClient->Get("/");
 	return result && result->status != 0;
 }

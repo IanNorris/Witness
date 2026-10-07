@@ -14,6 +14,7 @@
 #include "DebugBind.h"
 #include "HttpServerDiagnostics.h"
 #include "HealthSnapshotCache.h"
+#include "PtzRequestExecutor.h"
 
 struct HttpTracingMiddleware
 {
@@ -235,6 +236,9 @@ private:
 	void HandleDvrThumbnail( const crow::request& req, crow::response& res, int cameraId, const std::string& timestampStr );
 
 	// PTZ control
+	void DispatchPtz(const crow::request& req, crow::response& res, int cameraId,
+		PtzRequestExecutor::Kind kind,
+		std::function<void(const crow::request&, crow::response&)> handler);
 	void HandlePtzCommand( const crow::request& req, crow::response& res, int cameraId, const std::string& command );
 	void HandlePtzPosition( const crow::request& req, crow::response& res, int cameraId );
 	void HandlePtzZoomGet( const crow::request& req, crow::response& res, int cameraId );
@@ -250,6 +254,8 @@ private:
 	std::thread m_ServerThread;
 	std::atomic<bool> m_Ready{ false };
 	HealthSnapshotCache m_HealthCache;
+	PtzRequestExecutor m_PtzRequests;
+	std::shared_ptr<PtzRequestExecutor::Completions> m_PtzCompletions = std::make_shared<PtzRequestExecutor::Completions>();
 
 	std::shared_ptr<GlobalContext> m_GlobalContext;
 	DebugConsole* m_DebugConsole;

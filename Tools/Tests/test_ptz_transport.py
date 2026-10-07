@@ -5,13 +5,18 @@ import os
 import subprocess
 import threading
 import unittest
+from quiet_subprocess import quiet_process_options
 
 
 @unittest.skipUnless(os.environ.get('WITNESS_PTZ_TRANSPORT_PROBE'), 'native loopback probe not configured')
 class PtzTransportTests(unittest.TestCase):
     def send(self, operation, replies):
         commands = []
+        logins = []
         class Handler(BaseHTTPRequestHandler):
+            def setup(self):
+                super().setup()
+                self.connection.settimeout(.5)
             def log_message(self, *args):
                 pass
             def do_POST(self):
@@ -20,6 +25,7 @@ class PtzTransportTests(unittest.TestCase):
                 except json.JSONDecodeError:
                     self.send_error(400, 'Malformed synthetic command'); return
                 if body[0]['cmd'] == 'Login':
+                    logins.append(body[0])
                     status, content = 200, '[{"cmd":"Login","code":0,"value":{"Token":{"name":"fixture-token"}}}]'
                 else:
                     commands.append(body[0])
@@ -34,10 +40,15 @@ class PtzTransportTests(unittest.TestCase):
         thread = threading.Thread(target=lambda: server.serve_forever(poll_interval=.01), daemon=True); thread.start()
         try:
             result = subprocess.run([os.environ['WITNESS_PTZ_TRANSPORT_PROBE'], str(server.server_port), operation],
-                capture_output=True, text=True, timeout=20)
+                capture_output=True, text=True, timeout=20, **quiet_process_options())
         finally:
             server.shutdown(); server.server_close(); thread.join(timeout=5)
-        return result.returncode, commands
+        return result.returncode, logins if operation == 'discover' else commands
+
+    def test_concurrent_discovery_reuses_one_authenticated_client(self):
+        code, logins = self.send('discover', [])
+        self.assertEqual(code, 0)
+        self.assertEqual(len(logins), 1)
 
     def test_explicit_acknowledgement_and_wire_commands(self):
         for operation, expected in [('move', 'Left'), ('stop', 'Stop'), ('preset', 'ToPos')]:

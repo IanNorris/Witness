@@ -1,4 +1,5 @@
 find_package(Crow CONFIG REQUIRED)
+include("${CMAKE_SOURCE_DIR}/Tools/CrowAsyncResponsePatch.cmake")
 find_package(FFMPEG REQUIRED)
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs videoio objdetect)
 find_package(unofficial-sodium CONFIG REQUIRED)
@@ -29,6 +30,7 @@ set(SERVER_SOURCES
     Source/CrowRoutes_DVR.cpp
     Source/CrowRoutes_Group.cpp
     Source/CrowRoutes_Ptz.cpp
+    Source/PtzRequestExecutor.cpp
     Source/CrowRoutes_Action.cpp
     Source/CrowRoutes_Setup.cpp
     Source/CrowRoutes_Stream.cpp
@@ -118,10 +120,11 @@ target_compile_definitions(WitnessServer PRIVATE WITNESS_NATIVE_CONFIGURATION="$
 # units. A project-local PCH avoids repeatedly rebuilding that template graph;
 # it does not include camera implementation headers or alter their ABI.
 if(MSVC)
-    target_precompile_headers(WitnessServer PRIVATE <crow.h>)
+    target_precompile_headers(WitnessServer PRIVATE "${WITNESS_CROW_ASYNC_INCLUDE}/crow.h")
 endif()
 
 target_include_directories(WitnessServer PRIVATE
+    "${WITNESS_CROW_ASYNC_INCLUDE}"
     "${CMAKE_BINARY_DIR}/generated"
     Source
     ${CMAKE_SOURCE_DIR}/WitnessCamera/Include
@@ -223,6 +226,10 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
 endif()
 add_executable(PtzMovementLeaseTests EXCLUDE_FROM_ALL
     ../Tools/PtzMovementLeaseTests.cpp Source/PtzMovementLease.cpp)
+add_executable(PtzRequestExecutorTests EXCLUDE_FROM_ALL
+    ../Tools/Tests/PtzRequestExecutorTests.cpp Source/PtzRequestExecutor.cpp)
+target_include_directories(PtzRequestExecutorTests PRIVATE Source)
+target_link_libraries(PtzRequestExecutorTests PRIVATE Threads::Threads)
 add_executable(PtzConfigurationTests EXCLUDE_FROM_ALL
     ../Tools/Tests/PtzConfigurationTests.cpp Source/SQLite.cpp Source/Common.cpp Source/PtzMovementLease.cpp)
 target_include_directories(PtzConfigurationTests PRIVATE Source)

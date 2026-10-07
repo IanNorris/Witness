@@ -1,9 +1,11 @@
 // Test-only command sender: destination is hardcoded IPv4 loopback. No camera
-// address, production credentials or auto-detection path can be supplied.
+// address or production credentials can be supplied.
 #include "ReolinkClient.h"
 #include <Log.h>
 #include <cstdlib>
 #include <iostream>
+#include <future>
+#include <vector>
 
 int main(int Argc, char** Argv) {
     if (Argc != 3) return 2;
@@ -13,9 +15,19 @@ int main(int Argc, char** Argv) {
     const std::string Operation = Argv[2];
     if (Operation != "move" && Operation != "stop" && Operation != "zoom" && Operation != "preset" &&
         Operation != "absolute-zoom" && Operation != "absolute-focus" &&
-        Operation != "preset-save" && Operation != "preset-delete") return 2;
+        Operation != "preset-save" && Operation != "preset-delete" && Operation != "discover") return 2;
     Witness::LogInit("", Witness::LogLevel::Off, Witness::LogLevel::Off);
     try {
+        if (Operation == "discover") {
+            std::vector<std::future<std::shared_ptr<ReolinkClient>>> attempts;
+            for (int i = 0; i < 8; ++i) attempts.push_back(std::async(std::launch::async, [Port] {
+                return ReolinkClient::AutoDetect("127.0.0.1", static_cast<int>(Port), "fixture", "fixture");
+            }));
+            std::vector<std::shared_ptr<ReolinkClient>> clients;
+            for (auto& attempt : attempts) clients.push_back(attempt.get());
+            for (const auto& client : clients) if (!client || client != clients.front()) return 3;
+            Witness::LogShutdown(); return 0;
+        }
         ReolinkClient Client("127.0.0.1", static_cast<int>(Port), false, "fixture", "fixture");
         const bool Accepted = Operation == "move" ? Client.PtzControl(PtzOp::Left, 1) :
             Operation == "stop" ? Client.PtzStop() :

@@ -8,7 +8,8 @@ list(APPEND inputs "${SOURCE_ROOT}/CMakeLists.txt"
     "${SOURCE_ROOT}/WitnessCommon/CMakeLists.txt"
     "${SOURCE_ROOT}/WitnessCamera/CMakeLists.txt"
     "${SOURCE_ROOT}/WitnessServer/CMakeLists.txt"
-    "${SOURCE_ROOT}/Tools/WitnessDependencyPolicy.cmake" "${CMAKE_CURRENT_LIST_FILE}")
+    "${SOURCE_ROOT}/Tools/WitnessDependencyPolicy.cmake"
+    "${SOURCE_ROOT}/Tools/CrowAsyncResponsePatch.cmake" "${CMAKE_CURRENT_LIST_FILE}")
 foreach(manifest vcpkg.json vcpkg-configuration.json CMakePresets.json)
     if(EXISTS "${SOURCE_ROOT}/${manifest}")
         list(APPEND inputs "${SOURCE_ROOT}/${manifest}")

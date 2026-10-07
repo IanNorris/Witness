@@ -8,6 +8,104 @@
 #include "PtzMovementLease.h"
 #include "PtzConfiguration.h"
 #include <Log.h>
+#ifndef WITNESS_CROW_ASYNC_RESPONSE_LIFETIME_PATCH
+#error PTZ deferred responses require the reviewed Crow response lifetime patch
+#endif
+
+struct QueuedPtzConfiguration
+{
+    int CameraId = 0, LinkedId = 0;
+    PtzConfiguration Camera, Linked;
+};
+static thread_local const QueuedPtzConfiguration* s_QueuedPtzConfiguration = nullptr;
+static bool ValidateQueuedPtzConfiguration(GlobalContext& context, crow::response& response)
+{
+    const auto* expected = s_QueuedPtzConfiguration;
+    if (!expected) return true; // Stop retains its original movement transport.
+    if (ReadPtzConfiguration(context.Database, expected->CameraId) == expected->Camera &&
+        ReadPtzLinkedCameraId(context.Database, expected->CameraId) == expected->LinkedId &&
+        (expected->LinkedId <= 0 || ReadPtzConfiguration(context.Database, expected->LinkedId) == expected->Linked)) return true;
+    response.code = 409;
+    response.end("{\"error\":\"PTZ configuration changed while queued; retry\"}");
+    return false;
+}
+
+void CrowListener::DispatchPtz(const crow::request& req, crow::response& res, int cameraId,
+    PtzRequestExecutor::Kind kind,
+    std::function<void(const crow::request&, crow::response&)> handler)
+{
+    // Authorize before admission, especially before Stop can cancel queued
+    // gestures. Recheck in the handler when the queued work actually runs.
+    const auto body = crow::json::load(req.body);
+    const auto action = kind == PtzRequestExecutor::Kind::Read ? CrowAuth::Action::Read : CrowAuth::Action::ReadWrite;
+    const bool admin = cameraId == 0 || req.url == "/ptz/" + std::to_string(cameraId) + "/preset/set" ||
+        req.url == "/ptz/" + std::to_string(cameraId) + "/preset/delete";
+    const auto privilege = admin ? CrowAuth::Privilege::Administrator : CrowAuth::Privilege::Normal;
+    const int user = cameraId == 0 ? CrowAuth::IsAuthenticated(*m_GlobalContext, req, body ? &body : nullptr, action, privilege) :
+        CrowAuth::IsCameraAuthenticated(*m_GlobalContext, req, body ? &body : nullptr, action, privilege, cameraId);
+    if (user <= 0) { res.code = 403; res.end(); return; }
+    std::shared_ptr<QueuedPtzConfiguration> expected;
+    if (cameraId > 0 && kind != PtzRequestExecutor::Kind::Stop) {
+        const auto config = ReadPtzConfiguration(m_GlobalContext->Database, cameraId);
+        if (!config.Enabled) { res.code = 400; res.end("{\"error\":\"Camera does not have PTZ enabled\"}"); return; }
+        const int linkedId = ReadPtzLinkedCameraId(m_GlobalContext->Database, cameraId);
+        expected = std::make_shared<QueuedPtzConfiguration>();
+        expected->CameraId = cameraId; expected->Camera = config; expected->LinkedId = linkedId;
+        if (linkedId > 0) expected->Linked = ReadPtzConfiguration(m_GlobalContext->Database, linkedId);
+        const bool linkedSupported = linkedId > 0 && (m_GlobalContext->GetPtzClient(linkedId) ||
+            m_GlobalContext->GetBaichuanClient(linkedId) ||
+            PtzDiscoverySupported(ReadPtzConfiguration(m_GlobalContext->Database, linkedId)));
+        if (PtzKnownUnsupported(config) || (!PtzDiscoverySupported(config) && !linkedSupported &&
+            !m_GlobalContext->GetPtzClient(cameraId) && !m_GlobalContext->GetBaichuanClient(cameraId))) {
+            res.code = 400; res.end("{\"error\":\"PTZ provider is not supported; only Reolink is currently implemented\"}"); return;
+        }
+    }
+    if (!req.io_context) { res.code = 503; res.end(); return; }
+    const int lane = cameraId == 0 ? 0 : ReadPtzLaneId(m_GlobalContext->Database, cameraId);
+    // Own request strings/query parameters. Never mutate a live response from
+    // an I/O worker: end() runs middleware and synchronous Crow socket writes.
+    auto request = std::make_shared<crow::request>(req);
+    request->middleware_context = nullptr;
+    request->middleware_container = nullptr;
+    auto sent = std::make_shared<std::atomic<bool>>(false);
+    auto finish = [io = req.io_context, response = &res, sent, completions = m_PtzCompletions](int code, std::string payload) {
+        if (sent->exchange(true)) return;
+        completions->Add();
+        try {
+            asio::post(*io, [response, code, payload = std::move(payload), completions] {
+                try {
+                    response->code = code;
+                    response->set_header("Content-Type", "application/json");
+                    response->end(payload);
+                } catch (...) { LOG_ERROR("PTZ response completion failed"); }
+                completions->Done();
+            });
+        } catch (...) { completions->Done(); throw; }
+    };
+    auto cancel = [finish] { finish(409, "{\"error\":\"PTZ request cancelled or expired; retry if still needed\"}"); };
+    auto run = [this, request, cameraId, lane, expected, handler = std::move(handler), finish] {
+        struct Scope {
+            const QueuedPtzConfiguration* Previous = s_QueuedPtzConfiguration;
+            ~Scope() { s_QueuedPtzConfiguration = Previous; }
+        } scope;
+        s_QueuedPtzConfiguration = expected.get();
+        try {
+            if (cameraId > 0 && ReadPtzLaneId(m_GlobalContext->Database, cameraId) != lane) {
+                finish(409, "{\"error\":\"PTZ camera links changed; retry\"}"); return;
+            }
+            crow::response result;
+            handler(*request, result);
+            finish(result.code, std::move(result.body));
+        } catch (const std::exception& error) {
+            LOG_ERROR("PTZ request failed for camera %d: %s", cameraId, error.what());
+            finish(500, "{\"error\":\"PTZ request failed\"}");
+        } catch (...) { finish(500, "{\"error\":\"PTZ request failed\"}"); }
+    };
+    if (!m_PtzRequests.Submit({lane, kind, std::move(run), std::move(cancel)})) {
+        res.code = 503; res.set_header("Retry-After", "1");
+        res.end("{\"error\":\"PTZ request queue is unavailable or full\"}");
+    }
+}
 
 static int PtzLaneId(GlobalContext& ctx, int cameraId)
 {
@@ -18,7 +116,7 @@ static int PtzLaneId(GlobalContext& ctx, int cameraId)
 static std::shared_ptr<ReolinkClient> TryInitPtzClient(GlobalContext& ctx, int cameraId)
 {
     auto Config = ReadPtzConfiguration(ctx.Database, cameraId);
-    if (!Config.Enabled) return nullptr;
+    if (!Config.Enabled || !PtzDiscoverySupported(Config)) return nullptr;
     const int port = Config.Port;
     auto& hostStr = Config.Host;
     auto& userStr = Config.Username;
@@ -178,6 +276,7 @@ void CrowListener::HandlePtzCommand(const crow::request& req, crow::response& re
 	const auto lease = m_GlobalContext->PtzMovement;
 	if (!lease) { res.code = 503; res.end(); return; }
 	auto Control = lease->AcquireControl();
+	if (!ValidateQueuedPtzConfiguration(*m_GlobalContext, res)) return;
 	// Do not run HTTP discovery before a healthy Baichuan command (especially Stop).
 	if (!PtzControlAllowed(m_GlobalContext->Database, cameraId, command == "stop"))
 	{
@@ -224,15 +323,17 @@ void CrowListener::HandlePtzCommand(const crow::request& req, crow::response& re
 
 		// Try Baichuan first (more reliable for Reolink cameras)
 		bool ok = lease->Position(deviceId, [&] {
+			if (PtzRequestExecutor::MovementCancelled()) return false;
 			bool sent = TryBaichuanPreset(bcClient, presetId);
 			if (!sent) client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
-			return sent || (client && client->PtzGoToPreset(presetId));
+			return sent || (!PtzRequestExecutor::MovementCancelled() && client &&
+				client->PtzGoToPreset(presetId, [] { return !PtzRequestExecutor::MovementCancelled(); }));
 		});
 
 		crow::json::wvalue result;
 		result["success"] = ok;
 		if (!ok) result["error"] = client ? client->GetLastError() : "No PTZ connection available";
-		res.code = ok ? 200 : 500;
+		res.code = PtzRequestExecutor::MovementCancelled() ? 409 : ok ? 200 : 500;
 		res.write(result.dump());
 		res.end();
 		return;
@@ -275,11 +376,13 @@ void CrowListener::HandlePtzCommand(const crow::request& req, crow::response& re
     transport->Baichuan = bcClient;
     transport->Http = client;
     auto send = [&] {
+        if (PtzRequestExecutor::MovementCancelled()) return false;
         transport->BaichuanAttempted = bcClient && bcClient->IsConnected();
         if (TryBaichuanPtz(bcClient, op, speed)) return true;
         if (!client) client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
         transport->Http = client;
-        return client && client->PtzControl(op, speed);
+        return !PtzRequestExecutor::MovementCancelled() && client &&
+            client->PtzControl(op, speed, [] { return !PtzRequestExecutor::MovementCancelled(); });
     };
     // Retain clients, NOT context/database references, for later expiry/shutdown.
     auto stop = [transport] {
@@ -297,13 +400,14 @@ void CrowListener::HandlePtzCommand(const crow::request& req, crow::response& re
         // Resolve once here; any retry retains only transport clients.
         transport->BaichuanAttempted = bcClient && bcClient->IsConnected();
         if (!transport->BaichuanAttempted) transport->Http = GetPtzClientForCamera(*m_GlobalContext, cameraId);
+        if (!transport->BaichuanAttempted && !transport->Http) { RespondNoPtz(res); return; }
         ok = lease->Stop(deviceId, stop);
     } else ok = lease->Move(deviceId, send, stop);
 
 	crow::json::wvalue result;
 	result["success"] = ok;
 	if (!ok) result["error"] = client ? client->GetLastError() : "No PTZ connection available";
-	res.code = ok ? 200 : 500;
+	res.code = PtzRequestExecutor::MovementCancelled() ? 409 : ok ? 200 : 500;
 	res.write(result.dump());
 	res.end();
 }
@@ -322,6 +426,7 @@ void CrowListener::HandlePtzPosition(const crow::request& req, crow::response& r
 	const auto lease = m_GlobalContext->PtzMovement;
 	if (!lease) { res.code = 503; res.end(); return; }
 	auto Control = lease->AcquireControl();
+	if (!ValidateQueuedPtzConfiguration(*m_GlobalContext, res)) return;
 	auto client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
 	if (!client)
 	{
@@ -353,6 +458,7 @@ void CrowListener::HandlePtzZoomGet(const crow::request& req, crow::response& re
 	const auto lease = m_GlobalContext->PtzMovement;
 	if (!lease) { res.code = 503; res.end(); return; }
 	auto Control = lease->AcquireControl();
+	if (!ValidateQueuedPtzConfiguration(*m_GlobalContext, res)) return;
 	auto client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
 	if (!client)
 	{
@@ -402,6 +508,7 @@ void CrowListener::HandlePtzZoomSet(const crow::request& req, crow::response& re
 	const auto lease = m_GlobalContext->PtzMovement;
 	if (!lease) { res.code = 503; res.end(); return; }
 	auto Control = lease->AcquireControl();
+	if (!ValidateQueuedPtzConfiguration(*m_GlobalContext, res)) return;
 	if (!PtzControlAllowed(m_GlobalContext->Database, cameraId, false))
 	{
 		RespondNoPtz(res);
@@ -415,12 +522,15 @@ void CrowListener::HandlePtzZoomSet(const crow::request& req, crow::response& re
 	}
 
 	int zoomPos = (int)body["zoom"].i();
-	bool ok = lease->Position(PtzLaneId(*m_GlobalContext, cameraId), [client, zoomPos] { return client->SetZoomPos(zoomPos); });
+	bool ok = lease->Position(PtzLaneId(*m_GlobalContext, cameraId), [client, zoomPos] {
+		return !PtzRequestExecutor::MovementCancelled() &&
+			client->SetZoomPos(zoomPos, [] { return !PtzRequestExecutor::MovementCancelled(); });
+	});
 
 	crow::json::wvalue result;
 	result["success"] = ok;
 	if (!ok) result["error"] = client->GetLastError();
-	res.code = ok ? 200 : 500;
+	res.code = PtzRequestExecutor::MovementCancelled() ? 409 : ok ? 200 : 500;
 	res.write(result.dump());
 	res.end();
 }
@@ -439,6 +549,7 @@ void CrowListener::HandlePtzPresets(const crow::request& req, crow::response& re
 	const auto lease = m_GlobalContext->PtzMovement;
 	if (!lease) { res.code = 503; res.end(); return; }
 	auto Control = lease->AcquireControl();
+	if (!ValidateQueuedPtzConfiguration(*m_GlobalContext, res)) return;
 	auto client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
 	if (!client)
 	{
@@ -487,6 +598,7 @@ void CrowListener::HandlePtzPresetSet(const crow::request& req, crow::response& 
 	const auto lease = m_GlobalContext->PtzMovement;
 	if (!lease) { res.code = 503; res.end(); return; }
 	auto Control = lease->AcquireControl();
+	if (!ValidateQueuedPtzConfiguration(*m_GlobalContext, res)) return;
 	if (!PtzControlAllowed(m_GlobalContext->Database, cameraId, false))
 	{
 		RespondNoPtz(res);
@@ -533,6 +645,7 @@ void CrowListener::HandlePtzPresetDelete(const crow::request& req, crow::respons
 	const auto lease = m_GlobalContext->PtzMovement;
 	if (!lease) { res.code = 503; res.end(); return; }
 	auto Control = lease->AcquireControl();
+	if (!ValidateQueuedPtzConfiguration(*m_GlobalContext, res)) return;
 	if (!PtzControlAllowed(m_GlobalContext->Database, cameraId, false))
 	{
 		RespondNoPtz(res);

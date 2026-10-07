@@ -926,49 +926,57 @@ void CrowListener::RegisterRoutes()
 	CROW_ROUTE( m_App, "/ptz/<int>/<string>" ).methods( crow::HTTPMethod::POST )
 	([this]( const crow::request& req, crow::response& res, int cameraId, const std::string& command )
 	{
-		HandlePtzCommand( req, res, cameraId, command );
+		DispatchPtz(req, res, cameraId, command == "stop" ? PtzRequestExecutor::Kind::Stop : PtzRequestExecutor::Kind::Movement,
+			[this, cameraId, command](const crow::request& request, crow::response& response) { HandlePtzCommand(request, response, cameraId, command); });
 	});
 
 	CROW_ROUTE( m_App, "/ptz/<int>/position" )
 	([this]( const crow::request& req, crow::response& res, int cameraId )
 	{
-		HandlePtzPosition( req, res, cameraId );
+		DispatchPtz(req, res, cameraId, PtzRequestExecutor::Kind::Read,
+			[this, cameraId](const crow::request& request, crow::response& response) { HandlePtzPosition(request, response, cameraId); });
 	});
 
 	CROW_ROUTE( m_App, "/ptz/<int>/zoom" )
 	([this]( const crow::request& req, crow::response& res, int cameraId )
 	{
-		HandlePtzZoomGet( req, res, cameraId );
+		DispatchPtz(req, res, cameraId, PtzRequestExecutor::Kind::Read,
+			[this, cameraId](const crow::request& request, crow::response& response) { HandlePtzZoomGet(request, response, cameraId); });
 	});
 
 	CROW_ROUTE( m_App, "/ptz/<int>/zoom/set" ).methods( crow::HTTPMethod::POST )
 	([this]( const crow::request& req, crow::response& res, int cameraId )
 	{
-		HandlePtzZoomSet( req, res, cameraId );
+		DispatchPtz(req, res, cameraId, PtzRequestExecutor::Kind::Movement,
+			[this, cameraId](const crow::request& request, crow::response& response) { HandlePtzZoomSet(request, response, cameraId); });
 	});
 
 	CROW_ROUTE( m_App, "/ptz/<int>/presets" )
 	([this]( const crow::request& req, crow::response& res, int cameraId )
 	{
-		HandlePtzPresets( req, res, cameraId );
+		DispatchPtz(req, res, cameraId, PtzRequestExecutor::Kind::Read,
+			[this, cameraId](const crow::request& request, crow::response& response) { HandlePtzPresets(request, response, cameraId); });
 	});
 
 	CROW_ROUTE( m_App, "/ptz/<int>/preset/set" ).methods( crow::HTTPMethod::POST )
 	([this]( const crow::request& req, crow::response& res, int cameraId )
 	{
-		HandlePtzPresetSet( req, res, cameraId );
+		DispatchPtz(req, res, cameraId, PtzRequestExecutor::Kind::Write,
+			[this, cameraId](const crow::request& request, crow::response& response) { HandlePtzPresetSet(request, response, cameraId); });
 	});
 
 	CROW_ROUTE( m_App, "/ptz/<int>/preset/delete" ).methods( crow::HTTPMethod::POST )
 	([this]( const crow::request& req, crow::response& res, int cameraId )
 	{
-		HandlePtzPresetDelete( req, res, cameraId );
+		DispatchPtz(req, res, cameraId, PtzRequestExecutor::Kind::Write,
+			[this, cameraId](const crow::request& request, crow::response& response) { HandlePtzPresetDelete(request, response, cameraId); });
 	});
 
 	CROW_ROUTE( m_App, "/ptz/test" ).methods( crow::HTTPMethod::POST )
 	([this]( const crow::request& req, crow::response& res )
 	{
-		HandlePtzTest( req, res );
+		DispatchPtz(req, res, 0, PtzRequestExecutor::Kind::Write,
+			[this](const crow::request& request, crow::response& response) { HandlePtzTest(request, response); });
 	});
 
 	// WebSocket MSE stream

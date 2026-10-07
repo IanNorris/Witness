@@ -1,5 +1,6 @@
 #pragma once
 #include "SQLite.h"
+#include "UrlHelpers.h"
 
 // Owned snapshots: no SQLite text pointers or query locks cross into discovery
 // or transport I/O. Shared by the HTTP route and isolated concurrency tests.
@@ -14,6 +15,27 @@ struct PtzConfiguration
             Username == Other.Username && Password == Other.Password && RtspPath == Other.RtspPath;
     }
 };
+
+// Only Reolink is implemented. Preserve explicit API-host configurations for
+// cameras with nonstandard RTSP paths, but never probe a standard Tapo stream
+// with Reolink login commands. URL profiles are hints, not general vendor IDs.
+inline bool PtzKnownUnsupported(const PtzConfiguration& Config)
+{
+    const auto Scheme = Config.RtspPath.find("://");
+    const auto Path = Scheme == std::string::npos ? std::string::npos : Config.RtspPath.find('/', Scheme + 3);
+    if (Path != std::string::npos) {
+        const auto End = Config.RtspPath.find_first_of("?#", Path);
+        const auto StreamPath = Config.RtspPath.substr(Path, End - Path);
+        if (StreamPath == "/stream1" || StreamPath == "/stream2") return true;
+    }
+    return false;
+}
+
+inline bool PtzDiscoverySupported(const PtzConfiguration& Config)
+{
+    if (PtzKnownUnsupported(Config)) return false;
+    return DetectCameraProfile(Config.RtspPath) == CameraProfile::Reolink || !Config.Host.empty();
+}
 
 inline PtzConfiguration ReadPtzConfiguration(const std::shared_ptr<SQLiteDatabase>& Database, int CameraId)
 {

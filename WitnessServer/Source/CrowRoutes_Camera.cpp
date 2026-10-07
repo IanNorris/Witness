@@ -724,7 +724,7 @@ void CrowListener::HandleCameraUpdate( const crow::request& req, crow::response&
 	}
 
 	// Update PTZ client
-	if( PtzEnabled )
+	if( PtzEnabled && PtzDiscoverySupported(Desired) )
 	{
 		std::string ptzHost = PtzApiHost;
 		std::string ptzUser = PtzUsername;

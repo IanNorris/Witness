@@ -54,6 +54,18 @@ int main(int Argc, char** Argv)
         Check(!Empty.Enabled && Empty.Host.empty() && Empty.Username.empty() && Empty.Password.empty() &&
             Empty.RtspPath.empty(), "NULL values were not safely copied");
         Check(!ReadPtzConfiguration(Database, 999).Enabled, "missing camera enabled PTZ");
+        auto Provider = Snapshot;
+        Provider.RtspPath = "rtsp://user:secret@camera/stream1";
+        Check(!PtzDiscoverySupported(Provider), "Tapo main stream allowed Reolink discovery");
+        Provider.RtspPath = "rtsp://camera/stream2?transport=tcp";
+        Check(!PtzDiscoverySupported(Provider), "Tapo secondary stream allowed Reolink discovery");
+        Provider.RtspPath = "rtsp://camera/h265Preview_01_main";
+        Provider.Host.clear();
+        Check(PtzDiscoverySupported(Provider), "Reolink automatic discovery denied");
+        Provider.RtspPath = "rtsp://camera/custom";
+        Check(!PtzDiscoverySupported(Provider), "unknown camera automatically probed as Reolink");
+        Provider.Host = "explicit-reolink-api";
+        Check(PtzDiscoverySupported(Provider), "explicit nonstandard Reolink API denied");
 
         Check(PtzControlAllowed(Database, 10, false), "enabled camera denied PTZ control");
         Check(!PtzControlAllowed(Database, 11, false), "disabled view inherited linked camera control");

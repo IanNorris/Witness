@@ -58,9 +58,10 @@ public:
 	bool Login();
 
 	// PTZ movement commands. Speed: 1-64 (default 32)
-	bool PtzControl(PtzOp op, int speed = 32);
+	using SendAllowed = bool (*)();
+	bool PtzControl(PtzOp op, int speed = 32, SendAllowed allowed = nullptr);
 	bool PtzStop();
-	bool PtzGoToPreset(int presetId);
+	bool PtzGoToPreset(int presetId, SendAllowed allowed = nullptr);
 
 	// Position query
 	PtzPosition GetPosition();
@@ -77,7 +78,7 @@ public:
 		bool Valid = false;
 	};
 	ZoomFocusState GetZoomFocus();
-	bool SetZoomPos(int zoomPos);
+	bool SetZoomPos(int zoomPos, SendAllowed allowed = nullptr);
 	bool SetFocusPos(int focusPos);
 
 	// Preset management
@@ -95,11 +96,11 @@ public:
 	bool IsReachable();
 
 	// Get last error message
-	const std::string& GetLastError() const { return m_LastError; }
+	std::string GetLastError() const { std::lock_guard lock(m_Mutex); return m_LastError; }
 
 private:
 	// Send a command to the camera API, returns response body or empty on failure
-	std::string SendCommand(const std::string& cmd, const std::string& body);
+	std::string SendCommand(const std::string& cmd, const std::string& body, SendAllowed allowed = nullptr);
 
 	// Ensure we have a valid token (login if needed)
 	bool EnsureToken();
@@ -115,6 +116,6 @@ private:
 
 	std::chrono::steady_clock::time_point m_TokenExpiry;
 
-	std::mutex m_Mutex;
+	mutable std::recursive_mutex m_Mutex;
 	std::unique_ptr<httplib::Client> m_HttpClient;
 };

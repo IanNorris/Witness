@@ -9,6 +9,7 @@
 #include "DetectionCleanup.h"
 #include "ClientHealthHistory.h"
 #include "PtzMovementLease.h"
+#include "PtzConfiguration.h"
 #include "Database.h"
 #include "TagHelpers.h"
 #include "ReolinkClient.h"
@@ -732,7 +733,9 @@ void WitnessServer::StartCamera(const SQLiteDatabaseQuery& query)
 		int ptzEnabled = query.GetColumnValueInt(14);
 		bool autoEnablePtz = (!ptzEnabled && profile == CameraProfile::Reolink);
 
-		if (ptzEnabled || autoEnablePtz)
+		PtzConfiguration PtzProvider;
+		PtzProvider.RtspPath = Camera.Path;
+		if ((ptzEnabled || autoEnablePtz) && !PtzKnownUnsupported(PtzProvider))
 		{
 			const char* ptzHost = query.GetColumnValueText(15);
 			int ptzPort = query.GetColumnValueInt(16);

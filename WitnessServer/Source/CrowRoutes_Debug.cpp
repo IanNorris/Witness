@@ -1964,6 +1964,7 @@ bool CrowListener::Start()
 
 	try
 	{
+		m_PtzRequests.Start();
 		m_App.bindaddr( bindAddr ).port( m_Port );
 		Witness::HttpDiagnostics::ClearActiveRequests();
 
@@ -2030,6 +2031,9 @@ void CrowListener::Stop()
 	if( m_CertMonitorThread.joinable() )
 		m_CertMonitorThread.join();
 
+	// Complete/cancel camera work while Crow's response event loops still exist.
+	m_PtzRequests.Stop();
+	if (!m_PtzCompletions->Drain()) LOG_WARNING("PTZ response drain timed out during HTTP shutdown");
 	m_App.stop();
 
 	if( m_ServerThread.joinable() )
