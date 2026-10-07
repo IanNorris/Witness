@@ -1102,12 +1102,13 @@ void CameraWorker::OnClipFinished(bool ManualStop)
 		auto FinishedMessage = std::make_shared<CameraClipFinishedMessage>( Camera.ID, ManualStop );
 		FinishedMessage->Result = Observer->GetCurrentResult();
 		FinishedMessage->ClipStats = Observer->GetClipStatistics();
+		// The receiver publishes a positive Duration, making this clip eligible
+		// for reprocessing. Finish the MP4 trailer and close the file first.
+		const auto CloseResult = RecordStream->CloseFile();
+		if (CloseResult != Witness::Camera::CameraStreamError::Success)
+			LOG_ERROR("Camera %d failed to finalize recording (error %d)", Camera.ID, static_cast<int>(CloseResult));
+		RecordStream.reset();
 		MessageBusObject->SendToClient( nullptr, FinishedMessage );
 		Filter->ClearState();
-
-
-
-		RecordStream->CloseFile();
-		RecordStream.reset();
 	}
 }

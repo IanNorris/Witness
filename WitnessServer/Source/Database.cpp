@@ -681,7 +681,8 @@ namespace Database
 
 	std::string SelectClipForReprocess = R"RAW(
 		SELECT * FROM Clip
-		WHERE DetectionVersion < @DetectionVersion OR DetectionVersion IS NULL
+		WHERE Duration > 0
+		  AND (DetectionVersion < @DetectionVersion OR DetectionVersion IS NULL)
 		ORDER BY DetectionVersion ASC, Timestamp DESC
 		LIMIT 1;
 	)RAW";
@@ -708,20 +709,22 @@ namespace Database
 
 	std::string CountClipsToReprocess = R"RAW(
 		SELECT COUNT(*) FROM Clip
-		WHERE DetectionVersion < @DetectionVersion OR DetectionVersion IS NULL;
+		WHERE Duration > 0
+		  AND (DetectionVersion < @DetectionVersion OR DetectionVersion IS NULL);
 	)RAW";
 
 	std::string SelectReprocessQueue = R"RAW(
 		SELECT c.ClipUID, c.Timestamp, c.Camera, c.DetectionVersion, c.RecordMode, c.Tags, c.Duration
 		FROM Clip c
-		WHERE c.DetectionVersion < @DetectionVersion OR c.DetectionVersion IS NULL
+		WHERE c.Duration > 0
+		  AND (c.DetectionVersion < @DetectionVersion OR c.DetectionVersion IS NULL)
 		ORDER BY c.DetectionVersion ASC, c.Timestamp DESC
 		LIMIT 100;
 	)RAW";
 
 	std::string SelectClipsNeedingLighting = R"RAW(
 		SELECT ClipUID, Timestamp, Camera, RecordMode FROM Clip
-		WHERE Lighting = 0 OR Lighting IS NULL
+		WHERE Duration > 0 AND (Lighting = 0 OR Lighting IS NULL)
 		ORDER BY Timestamp DESC
 		LIMIT 200;
 	)RAW";
