@@ -165,6 +165,20 @@ def replay_sender_failures(processes, root, inputs, urls):
     return failures
 
 
+def replace_progress_snapshot(temporary, target):
+    """Windows readers can briefly open the old JSON without FILE_SHARE_DELETE."""
+    for attempt in range(20):
+        try:
+            temporary.replace(target)
+            return
+        except PermissionError as error:
+            # Retry only the Windows sharing/access conflict. Permanent denial
+            # still fails within one second; do not swallow arbitrary IO errors.
+            if os.name != 'nt' or getattr(error, 'winerror', None) not in (5, 32) or attempt == 19:
+                raise
+            time.sleep(0.05)
+
+
 def verify_recordings(db, cache, previous_clip_uid, previous_segment_uid, progress_path=None, failure_root=None,
                       frame_decoder_threads=1, expected_audio_cameras=(), completed_reports=()):
     """Inspect only fresh fixture-owned local outputs, never arbitrary DB paths."""
@@ -211,7 +225,7 @@ def verify_recordings(db, cache, previous_clip_uid, previous_segment_uid, progre
             'expectedOutputs': len(recordings), 'completedOutputs': len(reports),
             'passed': complete and bool(reports) and all(row['passed'] for row in reports),
             'recordingInspection': reports, 'currentInspection': current_inspection}, indent=2), encoding='utf-8')
-        temporary.replace(target)
+        replace_progress_snapshot(temporary, target)
     write_progress(False)
     def preserve_failure(kind, camera, uid, path, error=None, result=None):
         # Both raised inspection errors and negative integrity results must

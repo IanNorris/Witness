@@ -10,10 +10,39 @@ from copy import deepcopy
 from contextlib import closing
 from check_preview_decode import RecordingInspectionError
 
-from test_full_server_isolation import artifact_directory, browser_playback_ready, inference_evidence, recording_evidence, recording_metadata_finalized, replay_sender_failures, sample_coverage, verify_recordings
+from test_full_server_isolation import artifact_directory, browser_playback_ready, inference_evidence, recording_evidence, recording_metadata_finalized, replay_sender_failures, sample_coverage, verify_recordings, replace_progress_snapshot
 
 
 class WorkloadEvidenceTests(unittest.TestCase):
+    def test_progress_publish_retries_only_bounded_windows_sharing_conflicts(self):
+        for code in (5, 32):
+            conflict = PermissionError('reader still has the old snapshot open')
+            conflict.winerror = code
+            temporary, target = Mock(), Mock()
+            temporary.replace.side_effect = [conflict, conflict, None]
+            with patch('test_full_server_isolation.os.name', 'nt'), \
+                    patch('test_full_server_isolation.time.sleep') as sleep:
+                replace_progress_snapshot(temporary, target)
+            self.assertEqual(temporary.replace.call_count, 3)
+            self.assertEqual(sleep.call_count, 2)
+            for call in sleep.call_args_list:
+                self.assertEqual(call.args, (0.05,))
+        temporary.replace.side_effect = conflict
+        temporary.replace.reset_mock()
+        with patch('test_full_server_isolation.os.name', 'nt'), \
+                patch('test_full_server_isolation.time.sleep') as sleep, self.assertRaises(PermissionError):
+            replace_progress_snapshot(temporary, target)
+        self.assertEqual(temporary.replace.call_count, 20)
+        self.assertEqual(sleep.call_count, 19)
+        for platform, error in (('posix', conflict), ('nt', OSError('disk IO failure'))):
+            temporary.replace.side_effect = error
+            temporary.replace.reset_mock()
+            with patch('test_full_server_isolation.os.name', platform), \
+                    patch('test_full_server_isolation.time.sleep') as sleep, self.assertRaises(type(error)):
+                replace_progress_snapshot(temporary, target)
+            self.assertEqual(temporary.replace.call_count, 1)
+            sleep.assert_not_called()
+
     def test_resume_keeps_only_matching_passed_prefix_and_inspects_remaining(self):
         with tempfile.TemporaryDirectory() as directory, closing(sqlite3.connect(':memory:')) as db:
             cache = Path(directory)
