@@ -41,6 +41,27 @@ class ServerDataRootTests(unittest.TestCase):
                 columns = [row[1] for row in db.execute('PRAGMA table_info(Clip)')]
                 self.assertIn('RecordingFinalized', columns)
                 self.assertEqual(columns[11:14], ['DetectionVersion', 'Lighting', 'Reviewed'])
+            # Recreate the immediately preceding schema, including its existing
+            # audio column. Exercise the executable's real upgrade twice rather
+            # than merely executing an extracted ALTER TABLE in memory.
+            with contextlib.closing(sqlite3.connect(data / 'server.db')) as db:
+                db.execute('ALTER TABLE Clip DROP COLUMN RecordingFinalized')
+                legacy_columns = [row[1] for row in db.execute('PRAGMA table_info(Clip)')]
+                db.executemany("INSERT INTO Clip (Timestamp,Camera,Duration,Tags,DetectionVersion,AudioDetectionVersion) "
+                               "VALUES (?,1,?,'synthetic-pir',0,0)", [(100, 12), (200, 0)])
+                db.commit()
+                legacy_rows = db.execute('SELECT * FROM Clip ORDER BY Timestamp').fetchall()
+            for upgrade_attempt in range(2):
+                upgraded = subprocess.run([str(server), '/createdb'], env=environment, cwd=cwd,
+                                          capture_output=True, text=True, timeout=30, **quiet_process_options())
+                self.assertEqual(upgraded.returncode, 0, upgraded.stdout + upgraded.stderr)
+                with contextlib.closing(sqlite3.connect((data / 'server.db').as_uri() + '?mode=ro', uri=True)) as db:
+                    upgraded_columns = [row[1] for row in db.execute('PRAGMA table_info(Clip)')]
+                    self.assertEqual(upgraded_columns, legacy_columns + ['RecordingFinalized'])
+                    upgraded_rows = db.execute('SELECT * FROM Clip ORDER BY Timestamp').fetchall()
+                    self.assertEqual([row[:-1] for row in upgraded_rows], legacy_rows)
+                    self.assertEqual([row[-1] for row in upgraded_rows], [None, None])
+                    self.assertEqual(db.execute('PRAGMA integrity_check').fetchall(), [('ok',)])
             before = (data / 'server.db').read_bytes()
             environment['WITNESS_DATA_ROOT'] = 'relative-fixture'
             invalid = subprocess.run([str(server), '/createdb'], env=environment, cwd=cwd,
