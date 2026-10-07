@@ -922,7 +922,7 @@ void CameraWorker::WorkerMain()
 			if (InitResult != CameraStreamError::Success)
 			{
 				LOG_ERROR("Recording init failed for camera %d: %s", Camera.ID, RecordStream->GetFFMPEGErrorMessage());
-				RecordStream.reset();
+				OnClipFinished(false);
 			}
 
 			Context->LongPoll->NotifyAll();
@@ -1102,11 +1102,13 @@ void CameraWorker::OnClipFinished(bool ManualStop)
 		auto FinishedMessage = std::make_shared<CameraClipFinishedMessage>( Camera.ID, ManualStop );
 		FinishedMessage->Result = Observer->GetCurrentResult();
 		FinishedMessage->ClipStats = Observer->GetClipStatistics();
-		// The receiver publishes a positive Duration, making this clip eligible
-		// for reprocessing. Finish the MP4 trailer and close the file first.
+		// Publish explicit finalization state only after the MP4 trailer and
+		// file close have completed; duration alone cannot establish readiness.
 		const auto CloseResult = RecordStream->CloseFile();
+		FinishedMessage->RecordingFinalized = CloseResult == Witness::Camera::CameraStreamError::Success;
 		if (CloseResult != Witness::Camera::CameraStreamError::Success)
 			LOG_ERROR("Camera %d failed to finalize recording (error %d)", Camera.ID, static_cast<int>(CloseResult));
+		RecordStream->Shutdown();
 		RecordStream.reset();
 		MessageBusObject->SendToClient( nullptr, FinishedMessage );
 		Filter->ClearState();

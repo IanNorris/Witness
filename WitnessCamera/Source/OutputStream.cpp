@@ -244,6 +244,7 @@ CameraStreamError OutputStream::Initialize()
 		{
 			STREAM_ERROR( WriteFailed, Result );
 		}
+		m_HeaderWritten = true;
 
 		return CameraStreamError::Success;
 	}
@@ -398,6 +399,7 @@ CameraStreamError OutputStream::Initialize()
 	{
 		STREAM_ERROR( WriteFailed, Result );
 	}
+	m_HeaderWritten = true;
 
 	if (!m_Live)
 	{
@@ -835,6 +837,35 @@ void OutputStream::Shutdown()
 CameraStreamError OutputStream::CloseFile(bool Flush, bool WriteTrailer)
 {
 	auto& ID = *m_InternalData;
+	if (ID.HasFinalised)
+		return m_CloseResult;
+	ID.HasFinalised = true;
+	// Preserve the first outcome and close owned AVIO even if flush/trailer
+	// writing fails. Custom in-memory IO remains owned by m_IOContext.
+	struct CloseOwnedIO
+	{
+		AVFormatContext* Context;
+		bool& Opened;
+		~CloseOwnedIO()
+		{
+			if (Opened && Context)
+			{
+				Opened = false;
+				avio_closep(&Context->pb);
+			}
+		}
+	} CloseOnExit{ID.FormatContext, m_FileOpened};
+	const auto Fail = [&](CameraStreamError Error, int Result, int Line)
+	{
+		FFMPEGErrorToString(Result, m_ErrorMessage, sizeof(m_ErrorMessage));
+		m_LineNumber = Line;
+		m_CloseResult = Error;
+		return Error;
+	};
+	if (ID.FormatContext == nullptr)
+		return Fail(CameraStreamError::NoStreams, 0, __LINE__);
+	if (!m_HeaderWritten)
+		return Fail(CameraStreamError::NoStreams, 0, __LINE__);
 
 	if (Flush && !m_Passthrough)
 	{
@@ -842,7 +873,7 @@ CameraStreamError OutputStream::CloseFile(bool Flush, bool WriteTrailer)
 		{
 			if (ID.CodecContext == nullptr)
 			{
-				return CameraStreamError::NoStreams;
+				return Fail(CameraStreamError::NoStreams, 0, __LINE__);
 			}
 
 			//Flush
@@ -852,12 +883,7 @@ CameraStreamError OutputStream::CloseFile(bool Flush, bool WriteTrailer)
 				CameraStreamError StrError = SendAll();
 				if (StrError != CameraStreamError::Success)
 				{
-					if (!(ID.FormatContext->oformat->flags & AVFMT_NOFILE) || m_FileOpened)
-					{
-						m_FileOpened = false;
-						avio_close(ID.FormatContext->pb);
-					}
-
+					m_CloseResult = StrError;
 					return StrError;
 				}
 			}
@@ -867,14 +893,9 @@ CameraStreamError OutputStream::CloseFile(bool Flush, bool WriteTrailer)
 			}
 			else
 			{
-				STREAM_ERROR(WriteFailed, Result);
+				return Fail(CameraStreamError::WriteFailed, Result, __LINE__);
 			}
 		}
-	}
-
-	if (ID.FormatContext == nullptr)
-	{
-		return CameraStreamError::NoStreams;
 	}
 
 	if (WriteTrailer)
@@ -882,17 +903,17 @@ CameraStreamError OutputStream::CloseFile(bool Flush, bool WriteTrailer)
 		int Result = av_write_trailer(ID.FormatContext);
 		if (Result < 0)
 		{
-			STREAM_ERROR(WriteFailed, Result);
+			return Fail(CameraStreamError::WriteFailed, Result, __LINE__);
 		}
 	}
 
-	if( !(ID.FormatContext->oformat->flags& AVFMT_NOFILE) || m_FileOpened )
+	if( m_FileOpened )
 	{
 		m_FileOpened = false;
-		int Result = avio_close( ID.FormatContext->pb );
+		int Result = avio_closep( &ID.FormatContext->pb );
 		if( Result < 0 )
 		{
-			STREAM_ERROR( WriteFailed, Result );
+			return Fail(CameraStreamError::WriteFailed, Result, __LINE__);
 		}
 	}
 

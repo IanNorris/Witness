@@ -69,7 +69,7 @@ private:
 	void StartCamera(const SQLiteDatabaseQuery& query);
 
 	void StartCameraRecording( const std::shared_ptr<CameraWorker>& Worker, uint64_t Timestamp, int CameraID, bool IsManual, const ClassificationResult& Result );
-	void StopCameraRecording( const ClipStatistics& ClipStats, int CameraID, const ClassificationResult& Result );
+	void StopCameraRecording( const ClipStatistics& ClipStats, int CameraID, const ClassificationResult& Result, bool RecordingFinalized );
 
 	std::unique_ptr<AsyncWorker> Worker;
 	std::unique_ptr<WatchdogWorker> Watchdog;

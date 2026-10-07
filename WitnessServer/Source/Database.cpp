@@ -569,8 +569,8 @@ namespace Database
 	)RAW";
 
 	std::string CreateClip = R"RAW(
-		INSERT INTO Clip (Timestamp,Camera,MotionTimestamp,ActiveDuration,Duration,RecordMode,MaxMotion,Description,Save,Tags)
-		VALUES(@Timestamp,@Camera,@MotionTimestamp,@ActiveDuration,@Duration,@RecordMode,@MaxMotion,@Description,@Save,@Tags);
+		INSERT INTO Clip (Timestamp,Camera,MotionTimestamp,ActiveDuration,Duration,RecordMode,MaxMotion,Description,Save,Tags,RecordingFinalized)
+		VALUES(@Timestamp,@Camera,@MotionTimestamp,@ActiveDuration,@Duration,@RecordMode,@MaxMotion,@Description,@Save,@Tags,0);
 	)RAW";
 
 	std::string SelectClipID = R"RAW(
@@ -584,6 +584,7 @@ namespace Database
 			MotionTimestamp = @MotionTimestamp,
 			ActiveDuration = @ActiveDuration,
 			Duration = @Duration,
+			RecordingFinalized = @RecordingFinalized,
 			MaxMotion = @MaxMotion,
 			Tags = @Tags
 		WHERE 
@@ -681,7 +682,7 @@ namespace Database
 
 	std::string SelectClipForReprocess = R"RAW(
 		SELECT * FROM Clip
-		WHERE Duration > 0
+		WHERE (RecordingFinalized = 1 OR (RecordingFinalized IS NULL AND Duration > 0))
 		  AND (DetectionVersion < @DetectionVersion OR DetectionVersion IS NULL)
 		ORDER BY DetectionVersion ASC, Timestamp DESC
 		LIMIT 1;
@@ -709,14 +710,14 @@ namespace Database
 
 	std::string CountClipsToReprocess = R"RAW(
 		SELECT COUNT(*) FROM Clip
-		WHERE Duration > 0
+		WHERE (RecordingFinalized = 1 OR (RecordingFinalized IS NULL AND Duration > 0))
 		  AND (DetectionVersion < @DetectionVersion OR DetectionVersion IS NULL);
 	)RAW";
 
 	std::string SelectReprocessQueue = R"RAW(
 		SELECT c.ClipUID, c.Timestamp, c.Camera, c.DetectionVersion, c.RecordMode, c.Tags, c.Duration
 		FROM Clip c
-		WHERE c.Duration > 0
+		WHERE (c.RecordingFinalized = 1 OR (c.RecordingFinalized IS NULL AND c.Duration > 0))
 		  AND (c.DetectionVersion < @DetectionVersion OR c.DetectionVersion IS NULL)
 		ORDER BY c.DetectionVersion ASC, c.Timestamp DESC
 		LIMIT 100;
@@ -724,7 +725,8 @@ namespace Database
 
 	std::string SelectClipsNeedingLighting = R"RAW(
 		SELECT ClipUID, Timestamp, Camera, RecordMode FROM Clip
-		WHERE Duration > 0 AND (Lighting = 0 OR Lighting IS NULL)
+		WHERE (RecordingFinalized = 1 OR (RecordingFinalized IS NULL AND Duration > 0))
+		  AND (Lighting = 0 OR Lighting IS NULL)
 		ORDER BY Timestamp DESC
 		LIMIT 200;
 	)RAW";
@@ -1230,7 +1232,7 @@ namespace Database
 		FROM Clip c
 		INNER JOIN Camera cam ON cam.CameraUID = c.Camera
 		WHERE cam.AudioIntelligenceEnabled = 1
-			AND c.Duration > 0
+			AND (c.RecordingFinalized = 1 OR (c.RecordingFinalized IS NULL AND c.Duration > 0))
 			AND (c.AudioDetectionVersion < @AudioDetectionVersion OR c.AudioDetectionVersion IS NULL)
 		ORDER BY c.Timestamp DESC
 		LIMIT 1;
@@ -1290,6 +1292,10 @@ namespace Database
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Clip ADD COLUMN DetectionVersion INT DEFAULT 0;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Clip ADD COLUMN Lighting INT DEFAULT 0;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Clip ADD COLUMN Reviewed INT DEFAULT 0;", nullptr, nullptr, nullptr );
+		// NULL preserves legacy positive-duration eligibility. New recordings
+		// explicitly use 0=pending, 1=finalized, -1=finalization failed.
+		// Duration is not a lifecycle marker: a valid sub-second clip is zero.
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Clip ADD COLUMN RecordingFinalized INTEGER;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN ContinuousRecording INT DEFAULT 0;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN LowLatencyHLS INT DEFAULT 0;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE ContinuousSegment ADD COLUMN FileSize INTEGER DEFAULT 0;", nullptr, nullptr, nullptr );

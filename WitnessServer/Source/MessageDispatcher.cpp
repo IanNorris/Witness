@@ -41,7 +41,7 @@ void WitnessServer::MessageLoop( const std::atomic<bool>& ContinueRunning )
 		
 		Msg->Handle<CameraClipFinishedMessage>([&](const CameraClipFinishedMessage& Data)
 		{
-			StopCameraRecording( Data.ClipStats, Data.Camera, Data.Result );
+			StopCameraRecording( Data.ClipStats, Data.Camera, Data.Result, Data.RecordingFinalized );
 		});
 
 		Msg->Handle<CameraStateToggleRecordMessage>([&](const CameraStateToggleRecordMessage& Data)

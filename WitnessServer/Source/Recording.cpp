@@ -69,7 +69,7 @@ void WitnessServer::StartCameraRecording( const std::shared_ptr<CameraWorker>& W
 		TagHelpers::SyncClipTags( Context->Database, clipUID, Tags );
 }
 
-void WitnessServer::StopCameraRecording( const ClipStatistics& ClipStats, int CameraID, const ClassificationResult& Result )
+void WitnessServer::StopCameraRecording( const ClipStatistics& ClipStats, int CameraID, const ClassificationResult& Result, bool RecordingFinalized )
 {
 	bool First = true;
 	std::string TagsA = "";
@@ -106,6 +106,7 @@ void WitnessServer::StopCameraRecording( const ClipStatistics& ClipStats, int Ca
 	}
 
 	UpdateClip->Bind( "@Duration", (int64_t)(ClipStats.TimestampClipEnded - ClipStats.TimestampClipStarted) );
+	UpdateClip->Bind( "@RecordingFinalized", RecordingFinalized ? 1 : -1 );
 
 	UpdateClip->Bind( "@MaxMotion", ClipStats.LargestMotionDelta );
 	UpdateClip->Execute( nullptr );

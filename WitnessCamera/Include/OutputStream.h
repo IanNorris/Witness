@@ -79,6 +79,8 @@ private:
 	int StreamIndex;
 
 	bool m_FileOpened;
+	CameraStreamError m_CloseResult = CameraStreamError::Success;
+	bool m_HeaderWritten = false;
 	bool m_InMemory;
 	bool m_Live;
 	bool m_Isolated;

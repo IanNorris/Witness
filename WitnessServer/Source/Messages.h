@@ -102,6 +102,7 @@ struct CameraClipFinishedMessage : public Message
 
 	int Camera;
 	bool ManualStop;
+	bool RecordingFinalized = false;
 };
 
 struct CameraStartupMessage : public Message

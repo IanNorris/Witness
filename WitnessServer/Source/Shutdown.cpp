@@ -108,7 +108,7 @@ void WitnessServer::RequestShutdown()
 		{
 			Msg->Handle<CameraClipFinishedMessage>([&](const CameraClipFinishedMessage& Data)
 			{
-				StopCameraRecording(Data.ClipStats, Data.Camera, Data.Result);
+				StopCameraRecording(Data.ClipStats, Data.Camera, Data.Result, Data.RecordingFinalized);
 			});
 		}
 		// The snapshot may consume the original wake message before a blocked
