@@ -13,7 +13,8 @@ class QuietSubprocessTests(unittest.TestCase):
         root = Path(__file__).parent
         for name in ('check_long_recording.py', 'check_preview_decode.py', 'prepare_replay_media.py',
                      'run_ptz_physical_probe.py', 'run_ptz_capability_probe.py', 'run_live_preview_probe.py',
-                     'run_client_health_browser_fixture.py', 'benchmark_client_health_http.py'):
+                     'run_client_health_browser_fixture.py', 'benchmark_client_health_http.py',
+                     'test_server_data_root.py'):
             calls = [node for node in ast.walk(ast.parse((root / name).read_text(encoding='utf-8')))
                      if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
                      and isinstance(node.func.value, ast.Name) and node.func.value.id == 'subprocess'

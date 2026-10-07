@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from quiet_subprocess import quiet_process_options
 
 
 @unittest.skipUnless(sys.platform == 'win32' and os.environ.get('WITNESS_TEST_DATA_ROOT_SERVER'),
@@ -29,7 +30,7 @@ class ServerDataRootTests(unittest.TestCase):
             data = fixture / 'private data'
             environment = dict(os.environ, WITNESS_DATA_ROOT=str(data))
             result = subprocess.run([str(server), '/createdb'], env=environment, cwd=cwd,
-                                    capture_output=True, text=True, timeout=30)
+                                    capture_output=True, text=True, timeout=30, **quiet_process_options())
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue((data / 'logs').is_dir())
             self.assertTrue((data / 'server.db').is_file())
@@ -37,10 +38,13 @@ class ServerDataRootTests(unittest.TestCase):
             with contextlib.closing(sqlite3.connect((data / 'server.db').as_uri() + '?mode=ro', uri=True)) as db:
                 tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
                 self.assertTrue({'User', 'Camera', 'Clip'} <= tables, tables)
+                columns = [row[1] for row in db.execute('PRAGMA table_info(Clip)')]
+                self.assertIn('RecordingFinalized', columns)
+                self.assertEqual(columns[11:14], ['DetectionVersion', 'Lighting', 'Reviewed'])
             before = (data / 'server.db').read_bytes()
             environment['WITNESS_DATA_ROOT'] = 'relative-fixture'
             invalid = subprocess.run([str(server), '/createdb'], env=environment, cwd=cwd,
-                                     capture_output=True, text=True, timeout=30)
+                                     capture_output=True, text=True, timeout=30, **quiet_process_options())
             self.assertEqual(invalid.returncode, 1, invalid.stdout + invalid.stderr)
             self.assertIn('absolute dedicated directory', invalid.stderr)
             self.assertFalse((cwd / 'relative-fixture').exists())

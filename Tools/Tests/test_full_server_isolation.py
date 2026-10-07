@@ -945,6 +945,16 @@ class FullServerIsolationTests(unittest.TestCase):
                         evidence = list({json.dumps(row, sort_keys=True): row for row in evidence}.values())
                         with contextlib.closing(sqlite3.connect(data / 'server.db')) as db:
                             clips, segments = recording_evidence(db, previous_clip_uid, previous_segment_uid)
+                            if os.environ.get('WITNESS_TEST_REQUIRE_RECORDING_FINALIZATION') == '1':
+                                finalized = [{'clipId': uid, 'state': state} for uid, state in db.execute(
+                                    'SELECT ClipUID,RecordingFinalized FROM Clip WHERE ClipUID>? ORDER BY ClipUID',
+                                    (previous_clip_uid,))]
+                                self.assertTrue(finalized and all(row['state'] == 1 for row in finalized),
+                                                'Every successful fixture recording must publish finalized state')
+                                (artifacts / f'full-server-recording-finalization-run-{run}.json').write_text(
+                                    json.dumps({'nativeBuildId': identity, 'clips': finalized,
+                                                'scope': 'fixture database state after graceful shutdown'}, indent=2),
+                                    encoding='utf-8')
                             progress_path = (artifacts / f'full-server-recording-progress-run-{run}.json'
                                 if os.environ.get('WITNESS_TEST_LONG_RECORDING_INSPECTION') == '1' else None)
                             decoded = verify_recordings(db, cache, previous_clip_uid, previous_segment_uid,
