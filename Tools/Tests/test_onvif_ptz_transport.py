@@ -19,7 +19,7 @@ WSU='http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-
 
 @unittest.skipUnless(os.getenv('WITNESS_ONVIF_PTZ_PROBE'), 'Set loopback probe executable')
 class OnvifTransportTests(unittest.TestCase):
-    def run_probe(self,operation,ack=None,unsupported=False,timeout='PT60S'):
+    def run_probe(self,operation,ack=None,unsupported=False,timeout='PT60S',reject_operation=None):
         calls=[];errors=[];nonces=set()
         test=self
         class Handler(BaseHTTPRequestHandler):
@@ -36,6 +36,8 @@ class OnvifTransportTests(unittest.TestCase):
                     test.assertNotIn(nonce,nonces);nonces.add(nonce)
                     body=root.find(f'{{{SOAP}}}Body')[0];ns,op=body.tag[1:].split('}')
                     calls.append((op,self.path,body))
+                    if op==reject_operation:
+                        self.send_error(400);return
                     if op=='GetCapabilities':
                         payload='' if unsupported else '<t:Media><t:XAddr>http://untrusted.invalid/onvif/media</t:XAddr></t:Media><t:PTZ><t:XAddr>http://untrusted.invalid/onvif/ptz</t:XAddr></t:PTZ>'
                         content=f'<r:GetCapabilitiesResponse xmlns:r="{DEVICE}"><r:Capabilities>{payload}</r:Capabilities></r:GetCapabilitiesResponse>'
@@ -59,6 +61,7 @@ class OnvifTransportTests(unittest.TestCase):
         finally:
             server.shutdown();server.server_close();thread.join()
         if errors: raise errors[0]
+        self.last_error=result.stderr
         return result.returncode,calls
 
     def test_move_and_timeout(self):
@@ -83,6 +86,10 @@ class OnvifTransportTests(unittest.TestCase):
     def test_unsafe_timeout_never_moves(self):
         code,calls=self.run_probe('move',timeout='PT0S');self.assertEqual(code,3)
         self.assertNotIn('ContinuousMove',[c[0] for c in calls])
+    def test_profile_transport_error_is_not_misreported_as_missing_ptz(self):
+        code,calls=self.run_probe('discover',reject_operation='GetProfiles')
+        self.assertEqual(code,3);self.assertIn('ONVIF GetProfiles: HTTP 400',self.last_error)
+        self.assertNotIn('No ONVIF PTZ media profile',self.last_error)
     def test_ambiguous_acknowledgements_fail(self):
         for ack in ['', '<html/>',f'<r:OtherResponse xmlns:r="{PTZ}"/>', f'<e:Fault/>',f'<r:StopResponse xmlns:r="wrong"/>']:
             with self.subTest(ack=ack):

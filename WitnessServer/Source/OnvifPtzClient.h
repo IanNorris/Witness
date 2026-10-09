@@ -18,6 +18,7 @@ public:
     std::vector<PtzPreset> Presets();
     bool GoToPreset(int id, ReolinkClient::SendAllowed allowed);
     std::string Error() const;
+    std::string ProfileEvidence() const;
 private:
     OnvifPtzClient(const std::string&, int, const std::string&, const std::string&);
     struct Impl;

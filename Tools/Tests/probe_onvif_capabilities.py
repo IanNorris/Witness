@@ -22,6 +22,9 @@ def main():
     parser.add_argument('--database',type=Path,required=True)
     parser.add_argument('--camera',type=int,required=True)
     parser.add_argument('--host',help='Explicit camera host when RTSP uses a proxy')
+    parser.add_argument('--clock-only',action='store_true',help='Unauthenticated read-only clock query')
+    parser.add_argument('--soap11',action='store_true',help='Read-only SOAP 1.1 compatibility diagnosis')
+    parser.add_argument('--camera-clock',action='store_true',help='Read and compensate device clock for WS-Security')
     parser.add_argument('--output',type=Path,required=True)
     args=parser.parse_args()
     if args.output.exists(): parser.error('Refusing to overwrite report')
@@ -33,20 +36,34 @@ def main():
     user=row[3] or urllib.parse.unquote(rtsp.username or '')
     password=row[4] or urllib.parse.unquote(rtsp.password or '')
     report={'cameraId':args.camera,'readOnly':True,'operations':[]}
+    clock_offset=datetime.timedelta()
     def call(path,namespace,operation,parameters=''):
-        nonce=secrets.token_bytes(16);created=datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+        soap_namespace='http://schemas.xmlsoap.org/soap/envelope/' if args.soap11 else SOAP
+        nonce=secrets.token_bytes(16);created=(datetime.datetime.now(datetime.timezone.utc)+clock_offset).strftime('%Y-%m-%dT%H:%M:%SZ')
         digest=base64.b64encode(hashlib.sha1(nonce+created.encode()+password.encode()).digest()).decode()
         root='http://docs.oasis-open.org/wss/2004/01/'
         security=f'<w:Security s:mustUnderstand="1" xmlns:w="{WSSE}" xmlns:u="{WSU}"><w:UsernameToken><w:Username>{escape(user)}</w:Username><w:Password Type="{root}oasis-200401-wss-username-token-profile-1.0#PasswordDigest">{digest}</w:Password><w:Nonce EncodingType="{root}oasis-200401-wss-soap-message-security-1.0#Base64Binary">{base64.b64encode(nonce).decode()}</w:Nonce><u:Created>{created}</u:Created></w:UsernameToken></w:Security>'
-        data=f'<s:Envelope xmlns:s="{SOAP}" xmlns:m="{namespace}"><s:Header>{security}</s:Header><s:Body><m:{operation}>{parameters}</m:{operation}></s:Body></s:Envelope>'.encode()
-        request=urllib.request.Request(f'http://{host}:{port}{path}',data=data,headers={'Content-Type':f'application/soap+xml; charset=utf-8; action="{namespace}/{operation}"'})
+        if args.clock_only or operation=='GetSystemDateAndTime': security=''
+        data=f'<s:Envelope xmlns:s="{soap_namespace}" xmlns:m="{namespace}" xmlns:tt="{SCHEMA}"><s:Header>{security}</s:Header><s:Body><m:{operation}>{parameters}</m:{operation}></s:Body></s:Envelope>'.encode()
+        content_type='text/xml; charset=utf-8' if args.soap11 else f'application/soap+xml; charset=utf-8; action="{namespace}/{operation}"'
+        request=urllib.request.Request(f'http://{host}:{port}{path}',data=data,headers={'Content-Type':content_type,'SOAPAction':f'"{namespace}/{operation}"'})
         # No redirects and no fallback to cloud/device control protocols.
         class NoRedirect(urllib.request.HTTPRedirectHandler):
             def redirect_request(self,*a,**kw): return None
-        with urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect()).open(request,timeout=5) as response:
-            payload=response.read(1024*1024+1)
+        try:
+            with urllib.request.build_opener(urllib.request.ProxyHandler({}),NoRedirect()).open(request,timeout=5) as response:
+                payload=response.read(1024*1024+1)
+        except urllib.error.HTTPError as error:
+            fault_data=error.read(65536)
+            try:
+                fault=ET.fromstring(fault_data)
+                report['faultValues']=[node.text for node in fault.iter() if node.tag.endswith(('}Value','}Text','faultcode','faultstring')) and node.text][:8]
+            except ET.ParseError: pass
+            raise
         if len(payload)>1024*1024 or b'<!DOCTYPE' in payload: raise ValueError('Invalid response')
-        tree=ET.fromstring(payload);body=tree.find(f'{{{SOAP}}}Body')
+        tree=ET.fromstring(payload);body=tree.find(f'{{{soap_namespace}}}Body')
+        if body is None: body=tree.find(f'{{{SOAP}}}Body')
+        if args.clock_only: report['rawClockResponse']=ET.tostring(tree,encoding='unicode')
         if body is None or len(body)!=1 or body[0].tag!=f'{{{namespace}}}{operation}Response': raise ValueError('Fault or missing acknowledgement')
         report['operations'].append(operation)
         return body[0]
@@ -55,12 +72,23 @@ def main():
         if not value.startswith('/onvif/'): raise ValueError('Invalid service path')
         return value
     try:
-        info=call('/onvif/device_service',DEVICE,'GetDeviceInformation')
-        report['model']=info.findtext(f'{{{DEVICE}}}Model');report['firmware']=info.findtext(f'{{{DEVICE}}}FirmwareVersion')
+        if args.camera_clock:
+            clock=call('/onvif/device_service',DEVICE,'GetSystemDateAndTime')
+            utc=clock.find(f'{{{DEVICE}}}SystemDateAndTime/{{{SCHEMA}}}UTCDateTime')
+            def component(parent,name): return int(utc.findtext(f'{{{SCHEMA}}}{parent}/{{{SCHEMA}}}{name}'))
+            camera_time=datetime.datetime(component('Date','Year'),component('Date','Month'),component('Date','Day'),component('Time','Hour'),component('Time','Minute'),component('Time','Second'),tzinfo=datetime.timezone.utc)
+            clock_offset=camera_time-datetime.datetime.now(datetime.timezone.utc)
+            report['clockOffsetSeconds']=round(clock_offset.total_seconds())
+        if args.clock_only:
+            clock=call('/onvif/device_service',DEVICE,'GetSystemDateAndTime')
+            report['clockXml']=ET.tostring(clock,encoding='unicode');report['success']=True
+            with args.output.open('x',encoding='utf8') as output: json.dump(report,output,indent=2)
+            print(json.dumps(report,indent=2));return 0
         caps=call('/onvif/device_service',DEVICE,'GetCapabilities','<m:Category>All</m:Category>')
         media=path(caps.findtext(f'{{{DEVICE}}}Capabilities/{{{SCHEMA}}}Media/{{{SCHEMA}}}XAddr'))
         ptz=path(caps.findtext(f'{{{DEVICE}}}Capabilities/{{{SCHEMA}}}PTZ/{{{SCHEMA}}}XAddr'))
         profiles=call(media,MEDIA,'GetProfiles')
+        report['profilesXml']=ET.tostring(profiles,encoding='unicode')
         configurations=[]
         for profile in profiles:
             config=profile.find(f'{{{SCHEMA}}}PTZConfiguration')

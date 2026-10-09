@@ -75,7 +75,7 @@ std::string ServicePath(const std::string& url) {
 
 struct OnvifPtzClient::Impl {
     std::recursive_mutex Mutex;
-    std::string Host, User, Password, LastError, MediaPath, PtzPath, Profile;
+    std::string Host, User, Password, LastError, MediaPath, PtzPath, Profile, ProfileXml;
     int Port;
     std::chrono::steady_clock::time_point Retry{};
     std::map<int, std::string> Tokens;
@@ -99,7 +99,7 @@ struct OnvifPtzClient::Impl {
         };
         if (allowed && !allowed()) { LastError="PTZ movement cancelled";return nullptr; }
         auto result = client.send(wire);
-        if (!result || result->status != 200) { LastError = "ONVIF " + operation + ": transport/authentication failure"; return nullptr; }
+        if (!result || result->status != 200) { LastError = "ONVIF " + operation + ": " + (result ? "HTTP " + std::to_string(result->status) : httplib::to_string(result.error())); return nullptr; }
         if (payload.find("<!DOCTYPE") != std::string::npos ||
             doc.Parse(payload.data(), payload.size()) != tinyxml2::XML_SUCCESS) {
             LastError = "ONVIF " + operation + ": invalid XML response"; return nullptr;
@@ -118,11 +118,15 @@ struct OnvifPtzClient::Impl {
         Retry = std::chrono::steady_clock::now() + std::chrono::seconds(30);
         tinyxml2::XMLDocument caps, profiles, options;
         auto response = Call("/onvif/device_service", Device, "GetCapabilities", "<m:Category>All</m:Category>", caps);
+        if(!response) return false;
+        {tinyxml2::XMLPrinter printer;caps.Print(&printer);ProfileXml=printer.CStr();}
         auto capabilities = Child(response, "Capabilities", Device);
         MediaPath = ServicePath(Text(Child(Child(capabilities, "Media", Schema), "XAddr", Schema)));
         PtzPath = ServicePath(Text(Child(Child(capabilities, "PTZ", Schema), "XAddr", Schema)));
         if (MediaPath.empty() || PtzPath.empty()) { LastError = "Camera does not advertise ONVIF PTZ"; return false; }
         response = Call(MediaPath, Media, "GetProfiles", "", profiles);
+        if(!response) return false;
+        {tinyxml2::XMLPrinter printer;profiles.Print(&printer);ProfileXml+=printer.CStr();}
         std::string configuration;
         for (auto p = response ? response->FirstChildElement() : nullptr; p; p = p->NextSiblingElement()) {
             if (!Is(p, "Profiles", Media)) continue;
@@ -133,6 +137,7 @@ struct OnvifPtzClient::Impl {
         }
         if (configuration.empty()) { LastError = "No ONVIF PTZ media profile"; return false; }
         response = Call(PtzPath, Ptz, "GetConfigurationOptions", "<m:ConfigurationToken>" + Escape(configuration) + "</m:ConfigurationToken>", options);
+        if(!response) return false;
         auto spaces = Child(Child(response, "PTZConfigurationOptions", Ptz), "Spaces", Schema);
         bool supported = false;
         for (auto p = spaces ? spaces->FirstChildElement() : nullptr; p; p = p->NextSiblingElement()) {
@@ -174,6 +179,7 @@ std::shared_ptr<OnvifPtzClient> OnvifPtzClient::Get(const std::string& h, int p,
     auto result = std::shared_ptr<OnvifPtzClient>(new OnvifPtzClient(h,p,u,pass)); clients.emplace(std::move(key),result); return result;
 }
 std::string OnvifPtzClient::Error() const { std::lock_guard lock(State->Mutex); return State->LastError; }
+std::string OnvifPtzClient::ProfileEvidence() const { std::lock_guard lock(State->Mutex);return State->ProfileXml; }
 bool OnvifPtzClient::Move(PtzOp op, int speed, ReolinkClient::SendAllowed allowed) {
     std::lock_guard lock(State->Mutex);
     double x=0,y=0;
