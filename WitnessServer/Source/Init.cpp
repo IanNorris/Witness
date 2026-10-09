@@ -735,6 +735,7 @@ void WitnessServer::StartCamera(const SQLiteDatabaseQuery& query)
 
 		PtzConfiguration PtzProvider;
 		PtzProvider.RtspPath = Camera.Path;
+        PtzProvider.Port = query.GetColumnValueInt(16);
 		if ((ptzEnabled || autoEnablePtz) && !PtzKnownUnsupported(PtzProvider))
 		{
 			const char* ptzHost = query.GetColumnValueText(15);

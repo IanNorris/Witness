@@ -16,11 +16,14 @@ struct PtzConfiguration
     }
 };
 
-// Only Reolink is implemented. Preserve explicit API-host configurations for
-// cameras with nonstandard RTSP paths, but never probe a standard Tapo stream
-// with Reolink login commands. URL profiles are hints, not general vendor IDs.
+// Standard Tapo stream paths use the separate ONVIF transport, never Reolink
+// login commands. URL profiles are hints, not general vendor IDs. This helper
+// remains the exclusion policy for the Reolink startup/discovery paths.
 inline bool PtzKnownUnsupported(const PtzConfiguration& Config)
 {
+    // Explicit Tapo ONVIF service port also works behind an RTSP proxy where
+    // the original /stream1 or /stream2 URL cannot identify the camera brand.
+    if (Config.Port == 2020) return true;
     const auto Scheme = Config.RtspPath.find("://");
     const auto Path = Scheme == std::string::npos ? std::string::npos : Config.RtspPath.find('/', Scheme + 3);
     if (Path != std::string::npos) {

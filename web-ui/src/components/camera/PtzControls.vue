@@ -14,6 +14,8 @@ const zoomPos = ref(0)
 const zoomMin = ref(0)
 const zoomMax = ref(33)
 const zoomLoaded = ref(false)
+const zoomSupported = ref(true)
+const panTiltSupported = ref(true)
 const presets = ref<Array<{ id: number; name: string }>>([])
 const presetId = ref<number | ''>('')
 const presetsLoading = ref(false)
@@ -44,6 +46,7 @@ const movement = createPtzMovement(
 let heldPointer: number | null = null
 
 function startMove(command: string) {
+  if (!panTiltSupported.value) return
   error.value = ''
   movement.start(props.cameraId, command, speed.value)
 }
@@ -109,16 +112,21 @@ async function fetchZoomState() {
   if (isMoving.value || zoomSendTimeout || zoomPending || zoomFetchPending || zoomUnavailable) return
   zoomFetchPending = true
   try {
-    const data = await api<{ valid: boolean; zoom: number; zoomMin: number; zoomMax: number }>(
+    const data = await api<{ valid: boolean; zoom: number; zoomMin: number; zoomMax: number; zoomSupported?: boolean; panTiltSupported?: boolean; error?: string }>(
       `/ptz/${cameraId}/zoom`, { redirectOnFail: false }
     )
+    if (alive && cameraId === props.cameraId && revision === zoomRevision) {
+      zoomSupported.value = data?.zoomSupported !== false
+      panTiltSupported.value = data?.panTiltSupported !== false
+      if (data?.error) error.value = data.error
+    }
     if (alive && cameraId === props.cameraId && revision === zoomRevision && data?.valid && !zoomSendTimeout && !zoomPending) {
       zoomPos.value = data.zoom
       if (data.zoomMin !== undefined) zoomMin.value = data.zoomMin
       if (data.zoomMax > 0) zoomMax.value = data.zoomMax
       zoomLoaded.value = true
     }
-    if (alive && cameraId === props.cameraId && revision === zoomRevision && data?.valid === false) zoomUnavailable = true
+    if (alive && cameraId === props.cameraId && revision === zoomRevision && data?.valid === false) zoomUnavailable = data.panTiltSupported !== false
   } catch {
     // Ignore - might not support absolute zoom
   } finally { zoomFetchPending = false }
@@ -188,6 +196,8 @@ watch(() => props.cameraId, () => {
   if (zoomSendTimeout) clearTimeout(zoomSendTimeout)
   zoomSendTimeout = null
   zoomLoaded.value = false
+  zoomSupported.value = true
+  panTiltSupported.value = true
   zoomUnavailable = false
   presets.value = []
   presetId.value = ''
@@ -203,7 +213,7 @@ watch(() => props.cameraId, () => {
     <!-- D-pad + Zoom row -->
     <div class="ptz-main">
       <!-- D-pad -->
-      <div class="ptz-dpad">
+      <div class="ptz-dpad" :class="{ 'ptz-unavailable': !panTiltSupported }">
       <button
         class="ptz-btn ptz-up"
         @pointerdown.prevent.stop="onMovePointer($event, 'up')"
@@ -288,7 +298,7 @@ watch(() => props.cameraId, () => {
       </div>
 
       <!-- Zoom slider (vertical) -->
-      <div class="ptz-zoom">
+      <div v-if="zoomSupported" class="ptz-zoom">
         <button class="ptz-btn" title="Hold to zoom in" aria-label="Zoom in"
           @pointerdown.prevent.stop="onMovePointer($event, 'zoomin')"
           @pointerup="onPointerStop" @pointercancel="onPointerStop" @lostpointercapture="onPointerStop"
@@ -344,6 +354,7 @@ watch(() => props.cameraId, () => {
 </template>
 
 <style scoped>
+.ptz-unavailable { opacity: 0.4; }
 .ptz-controls {
   display: flex;
   flex-direction: column;

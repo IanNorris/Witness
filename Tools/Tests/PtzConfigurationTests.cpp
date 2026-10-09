@@ -66,6 +66,8 @@ int main(int Argc, char** Argv)
         Check(!PtzDiscoverySupported(Provider), "unknown camera automatically probed as Reolink");
         Provider.Host = "explicit-reolink-api";
         Check(PtzDiscoverySupported(Provider), "explicit nonstandard Reolink API denied");
+        Provider.Port = 2020;
+        Check(!PtzDiscoverySupported(Provider) && PtzKnownUnsupported(Provider), "proxied Tapo ONVIF endpoint allowed Reolink discovery");
 
         Check(PtzControlAllowed(Database, 10, false), "enabled camera denied PTZ control");
         Check(!PtzControlAllowed(Database, 11, false), "disabled view inherited linked camera control");

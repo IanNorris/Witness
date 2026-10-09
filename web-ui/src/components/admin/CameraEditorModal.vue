@@ -231,6 +231,7 @@ function toggleGroup(groupId: number) {
                   <div class="col-md-3">
                     <label class="form-label small">API Port</label>
                     <input v-model.number="form.ptzApiPort" type="number" min="1" max="65535" class="form-control form-control-sm" />
+                    <div class="form-text">Tapo C210: use ONVIF port 2020 and the camera's own host, not an RTSP proxy.</div>
                   </div>
                   <div class="col-md-4">
                     <label class="form-label small">Username</label>

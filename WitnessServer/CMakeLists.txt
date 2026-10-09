@@ -5,6 +5,14 @@ find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs videoio objdetect
 find_package(unofficial-sodium CONFIG REQUIRED)
 find_package(unofficial-sqlite3 CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
+include_directories("${CMAKE_SOURCE_DIR}/ThirdParty/tinyxml2")
+add_executable(OnvifPtzProbe EXCLUDE_FROM_ALL
+    ../Tools/Tests/OnvifPtzProbe.cpp Source/OnvifPtzClient.cpp ../ThirdParty/tinyxml2/tinyxml2.cpp)
+target_include_directories(OnvifPtzProbe PRIVATE Source ${CMAKE_SOURCE_DIR}/ThirdParty/httplib)
+target_link_libraries(OnvifPtzProbe PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+if(MSVC)
+    target_compile_options(OnvifPtzProbe PRIVATE /utf-8 /W3)
+endif()
 
 set(SERVER_SOURCES
     Source/BuildIdentity.cpp
@@ -53,6 +61,8 @@ set(SERVER_SOURCES
     Source/PtzMovementLease.cpp
     Source/Recording.cpp
     Source/ReolinkClient.cpp
+    Source/OnvifPtzClient.cpp
+    ../ThirdParty/tinyxml2/tinyxml2.cpp
     Source/SetupConfig.cpp
     Source/SetupServer.cpp
     Source/Shutdown.cpp
@@ -68,6 +78,7 @@ set(SERVER_SOURCES
 )
 
 set(SERVER_HEADERS
+    Source/OnvifPtzClient.h
     Source/AudioIntelligenceWorker.h
     Source/AsyncWorker.h
     Source/AuthHelpers.h

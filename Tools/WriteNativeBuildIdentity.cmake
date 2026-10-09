@@ -1,6 +1,7 @@
 # Runs at build time, independently of the web bundle and Git commit timing.
 # Write only on content changes so web-only builds do not relink native code.
 file(GLOB_RECURSE inputs
+    "${SOURCE_ROOT}/ThirdParty/tinyxml2/*.cpp" "${SOURCE_ROOT}/ThirdParty/tinyxml2/*.h"
     "${SOURCE_ROOT}/WitnessCommon/*.cpp" "${SOURCE_ROOT}/WitnessCommon/*.h"
     "${SOURCE_ROOT}/WitnessCamera/*.cpp" "${SOURCE_ROOT}/WitnessCamera/*.h"
     "${SOURCE_ROOT}/WitnessServer/Source/*.cpp" "${SOURCE_ROOT}/WitnessServer/Source/*.h")

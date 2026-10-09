@@ -7,7 +7,9 @@
 #include "UrlHelpers.h"
 #include "PtzMovementLease.h"
 #include "PtzConfiguration.h"
+#include "OnvifPtzClient.h"
 #include <Log.h>
+#include <cmath>
 #ifndef WITNESS_CROW_ASYNC_RESPONSE_LIFETIME_PATCH
 #error PTZ deferred responses require the reviewed Crow response lifetime patch
 #endif
@@ -55,7 +57,7 @@ void CrowListener::DispatchPtz(const crow::request& req, crow::response& res, in
         const bool linkedSupported = linkedId > 0 && (m_GlobalContext->GetPtzClient(linkedId) ||
             m_GlobalContext->GetBaichuanClient(linkedId) ||
             PtzDiscoverySupported(ReadPtzConfiguration(m_GlobalContext->Database, linkedId)));
-        if (PtzKnownUnsupported(config) || (!PtzDiscoverySupported(config) && !linkedSupported &&
+        if (!PtzKnownUnsupported(config) && (!PtzDiscoverySupported(config) && !linkedSupported &&
             !m_GlobalContext->GetPtzClient(cameraId) && !m_GlobalContext->GetBaichuanClient(cameraId))) {
             res.code = 400; res.end("{\"error\":\"PTZ provider is not supported; only Reolink is currently implemented\"}"); return;
         }
@@ -105,6 +107,21 @@ void CrowListener::DispatchPtz(const crow::request& req, crow::response& res, in
         res.code = 503; res.set_header("Retry-After", "1");
         res.end("{\"error\":\"PTZ request queue is unavailable or full\"}");
     }
+}
+
+static std::shared_ptr<OnvifPtzClient> GetOnvifPtz(GlobalContext& ctx, int cameraId)
+{
+    auto config = ReadPtzConfiguration(ctx.Database, cameraId);
+    if (!PtzKnownUnsupported(config)) return nullptr;
+    std::string user, pass, host; int rtspPort = 0;
+    ParseRtspUrl(config.RtspPath, user, pass, host, rtspPort);
+    if (!config.Host.empty()) host = config.Host;
+    if (!config.Username.empty()) user = config.Username;
+    if (!config.Password.empty()) pass = config.Password;
+    // Existing Reolink defaults are not ONVIF service ports.
+    const int port = config.Port > 0 && config.Port != 443 && config.Port != 80 ? config.Port : 2020;
+    if (host.empty() || user.empty() || pass.empty()) return nullptr;
+    return OnvifPtzClient::Get(host, port, user, pass);
 }
 
 static int PtzLaneId(GlobalContext& ctx, int cameraId)
@@ -177,6 +194,7 @@ static void RespondNoPtz(crow::response& res)
 // Get PTZ client, trying linked camera and lazy init
 static std::shared_ptr<ReolinkClient> GetPtzClientForCamera(GlobalContext& ctx, int cameraId)
 {
+    if (PtzKnownUnsupported(ReadPtzConfiguration(ctx.Database, cameraId))) return nullptr;
 	auto client = ctx.GetPtzClient(cameraId);
 	if (client) return client;
 
@@ -285,6 +303,46 @@ void CrowListener::HandlePtzCommand(const crow::request& req, crow::response& re
 	}
 	std::shared_ptr<ReolinkClient> client;
 	const int deviceId = PtzLaneId(*m_GlobalContext, cameraId);
+
+    if (PtzKnownUnsupported(ReadPtzConfiguration(m_GlobalContext->Database, cameraId))) {
+        // A Stop always uses the retained transport first, including after a
+        // configuration edit/disable. Failed acknowledgements remain retryable.
+        auto retained = command == "stop" ? lease->StopExisting(deviceId) : std::optional<bool>{};
+        auto onvif = retained.has_value() ? nullptr : GetOnvifPtz(*m_GlobalContext, cameraId);
+        bool ok = false;
+        if (retained.has_value()) ok = *retained;
+        else if (onvif) {
+            int speed = 32;
+            if (body && body.has("speed")) {
+                if (body["speed"].t() != crow::json::type::Number || body["speed"].d()<1 || body["speed"].d()>64 || std::floor(body["speed"].d())!=body["speed"].d()) {
+                    res.code=400; res.end("{\"error\":\"speed must be an integer from 1 to 64\"}"); return;
+                }
+                speed=static_cast<int>(body["speed"].d());
+            }
+            if (command == "stop") {
+                // Discovery failure cannot have moved a motor: do not create a
+                // perpetual safety-Stop retry for an unsupported/offline device.
+                if(onvif->SupportsPanTilt()) ok=lease->Stop(deviceId,[onvif]{return onvif->Stop();});
+            }
+            else if (command == "preset") {
+                if (!body || !body.has("id") || body["id"].t()!=crow::json::type::Number || body["id"].d()<1 || body["id"].d()>65535 || std::floor(body["id"].d())!=body["id"].d()) {
+                    res.code=400;res.end("{\"error\":\"Invalid preset id\"}");return;
+                }
+                const int id=static_cast<int>(body["id"].d());
+                ok=lease->Position(deviceId,[onvif,id]{return onvif->GoToPreset(id,[]{return !PtzRequestExecutor::MovementCancelled();});});
+            } else {
+                const auto op=ParsePtzCommand(command);
+                if (op==PtzOp::Stop || op==PtzOp::ZoomInc || op==PtzOp::ZoomDec || op==PtzOp::FocusInc || op==PtzOp::FocusDec) {
+                    res.code=400;res.end("{\"error\":\"This ONVIF transport supports pan/tilt only\"}");return;
+                }
+                if(onvif->SupportsPanTilt()) ok=lease->Move(deviceId,[onvif,op,speed]{return onvif->Move(op,speed,[]{return !PtzRequestExecutor::MovementCancelled();});},[onvif]{return onvif->Stop();});
+            }
+        }
+        crow::json::wvalue result; result["success"]=ok;
+        if(!ok) result["error"]=onvif?onvif->Error():"ONVIF PTZ unavailable";
+        res.code=PtzRequestExecutor::MovementCancelled()?409:ok?200:502;
+        res.end(result.dump());return;
+    }
 
 	// Try Baichuan client: direct camera first, then linked camera
 	auto bcClient = m_GlobalContext->GetBaichuanClient(cameraId);
@@ -459,6 +517,14 @@ void CrowListener::HandlePtzZoomGet(const crow::request& req, crow::response& re
 	if (!lease) { res.code = 503; res.end(); return; }
 	auto Control = lease->AcquireControl();
 	if (!ValidateQueuedPtzConfiguration(*m_GlobalContext, res)) return;
+    if (PtzKnownUnsupported(ReadPtzConfiguration(m_GlobalContext->Database, cameraId))) {
+        auto onvif=GetOnvifPtz(*m_GlobalContext,cameraId);
+        const bool supported=onvif && onvif->SupportsPanTilt();
+        crow::json::wvalue result; result["valid"]=false;result["provider"]="onvif";
+        result["panTiltSupported"]=supported;result["zoomSupported"]=false;
+        if(!supported) result["error"]=onvif?onvif->Error():"Missing ONVIF camera credentials";
+        res.code=200;res.end(result.dump());return;
+    }
 	auto client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
 	if (!client)
 	{
@@ -550,6 +616,16 @@ void CrowListener::HandlePtzPresets(const crow::request& req, crow::response& re
 	if (!lease) { res.code = 503; res.end(); return; }
 	auto Control = lease->AcquireControl();
 	if (!ValidateQueuedPtzConfiguration(*m_GlobalContext, res)) return;
+    if (PtzKnownUnsupported(ReadPtzConfiguration(m_GlobalContext->Database, cameraId))) {
+        auto onvif=GetOnvifPtz(*m_GlobalContext,cameraId);
+        std::vector<crow::json::wvalue> values;
+        if(onvif) for(const auto& p:onvif->Presets()) {
+            crow::json::wvalue value;value["id"]=p.Id;value["name"]=p.Name;value["enabled"]=p.Enabled;values.push_back(std::move(value));
+        }
+        crow::json::wvalue result;result["presets"]=std::move(values);
+        if(onvif && !onvif->Error().empty()) result["error"]=onvif->Error();
+        res.code=onvif && onvif->Error().empty()?200:502;res.end(result.dump());return;
+    }
 	auto client = GetPtzClientForCamera(*m_GlobalContext, cameraId);
 	if (!client)
 	{
@@ -695,6 +771,14 @@ void CrowListener::HandlePtzTest(const crow::request& req, crow::response& res)
 	int port = body.has("port") ? (int)body["port"].i() : 443;
 	std::string username = std::string(body["username"].s());
 	std::string password = std::string(body["password"].s());
+
+    if (port == 2020) {
+        auto onvif=OnvifPtzClient::Get(host,port,username,password);
+        const bool ok=onvif && onvif->SupportsPanTilt();
+        crow::json::wvalue result;result["success"]=ok;result["positionValid"]=false;
+        result["message"]=ok?"ONVIF pan/tilt connected":onvif?onvif->Error():"ONVIF client capacity reached";
+        res.code=200;res.end(result.dump());return;
+    }
 
 	// Clear failure cache for this host so the test always actually tries
 	ReolinkClient::ClearFailureCache(host);

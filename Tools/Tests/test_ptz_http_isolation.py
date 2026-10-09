@@ -16,6 +16,7 @@ import time
 import unittest
 import urllib.error
 import urllib.request
+import xml.etree.ElementTree as ET
 from quiet_subprocess import quiet_process_options
 from test_full_server_isolation import loopback_port, stop_console_process
 
@@ -29,6 +30,7 @@ class PtzHttpIsolationTests(unittest.TestCase):
         release = threading.Event()
         entered = [threading.Event() for _ in range(3)]
         events = []
+        onvif_events = []
         events_lock = threading.Lock()
         with ExitStack() as stack:
             ports = []
@@ -39,6 +41,19 @@ class PtzHttpIsolationTests(unittest.TestCase):
                             super().setup(); self.connection.settimeout(.5)
                         def log_message(self, *args): pass
                         def do_POST(self):
+                            if self.path.startswith('/onvif/'):
+                                soap='http://www.w3.org/2003/05/soap-envelope'; schema='http://www.onvif.org/ver10/schema'
+                                operation=ET.fromstring(self.rfile.read(int(self.headers['Content-Length']))).find('{'+soap+'}Body')[0]
+                                namespace,name=operation.tag[1:].split('}')
+                                onvif_events.append((camera,name))
+                                content=''
+                                if name=='GetCapabilities':
+                                    content='<m:Capabilities>' + ('<t:Media><t:XAddr>/onvif/media</t:XAddr></t:Media><t:PTZ><t:XAddr>/onvif/ptz</t:XAddr></t:PTZ>' if camera==1 else '') + '</m:Capabilities>'
+                                elif name=='GetProfiles': content='<m:Profiles token="profile"><t:PTZConfiguration token="config"/></m:Profiles>'
+                                elif name=='GetConfigurationOptions': content='<m:PTZConfigurationOptions><t:Spaces><t:ContinuousPanTiltVelocitySpace><t:URI>http://www.onvif.org/ver10/tptz/PanTiltSpaces/VelocityGenericSpace</t:URI><t:XRange><t:Min>-1</t:Min><t:Max>1</t:Max></t:XRange><t:YRange><t:Min>-1</t:Min><t:Max>1</t:Max></t:YRange></t:ContinuousPanTiltVelocitySpace></t:Spaces><t:PTZTimeout><t:Min>PT1S</t:Min><t:Max>PT10S</t:Max></t:PTZTimeout></m:PTZConfigurationOptions>'
+                                elif name=='GetPresets': content='<m:Preset token="gate"><t:Name>Gate</t:Name></m:Preset>'
+                                payload=f'<s:Envelope xmlns:s="{soap}" xmlns:m="{namespace}" xmlns:t="{schema}"><s:Body><m:{name}Response>{content}</m:{name}Response></s:Body></s:Envelope>'.encode()
+                                self.send_response(200);self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload);return
                             command = json.loads(self.rfile.read(int(self.headers['Content-Length'])))[0]
                             name = command['cmd']
                             with events_lock: events.append((camera, name, command.get('param', {}).get('op')))
@@ -81,6 +96,9 @@ class PtzHttpIsolationTests(unittest.TestCase):
                     db.execute('INSERT INTO Camera(CameraName,CameraString,CameraStringSub,Enabled,SkipFrames,MDFrameHeight,MDThreshold,PtzEnabled,PtzApiHost,PtzApiPort,PtzUsername,PtzPassword) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
                         ('Unsupported fixture', 'rtsp://fixture:fixture@127.0.0.1/stream1', '', 0, 1, 400, .99, 1, '127.0.0.1', ports[0], 'fixture', 'fixture'))
                     db.execute('INSERT INTO CameraGroupMapping VALUES(4,1)'); db.commit()
+                    db.execute('INSERT INTO Camera(CameraName,CameraString,CameraStringSub,Enabled,SkipFrames,MDFrameHeight,MDThreshold,PtzEnabled,PtzApiHost,PtzApiPort,PtzUsername,PtzPassword) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)',
+                        ('ONVIF fixture', 'rtsp://fixture:fixture@127.0.0.1/stream1', '', 0, 1, 400, .99, 1, '127.0.0.1', ports[1], 'fixture', 'fixture'))
+                    db.execute('INSERT INTO CameraGroupMapping VALUES(5,1)');db.commit()
                 def request(path, body=None, authenticated=True, timeout=3):
                     headers = {'Cookie': f'SessionToken-{port}={token}'} if authenticated else {}
                     if body is not None: headers['Content-Type'] = 'application/json'
@@ -127,11 +145,19 @@ class PtzHttpIsolationTests(unittest.TestCase):
                         self.assertEqual(request('/ptz/4/zoom', authenticated=False)[0], 403)
                         self.assertEqual(request('/ptz/1/left', {'csrf': 'invalid', 'speed': 1})[0], 403)
                         start = time.monotonic()
-                        self.assertEqual(request('/ptz/4/zoom')[0], 400)
-                        self.assertEqual(request('/ptz/4/presets')[0], 400)
-                        self.assertEqual(request('/ptz/4/left', {'csrf': csrf, 'speed': 1})[0], 400)
+                        status, capability = request('/ptz/4/zoom')
+                        self.assertEqual(status, 200); self.assertFalse(json.loads(capability)['panTiltSupported'])
+                        self.assertEqual(request('/ptz/4/presets')[0], 502)
+                        self.assertEqual(request('/ptz/4/left', {'csrf': csrf, 'speed': 1})[0], 502)
                         unsupported_ms = (time.monotonic() - start) * 1000
                         self.assertLess(unsupported_ms, 500); self.assertEqual(events, [])
+                        status, capability=request('/ptz/5/zoom')
+                        self.assertEqual(status,200);self.assertTrue(json.loads(capability)['panTiltSupported']);self.assertFalse(json.loads(capability)['zoomSupported'])
+                        self.assertEqual(request('/ptz/5/presets')[0],200)
+                        self.assertEqual(request('/ptz/5/left',{'csrf':csrf,'speed':32})[0],200)
+                        self.assertEqual(request('/ptz/5/stop',{'csrf':csrf,'speed':32})[0],200)
+                        self.assertEqual(request('/ptz/5/preset',{'csrf':csrf,'id':1})[0],200)
+                        self.assertEqual([name for camera,name in onvif_events if camera==1][-3:],['ContinuousMove','Stop','GotoPreset'])
                         with ThreadPoolExecutor(max_workers=5) as pool:
                             polls = [pool.submit(request, f'/ptz/{camera}/zoom', timeout=10) for camera in range(1, 4)]
                             for flag in entered: self.assertTrue(flag.wait(4), 'mock zoom not entered')
