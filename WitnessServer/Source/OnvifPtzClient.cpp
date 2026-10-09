@@ -14,6 +14,7 @@
 
 namespace {
 constexpr const char* Soap = "http://www.w3.org/2003/05/soap-envelope";
+constexpr const char* Soap11 = "http://schemas.xmlsoap.org/soap/envelope/";
 constexpr const char* Schema = "http://www.onvif.org/ver10/schema";
 constexpr const char* Device = "http://www.onvif.org/ver10/device/wsdl";
 constexpr const char* Media = "http://www.onvif.org/ver10/media/wsdl";
@@ -47,10 +48,10 @@ std::string Base64(const unsigned char* data, int length) {
     std::string out(static_cast<size_t>(4 * ((length + 2) / 3)), '\0');
     EVP_EncodeBlock(reinterpret_cast<unsigned char*>(out.data()), data, length); return out;
 }
-std::string Security(const std::string& user, const std::string& password) {
+std::string Security(const std::string& user, const std::string& password, std::time_t now) {
     unsigned char nonce[16], digest[EVP_MAX_MD_SIZE]; unsigned int length = 0;
     if (RAND_bytes(nonce, sizeof(nonce)) != 1) throw std::runtime_error("ONVIF nonce generation failed");
-    const std::time_t now = std::time(nullptr); std::tm utc{};
+    std::tm utc{};
 #ifdef _WIN32
     gmtime_s(&utc, &now);
 #else
@@ -80,6 +81,9 @@ struct OnvifPtzClient::Impl {
     std::chrono::steady_clock::time_point Retry{};
     std::map<int, std::string> Tokens;
     bool Ready = false;
+    bool LegacySoap = false;
+    std::chrono::sys_seconds CameraClock{};
+    std::chrono::steady_clock::time_point ClockAnchor{};
     std::string MoveTimeout = "PT10S";
     Impl(const std::string& host, int port, const std::string& user, const std::string& pass) : Host(host), User(user), Password(pass), Port(port) {}
     Element* Call(const std::string& path, const char* ns, const std::string& operation,
@@ -89,9 +93,13 @@ struct OnvifPtzClient::Impl {
         client.set_connection_timeout(2); client.set_read_timeout(3); client.set_write_timeout(2);
         // WS-Security only: no HTTP-auth retry may replay a cancelled movement.
         client.set_follow_location(false);
-        const std::string request = "<s:Envelope xmlns:s=\"" + std::string(Soap) + "\" xmlns:tt=\"" + Schema + "\" xmlns:m=\"" + ns + "\"><s:Header>" + Security(User, Password) + "</s:Header><s:Body><m:" + operation + ">" + parameters + "</m:" + operation + "></s:Body></s:Envelope>";
+        const bool clockQuery = operation=="GetSystemDateAndTime";
+        const auto cameraNow=CameraClock+std::chrono::duration_cast<std::chrono::seconds>(std::chrono::steady_clock::now()-ClockAnchor);
+        const std::string security=clockQuery?"":Security(User,Password,std::chrono::system_clock::to_time_t(cameraNow));
+        const std::string request = "<s:Envelope xmlns:s=\"" + std::string(LegacySoap?Soap11:Soap) + "\" xmlns:tt=\"" + Schema + "\" xmlns:m=\"" + ns + "\"><s:Header>" + security + "</s:Header><s:Body><m:" + operation + ">" + parameters + "</m:" + operation + "></s:Body></s:Envelope>";
         httplib::Request wire; wire.method="POST";wire.path=path;wire.body=request;
-        wire.set_header("Content-Type", "application/soap+xml; charset=utf-8; action=\"" + std::string(ns) + "/" + operation + "\"");
+        wire.set_header("Content-Type", LegacySoap?"text/xml; charset=utf-8":"application/soap+xml; charset=utf-8; action=\"" + std::string(ns) + "/" + operation + "\"");
+        wire.set_header("SOAPAction", "\""+std::string(ns)+"/"+operation+"\"");
         std::string payload;
         wire.content_receiver=[&payload](const char* data,size_t size,uint64_t,uint64_t) {
             if(size>1024*1024-payload.size()) return false;
@@ -105,17 +113,38 @@ struct OnvifPtzClient::Impl {
             LastError = "ONVIF " + operation + ": invalid XML response"; return nullptr;
         }
         auto envelope = doc.RootElement();
-        auto body = Is(envelope, "Envelope", Soap) && !envelope->NextSiblingElement() ? Child(envelope, "Body", Soap) : nullptr;
+        const char* responseSoap=Is(envelope,"Envelope",Soap)?Soap:LegacySoap&&Is(envelope,"Envelope",Soap11)?Soap11:nullptr;
+        auto body = responseSoap && !envelope->NextSiblingElement() ? Child(envelope, "Body", responseSoap) : nullptr;
         auto response = body ? body->FirstChildElement() : nullptr;
         if (!Is(response, (operation + "Response").c_str(), ns) || response->NextSiblingElement()) {
             LastError = "ONVIF " + operation + ": fault or missing acknowledgement"; return nullptr;
         }
         LastError.clear(); return response;
     }
+    bool ReadClock() {
+        tinyxml2::XMLDocument doc;
+        auto response=Call("/onvif/device_service",Device,"GetSystemDateAndTime","",doc);
+        if(!response && !LegacySoap) {
+            // Only the unauthenticated, read-only clock query negotiates the
+            // firmware's SOAP format. Never retry/replay a motor command.
+            LegacySoap=true;doc.Clear();response=Call("/onvif/device_service",Device,"GetSystemDateAndTime","",doc);
+        }
+        if(!response) return false;
+        auto utc=Child(Child(response,"SystemDateAndTime",Device),"UTCDateTime",Schema);
+        auto date=Child(utc,"Date",Schema),time=Child(utc,"Time",Schema);
+        auto number=[](Element* parent,const char* name,int& value) {auto e=Child(parent,name,Schema);return e && e->QueryIntText(&value)==tinyxml2::XML_SUCCESS;};
+        int y=0,m=0,d=0,h=0,min=0,s=0;
+        const bool values=number(date,"Year",y)&&number(date,"Month",m)&&number(date,"Day",d)&&number(time,"Hour",h)&&number(time,"Minute",min)&&number(time,"Second",s);
+        const std::chrono::year_month_day day{std::chrono::year(y),std::chrono::month(static_cast<unsigned>(m)),std::chrono::day(static_cast<unsigned>(d))};
+        if(!values || y<1970 || y>9999 || m<1 || m>12 || d<1 || d>31 || !day.ok() || h<0 || h>23 || min<0 || min>59 || s<0 || s>59) {LastError="Invalid ONVIF camera UTC clock";return false;}
+        CameraClock=std::chrono::sys_days(day)+std::chrono::hours(h)+std::chrono::minutes(min)+std::chrono::seconds(s);
+        ClockAnchor=std::chrono::steady_clock::now();return true;
+    }
     bool Discover() {
-        if (Ready) return true;
+        if (Ready) return std::chrono::steady_clock::now()-ClockAnchor<std::chrono::minutes(5) || ReadClock();
         if (std::chrono::steady_clock::now() < Retry) return false;
         Retry = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+        if(!ReadClock()) return false;
         tinyxml2::XMLDocument caps, profiles, options;
         auto response = Call("/onvif/device_service", Device, "GetCapabilities", "<m:Category>All</m:Category>", caps);
         if(!response) return false;

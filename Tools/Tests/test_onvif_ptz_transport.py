@@ -1,6 +1,7 @@
 """ONVIF PTZ wire tests against loopback fixtures; never contacts cameras."""
 import base64
 import hashlib
+import datetime
 import os
 import subprocess
 import threading
@@ -19,22 +20,35 @@ WSU='http://docs.oasis-open.org/wss/2004/01/oasis-200401-wss-wssecurity-utility-
 
 @unittest.skipUnless(os.getenv('WITNESS_ONVIF_PTZ_PROBE'), 'Set loopback probe executable')
 class OnvifTransportTests(unittest.TestCase):
-    def run_probe(self,operation,ack=None,unsupported=False,timeout='PT60S',reject_operation=None):
+    def run_probe(self,operation,ack=None,unsupported=False,timeout='PT60S',reject_operation=None,legacy=False):
         calls=[];errors=[];nonces=set()
         test=self
         class Handler(BaseHTTPRequestHandler):
             def log_message(self,*args): pass
             def do_POST(self):
                 try:
-                    root=ET.fromstring(self.rfile.read(int(self.headers['Content-Length'])))
+                    data=self.rfile.read(int(self.headers['Content-Length']))
+                    if legacy and not self.headers['Content-Type'].startswith('text/xml'):
+                        self.send_error(415);return
+                    root=ET.fromstring(data)
+                    body=root.find(f'{{{SOAP}}}Body')
+                    if body is None: body=root.find('{http://schemas.xmlsoap.org/soap/envelope/}Body')
+                    body=body[0];ns,op=body.tag[1:].split('}')
+                    if op=='GetSystemDateAndTime':
+                        test.assertIsNone(root.find(f'.//{{{WSSE}}}UsernameToken'))
+                        now=datetime.datetime.now(datetime.timezone.utc)-datetime.timedelta(days=346)
+                        content=f'<r:GetSystemDateAndTimeResponse xmlns:r="{DEVICE}"><r:SystemDateAndTime><t:UTCDateTime><t:Date><t:Year>{now.year}</t:Year><t:Month>{now.month}</t:Month><t:Day>{now.day}</t:Day></t:Date><t:Time><t:Hour>{now.hour}</t:Hour><t:Minute>{now.minute}</t:Minute><t:Second>{now.second}</t:Second></t:Time></t:UTCDateTime></r:SystemDateAndTime></r:GetSystemDateAndTimeResponse>'
+                        data=f'<e:Envelope xmlns:e="{SOAP}" xmlns:t="{SCHEMA}"><e:Body>{content}</e:Body></e:Envelope>'.encode()
+                        self.send_response(200);self.send_header('Content-Length',str(len(data)));self.end_headers();self.wfile.write(data);return
                     token=root.find(f'.//{{{WSSE}}}UsernameToken')
                     test.assertEqual(token.findtext(f'{{{WSSE}}}Username'),'fixture&user')
                     nonce=base64.b64decode(token.findtext(f'{{{WSSE}}}Nonce'))
                     created=token.findtext(f'{{{WSU}}}Created')
+                    timestamp=datetime.datetime.strptime(created,'%Y-%m-%dT%H:%M:%SZ').replace(tzinfo=datetime.timezone.utc)
+                    test.assertLess(abs((timestamp-(datetime.datetime.now(datetime.timezone.utc)-datetime.timedelta(days=346))).total_seconds()),5)
                     expected=base64.b64encode(hashlib.sha1(nonce+created.encode()+b'fixture-password').digest()).decode()
                     test.assertEqual(token.findtext(f'{{{WSSE}}}Password'),expected)
                     test.assertNotIn(nonce,nonces);nonces.add(nonce)
-                    body=root.find(f'{{{SOAP}}}Body')[0];ns,op=body.tag[1:].split('}')
                     calls.append((op,self.path,body))
                     if op==reject_operation:
                         self.send_error(400);return
@@ -71,6 +85,9 @@ class OnvifTransportTests(unittest.TestCase):
         self.assertEqual(float(velocity.get('x')),-.5);self.assertEqual(float(velocity.get('y')),.5)
         self.assertEqual(move.findtext(f'{{{PTZ}}}Timeout'),'PT5.000000S')
         self.assertEqual(calls[-1][1],'/onvif/ptz')
+    def test_legacy_format_negotiated_only_on_read_only_clock_query(self):
+        code,calls=self.run_probe('move',legacy=True);self.assertEqual(code,0)
+        self.assertEqual([c[0] for c in calls].count('ContinuousMove'),1)
     def test_stop(self):
         code,calls=self.run_probe('stop');self.assertEqual(code,0)
         self.assertEqual(calls[-1][0],'Stop');self.assertEqual(calls[-1][2].findtext(f'{{{PTZ}}}PanTilt'),'true')

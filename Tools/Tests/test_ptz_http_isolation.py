@@ -13,6 +13,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import datetime
 import unittest
 import urllib.error
 import urllib.request
@@ -47,7 +48,10 @@ class PtzHttpIsolationTests(unittest.TestCase):
                                 namespace,name=operation.tag[1:].split('}')
                                 onvif_events.append((camera,name))
                                 content=''
-                                if name=='GetCapabilities':
+                                if name=='GetSystemDateAndTime':
+                                    now=datetime.datetime.now(datetime.timezone.utc)
+                                    content=f'<m:SystemDateAndTime><t:UTCDateTime><t:Date><t:Year>{now.year}</t:Year><t:Month>{now.month}</t:Month><t:Day>{now.day}</t:Day></t:Date><t:Time><t:Hour>{now.hour}</t:Hour><t:Minute>{now.minute}</t:Minute><t:Second>{now.second}</t:Second></t:Time></t:UTCDateTime></m:SystemDateAndTime>'
+                                elif name=='GetCapabilities':
                                     content='<m:Capabilities>' + ('<t:Media><t:XAddr>/onvif/media</t:XAddr></t:Media><t:PTZ><t:XAddr>/onvif/ptz</t:XAddr></t:PTZ>' if camera==1 else '') + '</m:Capabilities>'
                                 elif name=='GetProfiles': content='<m:Profiles token="profile"><t:PTZConfiguration token="config"/></m:Profiles>'
                                 elif name=='GetConfigurationOptions': content='<m:PTZConfigurationOptions><t:Spaces><t:ContinuousPanTiltVelocitySpace><t:URI>http://www.onvif.org/ver10/tptz/PanTiltSpaces/VelocityGenericSpace</t:URI><t:XRange><t:Min>-1</t:Min><t:Max>1</t:Max></t:XRange><t:YRange><t:Min>-1</t:Min><t:Max>1</t:Max></t:YRange></t:ContinuousPanTiltVelocitySpace></t:Spaces><t:PTZTimeout><t:Min>PT1S</t:Min><t:Max>PT10S</t:Max></t:PTZTimeout></m:PTZConfigurationOptions>'
@@ -183,13 +187,22 @@ class PtzHttpIsolationTests(unittest.TestCase):
                         # the gesture a free worker: it waits inside the real
                         # HTTP-client lock, and Stop must invalidate it there.
                         entered[0].clear(); release.clear()
+                        def wait_active(path):
+                            deadline=time.monotonic()+3
+                            while time.monotonic()<deadline:
+                                status,body=request('/debug/health?workSamples=0&details=1',timeout=1)
+                                self.assertEqual(status,200)
+                                active=json.loads(body)['server']['http']['activeRequests']
+                                if any(row['path']==path and row['elapsedMs']>=50 for row in active): return
+                                time.sleep(.01)
+                            self.fail(f'Request never reached server: {path}')
                         with ThreadPoolExecutor(max_workers=3) as pool:
                             poll = pool.submit(request, '/ptz/1/zoom', timeout=10)
                             self.assertTrue(entered[0].wait(2))
                             gesture = pool.submit(request, '/ptz/1/left', {'csrf': csrf, 'speed': 1}, timeout=10)
-                            time.sleep(.1)
+                            wait_active('/ptz/1/left')
                             stop = pool.submit(request, '/ptz/1/stop', {'csrf': csrf}, timeout=10)
-                            time.sleep(.1); release.set()
+                            wait_active('/ptz/1/stop'); release.set()
                             self.assertEqual(poll.result(timeout=5)[0], 200)
                             self.assertEqual(gesture.result(timeout=5)[0], 409)
                             self.assertEqual(stop.result(timeout=5)[0], 200)
