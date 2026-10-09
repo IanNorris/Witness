@@ -32,6 +32,7 @@ class PtzHttpIsolationTests(unittest.TestCase):
         entered = [threading.Event() for _ in range(3)]
         events = []
         onvif_events = []
+        reject_onvif_move = threading.Event()
         events_lock = threading.Lock()
         with ExitStack() as stack:
             ports = []
@@ -47,6 +48,8 @@ class PtzHttpIsolationTests(unittest.TestCase):
                                 operation=ET.fromstring(self.rfile.read(int(self.headers['Content-Length']))).find('{'+soap+'}Body')[0]
                                 namespace,name=operation.tag[1:].split('}')
                                 onvif_events.append((camera,name))
+                                if name=='ContinuousMove' and reject_onvif_move.is_set():
+                                    self.send_error(400);return
                                 content=''
                                 if name=='GetSystemDateAndTime':
                                     now=datetime.datetime.now(datetime.timezone.utc)
@@ -162,6 +165,12 @@ class PtzHttpIsolationTests(unittest.TestCase):
                         self.assertEqual(request('/ptz/5/stop',{'csrf':csrf,'speed':32})[0],200)
                         self.assertEqual(request('/ptz/5/preset',{'csrf':csrf,'id':1})[0],200)
                         self.assertEqual([name for camera,name in onvif_events if camera==1][-3:],['ContinuousMove','Stop','GotoPreset'])
+                        reject_onvif_move.set()
+                        status, failure=request('/ptz/5/left',{'csrf':csrf,'speed':32})
+                        self.assertEqual(status,502)
+                        self.assertEqual(json.loads(failure)['error'],'ONVIF ContinuousMove: HTTP 400')
+                        self.assertEqual(request('/ptz/5/stop',{'csrf':csrf})[0],200)
+                        reject_onvif_move.clear()
                         with ThreadPoolExecutor(max_workers=5) as pool:
                             polls = [pool.submit(request, f'/ptz/{camera}/zoom', timeout=10) for camera in range(1, 4)]
                             for flag in entered: self.assertTrue(flag.wait(4), 'mock zoom not entered')

@@ -187,7 +187,11 @@ struct OnvifPtzClient::Impl {
         };
         const double minimum=seconds(Text(Child(timeout,"Min",Schema))), maximum=seconds(Text(Child(timeout,"Max",Schema)));
         if(minimum<=0 || maximum<minimum || minimum>10) {LastError="Camera does not advertise a safe PTZ timeout range";return false;}
-        MoveTimeout="PT"+std::to_string(std::min(10.0,maximum))+"S";
+        // C210 firmware rejects fractional lexical durations even when the
+        // value is integral (PT10.000000S). Prefer whole seconds within the
+        // advertised range; never replay a motor command to negotiate this.
+        const double limit=std::min(10.0,maximum), whole=std::floor(limit);
+        MoveTimeout="PT"+(whole>=minimum?std::to_string(static_cast<int>(whole)):std::to_string(limit))+"S";
         Ready = true; return true;
     }
     std::string Token() const { return "<m:ProfileToken>" + Escape(Profile) + "</m:ProfileToken>"; }

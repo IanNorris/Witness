@@ -310,6 +310,7 @@ void CrowListener::HandlePtzCommand(const crow::request& req, crow::response& re
         auto retained = command == "stop" ? lease->StopExisting(deviceId) : std::optional<bool>{};
         auto onvif = retained.has_value() ? nullptr : GetOnvifPtz(*m_GlobalContext, cameraId);
         bool ok = false;
+        std::string operationError;
         if (retained.has_value()) ok = *retained;
         else if (onvif) {
             int speed = 32;
@@ -335,11 +336,20 @@ void CrowListener::HandlePtzCommand(const crow::request& req, crow::response& re
                 if (op==PtzOp::Stop || op==PtzOp::ZoomInc || op==PtzOp::ZoomDec || op==PtzOp::FocusInc || op==PtzOp::FocusDec) {
                     res.code=400;res.end("{\"error\":\"This ONVIF transport supports pan/tilt only\"}");return;
                 }
-                if(onvif->SupportsPanTilt()) ok=lease->Move(deviceId,[onvif,op,speed]{return onvif->Move(op,speed,[]{return !PtzRequestExecutor::MovementCancelled();});},[onvif]{return onvif->Stop();});
+                if(onvif->SupportsPanTilt()) ok=lease->Move(deviceId,[onvif,op,speed,&operationError]{
+                    const bool moved=onvif->Move(op,speed,[]{return !PtzRequestExecutor::MovementCancelled();});
+                    // Capture before the lease's safety Stop can acknowledge
+                    // successfully and clear the shared client's last error.
+                    if(!moved) operationError=onvif->Error();
+                    return moved;
+                },[onvif]{return onvif->Stop();});
             }
         }
         crow::json::wvalue result; result["success"]=ok;
-        if(!ok) result["error"]=onvif?onvif->Error():"ONVIF PTZ unavailable";
+        if(!ok) {
+            if(operationError.empty()) operationError=onvif?onvif->Error():"ONVIF PTZ unavailable";
+            result["error"]=operationError.empty()?"ONVIF PTZ command failed":operationError;
+        }
         res.code=PtzRequestExecutor::MovementCancelled()?409:ok?200:502;
         res.end(result.dump());return;
     }

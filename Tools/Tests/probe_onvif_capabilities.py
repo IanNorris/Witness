@@ -1,4 +1,4 @@
-"""Read-only ONVIF capability probe. Never issues a movement/recording command.
+"""ONVIF capability probe, read-only by default. Never displaces the camera.
 
 Credentials come from a read-only SQLite connection and never enter output or
 command-line arguments. Report only model/capabilities, not credential material.
@@ -25,6 +25,8 @@ def main():
     parser.add_argument('--clock-only',action='store_true',help='Unauthenticated read-only clock query')
     parser.add_argument('--soap11',action='store_true',help='Read-only SOAP 1.1 compatibility diagnosis')
     parser.add_argument('--camera-clock',action='store_true',help='Read and compensate device clock for WS-Security')
+    parser.add_argument('--stationary-move-check',action='store_true',help='Check ContinuousMove acknowledgement with zero velocity (no camera displacement)')
+    parser.add_argument('--move-timeout',default='PT10.000000S',choices=['PT10.000000S','PT10S'],help='Stationary diagnostic timeout format')
     parser.add_argument('--output',type=Path,required=True)
     args=parser.parse_args()
     if args.output.exists(): parser.error('Refusing to overwrite report')
@@ -35,7 +37,7 @@ def main():
     port=row[2] if row[2] and row[2] not in (80,443) else 2020
     user=row[3] or urllib.parse.unquote(rtsp.username or '')
     password=row[4] or urllib.parse.unquote(rtsp.password or '')
-    report={'cameraId':args.camera,'readOnly':True,'operations':[]}
+    report={'cameraId':args.camera,'readOnly':not args.stationary_move_check,'operations':[]}
     clock_offset=datetime.timedelta()
     def call(path,namespace,operation,parameters=''):
         soap_namespace='http://schemas.xmlsoap.org/soap/envelope/' if args.soap11 else SOAP
@@ -96,6 +98,12 @@ def main():
                 options=call(ptz,PTZ,'GetConfigurationOptions',f'<m:ConfigurationToken>{escape(config.get("token"))}</m:ConfigurationToken>')
                 presets=call(ptz,PTZ,'GetPresets',f'<m:ProfileToken>{escape(profile.get("token"))}</m:ProfileToken>')
                 configurations.append({'profileToken':profile.get('token'),'optionsXml':ET.tostring(options,encoding='unicode'),'presetCount':len(presets)})
+                if args.stationary_move_check:
+                    # Zero velocity cannot displace the camera. Never replay a
+                    # nonzero movement to negotiate firmware compatibility.
+                    report['stationaryMoveCheck']=True
+                    report['moveTimeout']=args.move_timeout
+                    call(ptz,PTZ,'ContinuousMove',f'<m:ProfileToken>{escape(profile.get("token"))}</m:ProfileToken><m:Velocity><tt:PanTilt x="0" y="0" space="http://www.onvif.org/ver10/tptz/PanTiltSpaces/VelocityGenericSpace"/></m:Velocity><m:Timeout>{args.move_timeout}</m:Timeout>')
                 break
         report['profiles']=configurations;report['success']=bool(configurations)
     except Exception as error:

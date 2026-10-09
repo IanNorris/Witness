@@ -83,8 +83,14 @@ class OnvifTransportTests(unittest.TestCase):
         move=calls[-1][2]
         velocity=move.find(f'{{{PTZ}}}Velocity/{{{SCHEMA}}}PanTilt')
         self.assertEqual(float(velocity.get('x')),-.5);self.assertEqual(float(velocity.get('y')),.5)
-        self.assertEqual(move.findtext(f'{{{PTZ}}}Timeout'),'PT5.000000S')
+        self.assertEqual(move.findtext(f'{{{PTZ}}}Timeout'),'PT5S')
         self.assertEqual(calls[-1][1],'/onvif/ptz')
+    def test_timeout_rounds_down_within_advertised_range(self):
+        code,calls=self.run_probe('move',timeout='PT5.5S');self.assertEqual(code,0)
+        self.assertEqual(calls[-1][2].findtext(f'{{{PTZ}}}Timeout'),'PT5S')
+    def test_default_timeout_uses_camera_compatible_whole_seconds(self):
+        code,calls=self.run_probe('move');self.assertEqual(code,0)
+        self.assertEqual(calls[-1][2].findtext(f'{{{PTZ}}}Timeout'),'PT10S')
     def test_legacy_format_negotiated_only_on_read_only_clock_query(self):
         code,calls=self.run_probe('move',legacy=True);self.assertEqual(code,0)
         self.assertEqual([c[0] for c in calls].count('ContinuousMove'),1)
