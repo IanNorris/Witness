@@ -902,8 +902,16 @@ namespace Database
 
 	// Continuous recording segment queries
 	std::string CreateContinuousSegment = R"RAW(
-		INSERT INTO ContinuousSegment (CameraUID, StartTimestamp, EndTimestamp, Duration, FilePath, FileSize)
-		VALUES(@CameraUID, @StartTimestamp, @EndTimestamp, @Duration, @FilePath, @FileSize);
+		INSERT INTO ContinuousSegment (CameraUID, StartTimestamp, EndTimestamp, Duration, FilePath, FileSize, MediaStartTimestamp, MediaEndTimestamp)
+		VALUES(@CameraUID, @StartTimestamp, @EndTimestamp, @Duration, @FilePath, @FileSize, @MediaStart, @MediaEnd);
+	)RAW";
+	std::string SelectCaptureContinuousSegments = R"RAW(
+		SELECT FilePath, COALESCE(MediaStartTimestamp,StartTimestamp), COALESCE(MediaEndTimestamp,EndTimestamp),
+			CASE WHEN MediaStartTimestamp IS NULL THEN 1 ELSE 0 END
+		FROM ContinuousSegment WHERE CameraUID=@CameraUID
+			AND COALESCE(MediaStartTimestamp,StartTimestamp)<=@TimestampTo
+			AND COALESCE(MediaEndTimestamp,EndTimestamp)>=@TimestampFrom
+		ORDER BY COALESCE(MediaStartTimestamp,StartTimestamp);
 	)RAW";
 
 	std::string SelectContinuousSegments = R"RAW(
@@ -1304,6 +1312,8 @@ namespace Database
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN ContinuousRecording INT DEFAULT 0;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN LowLatencyHLS INT DEFAULT 0;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE ContinuousSegment ADD COLUMN FileSize INTEGER DEFAULT 0;", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE ContinuousSegment ADD COLUMN MediaStartTimestamp REAL;", nullptr, nullptr, nullptr );
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE ContinuousSegment ADD COLUMN MediaEndTimestamp REAL;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE DetectionBox ADD COLUMN IsBaseline INTEGER DEFAULT 0;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE DetectionBox ADD COLUMN CropPath TEXT;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE CameraAction ADD COLUMN DetectionClass TEXT DEFAULT '';", nullptr, nullptr, nullptr );
@@ -1506,6 +1516,7 @@ namespace Database
 		CREATE_QUERY( DeleteCameraAction );
 
 		CREATE_QUERY( CreateContinuousSegment );
+		CREATE_QUERY( SelectCaptureContinuousSegments );
 		CREATE_QUERY( SelectContinuousSegments );
 		CREATE_QUERY( SelectContinuousSegmentByUID );
 		CREATE_QUERY( SelectContinuousSegmentsToDelete );

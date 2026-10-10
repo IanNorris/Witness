@@ -123,10 +123,14 @@ void CameraWorker::StartRecentCapture(const std::shared_ptr<RecentCaptureLive>& 
 		output->SetTimestampNormalizationAllowed(DetectCameraProfile(Camera.Path) == CameraProfile::Reolink);
 		const std::weak_ptr<ContinuousOutputStream> weak = output;
 		output->SetSegmentCompleteCallback([request, weak](int, int64_t start, int64_t end, int, const std::string& path) {
+			double actualStart = static_cast<double>(start);
 			double actualEnd = static_cast<double>(end);
-			if (const auto stream = weak.lock()) actualEnd = start + stream->GetCommittedSegment().ObservedDuration;
+			if (const auto stream = weak.lock()) {
+				const auto snapshot = stream->GetCommittedSegment();
+				actualStart = snapshot.MediaStartTimestamp; actualEnd = snapshot.MediaEndTimestamp;
+			}
 			std::lock_guard lock(request->Mutex);
-			request->Status.Files.push_back({path, static_cast<double>(start), actualEnd, 0});
+			request->Status.Files.push_back({path, actualStart, actualEnd, 0});
 			std::error_code error;
 			const auto bytes = std::filesystem::file_size(path, error);
 			if (!error) request->Status.ClosedBytes += bytes;
@@ -312,6 +316,8 @@ void CameraWorker::CreateInputStream()
 					if( !ec ) fileSize = static_cast<int64_t>(fsize);
 
 					// Register completed segment in database
+					{
+					const auto snapshot = ContinuousStream->GetCommittedSegment();
 					SQLiteDatabaseQueryInstance query(Context->Database, "CreateContinuousSegment");
 					query->Bind("@CameraUID", cameraUID);
 					query->Bind("@StartTimestamp", startTimestamp);
@@ -319,7 +325,10 @@ void CameraWorker::CreateInputStream()
 					query->Bind("@Duration", duration);
 					query->Bind("@FilePath", filePath.c_str());
 					query->Bind("@FileSize", fileSize);
+					query->Bind("@MediaStart", snapshot.MediaStartTimestamp);
+					query->Bind("@MediaEnd", snapshot.MediaEndTimestamp);
 					query->Execute([](const SQLiteDatabaseQuery&) { return true; });
+					}
 
 					LOG_INFO("Continuous segment registered: camera %d, %ds, %s", cameraUID, duration, filePath.c_str());
 

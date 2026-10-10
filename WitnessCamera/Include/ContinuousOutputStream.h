@@ -29,6 +29,9 @@ struct ContinuousSegmentSnapshot
 	int64_t CommittedBytes = 0;
 	// Video successfully accepted by the writer, including the unfinished tail.
 	double ObservedDuration = 0;
+	// Presentation-clock coverage, independent of packet arrival/buffering.
+	double MediaStartTimestamp = 0;
+	double MediaEndTimestamp = 0;
 };
 
 // Callback invoked when a segment file is finalized.
@@ -69,7 +72,7 @@ public:
 	void ResetForReconnect(InputStream* newInputStream);
 
 private:
-	CameraStreamError StartNewSegment();
+	CameraStreamError StartNewSegment(double presentationTimestamp);
 	CameraStreamError FinalizeCurrentSegment();
 	bool NormalizeVideoTimestamp(AVPacket* packet, AVRational inputTimebase);
 

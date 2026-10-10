@@ -27,6 +27,8 @@ class RecentCaptureHttpTests(unittest.TestCase):
     def test_independent_capture_auth_and_media(self):
         server = Path(os.environ['WITNESS_CAPTURE_TEST_SERVER']).resolve(strict=True)
         media = Path(os.environ['WITNESS_CAPTURE_TEST_MEDIA']).resolve(strict=True)
+        dvr_enabled = os.environ.get('WITNESS_CAPTURE_TEST_DVR') == '1'
+        long_live = os.environ.get('WITNESS_CAPTURE_TEST_LONG_LIVE') == '1'
         repository = Path(__file__).resolve().parents[2]
         with tempfile.TemporaryDirectory(prefix='recent-capture-http-', dir=repository / 'artifacts') as directory:
             root = Path(directory)
@@ -49,7 +51,7 @@ class RecentCaptureHttpTests(unittest.TestCase):
                     'continuous_recording_segment_seconds': '30'}
                 db.executemany('INSERT OR REPLACE INTO Setting VALUES(?,?)', settings.items())
                 db.execute('INSERT INTO Camera(CameraName,CameraString,CameraStringSub,Enabled,SkipFrames,MDFrameHeight,MDThreshold,MotionFilter,BlackoutMaskPath,FocusMaskPath,ContinuousRecording) VALUES(?,?,?,?,?,?,?,?,?,?,?)',
-                    ('Synthetic capture', source, '', 1, 1, 400, 0.99, 'motion_vectors', '', '', 0))
+                    ('Synthetic capture', source, '', 1, 1, 400, 0.99, 'motion_vectors', '', '', int(dvr_enabled)))
                 db.execute('INSERT INTO CameraGroup(DisplayName,Description) VALUES(?,?)', ('Fixture', 'Private test'))
                 db.execute('INSERT INTO CameraGroupMapping VALUES(?,?)', (1, 1))
                 db.executemany('INSERT INTO UserGroupMapping VALUES(?,?)', [(1, 1), (2, 1)])
@@ -75,6 +77,12 @@ class RecentCaptureHttpTests(unittest.TestCase):
                     self.assertEqual(code, 200)
                     job = json.loads(body)
                     if job['state'] in ('completed', 'failed', 'cancelled'):
+                        if job['state'] == 'failed':
+                            with contextlib.closing(sqlite3.connect(data / 'server.db')) as db:
+                                # Numeric evidence only: no session tokens,
+                                # connection strings, credentials or file paths.
+                                boundaries = db.execute('SELECT StartTimestamp,EndTimestamp,Duration FROM ContinuousSegment ORDER BY StartTimestamp').fetchall()
+                            print('Synthetic DVR boundary evidence:', boundaries, flush=True)
                         self.assertEqual(job['state'], 'completed', job)
                         return job
                     time.sleep(0.25)
@@ -98,19 +106,25 @@ class RecentCaptureHttpTests(unittest.TestCase):
                             pass
                         self.assertLess(time.monotonic(), deadline)
                         time.sleep(0.1)
-                    time.sleep(6)  # Accumulate a preceding keyframe in the owned live input.
+                    # DVR mode spans an already-finalized segment and the open
+                    # file; the default mode proves recording works without DVR.
+                    time.sleep(36 if dvr_enabled else 6)
                     create = '/dvr/capture/1'
                     self.assertEqual(request(create, {'csrf': csrf, 'lookbackSeconds': 3}, None)[0], 403)
                     self.assertEqual(request(create, {'csrf': 'invalid', 'lookbackSeconds': 3})[0], 403)
-                    code, body = request(create, {'csrf': csrf, 'lookbackSeconds': 3, 'continueRecording': True})
+                    code, body = request(create, {'csrf': csrf, 'lookbackSeconds': 32 if dvr_enabled else 3, 'continueRecording': True})
                     self.assertEqual(code, 202, body)
                     first = json.loads(body)
                     path = create + '/' + first['id']
                     self.assertEqual(first['state'], 'recording')
                     self.assertEqual(request(path + '/status', principal=1)[0], 404)
                     self.assertEqual(request(path + '/download', principal=None)[0], 403)
-                    time.sleep(3)
+                    time.sleep(63 if long_live else 3)
                     self.assertEqual(request(path + '/stop', {'csrf': csrf})[0], 200)
+                    if dvr_enabled:
+                        code, body = request(path + '/status')
+                        self.assertEqual(code, 200)
+                        self.assertEqual(json.loads(body)['state'], 'currentlySaving')
                     job = wait_status(path + '/status')
                     self.assertGreater(job['actualTo'], job['actualFrom'])
                     code, output = request(path + '/download')
@@ -120,11 +134,14 @@ class RecentCaptureHttpTests(unittest.TestCase):
                     decoded = subprocess.run(['ffmpeg', '-nostdin', '-v', 'error', '-xerror', '-i', str(saved), '-f', 'null', '-'],
                         capture_output=True, timeout=30, **quiet_process_options())
                     self.assertEqual(decoded.returncode, 0, decoded.stderr.decode(errors='replace'))
+                    self.assertEqual(decoded.stderr, b'', 'Synthetic captured media emitted decode/timing errors')
                     with contextlib.closing(sqlite3.connect(data / 'server.db')) as db:
                         rows = db.execute('SELECT ClipUID,RecordMode,Save,RecordingFinalized FROM Clip WHERE RecordMode=2').fetchall()
                         self.assertEqual(len(rows), 1)
                         self.assertEqual(rows[0][1:], (2, 1, 1))
-                        self.assertEqual(db.execute('SELECT ContinuousRecording FROM Camera').fetchone()[0], 0)
+                        self.assertEqual(db.execute('SELECT ContinuousRecording FROM Camera').fetchone()[0], int(dvr_enabled))
+                        if dvr_enabled:
+                            self.assertGreaterEqual(db.execute('SELECT count(*) FROM ContinuousSegment').fetchone()[0], 2)
                     captured = f'/clip/captured/{rows[0][0]}/video'
                     self.assertEqual(request(captured, principal=None)[0], 403)
                     self.assertEqual(request(captured)[0], 200)
@@ -135,7 +152,10 @@ class RecentCaptureHttpTests(unittest.TestCase):
                     metadata = json.loads(body)
                     self.assertLessEqual(metadata['timelineFrom'], metadata['actualFrom'])
                     self.assertEqual(metadata['actualFrom'], job['actualFrom'])
-                    self.assertEqual(metadata['gaps'], job['gaps'])
+                    self.assertEqual(len(metadata['gaps']), len(job['gaps']))
+                    for persisted, original in zip(metadata['gaps'], job['gaps']):
+                        for bound in ('from', 'to'):
+                            self.assertAlmostEqual(persisted[bound], original[bound], delta=0.00001)
                     self.assertNotIn('FilePath', metadata)
                     code, body = request(create, {'csrf': csrf, 'lookbackSeconds': 2})
                     self.assertEqual(code, 202, body)

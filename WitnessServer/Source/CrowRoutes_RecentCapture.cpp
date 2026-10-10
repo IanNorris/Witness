@@ -61,19 +61,20 @@ void CrowListener::StartRecentCaptures() {
         result.LiveStopped = liveState.Finished && !liveState.UseDvr;
         if (request.To == 0) return result; // Lightweight monitoring, no DVR query.
         {
-            SQLiteDatabaseQueryInstance query(context->Database, "SelectContinuousSegments");
+            SQLiteDatabaseQueryInstance query(context->Database, "SelectCaptureContinuousSegments");
             query->Bind("@CameraUID", request.Camera);
             query->Bind("@TimestampFrom", static_cast<int64_t>(std::floor(request.From)));
             query->Bind("@TimestampTo", static_cast<int64_t>(std::ceil(request.To)));
             query->Execute([&](const SQLiteDatabaseQuery& row) {
-                const char* path = row.GetColumnValueText(5);
-                if (path) result.Files.push_back({path, row.GetColumnValueDouble(2), row.GetColumnValueDouble(3), 0});
+                const char* path = row.GetColumnValueText(0);
+                if (path) result.Files.push_back({path, row.GetColumnValueDouble(1), row.GetColumnValueDouble(2), 0, row.GetColumnValueDouble(3)});
                 return result.Files.size() < 1025;
             });
         } // Release the database query before touching any media files.
         const auto active = context->GetActiveDvrSegment(request.Camera);
-        const double end = active.StartTimestamp + active.ObservedDuration;
-        result.Pending = !active.FilePath.empty() && active.StartTimestamp < request.To && end > request.From;
+        const double start = active.MediaStartTimestamp > 0 ? active.MediaStartTimestamp : static_cast<double>(active.StartTimestamp);
+        const double end = active.MediaEndTimestamp > 0 ? active.MediaEndTimestamp : active.StartTimestamp + active.ObservedDuration;
+        result.Pending = !active.FilePath.empty() && start < request.To && end > request.From;
         if (!liveState.UseDvr) {
             result.Files.insert(result.Files.end(), liveState.Files.begin(), liveState.Files.end());
             result.Pending = !liveState.Finished;

@@ -48,6 +48,13 @@ int main(int argc, char** argv) {
             {input.string(), 1008, 1016, 0}}, 1003, 1015, (output / "adjacent.mp4").string());
         Check(adjacent.Success && adjacent.Coverage.size() == 2 && adjacent.Gaps.empty(),
             "Adjacent source boundary failed or introduced a false gap");
+        Check(!RemuxHistoricalClip({{input.string(), 1000, 1007, 0}, {input.string(), 1007, 1015, 0}},
+            1003, 1014, (output / "overlap.mp4").string()).Success, "Unqualified overlap was accepted");
+        auto rounded = RemuxHistoricalClip({{input.string(), 1000, 1007.5, 0, 1},
+            {input.string(), 1007.5, 1015.5, 0, 1}}, 1003, 1014, (output / "rounded.mp4").string());
+        if (!rounded.Success) std::cerr << "Rounded boundary: " << rounded.Error << '\n';
+        Check(rounded.Success && !rounded.Error.empty(),
+            "Contiguous whole-second boundaries were not reconciled explicitly");
         auto snapshot = RemuxHistoricalClip({{input.string(), 1000, 1008,
             static_cast<int64_t>(fs::file_size(input))}}, 1003, 1006, (output / "snapshot.mp4").string());
         Check(snapshot.Success, "Committed source snapshot export failed");

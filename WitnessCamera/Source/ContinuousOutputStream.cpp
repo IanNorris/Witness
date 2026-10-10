@@ -31,6 +31,11 @@ struct ContinuousOutputStreamData
 	mutable std::mutex SnapshotMutex;
 	ContinuousSegmentSnapshot Snapshot;
 	double PresentationEnd = 0;
+	double PresentationBegin = -1;
+	bool MediaClockSet = false;
+	double MediaClockOrigin = 0;
+	double InputClockOrigin = 0;
+	double MediaStart = 0;
 };
 
 ContinuousOutputStream::ContinuousOutputStream(const std::string& basePath, int cameraUID, InputStream* inputStream)
@@ -105,7 +110,7 @@ void ContinuousOutputStream::SetTargetSegmentDuration(int seconds)
 	if (seconds >= 30 && seconds <= 900) m_TargetSegmentDuration = seconds;
 }
 
-CameraStreamError ContinuousOutputStream::StartNewSegment()
+CameraStreamError ContinuousOutputStream::StartNewSegment(double presentationTimestamp)
 {
 	if (m_SegmentOpen)
 	{
@@ -120,11 +125,20 @@ CameraStreamError ContinuousOutputStream::StartNewSegment()
 
 	// Generate filename from current unix timestamp
 	auto now = std::chrono::system_clock::now();
+	const bool initialOverride = m_InitialSegmentTimestamp > 0;
 	m_SegmentStartTimestamp = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
 	if (m_InitialSegmentTimestamp > 0) {
 		m_SegmentStartTimestamp = m_InitialSegmentTimestamp;
 		m_InitialSegmentTimestamp = 0;
 	}
+	if (!m_Data->MediaClockSet) {
+		m_Data->MediaClockSet = true;
+		m_Data->InputClockOrigin = presentationTimestamp;
+		m_Data->MediaClockOrigin = initialOverride ? static_cast<double>(m_SegmentStartTimestamp)
+			: std::chrono::duration<double>(now.time_since_epoch()).count();
+	}
+	m_Data->MediaStart = m_Data->MediaClockOrigin + presentationTimestamp - m_Data->InputClockOrigin;
+	m_Data->PresentationBegin = -1;
 
 	std::string filename = std::to_string(m_SegmentStartTimestamp) + ".mp4";
 	std::string filepath = (fs::path(m_Data->BasePath) / filename).string();
@@ -238,7 +252,7 @@ CameraStreamError ContinuousOutputStream::StartNewSegment()
 	m_WaitingForKeyframe = false;
 	{
 		std::lock_guard lock(m_Data->SnapshotMutex);
-		m_Data->Snapshot = {filepath, m_SegmentStartTimestamp, 0, 0, 0};
+		m_Data->Snapshot = {filepath, m_SegmentStartTimestamp, 0, 0, 0, m_Data->MediaStart, m_Data->MediaStart};
 	}
 
 	LOG_INFO("ContinuousOutputStream: Camera %d started segment %s (target %ds)", m_CameraUID, filepath.c_str(), m_TargetSegmentDuration);
@@ -333,7 +347,8 @@ CameraStreamError ContinuousOutputStream::WritePacket(const AVPacket* packet)
 		if (!isVideo || !isKeyframe)
 			return CameraStreamError::Success;
 
-		CameraStreamError err = StartNewSegment();
+		if (packet->pts == AV_NOPTS_VALUE) return CameraStreamError::WriteFailed;
+		CameraStreamError err = StartNewSegment(packet->pts * av_q2d(inputTimebase));
 		if (err != CameraStreamError::Success)
 			return err;
 	}
@@ -352,7 +367,8 @@ CameraStreamError ContinuousOutputStream::WritePacket(const AVPacket* packet)
 		if (bytes <= 0) return CameraStreamError::WriteFailed;
 		std::lock_guard lock(m_Data->SnapshotMutex);
 		m_Data->Snapshot = {m_FormatContext->url ? m_FormatContext->url : "",
-			m_SegmentStartTimestamp, m_Data->PresentationEnd, bytes, m_Data->PresentationEnd};
+			m_SegmentStartTimestamp, m_Data->PresentationEnd, bytes, m_Data->PresentationEnd,
+			m_Data->MediaStart, m_Data->MediaStart + m_Data->PresentationEnd - (std::max)(0.0, m_Data->PresentationBegin)};
 	}
 
 	// Copy and normalize packet timestamps
@@ -425,6 +441,7 @@ CameraStreamError ContinuousOutputStream::WritePacket(const AVPacket* packet)
 
 	const double presentationEnd = isVideo ?
 		(static_cast<double>(pktCopy.pts) + static_cast<double>(pktCopy.duration)) * av_q2d(m_OutStream->time_base) : 0;
+	const double presentationBegin = isVideo ? pktCopy.pts * av_q2d(m_OutStream->time_base) : 0;
 	result = av_interleaved_write_frame(m_FormatContext, &pktCopy);
 	if (result < 0)
 	{
@@ -433,9 +450,11 @@ CameraStreamError ContinuousOutputStream::WritePacket(const AVPacket* packet)
 	}
 	if (isVideo)
 	{
+		if (m_Data->PresentationBegin < 0) m_Data->PresentationBegin = presentationBegin;
 		m_Data->PresentationEnd = (std::max)(m_Data->PresentationEnd, presentationEnd);
 		std::lock_guard lock(m_Data->SnapshotMutex);
 		m_Data->Snapshot.ObservedDuration = m_Data->PresentationEnd;
+		m_Data->Snapshot.MediaEndTimestamp = m_Data->MediaStart + m_Data->PresentationEnd - m_Data->PresentationBegin;
 	}
 	if (timestampRepaired)
 	{
@@ -592,6 +611,7 @@ void ContinuousOutputStream::ResetForReconnect(InputStream* newInputStream)
 {
 	FinalizeCurrentSegment();
 	m_InputStream = newInputStream;
+	m_Data->MediaClockSet = false; // Reconnects may reset source timestamps.
 }
 
 }}

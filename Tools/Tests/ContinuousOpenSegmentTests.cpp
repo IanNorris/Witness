@@ -30,8 +30,13 @@ int main(int argc, char** argv) {
         output.SetFragmentedRecordingEnabled(fragmented);
         int completed = 0;
         std::vector<std::string> completedPaths;
+        double firstMediaStart = 0;
         output.SetSegmentCompleteCallback([&](int, int64_t, int64_t, int, const std::string& path) {
             Check(!output.GetCommittedSegment().FilePath.empty(), "active state retired before completed row callback");
+            const auto media = output.GetCommittedSegment();
+            Check(media.MediaEndTimestamp > media.MediaStartTimestamp + 7,
+                "Presentation-clock coverage was not published before finalization");
+            if (completed == 0) firstMediaStart = media.MediaStartTimestamp;
             completedPaths.push_back(path);
             ++completed;
         });
@@ -83,6 +88,7 @@ int main(int argc, char** argv) {
         Check(completed == 1 && output.GetCommittedSegment().CommittedBytes == 0, "finalization did not retire active prefix");
         output.Finalize();
         Check(completed == 1, "duplicate finalization callback");
+        Check(firstMediaStart > 0, "Missing media-clock anchor");
         const auto originalSize = std::filesystem::file_size(completedPaths.front());
         Check(av_seek_frame(input.GetData().FormatContext, -1, 0, AVSEEK_FLAG_BACKWARD) >= 0, "synthetic reconnect seek failed");
         output.ResetForReconnect(&input);

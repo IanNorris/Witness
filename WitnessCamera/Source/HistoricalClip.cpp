@@ -52,12 +52,16 @@ HistoricalClipResult RemuxHistoricalClip(const std::vector<HistoricalClipSource>
         auto ordered = sources;
         std::sort(ordered.begin(), ordered.end(), [](const auto& a, const auto& b) {return a.StartTimestamp < b.StartTimestamp;});
         int64_t lastDts[2] = {AV_NOPTS_VALUE, AV_NOPTS_VALUE};
+        int64_t lastDuration[2] = {0, 0};
+        double previousSourceEnd = -1;
         int videoOutput = -1, audioOutput = -1;
         bool started = false;
         size_t sourceIndex = 0;
         for (const auto& source : ordered) {
             Require(std::isfinite(source.StartTimestamp) && std::isfinite(source.EndTimestamp)
-                && source.StartTimestamp >= 0 && source.EndTimestamp > source.StartTimestamp && source.CommittedBytes >= 0, "Invalid source metadata");
+                && source.StartTimestamp >= 0 && source.EndTimestamp > source.StartTimestamp && source.CommittedBytes >= 0
+                && std::isfinite(source.BoundaryToleranceSeconds) && source.BoundaryToleranceSeconds >= 0
+                && source.BoundaryToleranceSeconds <= 1, "Invalid source metadata");
             if (source.EndTimestamp <= from || source.StartTimestamp >= to) continue;
             if (cancelled && cancelled()) throw std::runtime_error("Capture cancelled");
             std::string path = source.FilePath;
@@ -99,6 +103,8 @@ HistoricalClipResult RemuxHistoricalClip(const std::vector<HistoricalClipSource>
             if (offset > 0) Require(av_seek_frame(input.Context, video,
                 static_cast<int64_t>((origin + offset) / av_q2d(videoStream->time_base)), AVSEEK_FLAG_BACKWARD) >= 0, "Historical seek failed");
             bool atKeyframe = false;
+            const bool continuation = started;
+            double boundaryCorrection = 0;
             double coverageFrom = 0, coverageTo = 0;
             std::unique_ptr<AVPacket, void(*)(AVPacket*)> packet(av_packet_alloc(), [](AVPacket* p) {av_packet_free(&p);});
             Require(packet != nullptr, "Packet allocation failed");
@@ -109,16 +115,36 @@ HistoricalClipResult RemuxHistoricalClip(const std::vector<HistoricalClipSource>
                 Require(p->size <= 32 * 1024 * 1024, "Historical packet exceeded size limit");
                 const bool isVideo = p->stream_index == video;
                 const bool isAudio = p->stream_index == audio && audio >= 0;
+                // Demuxers mark encoder priming/padding packets as discard.
+                // These are not audible media and can overlap a segment join.
+                if (isAudio && (p->flags & AV_PKT_FLAG_DISCARD)) {av_packet_unref(p); continue;}
                 if ((!isVideo && !isAudio) || p->dts == AV_NOPTS_VALUE || p->pts == AV_NOPTS_VALUE) {av_packet_unref(p); continue;}
                 const auto stream = input.Context->streams[p->stream_index];
-                const double dts = source.StartTimestamp + p->dts * av_q2d(stream->time_base) - origin;
-                const double pts = source.StartTimestamp + p->pts * av_q2d(stream->time_base) - origin;
-                if (isVideo && dts >= to) break;
+                double dts = source.StartTimestamp + p->dts * av_q2d(stream->time_base) - origin;
+                double pts = source.StartTimestamp + p->pts * av_q2d(stream->time_base) - origin;
                 if (!atKeyframe) {
                     if (!isVideo || !(p->flags & AV_PKT_FLAG_KEY)) {av_packet_unref(p); continue;}
+                    if (started && source.BoundaryToleranceSeconds > 0
+                        && std::abs(source.StartTimestamp - previousSourceEnd) <= source.BoundaryToleranceSeconds) {
+                        const auto videoTimebase = output.Context->streams[videoOutput]->time_base;
+                        const double nextVideo = result.TimelineFrom + (lastDts[0] + lastDuration[0]) * av_q2d(videoTimebase);
+                        boundaryCorrection = (std::max)(0.0, nextVideo - dts);
+                        if (audioOutput >= 0 && lastDts[1] != AV_NOPTS_VALUE) {
+                            const auto audioTimebase = output.Context->streams[audioOutput]->time_base;
+                            const double nextAudio = result.TimelineFrom + (lastDts[1] + lastDuration[1]) * av_q2d(audioTimebase);
+                            boundaryCorrection = (std::max)(boundaryCorrection, nextAudio - dts);
+                        }
+                        Require(boundaryCorrection <= source.BoundaryToleranceSeconds + 0.000001,
+                            "DVR boundary overlap exceeds timestamp precision");
+                        if (boundaryCorrection > 0.000001)
+                            result.Error = "Whole-second DVR boundaries were reconciled; capture timing has up to one second of source uncertainty.";
+                    }
+                    pts += boundaryCorrection;
                     atKeyframe = true; coverageFrom = pts;
-                }
-                if (isAudio && (pts < coverageFrom || pts >= to)) {av_packet_unref(p); continue;}
+                } else pts += boundaryCorrection;
+                dts += boundaryCorrection;
+                if (isVideo && dts >= to) break;
+                if (isAudio && ((!continuation && pts < coverageFrom) || pts >= to)) {av_packet_unref(p); continue;}
                 if (!started) {
                     Require(avformat_alloc_output_context2(&output.Context, nullptr, "mp4", stage.string().c_str()) >= 0 && output.Context, "Output allocation failed");
                     for (const int index : {video, audio}) {
@@ -143,6 +169,7 @@ HistoricalClipResult RemuxHistoricalClip(const std::vector<HistoricalClipSource>
                 const int lane = isVideo ? 0 : 1;
                 Require(lastDts[lane] == AV_NOPTS_VALUE || p->dts > lastDts[lane], "Overlapping or non-monotonic capture sources");
                 lastDts[lane] = p->dts;
+                lastDuration[lane] = (std::max<int64_t>)(1, p->duration);
                 if (isVideo) {
                     coverageTo = (std::max)(coverageTo, pts + p->duration * av_q2d(outStream->time_base));
                     ++result.VideoPackets;
@@ -154,6 +181,7 @@ HistoricalClipResult RemuxHistoricalClip(const std::vector<HistoricalClipSource>
             }
             Require(readResult == AVERROR_EOF || readResult >= 0, "Historical read failed before EOF");
             if (coverageTo > coverageFrom) result.Coverage.push_back({coverageFrom, coverageTo});
+            previousSourceEnd = source.EndTimestamp;
         }
         Require(started && result.VideoPackets > 0, "No playable video in requested window");
         Require(av_write_trailer(output.Context) >= 0 && output.Context->pb->error >= 0, "Capture finalization failed");

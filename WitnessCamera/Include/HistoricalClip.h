@@ -12,6 +12,9 @@ struct HistoricalClipSource {
     double EndTimestamp = 0;
     // Positive only for a trusted committed boundary published by the writer.
     int64_t CommittedBytes = 0;
+    // Legacy DVR rows round wall-clock boundaries to whole seconds. Only
+    // explicitly contiguous rows may reconcile that bounded uncertainty.
+    double BoundaryToleranceSeconds = 0;
 };
 struct HistoricalClipRange { double From = 0; double To = 0; };
 struct HistoricalClipResult {

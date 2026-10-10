@@ -54,13 +54,17 @@ export default {
         const parts = path.split('/'), url = new URL(req.url, 'http://localhost')
         const count = Number(parts[4]), offset = Number(parts[7]), camera = Number(parts[3])
         let clips = Array.from({length: 30}, (_, i) => ({clipUID: 1000 + i, cameraID: i < 15 ? 8 : 9,
-          timestamp: anchor - i * 15, duration: 8, tags: 'person', saved: 0, recordMode: 1, lighting: 1, reviewed: 0}))
+          timestamp: anchor - i * 15, duration: 8, tags: 'person', saved: 0, recordMode: i === 0 ? 2 : 1, lighting: 1, reviewed: 0}))
         if (camera !== -1) clips = clips.filter(c => c.cameraID === camera)
         if (url.searchParams.has('tags') && !url.searchParams.get('tags').split(',').includes('person')) clips = []
         return json({count: clips.length, clips: clips.slice(offset, offset + count)})
       }
       if (path === '/clip/tags') return json({tags: [{id: 1, name: 'person', display: 'Person', icon: '', sortOrder: 0, hidden: 0, clipCount: 30}]})
       if (path.startsWith('/clip/thumb/')) {res.setHeader('Content-Type', 'image/png'); return res.end(thumbnail)}
+      if (/^\/clip\/captured\/\d+\/metadata$/.test(path)) return json({timelineFrom: anchor - 8.25,
+        actualFrom: anchor - 8, actualTo: anchor, gaps: [{from: anchor - 4, to: anchor - 3}]})
+      if (/^\/clip\/captured\/\d+\/thumbnail$/.test(path)) {res.setHeader('Content-Type', 'image/png'); return res.end(thumbnail)}
+      if (/^\/clip\/captured\/\d+\/video$/.test(path)) {res.setHeader('Content-Type', 'video/mp4'); res.setHeader('Content-Length', media.length); return res.end(media)}
       if (path.startsWith('/clip/video/')) {res.setHeader('Content-Type', 'video/mp4'); res.setHeader('Content-Length', media.length); return res.end(media)}
       if (path.startsWith('/dvr/coverage/')) return json({ranges: segments.map(({from, to}) => ({from, to})), pending: [{from: anchor - 65, to: anchor, targetSeconds: 60}]})
       if (path.startsWith('/dvr/segments/')) return json({segments})
