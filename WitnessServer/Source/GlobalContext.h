@@ -81,6 +81,8 @@ public:
 	mutable std::shared_mutex Mutex;
 
 	std::string CachePath;
+	// Startup configuration; only the packet writer configures its own stream.
+	int DvrSegmentSeconds = 60;
 
 	std::shared_ptr<SQLiteDatabase> Database;
     std::shared_ptr<Witness::ClientHealth::History> ClientHealthHistory;

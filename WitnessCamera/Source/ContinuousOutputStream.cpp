@@ -60,7 +60,7 @@ ContinuousOutputStream::ContinuousOutputStream(const std::string& basePath, int 
 	, m_QualifiedVideoDuration(0)
 	, m_TimestampSourceOffset(0)
 	, m_SegmentDuration(0.0)
-	, m_TargetSegmentDuration(300) // 5 minutes
+	, m_TargetSegmentDuration(60) // One minute, then the next keyframe.
 	, m_WaitingForKeyframe(false)
 {
 	auto data = std::make_unique<ContinuousOutputStreamData>( basePath );
@@ -102,7 +102,7 @@ ContinuousSegmentSnapshot ContinuousOutputStream::GetCommittedSegment() const
 
 void ContinuousOutputStream::SetTargetSegmentDuration(int seconds)
 {
-	m_TargetSegmentDuration = seconds;
+	if (seconds >= 30 && seconds <= 900) m_TargetSegmentDuration = seconds;
 }
 
 CameraStreamError ContinuousOutputStream::StartNewSegment()

@@ -15,6 +15,7 @@
 #include "ReolinkClient.h"
 #include "UrlHelpers.h"
 #include "ConfigPaths.h"
+#include "DvrConfiguration.h"
 
 #include <Log.h>
 #include <ONNXDetectionFilter.h>
@@ -360,6 +361,13 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 
 	// Continuous recording cleanup
 	{
+		std::string segmentSeconds;
+		Context->DvrSegmentSeconds = Witness::Dvr::DefaultSegmentSeconds;
+		if (GetSettingsField(Settings, "continuous_recording_segment_seconds", segmentSeconds, Errors)
+			&& !segmentSeconds.empty()
+			&& !Witness::Dvr::ParseSegmentSeconds(segmentSeconds, Context->DvrSegmentSeconds))
+			LOG_WARNING("Invalid DVR segment duration; using 60 seconds.");
+
 		std::string contRetentionStr;
 		int contRetentionDays = 3; // default
 		if( GetSettingsField( Settings, "continuous_recording_retention_days", contRetentionStr, Errors ) && !contRetentionStr.empty() )

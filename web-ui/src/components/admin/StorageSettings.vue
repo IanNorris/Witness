@@ -7,6 +7,7 @@ const loading = ref(true)
 const settingKeys = [
   'continuous_recording_retention_days',
   'continuous_recording_quota_gb',
+  'continuous_recording_segment_seconds',
   'clip_cleanup_enabled',
   'clip_retention_days',
 ]
@@ -79,6 +80,8 @@ async function fetchSettings() {
         settings.value[key] = data[key] ?? ''
       }
       // Set defaults for display if empty
+      if (!settings.value['continuous_recording_segment_seconds'])
+        settings.value['continuous_recording_segment_seconds'] = '60'
       if (!settings.value['continuous_recording_retention_days'])
         settings.value['continuous_recording_retention_days'] = '3'
       if (!settings.value['continuous_recording_quota_gb'])
@@ -225,6 +228,14 @@ onMounted(() => {
         <div class="card-body">
           <h6 class="card-title small text-muted mb-2">Continuous Recording</h6>
           <div class="row g-3">
+            <div class="col-md-4">
+              <label class="form-label small">DVR file length (seconds)</label>
+              <input v-model="settings['continuous_recording_segment_seconds']"
+                     type="number" min="30" max="900" step="1"
+                     class="form-control form-control-sm"
+                     @blur="saveSetting('continuous_recording_segment_seconds')" />
+              <div class="form-text small">Default: 60. Files finish at the next keyframe, so may run slightly longer. Restart the server to apply. Shorter files increase file count, not video quality.</div>
+            </div>
             <div class="col-md-4">
               <label class="form-label small">Retention (days)</label>
               <input v-model="settings['continuous_recording_retention_days']"

@@ -2,6 +2,7 @@
 #include "CrowAuth.h"
 #include "SetupConfig.h"
 #include "GlobalContext.h"
+#include "DvrConfiguration.h"
 
 #include <ONNXDetectionFilter.h>
 #include <Log.h>
@@ -245,6 +246,7 @@ void CrowListener::HandleSettingsSet( const crow::request& req, crow::response& 
 	static const std::set<std::string> allowedSettings = {
 		"continuous_recording_retention_days",
 		"continuous_recording_quota_gb",
+		"continuous_recording_segment_seconds",
 		"clip_cleanup_enabled",
 		"clip_retention_days",
 		"detection_backend",
@@ -275,6 +277,18 @@ void CrowListener::HandleSettingsSet( const crow::request& req, crow::response& 
 	}
 
 	// Enforce minimum confidence thresholds
+	if (name == "continuous_recording_segment_seconds")
+	{
+		int seconds = 0;
+		if (!Witness::Dvr::ParseSegmentSeconds(value, seconds))
+		{
+			res.code = 400;
+			res.set_header("Content-Type", "application/json");
+			res.body = R"({"error":"DVR segment length must be a whole number from 30 to 900 seconds"})";
+			res.end();
+			return;
+		}
+	}
 	if( name == "face_detection_confidence" )
 	{
 		double v = std::stod( value );

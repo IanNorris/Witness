@@ -267,6 +267,7 @@ void CameraWorker::CreateInputStream()
 			);
 		}
 		ContinuousStream->SetTimestampNormalizationAllowed(NormalizeCameraTimestamps);
+		ContinuousStream->SetTargetSegmentDuration(Context->DvrSegmentSeconds);
 
 		// Wire packet callback so ContinuousStream receives every video packet
 		auto contStream = ContinuousStream;

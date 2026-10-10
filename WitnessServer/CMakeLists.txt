@@ -314,6 +314,9 @@ if(MSVC)
 endif()
 
 # Pure path validation and opt-in data-root isolation.
+add_executable(DvrConfigurationTests EXCLUDE_FROM_ALL ../Tools/Tests/DvrConfigurationTests.cpp)
+target_include_directories(DvrConfigurationTests PRIVATE Source)
+
 add_executable(ConfigPathsTests EXCLUDE_FROM_ALL
     ../Tools/Tests/ConfigPathsTests.cpp Source/ConfigPaths.cpp)
 target_include_directories(ConfigPathsTests PRIVATE Source)
