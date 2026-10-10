@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed, watch } from 'vue'
+import { ref, onMounted, onUnmounted, computed, watch, inject } from 'vue'
 import type { Camera } from '../../types/camera'
 import { useSettingsStore } from '../../stores/settings'
 import { useCameraStore } from '../../stores/cameras'
@@ -7,12 +7,16 @@ import HlsPlayer from './HlsPlayer.vue'
 import MsePlayer from './MsePlayer.vue'
 import PtzControls from './PtzControls.vue'
 import { useLiveAudio } from '../../composables/useLiveAudio'
+import CameraPlaybackBar from './CameraPlaybackBar.vue'
+import DashboardReplayPlayer from './DashboardReplayPlayer.vue'
+import { dashboardPlaybackKey } from '../../composables/useDashboardPlayback'
 
 const props = defineProps<{
   camera: Camera
   dashboardHidden?: boolean
   controlsSelected?: boolean
   layoutMode?: boolean
+  fullscreenControlsVisible?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -24,6 +28,10 @@ const emit = defineEmits<{
 
 const settings = useSettingsStore()
 const cameraStore = useCameraStore()
+const playback = inject(dashboardPlaybackKey)
+const position = computed(() => playback?.get(props.camera.id))
+const reviewing = computed(() => position.value?.requestedAt != null)
+function touchPlayback() { playback?.touch(props.camera.id) }
 const canvasMode = computed(() => settings.fullscreenMode || props.layoutMode === true)
 
 // MSE requires MediaSource API — fall back to HLS if unavailable
@@ -44,9 +52,11 @@ const imgSrc = ref('')
 const isConnected = ref(false)
 const imgRef = ref<HTMLImageElement | null>(null)
 const hlsPlayerRef = ref<InstanceType<typeof HlsPlayer> | InstanceType<typeof MsePlayer> | null>(null)
+const replayPlayerRef = ref<InstanceType<typeof DashboardReplayPlayer> | null>(null)
 const detectionOverlayActive = ref(false)
 const selectedMseStream = ref<'main' | 'sub' | null>(null)
 const showPtzControls = ref(false)
+watch(reviewing, value => { if (value) showPtzControls.value = false })
 watch(() => [canvasMode.value, props.controlsSelected, props.dashboardHidden, props.camera.id, props.camera.ptzEnabled, props.camera.status], () => {
   if (props.dashboardHidden || !props.camera.ptzEnabled || props.camera.status !== 'Connected' ||
     (canvasMode.value && !props.controlsSelected)) showPtzControls.value = false
@@ -86,6 +96,7 @@ function startJpegLoop() {
 
 function loadNextFrame() {
   if (!jpegRunning) return
+  if (reviewing.value) { refreshTimer = setTimeout(loadNextFrame, 1000); return }
   const img = imgRef.value
   if (!img) {
     refreshTimer = setTimeout(loadNextFrame, 100)
@@ -109,6 +120,7 @@ function onJpegError() {
 // Fullscreen clicks select controls; recording is explicit there. Tile-view
 // single click retains its existing recording shortcut.
 function onSingleClick() {
+  if (playback) { playback.selected.value = props.camera.id; touchPlayback(); return }
   if (canvasMode.value) return
   if (clickTimer) { clearTimeout(clickTimer); clickTimer = null }
   clickTimer = setTimeout(() => {
@@ -127,7 +139,7 @@ function onDoubleClick() {
 }
 
 function toggleDetectionOverlay() {
-  const player = hlsPlayerRef.value
+  const player = reviewing.value ? replayPlayerRef.value : hlsPlayerRef.value
   if (player?.toggleOverlay) {
     player.toggleOverlay()
     detectionOverlayActive.value = player.overlayEnabled ?? false
@@ -229,12 +241,16 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="camera-card" :class="{ 'camera-card-fullscreen': canvasMode, 'controls-selected': controlsSelected }">
+  <div class="camera-card" :class="{ 'camera-card-fullscreen': canvasMode, 'controls-selected': controlsSelected,
+    'has-playback-bar': !!playback, 'reviewing': reviewing, 'playback-quiet': !!playback && settings.dashboardQuietControls && !controlsSelected && !reviewing,
+    'playback-idle': !!playback && settings.fullscreenMode && !fullscreenControlsVisible && !reviewing && !playback.isHeld(camera.id) }"
+    @pointermove="touchPlayback" @pointerdown="touchPlayback" @keydown="touchPlayback">
     <div class="camera-preview">
       <div class="camera-video-wrap" data-playback-viewport @click.prevent="onSingleClick" @dblclick.prevent="onDoubleClick">
         <!-- HLS preview mode -->
+        <DashboardReplayPlayer v-if="reviewing && !dashboardHidden" ref="replayPlayerRef" :camera-id="camera.id" :camera-name="camera.name" :audio-enabled="audioActive" />
         <HlsPlayer
-          v-if="effectiveModeWithFallback === 'hls' && isConnected"
+          v-else-if="!reviewing && effectiveModeWithFallback === 'hls' && isConnected"
           ref="hlsPlayerRef"
           :camera-id="camera.id"
           :low-latency="camera.lowLatencyHLS"
@@ -243,7 +259,7 @@ onUnmounted(() => {
 
         <!-- MSE preview mode -->
         <MsePlayer
-          v-else-if="effectiveModeWithFallback === 'mse' && isConnected"
+          v-else-if="!reviewing && effectiveModeWithFallback === 'mse' && isConnected"
 		  :key="`${camera.id}-${useSubStream ? 'forced-sub' : 'main'}-${adaptiveStreamEligible ? 'adaptive' : 'fixed'}`"
           ref="hlsPlayerRef"
           :camera-id="camera.id"
@@ -256,7 +272,7 @@ onUnmounted(() => {
 
         <!-- JPEG preview mode -->
         <img
-          v-else-if="imgSrc && effectiveModeWithFallback === 'jpeg'"
+          v-else-if="!reviewing && imgSrc && effectiveModeWithFallback === 'jpeg'"
           ref="imgRef"
           :src="imgSrc"
           :alt="camera.name"
@@ -265,7 +281,7 @@ onUnmounted(() => {
         />
 
         <!-- Disconnected state -->
-        <div v-if="!isConnected" class="camera-overlay connection-lost">
+        <div v-if="!isConnected && !reviewing" class="camera-overlay connection-lost">
           <div class="text-center">
             <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/>
@@ -280,7 +296,7 @@ onUnmounted(() => {
         </div>
 
         <!-- H.265 fallback indicator -->
-        <div v-if="proactiveCodecFallback && !useSubStream && isConnected" class="codec-fallback-overlay">
+        <div v-if="!reviewing && proactiveCodecFallback && !useSubStream && isConnected" class="codec-fallback-overlay">
           H.265 → JPEG
         </div>
 
@@ -300,9 +316,9 @@ onUnmounted(() => {
         </button>
 
         <!-- Latency overlay -->
-        <button v-if="canvasMode && controlsSelected" class="fullscreen-replay-toggle"
+        <button v-if="!playback && canvasMode && controlsSelected" class="fullscreen-replay-toggle"
           @click.stop="emit('replay', camera.id)" title="Review recent DVR footage">↶ Replay</button>
-        <div v-if="latencyLabel && effectiveMode !== 'jpeg'" class="latency-overlay">
+        <div v-if="!reviewing && latencyLabel && effectiveMode !== 'jpeg'" class="latency-overlay">
           {{ latencyLabel }}
         </div>
 
@@ -353,7 +369,7 @@ onUnmounted(() => {
 
         <!-- PTZ toggle button -->
         <button
-          v-if="camera.ptzEnabled && isConnected"
+          v-if="!reviewing && camera.ptzEnabled && isConnected"
           class="btn btn-sm ptz-toggle"
           :class="showPtzControls ? 'btn-primary' : 'btn-outline-secondary'"
           @click.stop="showPtzControls = !showPtzControls"
@@ -389,7 +405,7 @@ onUnmounted(() => {
         </div>
       </div>
       <div class="d-flex gap-1">
-        <button class="btn btn-sm btn-outline-secondary" @click.stop="emit('replay', camera.id)"
+        <button v-if="!playback" class="btn btn-sm btn-outline-secondary" @click.stop="emit('replay', camera.id)"
           title="Review recent DVR footage" aria-label="Review recent DVR footage">↶</button>
         <button
           class="btn btn-sm btn-outline-secondary"
@@ -411,10 +427,27 @@ onUnmounted(() => {
         </button>
       </div>
     </div>
+    <div v-if="reviewing && position?.viewedAt" class="dashboard-replay-badge">Replay · {{ new Date(position.viewedAt * 1000).toLocaleTimeString() }}</div>
+    <CameraPlaybackBar v-if="playback" :camera-id="camera.id" :hidden="dashboardHidden" />
   </div>
 </template>
 
 <style scoped>
+.has-playback-bar { position: relative; }
+.camera-card-fullscreen > :deep(.camera-playback-bar) { position: absolute; bottom: 0; left: 0; right: 0; z-index: 30; }
+.camera-card-fullscreen.has-playback-bar :is(.audio-toggle, .motion-audio-toggle, .detection-toggle, .ptz-toggle) { bottom: calc(var(--camera-playback-height, 82px) + 8px); }
+.camera-card-fullscreen.has-playback-bar .camera-name-overlay { bottom: calc(var(--camera-playback-height, 82px) + 44px); }
+.camera-card-fullscreen.has-playback-bar.playback-idle .camera-name-overlay { bottom: 8px; }
+.camera-card-fullscreen.reviewing .camera-preview { height: calc(100% - var(--camera-playback-height, 82px)); }
+.dashboard-replay-badge { position: absolute; top: 38px; left: 8px; z-index: 15; background: #142235ee; color: #f5d791; border-radius: 4px; padding: 3px 6px; font-size: 11px; pointer-events: none; }
+.has-playback-bar :deep(.camera-playback-bar), .has-playback-bar :is(.audio-toggle, .motion-audio-toggle, .detection-toggle, .ptz-toggle, .control-selection-label, .fullscreen-record-toggle) { transition: opacity .2s; }
+.playback-quiet:not(:hover):not(:focus-within) :deep(.playback-buttons) { opacity: .25; }
+.playback-quiet:not(:hover):not(:focus-within) :deep(.playback-track input) { opacity: 0; }
+.has-playback-bar.playback-idle:not(:has(:focus-visible)) :deep(.camera-playback-bar), .has-playback-bar.playback-idle:not(:has(:focus-visible)) :is(.audio-toggle, .motion-audio-toggle, .detection-toggle, .ptz-toggle, .control-selection-label, .fullscreen-record-toggle) { opacity: 0; pointer-events: none; }
+.has-playback-bar.playback-idle::after { opacity: 0; }
+.reviewing .camera-preview { cursor: default; }
+@media (pointer: coarse) { .playback-quiet :deep(.playback-buttons), .playback-quiet :deep(.playback-track input) { opacity: 1 !important; } }
+@media (prefers-reduced-motion: reduce) { .has-playback-bar :deep(.camera-playback-bar) { transition: none; } }
 .camera-card-fullscreen.controls-selected { position: relative; }
 .camera-card-fullscreen.controls-selected::after {
   content: ''; position: absolute; inset: 0; border: 2px solid #67b5ff;

@@ -1,0 +1,112 @@
+// Built dashboard, real synthetic video. Never connects to a Witness server.
+import assert from 'node:assert/strict'
+import { spawnSync } from 'node:child_process'
+import { createServer } from 'node:http'
+import { readFile, mkdtemp, rm, mkdir } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { resolve, join, extname } from 'node:path'
+import { chromium } from 'playwright'
+
+const root = resolve('../WitnessServer/Web'), scratch = await mkdtemp(join(tmpdir(), 'witness-dashboard-playback-'))
+const mediaPath = join(scratch, 'synthetic.mp4')
+const made = spawnSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=s=160x90:r=10', '-t', '120', '-c:v', 'libx264', '-preset', 'ultrafast', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', mediaPath], { windowsHide: true })
+assert.equal(made.status, 0, made.stderr?.toString())
+const media = await readFile(mediaPath), now = Math.floor(Date.now() / 1000)
+const cameras = [8, 9].map(id => ({ id, name: `Synthetic ${id}`, status: 'Connected', groups: [], recording: true }))
+const json = (res, data) => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(data)) }
+let recordingMutations = 0
+const server = createServer(async (req, res) => {
+  const path = new URL(req.url, 'http://localhost').pathname
+  try {
+    if (path === '/auth/profile') return json(res, { csrf: 'synthetic', username: 'tester', admin: false })
+    if (path === '/camera/enum') return json(res, cameras)
+    if (path === '/group/enum') return json(res, { groups: [] })
+    if (path.startsWith('/camera/record/')) { recordingMutations++; return json(res, {}) }
+    if (path.startsWith('/camera/preview/')) { res.setHeader('Content-Type', 'image/svg+xml'); return res.end('<svg xmlns="http://www.w3.org/2000/svg" width="160" height="90"><rect width="160" height="90" fill="#346"/></svg>') }
+    if (path.startsWith('/dvr/coverage/')) return json(res, { ranges: [{ from: now - 240, to: now - 120 }, { from: now - 100, to: now - 30 }], pending: [{ from: now - 30, to: now + 20, targetSeconds: 60 }] })
+    if (path.startsWith('/dvr/events/')) return json(res, { clips: [{ from: now - 170, to: now - 130 }], audio: [], clipsTruncated: false })
+    if (path.startsWith('/dvr/segments/')) return json(res, { segments: [{ id: 1, from: now - 240, to: now - 120, duration: 120 }, { id: 2, from: now - 100, to: now - 30, duration: 70 }] })
+    if (path.startsWith('/dvr/segment/')) {
+      const range = /bytes=(\d+)-(\d*)/.exec(req.headers.range ?? '')
+      const from = range ? Number(range[1]) : 0, to = range?.[2] ? Math.min(Number(range[2]), media.length - 1) : media.length - 1
+      res.setHeader('Content-Type', 'video/mp4'); res.setHeader('Accept-Ranges', 'bytes'); res.setHeader('Content-Length', to - from + 1)
+      if (range) { res.statusCode = 206; res.setHeader('Content-Range', `bytes ${from}-${to}/${media.length}`) }
+      return res.end(media.subarray(from, to + 1))
+    }
+    if (path.startsWith('/dvr/') || path.startsWith('/debug/')) return json(res, { frames: [] })
+    if (!path.startsWith('/assets/') && path !== '/') return json(res, { clips: [], count: 0 })
+    const file = path.startsWith('/assets/') ? join(root, path.slice(1)) : join(root, 'index.html')
+    res.setHeader('Content-Type', ({ '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html' })[extname(file)] ?? 'application/octet-stream')
+    res.end(await readFile(file))
+  } catch { res.statusCode = 404; res.end() }
+})
+await new Promise(done => server.listen(0, '127.0.0.1', done))
+let browser
+try {
+  browser = await chromium.launch({ headless: true, args: ['--autoplay-policy=no-user-gesture-required'] })
+  const page = await browser.newPage({ viewport: { width: 1280, height: 900 } })
+  const errors = []; page.on('pageerror', error => errors.push(error.message))
+  await page.clock.install({ time: new Date(now * 1000) })
+  await page.addInitScript(() => { localStorage.setItem('streamingMode', '"jpeg"'); localStorage.setItem('showRecentActivity', 'false') })
+  await page.routeWebSocket('**/ws/events', () => {})
+  await page.goto(`http://127.0.0.1:${server.address().port}`)
+  const cards = page.locator('.camera-card'), first = cards.nth(0), second = cards.nth(1)
+  await cards.nth(1).waitFor()
+  assert.equal(await page.getByRole('checkbox', { name: 'Sync cameras', exact: true }).isChecked(), false)
+  await page.waitForFunction(() => [...document.querySelectorAll('.playback-track input')].every(input => !input.disabled))
+  assert.equal(await page.locator('.dvr-player').count(), 0)
+  const seek = async (card, timestamp) => card.locator('.playback-track input').evaluate((input, value) => { input.value = String(value); input.dispatchEvent(new Event('change', { bubbles: true })) }, timestamp)
+  await seek(first, now - 60)
+  await first.locator('.dvr-video.active').waitFor()
+  await page.waitForFunction(() => document.querySelector('.camera-card .dvr-video.active')?.readyState >= 3)
+  assert.equal(await second.locator('.dvr-player').count(), 0)
+  assert.equal(await first.locator('img').count(), 0, 'live JPEG is replaced, not hidden behind DVR')
+  await mkdir('test-screenshots', { recursive: true })
+  await page.screenshot({ path: 'test-screenshots/dashboard-playback-independent.png', fullPage: true })
+  await first.getByRole('button', { name: 'Pause replay', exact: true }).click()
+  await page.waitForFunction(() => document.querySelector('.dvr-video.active')?.paused)
+  await first.getByRole('button', { name: 'Other back amounts' }).click()
+  await first.getByRole('button', { name: 'Back 10s', exact: true }).click()
+  await first.getByRole('button', { name: 'Other forward amounts' }).click()
+  await first.getByRole('button', { name: 'Forward 10s', exact: true }).click()
+  await page.getByRole('checkbox', { name: 'Sync cameras', exact: true }).check()
+  await second.locator('.dvr-video.active').waitFor()
+  await page.waitForFunction(() => [...document.querySelectorAll('.dvr-video.active')].every(v => v.readyState >= 3 && v.paused))
+  const times = await page.locator('.dvr-video.active').evaluateAll(videos => videos.map(v => v.currentTime))
+  assert.ok(Math.abs(times[0] - times[1]) < 1.5, JSON.stringify(times))
+  await seek(first, now - 110)
+  await page.waitForFunction(() => [...document.querySelectorAll('.dvr-error')].filter(el => el.textContent.includes('No recording')).length === 2)
+  assert.equal(await first.locator('.dvr-error').evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(0, 0, 0)', 'missing footage must obscure any stale decoded frame')
+  assert.equal(await page.locator('.dashboard-replay-badge').count(), 2)
+  await seek(first, now - 10)
+  await page.waitForFunction(() => document.querySelectorAll('.dvr-player').length === 0)
+  assert.equal(await page.locator('.dashboard-replay-badge').count(), 0, 'saving region jumps both synced cameras live')
+  await page.getByRole('checkbox', { name: 'Sync cameras', exact: true }).uncheck()
+  await seek(first, now - 60)
+  await first.getByRole('button', { name: 'Save recent footage' }).click()
+  await page.getByRole('dialog').waitFor()
+  assert.equal(await page.locator('.recent-replay-panel video').count(), 0, 'saving never opens a duplicate decoder')
+  await page.getByRole('button', { name: 'Close ×', exact: true }).click()
+  await first.getByRole('button', { name: 'Go Live', exact: true }).click()
+  await page.getByRole('button', { name: 'Full Screen', exact: true }).click()
+  await page.waitForTimeout(3000)
+  assert.equal(await first.locator('.camera-playback-bar').evaluate(el => getComputedStyle(el).opacity), '0')
+  await page.mouse.move(400, 350)
+  await page.waitForTimeout(300)
+  assert.equal(await first.locator('.camera-playback-bar').evaluate(el => getComputedStyle(el).opacity), '1')
+  await seek(first, now - 60); await page.waitForTimeout(3000)
+  assert.equal(await first.locator('.camera-playback-bar').evaluate(el => getComputedStyle(el).opacity), '1', 'replay never becomes a quiet live-looking tile')
+  await page.screenshot({ path: 'test-screenshots/dashboard-playback-fullscreen.png', fullPage: true })
+  await first.getByRole('button', { name: 'Pause replay', exact: true }).click()
+  await page.clock.fastForward(181_000)
+  await page.waitForFunction(() => document.querySelectorAll('.dvr-player').length === 0)
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 900 })
+    assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no horizontal overflow')
+  }
+  assert.equal(recordingMutations, 0)
+  assert.deepEqual(errors, [])
+  console.log('PASS: independent/synced real-video seek, pause, gaps, saving→live, menu directions, capture-only UI, fullscreen fading, 3-minute auto-live, narrow widths; no recording mutations')
+} finally {
+  await browser?.close(); await new Promise(done => server.close(done)); await rm(scratch, { recursive: true, force: true })
+}

@@ -40,6 +40,7 @@ function fixture() {
     useGroupStore: () => ({ groups: [], activeGroups: [], camerasInGroup: () => cameras }),
     useClipStore: () => ({ recentClips: [] }),
     useLiveAudio: () => ({ mode: Vue.ref('off'), enabled: Vue.ref(false), toggleAudio() {}, toggleMotionAudio() {} }),
+    useDashboardPlayback: () => ({ anyReplay: Vue.ref(false), sync: Vue.ref(false), selected: Vue.ref(null), get: () => ({ requestedAt: null }) }),
   }
   globalThis.localStorage = { getItem() { return null }, setItem() {} }
   globalThis.window = new EventTarget()

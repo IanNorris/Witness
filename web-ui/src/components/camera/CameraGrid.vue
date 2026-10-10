@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch, inject } from 'vue'
 import { useRouter } from 'vue-router'
 import { useCameraStore } from '../../stores/cameras'
 import { useSettingsStore } from '../../stores/settings'
 import CameraCard from './CameraCard.vue'
+import { dashboardPlaybackKey } from '../../composables/useDashboardPlayback'
 import type { DashboardGridArea, DashboardTileLayout } from '../../types/dashboardLayout'
 
 const props = defineProps<{
@@ -34,6 +35,7 @@ const emit = defineEmits<{
 const cameraStore = useCameraStore()
 const settings = useSettingsStore()
 const router = useRouter()
+const playback = inject(dashboardPlaybackKey)
 const canvasMode = computed(() => settings.fullscreenMode || props.layoutMode === true)
 
 const filteredCameras = computed(() => {
@@ -61,7 +63,10 @@ const activeCameraId = ref<number | null>(null)
 // Control selection is independent of layout editing and automatic focus.
 const selectedControlsCameraId = ref<number | null>(null)
 function selectControls(cameraId: number) {
-  if (canvasMode.value && !props.editingLayout) selectedControlsCameraId.value = cameraId
+  if (!props.editingLayout) {
+    selectedControlsCameraId.value = cameraId
+    if (playback) { playback.selected.value = cameraId; playback.touch(cameraId) }
+  }
 }
 function onOutsidePointer(event: PointerEvent) {
   const target = event.target
@@ -75,7 +80,7 @@ function onOutsidePointer(event: PointerEvent) {
 watch(() => [canvasMode.value, props.editingLayout,
   filteredCameras.value.filter(camera => isCameraVisible(camera.id)).map(camera => camera.id).join(',')],
 () => {
-  if (!canvasMode.value || props.editingLayout || !filteredCameras.value.some(camera =>
+  if (props.editingLayout || !filteredCameras.value.some(camera =>
     camera.id === selectedControlsCameraId.value && isCameraVisible(camera.id))) selectedControlsCameraId.value = null
 })
 const invalidPlacement = ref(false)
@@ -275,6 +280,7 @@ onUnmounted(() => {
         :dashboard-hidden="!isCameraVisible(camera.id)"
         :controls-selected="selectedControlsCameraId === camera.id"
         :layout-mode="layoutMode"
+        :fullscreen-controls-visible="fullscreenControlsVisible"
         @dismiss-controls="selectedControlsCameraId = null"
         @open-stream="openStream"
         @open-clips="openClips"

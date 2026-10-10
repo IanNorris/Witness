@@ -4,6 +4,7 @@ import { api } from '../../composables/useApi'
 import { useDetectionPlayback, CLASS_COLORS } from '../../composables/useDetectionOverlay'
 import { useSettingsStore } from '../../stores/settings'
 import { format } from 'date-fns'
+import { createPlaybackGuard } from '../../composables/playbackGuard'
 
 interface DvrSegment {
   id: number
@@ -22,6 +23,9 @@ const props = withDefaults(defineProps<{
   hideHeader?: boolean
   pendingSave?: boolean
   externalTimeline?: boolean
+  embedded?: boolean
+  initialPaused?: boolean
+  muted?: boolean
 }>(), {
   compact: false,
 })
@@ -40,7 +44,7 @@ const segments = ref<DvrSegment[]>([])
 const currentSegIdx = ref(0)
 const currentTime = ref(0)
 const playing = ref(false)
-const wantsPlayback = ref(true)
+const wantsPlayback = ref(!props.initialPaused)
 const playbackRate = ref(1)
 const error = ref<string | null>(null)
 const loading = ref(true)
@@ -246,6 +250,13 @@ function getBack(): HTMLVideoElement | null {
 }
 
 const currentSeg = computed(() => segments.value[currentSegIdx.value] ?? null)
+const embeddedPlaybackGuard = createPlaybackGuard(props.cameraId, getActive, (type, data) => {
+  if (type === 'playRejected' || type === 'mutedPlayRejected') console.warn('DVR playback', props.cameraId, type, data)
+})
+function playActive() {
+  if (props.embedded) void embeddedPlaybackGuard.play('dashboardReplay')
+  else getActive()?.play().catch(() => {})
+}
 const totalDuration = computed(() => segments.value.reduce((sum, s) => sum + s.duration, 0))
 
 const elapsedTime = computed(() => {
@@ -317,6 +328,9 @@ function handlePause(source: HTMLVideoElement) {
 
 // Preload the next segment into the back video
 function preloadNext(idx: number) {
+  // A dashboard may have many historical tiles. Do not allocate another
+  // decoder per tile merely to prefetch the next file.
+  if (props.embedded) return
   const nextIdx = idx + 1
   const back = getBack()
   if (nextIdx >= segments.value.length || !back) return
@@ -345,11 +359,11 @@ function swapToNext() {
     if (generation !== loadGeneration) return
     currentSegIdx.value = nextIdx
     back.playbackRate = playbackRate.value
-    if (wantsPlayback.value) back.play().catch(() => {})
     activeSlot.value = activeSlot.value === 'a' ? 'b' : 'a'
     // Pause old video (now the back)
     const oldActive = getBack()
     if (oldActive) oldActive.pause()
+    if (wantsPlayback.value) playActive()
     swapPending = false
     preloadNext(nextIdx)
   }
@@ -443,13 +457,12 @@ function loadSegment(idx: number, seekTo = 0) {
       active.addEventListener('loadeddata', onLoaded)
     }
     active.load()
-    if (wantsPlayback.value) active.play().catch(() => {})
+    if (wantsPlayback.value) playActive()
     preloadNext(idx)
   } else {
     // Load into back video, swap when ready to avoid flash
     const back = getBack()
     if (!back) return
-    const shouldPlay = wantsPlayback.value
     swapPending = true
     back.pause()
     back.src = `/dvr/segment/${seg.id}`
@@ -476,11 +489,11 @@ function loadSegment(idx: number, seekTo = 0) {
       completed = true
       cleanup()
       currentSegIdx.value = idx
-      if (shouldPlay && wantsPlayback.value) back.play().catch(() => {})
       activeSlot.value = activeSlot.value === 'a' ? 'b' : 'a'
       // Pause old active (now back), then use that free slot for prefetch.
       const oldActive = getBack()
       if (oldActive) oldActive.pause()
+      if (wantsPlayback.value) playActive()
       swapPending = false
       preloadNext(idx)
     }
@@ -549,7 +562,7 @@ function setPlaying(value: boolean) {
   wantsPlayback.value = value
   const vid = getActive()
   if (!vid) return
-  if (value) vid.play().catch(() => {})
+  if (value) playActive()
   else vid.pause()
 }
 
@@ -764,6 +777,8 @@ onUnmounted(() => {
 })
 
 defineExpose({
+  loading,
+  isSwapping: () => swapPending,
   refreshSegments: fetchSegments,
   currentTimestamp,
   elapsedTime,
@@ -781,16 +796,16 @@ defineExpose({
 </script>
 
 <template>
-  <div class="dvr-player" :class="{ compact }">
+  <div class="dvr-player" :class="{ compact, embedded }">
     <div v-if="!compact && !hideHeader" class="dvr-header">
       <span class="dvr-title">📹 {{ cameraName }} — DVR Playback</span>
       <button class="dvr-close" @click="emit('close')" title="Close">✕</button>
     </div>
     <div class="dvr-video-wrap">
-      <video ref="videoA" class="dvr-video" :class="{ active: activeSlot === 'a' }" />
-      <video ref="videoB" class="dvr-video" :class="{ active: activeSlot === 'b' }" />
+      <video ref="videoA" class="dvr-video" :class="{ active: activeSlot === 'a' }" :muted="muted" playsinline />
+      <video ref="videoB" class="dvr-video" :class="{ active: activeSlot === 'b' }" :muted="muted" playsinline />
       <canvas ref="canvasRef" class="detection-overlay" v-show="overlayEnabled" />
-      <span v-if="compact" class="dvr-cam-label">{{ cameraName }}</span>
+      <span v-if="compact && !embedded" class="dvr-cam-label">{{ cameraName }}</span>
       <div v-if="loading" class="dvr-error"><div class="spinner-border spinner-border-sm" /></div>
       <div v-else-if="error" class="dvr-error dvr-error-compact">{{ pendingSave ? 'Currently saving — try again when the file finishes.' : error }}</div>
     </div>
@@ -853,6 +868,9 @@ defineExpose({
   border-radius: 0;
   border: none;
 }
+.dvr-player.embedded, .embedded .dvr-video-wrap { height: 100%; width: 100%; }
+.embedded .dvr-video { height: 100%; max-height: none; }
+.embedded .dvr-error { background: #000; }
 
 .dvr-header {
   display: flex;

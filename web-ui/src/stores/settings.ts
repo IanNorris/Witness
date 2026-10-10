@@ -16,6 +16,8 @@ export const useSettingsStore = defineStore('settings', () => {
   const trailMaxPoints = useLocalStorage('trailMaxPoints', 200)
   const showTrails = useLocalStorage('showTrails', false)
   const trailColumnWidth = useLocalStorage('trailColumnWidth', 400)
+  const dashboardReturnLiveSeconds = useLocalStorage('dashboardReturnLiveSeconds', 180)
+  const dashboardQuietControls = useLocalStorage('dashboardQuietControls', true)
 
   function increaseScale() {
     cameraPreviewScale.value = Math.min(100, cameraPreviewScale.value + 5)
@@ -50,6 +52,8 @@ export const useSettingsStore = defineStore('settings', () => {
     trailMaxPoints,
     showTrails,
     trailColumnWidth,
+    dashboardReturnLiveSeconds,
+    dashboardQuietControls,
     increaseScale,
     decreaseScale,
     toggleFullscreen,

@@ -4,7 +4,7 @@ import { format } from 'date-fns'
 import DvrPlayer from './DvrPlayer.vue'
 import { api } from '../../composables/useApi'
 
-const props = defineProps<{ cameraId: number; cameraName: string }>()
+const props = defineProps<{ cameraId: number; cameraName: string; captureOnly?: boolean; startAt?: number }>()
 const emit = defineEmits<{ close: [] }>()
 interface Range { from: number; to: number }
 interface PendingRange extends Range { targetSeconds: number }
@@ -29,8 +29,8 @@ const captureLabel = computed(() => {
   }
 })
 const anchor = Math.floor(Date.now() / 1000)
-const from = Math.max(0, anchor - 30 * 60)
-const viewedAt = ref(anchor - 5 * 60)
+const from = Math.max(0, Math.min(anchor - 30 * 60, props.startAt ?? anchor))
+const viewedAt = ref(props.startAt ?? anchor - 5 * 60)
 const requestedAt = ref(viewedAt.value)
 const lookback = ref(300)
 const player = ref<InstanceType<typeof DvrPlayer> | null>(null)
@@ -141,8 +141,10 @@ function keydown(event: KeyboardEvent) {
 onMounted(() => {
   previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
   modal.value?.focus()
-  refreshCoverage()
-  timer = setInterval(refreshCoverage, 15_000)
+  if (!props.captureOnly) {
+    refreshCoverage()
+    timer = setInterval(refreshCoverage, 15_000)
+  }
   refreshCapture()
   captureTimer = setInterval(refreshCapture, 3000)
 })
@@ -160,10 +162,10 @@ onUnmounted(() => {
       :aria-label="`Recent replay: ${cameraName}`" tabindex="0" @keydown="keydown" @click.self="emit('close')">
       <section class="recent-replay-panel">
         <header class="recent-replay-header">
-          <div><span class="recent-replay-eyebrow">RECENT REPLAY</span><h2>{{ cameraName }}</h2></div>
-          <button class="btn btn-sm btn-primary" @click="emit('close')">Return to live ×</button>
+          <div><span class="recent-replay-eyebrow">{{ captureOnly ? 'SAVE RECENT FOOTAGE' : 'RECENT REPLAY' }}</span><h2>{{ cameraName }}</h2></div>
+          <button class="btn btn-sm btn-primary" @click="emit('close')">{{ captureOnly ? 'Close ×' : 'Return to live ×' }}</button>
         </header>
-        <div class="recent-replay-tools">
+        <div v-if="!captureOnly" class="recent-replay-tools">
           <label>Show this camera
             <select v-model="lookback" class="form-select form-select-sm" @change="jumpBack">
               <option :value="60">1 minute ago</option><option :value="300">5 minutes ago</option>
@@ -173,10 +175,10 @@ onUnmounted(() => {
           <span class="recent-replay-clock">{{ viewedTime }}</span>
           <button class="btn btn-sm btn-outline-secondary" @click="refreshReview">Refresh availability</button>
         </div>
-        <DvrPlayer ref="player" :camera-id="cameraId" :camera-name="cameraName" :from="from" :to="anchor"
+        <DvrPlayer v-if="!captureOnly" ref="player" :camera-id="cameraId" :camera-name="cameraName" :from="from" :to="anchor"
           hide-header external-timeline :pending-save="selectedPending"
           :start-at="requestedAt" @time="viewedAt = $event" @close="emit('close')" />
-        <div class="recent-replay-timeline">
+        <div v-if="!captureOnly" class="recent-replay-timeline">
           <div class="recent-replay-track" aria-hidden="true">
             <span v-for="(range, i) in coverage" :key="`r${i}`" class="recent-replay-range" :style="rangeStyle(range)" />
             <span v-for="(range, i) in pending" :key="`p${i}`" class="recent-replay-range saving" :style="rangeStyle(range)" />
@@ -185,7 +187,16 @@ onUnmounted(() => {
             @change="seekTo(Number(($event.target as HTMLInputElement).value))" />
           <div class="recent-replay-labels"><span>{{ format(new Date(from * 1000), 'HH:mm') }}</span><span>Opened at {{ format(new Date(anchor * 1000), 'HH:mm:ss') }}</span></div>
         </div>
-        <p v-if="selectedPending" class="recent-replay-notice" role="status">Currently saving — this time is not playable yet. Files normally finish after about {{ savingMinutes }} minute(s), at the next keyframe. Refresh and try again once it becomes available.</p>
+        <div v-if="captureOnly" class="recent-replay-tools">
+          <label>Save from
+            <select class="form-select form-select-sm" @change="viewedAt = anchor - Number(($event.target as HTMLSelectElement).value)">
+              <option :value="anchor - viewedAt">{{ viewedTime }} · selected time</option>
+              <option value="30">30 seconds ago</option><option value="60">1 minute ago</option>
+              <option value="120">2 minutes ago</option><option value="300">5 minutes ago</option>
+            </select>
+          </label>
+        </div>
+        <p v-if="selectedPending && !captureOnly" class="recent-replay-notice" role="status">Currently saving — this time is not playable yet. Files normally finish after about {{ savingMinutes }} minute(s), at the next keyframe. Refresh and try again once it becomes available.</p>
         <p v-if="coverageError" class="recent-replay-notice" role="status">{{ coverageError }}</p>
         <section class="recent-capture" aria-label="Save recent footage">
           <div class="recent-capture-actions">

@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, computed, watch } from 'vue'
+import { onMounted, onUnmounted, ref, computed, watch, provide } from 'vue'
 import AppLayout from '../components/layout/AppLayout.vue'
 import CameraGrid from '../components/camera/CameraGrid.vue'
 import ActivityStrip from '../components/clips/ActivityStrip.vue'
 import ClipPlayer from '../components/clips/ClipPlayer.vue'
 import RecentReplayOverlay from '../components/clips/RecentReplayOverlay.vue'
 import DashboardClipSearch from '../components/clips/DashboardClipSearch.vue'
+import { useDashboardPlayback, dashboardPlaybackKey } from '../composables/useDashboardPlayback'
 import { useCameraStore } from '../stores/cameras'
 import { useClipStore } from '../stores/clips'
 import { useSettingsStore } from '../stores/settings'
@@ -38,6 +39,7 @@ const selectedGroupId = ref<number | null>(savedGroup !== null ? Number(savedGro
 const showRecentActivity = ref(localStorage.getItem(DASHBOARD_ACTIVITY_KEY) !== '0')
 const playingClip = ref<Clip | null>(null)
 const replayCameraId = ref<number | null>(null)
+const captureStartAt = ref<number | undefined>()
 const searchingClips = ref(false)
 const replayCamera = computed(() => cameraStore.getCameraById(replayCameraId.value ?? -1))
 const editingLayout = ref(false)
@@ -60,6 +62,7 @@ function clearAutomaticSlots() {
   heldActiveCameraIds.value = []
 }
 function updateAutomaticSlots() {
+  if (playback?.anyReplay.value) return
   const active = new Set(heldActiveCameraIds.value.filter(id => currentCameraIds.value.includes(id)))
   for (const camera of currentCameras.value) {
     if (camera.motionActive) {
@@ -70,6 +73,7 @@ function updateAutomaticSlots() {
     } else if (active.has(camera.id) && !slotReleaseTimers.has(camera.id)) {
       slotReleaseTimers.set(camera.id, setTimeout(() => {
         slotReleaseTimers.delete(camera.id)
+        if (playback.anyReplay.value) return
         heldActiveCameraIds.value = heldActiveCameraIds.value.filter(id => id !== camera.id)
       }, Math.max(3, Math.min(120, Number(dashboardLayout.value.slotHoldSeconds) || 15)) * 1000))
     }
@@ -217,6 +221,20 @@ const editorTiles = computed(() =>
 )
 const displayedCameraIds = computed(() => editingLayout.value
   ? dashboardLayout.value.visibleCameraIds : editorTiles.value.map(tile => tile.cameraId))
+const playbackCameraIds = computed(() => canvasMode.value ? displayedCameraIds.value : currentCameraIds.value)
+const playbackHeld = computed(() => searchingClips.value || playingClip.value !== null || replayCameraId.value !== null || editingLayout.value)
+const playback = useDashboardPlayback(playbackCameraIds, playbackHeld, (id, timestamp) => {
+  captureStartAt.value = playback.get(id).requestedAt === null ? Math.floor(Date.now() / 1000) - 60 : timestamp
+  replayCameraId.value = id
+})
+provide(dashboardPlaybackKey, playback)
+watch(playback.anyReplay, reviewing => {
+  if (reviewing) {
+    if (focusReleaseTimer) { clearTimeout(focusReleaseTimer); focusReleaseTimer = null }
+    for (const timer of slotReleaseTimers.values()) clearTimeout(timer)
+    slotReleaseTimers.clear()
+  } else { updateAutomaticFocus(); updateAutomaticSlots() }
+})
 function changePreset(event: Event) {
   const select = event.target as HTMLSelectElement
   const next = select.value as DashboardPreset
@@ -400,6 +418,7 @@ function cameraFocusPriority(cameraId: number) {
 }
 
 function updateAutomaticFocus() {
+  if (playback.anyReplay.value) return
   if (!focusAllowed.value) {
     manuallyFocused.value = false
     focusedCameraId.value = null
@@ -554,6 +573,16 @@ onMounted(async () => {
     <template #title>Dashboard</template>
     <template #actions>
       <div class="dashboard-toolbar d-flex align-items-center gap-2">
+        <label class="dashboard-sync"><input type="checkbox" :checked="playback.sync.value" @change="playback.setSync(($event.target as HTMLInputElement).checked)"> Sync cameras</label>
+        <details class="dashboard-playback-settings" @toggle="showFullscreenControls">
+          <summary>Playback settings</summary>
+          <label>Return to live after inactivity
+            <select v-model.number="settings.dashboardReturnLiveSeconds" class="form-select form-select-sm">
+              <option :value="0">Never</option><option :value="60">1 minute</option><option :value="180">3 minutes</option><option :value="300">5 minutes</option><option :value="600">10 minutes</option>
+            </select>
+          </label>
+          <label><input v-model="settings.dashboardQuietControls" type="checkbox"> Quiet controls on unselected live cameras</label>
+        </details>
         <div class="btn-group btn-group-sm" aria-label="Dashboard view">
           <button v-for="mode in (['tiles', 'layout', 'fullscreen'] as DashboardMode[])" :key="mode"
             class="btn" :class="dashboardMode === mode ? 'btn-primary' : 'btn-outline-secondary'"
@@ -699,6 +728,10 @@ onMounted(async () => {
       :class="{ visible: fullscreenControlsVisible }"
       :style="fullscreenControlsStyle"
     >
+      <label class="dashboard-sync"><input type="checkbox" :checked="playback.sync.value" @change="playback.setSync(($event.target as HTMLInputElement).checked)"> Sync cameras</label>
+      <select v-model.number="settings.dashboardReturnLiveSeconds" aria-label="Return to live after inactivity">
+        <option :value="0">Stay in replay</option><option :value="60">Live after 1 min</option><option :value="180">Live after 3 min</option><option :value="300">Live after 5 min</option><option :value="600">Live after 10 min</option>
+      </select>
       <button
         v-if="!editingLayout"
         class="fullscreen-focus-toggle"
@@ -807,12 +840,16 @@ onMounted(async () => {
 
     <ClipPlayer v-if="playingClip" :clip="playingClip" @close="playingClip = null" />
     <RecentReplayOverlay v-if="replayCamera" :key="replayCamera.id" :camera-id="replayCamera.id"
-      :camera-name="replayCamera.name" @close="replayCameraId = null" />
+      :camera-name="replayCamera.name" capture-only :start-at="captureStartAt" @close="replayCameraId = null" />
     <DashboardClipSearch v-if="searchingClips" :group-id="selectedGroupId" :camera-ids="groupCameraIds" @close="searchingClips = false" />
   </AppLayout>
 </template>
 
 <style scoped>
+.dashboard-sync { display: inline-flex; gap: 6px; align-items: center; font-size: 12px; white-space: nowrap; }
+.dashboard-playback-settings { position: relative; font-size: 12px; }
+.dashboard-playback-settings[open] { background: var(--bs-body-bg); padding: 8px; border: 1px solid var(--bs-border-color); border-radius: 6px; }
+.dashboard-playback-settings label { display: block; margin-top: 8px; }
 .dashboard-toolbar { padding: 0.25rem 0; flex-wrap: wrap; width: 100%; min-width: 0; }
 .dashboard-toolbar > * { flex-shrink: 0; max-width: 100%; }
 .dashboard-groups { min-width: 0; }
