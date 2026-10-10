@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url'
 const root = fileURLToPath(new URL('../../', import.meta.url))
 const media = readFileSync(new URL('../../artifacts/recent-review-fixtures-20261010/h264-aac.mp4', import.meta.url))
 const thumbnail = readFileSync(new URL('../../artifacts/recent-replay-thumbnail.png', import.meta.url))
+const captures = new Map()
+let nextCaptureId = 1
 export default {
   root,
   cacheDir: 'artifacts/recent-replay-vite-cache',
@@ -21,6 +23,33 @@ export default {
       const anchor = requestedAnchor ? Number(requestedAnchor[1]) : Math.floor(Date.now() / 1000)
       const segments = [1800, 600, 305].map((offset, index) => ({id: index + 1, from: anchor - offset, to: anchor - offset + 8, duration: 8}))
       const json = value => {res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(value))}
+      const captureRoute = /^\/dvr\/capture\/(\d+)(?:\/(\d+)\/(status|stop|cancel|download))?$/.exec(path)
+      if (captureRoute) {
+        const [, camera, id, action] = captureRoute
+        if (!id && req.method === 'POST') {
+          let body = ''
+          req.on('data', chunk => { body += chunk })
+          req.on('end', () => {
+            const request = JSON.parse(body)
+            const job = {id: String(nextCaptureId++), camera, from: request.from, to: request.continueRecording ? 0 : anchor,
+              state: request.continueRecording ? 'recording' : 'currentlySaving', actualFrom: request.from - 1,
+              actualTo: anchor, gaps: [], error: '', readyAt: Date.now() + 1500}
+            captures.set(job.id, job)
+            json(job)
+          })
+          return
+        }
+        const job = captures.get(id)
+        if (!job || job.camera !== camera) {res.statusCode = 404; return json({error: 'Unknown synthetic capture'})}
+        if (action === 'stop' && req.method === 'POST') {job.to = anchor; job.state = 'currentlySaving'; job.readyAt = Date.now() + 1500}
+        if (action === 'cancel' && req.method === 'POST') job.state = 'cancelled'
+        if (job.state === 'currentlySaving' && Date.now() >= job.readyAt) job.state = 'completed'
+        if (action === 'download') {
+          res.setHeader('Content-Type', 'video/mp4'); res.setHeader('Content-Disposition', 'attachment; filename="synthetic-capture.mp4"')
+          return res.end(media)
+        }
+        return json(job)
+      }
       if (path.startsWith('/clip/enum/')) {
         const parts = path.split('/'), url = new URL(req.url, 'http://localhost')
         const count = Number(parts[4]), offset = Number(parts[7]), camera = Number(parts[3])
