@@ -43,6 +43,16 @@ class ContinuousOpenSegmentTests(unittest.TestCase):
                                   '-i', str(prefixes[-1]), '-t', '1', '-map', '0:v', '-map', '0:a',
                                   '-f', 'null', '-'])
                     self.assertEqual(sought.returncode, 0, sought.stderr)
+                    ordinary = root / f'{codec}-ordinary'
+                    probe = run([os.environ['WITNESS_CONTINUOUS_OPEN_PROBE'], str(source), str(ordinary), '--unfragmented'])
+                    self.assertEqual(probe.returncode, 0, probe.stdout + probe.stderr)
+                    self.assertIn('saving metadata and reconnect isolation', probe.stdout)
+                    recordings = list(ordinary.glob('*.mp4'))
+                    self.assertEqual(len(recordings), 2)
+                    for recording in recordings:
+                        decoded = run(['ffmpeg', '-hide_banner', '-loglevel', 'error', '-xerror',
+                                       '-i', str(recording), '-map', '0:v', '-map', '0:a', '-f', 'null', '-'])
+                        self.assertEqual(decoded.returncode, 0, decoded.stderr)
 
 
 if __name__ == '__main__':

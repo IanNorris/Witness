@@ -124,6 +124,13 @@ CameraStreamError ContinuousOutputStream::StartNewSegment()
 
 	std::string filename = std::to_string(m_SegmentStartTimestamp) + ".mp4";
 	std::string filepath = (fs::path(m_Data->BasePath) / filename).string();
+	// A reconnect (or a fast synthetic/replay source) can start more than one
+	// segment in the same wall-clock second. Never truncate an earlier file.
+	std::error_code pathError;
+	for (unsigned suffix = 1; fs::exists(filepath, pathError); ++suffix)
+		filepath = (fs::path(m_Data->BasePath) /
+			(std::to_string(m_SegmentStartTimestamp) + "_" + std::to_string(suffix) + ".mp4")).string();
+	if (pathError) return CameraStreamError::WriteFailed;
 
 	int result = avformat_alloc_output_context2(&m_FormatContext, nullptr, nullptr, filepath.c_str());
 	if (result < 0 || !m_FormatContext)
@@ -225,6 +232,10 @@ CameraStreamError ContinuousOutputStream::StartNewSegment()
 	m_SegmentDuration = 0.0;
 	m_Data->PresentationEnd = 0.0;
 	m_WaitingForKeyframe = false;
+	{
+		std::lock_guard lock(m_Data->SnapshotMutex);
+		m_Data->Snapshot = {filepath, m_SegmentStartTimestamp, 0, 0, 0};
+	}
 
 	LOG_INFO("ContinuousOutputStream: Camera %d started segment %s (target %ds)", m_CameraUID, filepath.c_str(), m_TargetSegmentDuration);
 
@@ -237,10 +248,6 @@ CameraStreamError ContinuousOutputStream::FinalizeCurrentSegment()
 		return CameraStreamError::Success;
 
 	m_SegmentOpen = false;
-	{
-		std::lock_guard lock(m_Data->SnapshotMutex);
-		m_Data->Snapshot = {};
-	}
 
 	std::string filepath = m_FormatContext->url ? m_FormatContext->url : "";
 	int duration = static_cast<int>(m_SegmentDuration);
@@ -277,6 +284,11 @@ CameraStreamError ContinuousOutputStream::FinalizeCurrentSegment()
 	}
 
 	LOG_INFO("ContinuousOutputStream: Camera %d finalized segment (%ds)", m_CameraUID, duration);
+	// Retire only after the completed-segment callback has registered its row.
+	{
+		std::lock_guard lock(m_Data->SnapshotMutex);
+		m_Data->Snapshot = {};
+	}
 
 	return CameraStreamError::Success;
 }
@@ -336,7 +348,7 @@ CameraStreamError ContinuousOutputStream::WritePacket(const AVPacket* packet)
 		if (bytes <= 0) return CameraStreamError::WriteFailed;
 		std::lock_guard lock(m_Data->SnapshotMutex);
 		m_Data->Snapshot = {m_FormatContext->url ? m_FormatContext->url : "",
-			m_SegmentStartTimestamp, m_Data->PresentationEnd, bytes};
+			m_SegmentStartTimestamp, m_Data->PresentationEnd, bytes, m_Data->PresentationEnd};
 	}
 
 	// Copy and normalize packet timestamps
@@ -415,7 +427,12 @@ CameraStreamError ContinuousOutputStream::WritePacket(const AVPacket* packet)
 		av_packet_unref(&pktCopy);
 		return CameraStreamError::WriteFailed;
 	}
-	if (isVideo) m_Data->PresentationEnd = (std::max)(m_Data->PresentationEnd, presentationEnd);
+	if (isVideo)
+	{
+		m_Data->PresentationEnd = (std::max)(m_Data->PresentationEnd, presentationEnd);
+		std::lock_guard lock(m_Data->SnapshotMutex);
+		m_Data->Snapshot.ObservedDuration = m_Data->PresentationEnd;
+	}
 	if (timestampRepaired)
 	{
 		++m_RepairedVideoTimestamps;

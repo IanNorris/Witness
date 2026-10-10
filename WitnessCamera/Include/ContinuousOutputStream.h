@@ -27,6 +27,8 @@ struct ContinuousSegmentSnapshot
 	int64_t StartTimestamp = 0;
 	double Duration = 0;
 	int64_t CommittedBytes = 0;
+	// Video successfully accepted by the writer, including the unfinished tail.
+	double ObservedDuration = 0;
 };
 
 // Callback invoked when a segment file is finalized.

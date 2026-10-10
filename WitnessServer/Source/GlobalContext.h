@@ -15,6 +15,7 @@
 
 namespace Witness{ namespace Camera{ class FaceEmbeddingModel; class ReolinkBaichuanClient; } }
 namespace Witness{ namespace Camera{ struct ImageProcessingJobQueue; } }
+namespace Witness::Camera { class ContinuousOutputStream; struct ContinuousSegmentSnapshot; }
 class CameraWorker;
 class ReolinkClient;
 class PtzMovementLease;
@@ -37,6 +38,8 @@ class GlobalContext
 public:
 
 	GlobalContext();
+	void RegisterContinuousStream(int cameraId, const std::shared_ptr<Witness::Camera::ContinuousOutputStream>& stream);
+	Witness::Camera::ContinuousSegmentSnapshot GetActiveDvrSegment(int cameraId) const;
 
 	CameraState* FindCameraById(int Id)
 	{
@@ -140,5 +143,7 @@ public:
 	}
 
 private:
+	mutable std::shared_mutex ContinuousStreamMutex;
+	std::unordered_map<int, std::weak_ptr<Witness::Camera::ContinuousOutputStream>> ContinuousStreams;
 	std::unordered_map< int, CameraState> Cameras;
 };

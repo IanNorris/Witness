@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { format } from 'date-fns'
 import DvrPlayer from '../components/clips/DvrPlayer.vue'
@@ -11,7 +11,8 @@ import { useCameraStore } from '../stores/cameras'
 interface Range { from: number; to: number }
 interface Activity extends Range { id: number }
 interface AudioEvent extends Range { group: string; score: number }
-interface Timeline { ranges: Range[]; clips: Activity[]; audio: AudioEvent[]; clipsTruncated?: boolean; audioTruncated?: boolean }
+interface PendingRange extends Range { targetSeconds: number; reason: 'currentlySaving' }
+interface Timeline { ranges: Range[]; pending?: PendingRange[]; clips: Activity[]; audio: AudioEvent[]; clipsTruncated?: boolean; audioTruncated?: boolean }
 interface PlayerHandle {
   setPlaying: (value: boolean) => void
   setRate: (rate: number) => void
@@ -213,10 +214,10 @@ async function loadTimeline() {
   try {
     const entries = await Promise.all(selected.value.map(async id => {
       const [coverage, events] = await Promise.all([
-        api<{ ranges: Range[] }>(`/dvr/coverage/${id}/${windowStart.value}/${windowEnd.value}`),
+        api<{ ranges: Range[]; pending?: PendingRange[] }>(`/dvr/coverage/${id}/${windowStart.value}/${windowEnd.value}`),
         api<{ clips: Activity[]; audio: AudioEvent[]; clipsTruncated: boolean; audioTruncated: boolean }>(`/dvr/events/${id}/${windowStart.value}/${windowEnd.value}`),
       ])
-      return [id, { ranges: coverage.ranges ?? [], clips: events.clips ?? [], audio: events.audio ?? [], clipsTruncated: events.clipsTruncated, audioTruncated: events.audioTruncated }] as const
+      return [id, { ranges: coverage.ranges ?? [], pending: coverage.pending ?? [], clips: events.clips ?? [], audio: events.audio ?? [], clipsTruncated: events.clipsTruncated, audioTruncated: events.audioTruncated }] as const
     }))
     if (generation === fetchGeneration) timeline.value = Object.fromEntries(entries)
   } catch {
@@ -225,6 +226,30 @@ async function loadTimeline() {
     if (generation === fetchGeneration) loading.value = false
   }
 }
+
+let coverageRefresh: ReturnType<typeof setInterval> | undefined
+let refreshingCoverage = false
+async function refreshSavingCoverage() {
+  const now = Date.now() / 1000
+  if (document.hidden || loading.value || refreshingCoverage || !selected.value.length
+    || now < windowStart.value || now > windowEnd.value) return
+  refreshingCoverage = true
+  const generation = fetchGeneration
+  try {
+    const entries = await Promise.all(selected.value.map(async id => [id,
+      await api<{ ranges: Range[]; pending?: PendingRange[] }>(`/dvr/coverage/${id}/${windowStart.value}/${windowEnd.value}`),
+    ] as const))
+    if (generation !== fetchGeneration) return
+    for (const [id, coverage] of entries) {
+      const existing = timeline.value[id]
+      if (existing) timeline.value[id] = { ...existing, ranges: coverage.ranges ?? [], pending: coverage.pending ?? [] }
+    }
+  } catch {
+    // Keep the last snapshot on a transient refresh failure.
+  } finally { refreshingCoverage = false }
+}
+onMounted(() => { coverageRefresh = setInterval(refreshSavingCoverage, 15_000) })
+onUnmounted(() => { clearInterval(coverageRefresh); ++fetchGeneration })
 
 watch([selected, windowStart], () => {
   pendingHighlightSeek = null
@@ -319,6 +344,7 @@ onMounted(async () => {
         <span class="small text-truncate" :title="cameraStore.getCameraById(id)?.name ?? `Camera ${id}`">{{ cameraStore.getCameraById(id)?.name ?? `Camera ${id}` }}</span>
         <div class="dvr-track" role="button" tabindex="0" :aria-label="`Seek ${cameraStore.getCameraById(id)?.name ?? id}`" @click="timelineClick" @keydown.left.prevent="move(-5)" @keydown.right.prevent="move(5)">
           <div v-for="(range, i) in timeline[id]?.ranges ?? []" :key="`r${i}`" class="dvr-range dvr-coverage" :style="barStyle(range)" title="Recording available" />
+          <div v-for="(range, i) in timeline[id]?.pending ?? []" :key="`p${i}`" class="dvr-range dvr-saving" :style="barStyle(range)" :title="`Currently saving. The last ${Math.ceil(range.targetSeconds / 60)} minute(s) may be unavailable until this file finishes at a keyframe.`" />
           <div v-for="clip in timeline[id]?.clips ?? []" :key="`c${clip.id}`" class="dvr-range dvr-activity" :style="barStyle(clip)" title="Video activity" />
           <div v-for="(event, i) in timeline[id]?.audio ?? []" :key="`a${i}`" class="dvr-range dvr-audio" :style="barStyle(event)" :title="`${event.group} (${Math.round(event.score * 100)}%)`" />
           <div class="dvr-cursor" :style="{ left: `${percent(viewedAt)}%` }" />
@@ -329,6 +355,7 @@ onMounted(async () => {
       <p v-if="selected.some(id => timeline[id]?.clipsTruncated || timeline[id]?.audioTruncated)" class="text-warning small mb-0">Activity is dense in this hour; showing the first 500 events per type and camera.</p>
       <div v-if="selected.length" class="d-flex flex-wrap align-items-center gap-3 mt-2 small text-body-secondary">
         <span><i class="dvr-key dvr-coverage" /> Recording</span><span><i class="dvr-key dvr-activity" /> Video activity</span><span><i class="dvr-key dvr-audio" /> Audio event</span>
+        <span><i class="dvr-key dvr-saving" /> Currently saving</span>
       </div>
     </div>
 
@@ -381,6 +408,7 @@ onMounted(async () => {
 .dvr-track:focus-visible { outline: 2px solid #69bfff; outline-offset: 2px; }
 .dvr-range { position: absolute; }
 .dvr-coverage { top: 0; height: 100%; background: #397a9e; }
+.dvr-saving { top: 0; height: 100%; background: repeating-linear-gradient(135deg, #b68a3440 0 4px, #b68a3490 4px 7px); }
 .dvr-activity { top: 0; height: 40%; background: #e99a39; }
 .dvr-audio { bottom: 0; height: 35%; background: #8a6bd6; }
 .dvr-cursor { position: absolute; top: 0; bottom: 0; width: 2px; background: #fff; box-shadow: 0 0 0 1px #000; pointer-events: none; z-index: 2; }

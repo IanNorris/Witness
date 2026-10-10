@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iostream>
 #include <stdexcept>
+#include <vector>
 
 using namespace Witness::Camera;
 static void Check(bool value, const char* message) {
@@ -14,7 +15,8 @@ static void Check(bool value, const char* message) {
 
 int main(int argc, char** argv) {
     try {
-        Check(argc == 3, "usage: ContinuousOpenSegmentTests synthetic-input new-directory");
+        Check(argc == 3 || (argc == 4 && std::string(argv[3]) == "--unfragmented"), "usage: ContinuousOpenSegmentTests synthetic-input new-directory [--unfragmented]");
+        const bool fragmented = argc == 3;
         const std::filesystem::path directory(argv[2]);
         Check(!std::filesystem::exists(directory), "refusing to overwrite test output");
         std::filesystem::create_directories(directory);
@@ -25,9 +27,14 @@ int main(int argc, char** argv) {
         InputStream input(setup, 1, nullptr, argv[1]);
         Check(input.Initialize() == CameraStreamError::Success, "input failed");
         ContinuousOutputStream output(directory.string(), 1, &input);
-        output.SetFragmentedRecordingEnabled(true);
+        output.SetFragmentedRecordingEnabled(fragmented);
         int completed = 0;
-        output.SetSegmentCompleteCallback([&](int, int64_t, int64_t, int, const std::string&) { ++completed; });
+        std::vector<std::string> completedPaths;
+        output.SetSegmentCompleteCallback([&](int, int64_t, int64_t, int, const std::string& path) {
+            Check(!output.GetCommittedSegment().FilePath.empty(), "active state retired before completed row callback");
+            completedPaths.push_back(path);
+            ++completed;
+        });
         AVPacket* packet = av_packet_alloc();
         Check(packet != nullptr, "allocation failed");
         int prefixes = 0;
@@ -37,6 +44,8 @@ int main(int argc, char** argv) {
             Check(output.WritePacket(packet) == CameraStreamError::Success, "write failed");
             av_packet_unref(packet);
             const auto snapshot = output.GetCommittedSegment();
+            Check(snapshot.ObservedDuration >= snapshot.Duration, "committed prefix exceeds observed video");
+            if (snapshot.ObservedDuration > 0) Check(!snapshot.FilePath.empty(), "saving tail has no active segment");
             if (snapshot.CommittedBytes == previous) continue;
             Check(completed == 0, "segment unexpectedly finalized before replay");
             Check(snapshot.CommittedBytes > previous && snapshot.Duration >= previousDuration, "non-monotonic committed prefix");
@@ -68,12 +77,26 @@ int main(int argc, char** argv) {
             previousDuration = snapshot.Duration;
         }
         av_packet_free(&packet);
-        Check(prefixes >= 3, "insufficient GOP coverage");
+        if (fragmented) Check(prefixes >= 3, "insufficient GOP coverage");
+        Check(output.GetCommittedSegment().ObservedDuration > 7, "pending duration did not track video");
         output.Finalize();
         Check(completed == 1 && output.GetCommittedSegment().CommittedBytes == 0, "finalization did not retire active prefix");
         output.Finalize();
         Check(completed == 1, "duplicate finalization callback");
-        std::cout << "PASS committed prefixes readable before original file closes\n";
+        const auto originalSize = std::filesystem::file_size(completedPaths.front());
+        Check(av_seek_frame(input.GetData().FormatContext, -1, 0, AVSEEK_FLAG_BACKWARD) >= 0, "synthetic reconnect seek failed");
+        output.ResetForReconnect(&input);
+        packet = av_packet_alloc();
+        while (av_read_frame(input.GetData().FormatContext, packet) >= 0) {
+            Check(output.WritePacket(packet) == CameraStreamError::Success, "reconnect write failed");
+            av_packet_unref(packet);
+        }
+        av_packet_free(&packet);
+        output.Finalize();
+        Check(completed == 2 && completedPaths[0] != completedPaths[1], "reconnect reused a DVR file path");
+        Check(std::filesystem::file_size(completedPaths.front()) == originalSize, "reconnect overwrote the earlier segment");
+        std::cout << (fragmented ? "PASS committed prefixes readable before original file closes\n"
+                                : "PASS ordinary MP4 saving metadata and reconnect isolation\n");
         return 0;
     } catch (const std::exception& error) {
         std::cerr << error.what() << '\n';

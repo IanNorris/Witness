@@ -1,5 +1,6 @@
 #include "CrowListener.h"
 #include "CrowAuth.h"
+#include <ContinuousOutputStream.h>
 
 #include <Log.h>
 #include <filesystem>
@@ -22,6 +23,26 @@ namespace
 	{
 		return ParseDvrTime( fromStr, from ) && ParseDvrTime( toStr, to ) &&
 			from >= 0 && to > from && to - from <= maxSeconds;
+	}
+
+	void AddPendingDvr(GlobalContext& context, int cameraId, int64_t from, int64_t to, crow::json::wvalue& result)
+	{
+		const auto active = context.GetActiveDvrSegment(cameraId);
+		std::vector<crow::json::wvalue> pending;
+		// Until the committed-prefix transport is enabled, the entire open file
+		// is unavailable. Report observed media only, not invented wall-clock coverage.
+		const double start = static_cast<double>(active.StartTimestamp);
+		const double end = start + active.ObservedDuration;
+		if (!active.FilePath.empty() && end > start && end > from && start < to)
+		{
+			crow::json::wvalue range;
+			range["from"] = (std::max)(start, static_cast<double>(from));
+			range["to"] = (std::min)(end, static_cast<double>(to));
+			range["targetSeconds"] = context.DvrSegmentSeconds;
+			range["reason"] = "currentlySaving";
+			pending.push_back(std::move(range));
+		}
+		result["pending"] = std::move(pending);
 	}
 }
 
@@ -82,6 +103,7 @@ void CrowListener::HandleDvrCoverage( const crow::request& req, crow::response& 
 		ranges.push_back( std::move( range ) );
 	}
 	result["ranges"] = std::move( ranges );
+	AddPendingDvr(*m_GlobalContext, cameraId, from, to, result);
 
 	res.set_header( "Content-Type", "application/json" );
 	res.body = result.dump();
@@ -251,6 +273,7 @@ void CrowListener::HandleDvrSegments( const crow::request& req, crow::response& 
 	);
 
 	result["segments"] = std::move( segments );
+	AddPendingDvr(*m_GlobalContext, cameraId, from, to, result);
 
 	res.set_header( "Content-Type", "application/json" );
 	res.body = result.dump();

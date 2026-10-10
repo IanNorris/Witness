@@ -268,6 +268,7 @@ void CameraWorker::CreateInputStream()
 		}
 		ContinuousStream->SetTimestampNormalizationAllowed(NormalizeCameraTimestamps);
 		ContinuousStream->SetTargetSegmentDuration(Context->DvrSegmentSeconds);
+		Context->RegisterContinuousStream(Camera.ID, ContinuousStream);
 
 		// Wire packet callback so ContinuousStream receives every video packet
 		auto contStream = ContinuousStream;
@@ -879,6 +880,9 @@ void CameraWorker::WorkerShutdown()
 
 	//Ensure destruction is done on the worker thread
 	Filter = nullptr;
+	// A metadata reader may briefly own the last shared reference. Finish on
+	// this writer thread before releasing ownership, never on an HTTP worker.
+	if (ContinuousStream) ContinuousStream->Finalize();
 	ContinuousStream = nullptr;
 	LiveStream = nullptr;
 	std::shared_ptr<InputStream> RetiredCameraStream;
