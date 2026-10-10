@@ -39,6 +39,8 @@ set(SERVER_SOURCES
     Source/CrowRoutes_Group.cpp
     Source/CrowRoutes_Ptz.cpp
     Source/PtzRequestExecutor.cpp
+    Source/RecentCaptureJobs.cpp
+    Source/CrowRoutes_RecentCapture.cpp
     Source/CrowRoutes_Action.cpp
     Source/CrowRoutes_Setup.cpp
     Source/CrowRoutes_Stream.cpp
@@ -316,6 +318,11 @@ endif()
 # Pure path validation and opt-in data-root isolation.
 add_executable(DvrConfigurationTests EXCLUDE_FROM_ALL ../Tools/Tests/DvrConfigurationTests.cpp)
 target_include_directories(DvrConfigurationTests PRIVATE Source)
+
+add_executable(RecentCaptureJobsTests EXCLUDE_FROM_ALL
+    ../Tools/Tests/RecentCaptureJobsTests.cpp Source/RecentCaptureJobs.cpp)
+target_include_directories(RecentCaptureJobsTests PRIVATE Source)
+target_link_libraries(RecentCaptureJobsTests PRIVATE WitnessCamera Threads::Threads)
 
 add_executable(ConfigPathsTests EXCLUDE_FROM_ALL
     ../Tools/Tests/ConfigPathsTests.cpp Source/ConfigPaths.cpp)

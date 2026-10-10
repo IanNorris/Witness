@@ -8,6 +8,26 @@ const props = defineProps<{ cameraId: number; cameraName: string }>()
 const emit = defineEmits<{ close: [] }>()
 interface Range { from: number; to: number }
 interface PendingRange extends Range { targetSeconds: number }
+interface CaptureJob {
+  id: string; state: 'recording' | 'currentlySaving' | 'exporting' | 'completed' | 'failed' | 'cancelled'
+  from: number; to: number; actualFrom: number; actualTo: number; error: string; gaps: Range[]
+}
+const capture = ref<CaptureJob | null>(null)
+const captureError = ref('')
+const captureBusy = ref(false)
+const captureKey = `witness-recent-capture-${props.cameraId}`
+const captureActive = computed(() => capture.value && ['recording', 'currentlySaving', 'exporting'].includes(capture.value.state))
+const captureLabel = computed(() => {
+  switch (capture.value?.state) {
+    case 'recording': return 'Recording — continues after closing this replay. Stop here when finished (six-hour maximum).'
+    case 'currentlySaving': return 'Waiting for DVR footage to finish saving…'
+    case 'exporting': return 'Preparing your clip…'
+    case 'completed': return capture.value.gaps.length ? 'Clip ready — some requested footage was unavailable. See gaps below.' : 'Clip ready.'
+    case 'failed': return `Capture failed: ${capture.value.error}`
+    case 'cancelled': return 'Capture cancelled.'
+    default: return ''
+  }
+})
 const anchor = Math.floor(Date.now() / 1000)
 const from = Math.max(0, anchor - 30 * 60)
 const viewedAt = ref(anchor - 5 * 60)
@@ -23,8 +43,57 @@ const savingMinutes = computed(() => Math.ceil((pending.value.find(r => viewedAt
 const viewedTime = computed(() => format(new Date(viewedAt.value * 1000), 'HH:mm:ss'))
 let previousFocus: HTMLElement | null = null
 let timer: ReturnType<typeof setInterval> | undefined
+let captureTimer: ReturnType<typeof setInterval> | undefined
+let pollingCapture = false
+let captureRevision = 0
 let disposed = false
 let fetching = false
+
+function rememberCapture(job: CaptureJob) {
+  capture.value = job
+  try { localStorage.setItem(captureKey, job.id) } catch { /* Storage can be disabled. */ }
+}
+async function refreshCapture() {
+  if (disposed || pollingCapture || captureBusy.value || document.hidden) return
+  let id = capture.value?.id
+  try { id ??= localStorage.getItem(captureKey) ?? undefined } catch { /* Optional persistence. */ }
+  if (!id || (capture.value && !captureActive.value)) return
+  pollingCapture = true
+  const revision = captureRevision
+  try {
+    const job = await api<CaptureJob>(`/dvr/capture/${props.cameraId}/${encodeURIComponent(id)}/status`, { redirectOnFail: false })
+    if (!disposed && revision === captureRevision) { rememberCapture(job); captureError.value = '' }
+  } catch {
+    if (!disposed && revision === captureRevision) captureError.value = 'Capture status unavailable. The server may have restarted; retry before starting another recording.'
+  } finally { pollingCapture = false }
+}
+async function startCapture(continuing: boolean) {
+  if (captureBusy.value || captureActive.value) return
+  captureBusy.value = true; captureError.value = ''
+  ++captureRevision
+  try {
+    const job = await api<CaptureJob>(`/dvr/capture/${props.cameraId}`, {
+      method: 'POST', body: { from: viewedAt.value, continueRecording: continuing }, redirectOnFail: false,
+    })
+    if (!disposed) rememberCapture(job)
+    else try { localStorage.setItem(captureKey, job.id) } catch { /* The server job is independent. */ }
+  } catch (error) {
+    if (!disposed) captureError.value = error instanceof Error ? error.message : 'Capture could not be started.'
+  } finally { captureBusy.value = false }
+}
+async function captureAction(action: 'stop' | 'cancel') {
+  if (!capture.value || captureBusy.value) return
+  captureBusy.value = true
+  ++captureRevision
+  try {
+    const job = await api<CaptureJob>(`/dvr/capture/${props.cameraId}/${capture.value.id}/${action}`, {
+      method: 'POST', body: {}, redirectOnFail: false,
+    })
+    if (!disposed) { rememberCapture(job); captureError.value = '' }
+  } catch (error) {
+    if (!disposed) captureError.value = error instanceof Error ? error.message : 'Capture update failed.'
+  } finally { captureBusy.value = false }
+}
 
 function seekTo(timestamp: number) {
   viewedAt.value = Math.max(from, Math.min(anchor, timestamp))
@@ -58,7 +127,7 @@ function keydown(event: KeyboardEvent) {
   event.stopPropagation()
   if (event.key === 'Escape') { event.preventDefault(); emit('close'); return }
   if (event.key === 'Tab' && modal.value) {
-    const targets = [...modal.value.querySelectorAll<HTMLElement>('button:not(:disabled), select, input, [tabindex="0"]')]
+    const targets = [...modal.value.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], select, input, [tabindex="0"]')]
     const first = targets[0], last = targets[targets.length - 1]
     if (event.shiftKey && (document.activeElement === first || document.activeElement === modal.value)) { event.preventDefault(); last?.focus() }
     else if (!event.shiftKey && (document.activeElement === last || document.activeElement === modal.value)) { event.preventDefault(); first?.focus() }
@@ -74,10 +143,13 @@ onMounted(() => {
   modal.value?.focus()
   refreshCoverage()
   timer = setInterval(refreshCoverage, 15_000)
+  refreshCapture()
+  captureTimer = setInterval(refreshCapture, 3000)
 })
 onUnmounted(() => {
   disposed = true
   clearInterval(timer)
+  clearInterval(captureTimer)
   if (previousFocus?.isConnected) previousFocus.focus()
 })
 </script>
@@ -115,6 +187,20 @@ onUnmounted(() => {
         </div>
         <p v-if="selectedPending" class="recent-replay-notice" role="status">Currently saving — this time is not playable yet. Files normally finish after about {{ savingMinutes }} minute(s), at the next keyframe. Refresh and try again once it becomes available.</p>
         <p v-if="coverageError" class="recent-replay-notice" role="status">{{ coverageError }}</p>
+        <section class="recent-capture" aria-label="Save recent footage">
+          <div class="recent-capture-actions">
+            <button class="btn btn-sm btn-primary" :disabled="captureBusy || !!captureActive" @click="startCapture(false)">Save from {{ viewedTime }} to now</button>
+            <button class="btn btn-sm btn-outline-info" :disabled="captureBusy || !!captureActive" @click="startCapture(true)">Record from {{ viewedTime }}</button>
+            <button v-if="capture?.state === 'recording'" class="btn btn-sm btn-warning" :disabled="captureBusy" @click="captureAction('stop')">Stop this capture now</button>
+            <button v-if="captureActive" class="btn btn-sm btn-outline-secondary" :disabled="captureBusy" @click="captureAction('cancel')">Cancel capture</button>
+            <a v-if="capture?.state === 'completed'" class="btn btn-sm btn-success" :href="`/dvr/capture/${cameraId}/${capture.id}/download`">Download clip</a>
+          </div>
+          <p v-if="captureLabel" role="status">{{ captureLabel }}</p>
+          <p v-if="captureError" role="alert">{{ captureError }} <button class="btn btn-sm btn-outline-secondary" @click="refreshCapture">Retry status</button></p>
+          <p v-if="capture?.state === 'completed'">Media: {{ format(new Date(capture.actualFrom * 1000), 'HH:mm:ss') }}–{{ format(new Date(capture.actualTo * 1000), 'HH:mm:ss') }}</p>
+          <p v-for="(gap, i) in capture?.gaps ?? []" :key="i">Unavailable: {{ format(new Date(gap.from * 1000), 'HH:mm:ss') }}–{{ format(new Date(gap.to * 1000), 'HH:mm:ss') }}</p>
+          <small>Starts at a preceding keyframe; the end may include a later reference frame. Your existing camera recordings are unchanged.</small>
+        </section>
         <footer>Blue: available · Hatched: currently saving · Blank: no recording. Live cameras stay running behind this replay.</footer>
       </section>
     </div>
@@ -139,4 +225,8 @@ onUnmounted(() => {
 .recent-replay-labels { display: flex; justify-content: space-between; font-size: .75rem; color: #b1c3d4; }
 .recent-replay-notice { margin: 8px 20px; padding: 10px 12px; background: #b68a3420; border: 1px solid #b68a3460; border-radius: 8px; font-size: .85rem; }
 footer { padding: 12px 20px 18px; color: #b1c3d4; font-size: .75rem; }
+.recent-capture { margin: 12px 20px; padding: 14px; border: 1px solid #34485d; border-radius: 10px; background: #0c1622; }
+.recent-capture-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.recent-capture p { margin: 10px 0 0; font-size: .85rem; }
+.recent-capture small { display: block; margin-top: 10px; color: #b1c3d4; }
 </style>

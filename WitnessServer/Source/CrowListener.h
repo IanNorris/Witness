@@ -15,6 +15,7 @@
 #include "HttpServerDiagnostics.h"
 #include "HealthSnapshotCache.h"
 #include "PtzRequestExecutor.h"
+#include "RecentCaptureJobs.h"
 
 struct HttpTracingMiddleware
 {
@@ -234,6 +235,9 @@ private:
 	void HandleDvrPlaylist( const crow::request& req, crow::response& res, int cameraId, const std::string& fromStr, const std::string& toStr );
 	void HandleDvrSegments( const crow::request& req, crow::response& res, int cameraId, const std::string& fromStr, const std::string& toStr );
 	void HandleDvrThumbnail( const crow::request& req, crow::response& res, int cameraId, const std::string& timestampStr );
+	void StartRecentCaptures();
+	void HandleRecentCaptureCreate(const crow::request& req, crow::response& res, int cameraId);
+	void HandleRecentCaptureJob(const crow::request& req, crow::response& res, int cameraId, const std::string& id, const std::string& action);
 
 	// PTZ control
 	void DispatchPtz(const crow::request& req, crow::response& res, int cameraId,
@@ -255,6 +259,7 @@ private:
 	std::atomic<bool> m_Ready{ false };
 	HealthSnapshotCache m_HealthCache;
 	PtzRequestExecutor m_PtzRequests;
+	std::unique_ptr<RecentCaptureJobs> m_RecentCaptures;
 	std::shared_ptr<PtzRequestExecutor::Completions> m_PtzCompletions = std::make_shared<PtzRequestExecutor::Completions>();
 
 	std::shared_ptr<GlobalContext> m_GlobalContext;

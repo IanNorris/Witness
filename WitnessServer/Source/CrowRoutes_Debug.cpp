@@ -1965,6 +1965,7 @@ bool CrowListener::Start()
 	try
 	{
 		m_PtzRequests.Start();
+		StartRecentCaptures();
 		m_App.bindaddr( bindAddr ).port( m_Port );
 		Witness::HttpDiagnostics::ClearActiveRequests();
 
@@ -2040,4 +2041,5 @@ void CrowListener::Stop()
 	{
 		m_ServerThread.join();
 	}
+	if (m_RecentCaptures) m_RecentCaptures->Shutdown();
 }
