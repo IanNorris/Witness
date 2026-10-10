@@ -5,6 +5,7 @@ import CameraGrid from '../components/camera/CameraGrid.vue'
 import ActivityStrip from '../components/clips/ActivityStrip.vue'
 import ClipPlayer from '../components/clips/ClipPlayer.vue'
 import RecentReplayOverlay from '../components/clips/RecentReplayOverlay.vue'
+import DashboardClipSearch from '../components/clips/DashboardClipSearch.vue'
 import { useCameraStore } from '../stores/cameras'
 import { useClipStore } from '../stores/clips'
 import { useSettingsStore } from '../stores/settings'
@@ -37,6 +38,7 @@ const selectedGroupId = ref<number | null>(savedGroup !== null ? Number(savedGro
 const showRecentActivity = ref(localStorage.getItem(DASHBOARD_ACTIVITY_KEY) !== '0')
 const playingClip = ref<Clip | null>(null)
 const replayCameraId = ref<number | null>(null)
+const searchingClips = ref(false)
 const replayCamera = computed(() => cameraStore.getCameraById(replayCameraId.value ?? -1))
 const editingLayout = ref(false)
 const editingLayoutMode = ref<'regular' | 'focus'>('regular')
@@ -606,6 +608,7 @@ onMounted(async () => {
           @click="openLayoutEditor"
           title="Edit this group's saved custom layout"
         >Arrange</button>
+        <button class="btn btn-sm btn-outline-secondary" @click="searchingClips = true">Search clips</button>
         <button
           class="btn btn-sm"
           :class="settings.fullscreenMode ? 'btn-primary' : 'btn-outline-secondary'"
@@ -703,6 +706,7 @@ onMounted(async () => {
         @click="toggleAutoFocus"
         :title="dashboardLayout.autoFocusEnabled ? 'Disable focus on motion' : 'Focus eligible cameras on motion'"
       >Auto focus</button>
+      <button v-if="!editingLayout" @click="searchingClips = true">Search clips</button>
       <button
         v-if="!editingLayout"
         class="fullscreen-layout-toggle"
@@ -804,6 +808,7 @@ onMounted(async () => {
     <ClipPlayer v-if="playingClip" :clip="playingClip" @close="playingClip = null" />
     <RecentReplayOverlay v-if="replayCamera" :key="replayCamera.id" :camera-id="replayCamera.id"
       :camera-name="replayCamera.name" @close="replayCameraId = null" />
+    <DashboardClipSearch v-if="searchingClips" :group-id="selectedGroupId" :camera-ids="groupCameraIds" @close="searchingClips = false" />
   </AppLayout>
 </template>
 

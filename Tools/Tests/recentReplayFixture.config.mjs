@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 const root = fileURLToPath(new URL('../../', import.meta.url))
 const media = readFileSync(new URL('../../artifacts/recent-review-fixtures-20261010/h264-aac.mp4', import.meta.url))
+const thumbnail = readFileSync(new URL('../../artifacts/recent-replay-thumbnail.png', import.meta.url))
 export default {
   root,
   cacheDir: 'artifacts/recent-replay-vite-cache',
@@ -20,6 +21,18 @@ export default {
       const anchor = requestedAnchor ? Number(requestedAnchor[1]) : Math.floor(Date.now() / 1000)
       const segments = [1800, 600, 305].map((offset, index) => ({id: index + 1, from: anchor - offset, to: anchor - offset + 8, duration: 8}))
       const json = value => {res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(value))}
+      if (path.startsWith('/clip/enum/')) {
+        const parts = path.split('/'), url = new URL(req.url, 'http://localhost')
+        const count = Number(parts[4]), offset = Number(parts[7]), camera = Number(parts[3])
+        let clips = Array.from({length: 30}, (_, i) => ({clipUID: 1000 + i, cameraID: i < 15 ? 8 : 9,
+          timestamp: anchor - i * 15, duration: 8, tags: 'person', saved: 0, recordMode: 1, lighting: 1, reviewed: 0}))
+        if (camera !== -1) clips = clips.filter(c => c.cameraID === camera)
+        if (url.searchParams.has('tags') && !url.searchParams.get('tags').split(',').includes('person')) clips = []
+        return json({count: clips.length, clips: clips.slice(offset, offset + count)})
+      }
+      if (path === '/clip/tags') return json({tags: [{id: 1, name: 'person', display: 'Person', icon: '', sortOrder: 0, hidden: 0, clipCount: 30}]})
+      if (path.startsWith('/clip/thumb/')) {res.setHeader('Content-Type', 'image/png'); return res.end(thumbnail)}
+      if (path.startsWith('/clip/video/')) {res.setHeader('Content-Type', 'video/mp4'); res.setHeader('Content-Length', media.length); return res.end(media)}
       if (path.startsWith('/dvr/coverage/')) return json({ranges: segments.map(({from, to}) => ({from, to})), pending: [{from: anchor - 65, to: anchor, targetSeconds: 60}]})
       if (path.startsWith('/dvr/segments/')) return json({segments})
       if (path.startsWith('/dvr/segment/')) {

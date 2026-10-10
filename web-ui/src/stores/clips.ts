@@ -19,6 +19,7 @@ export const useClipStore = defineStore('clips', () => {
   const clips = ref<Clip[]>([])
   const totalCount = ref(0)
   const loading = ref(false)
+  const loadError = ref<string | null>(null)
   const pageOffset = ref(0)
   const currentCameraId = ref<number | null>(null)
   const currentGroupId = ref<number | null>(null)
@@ -81,6 +82,7 @@ export const useClipStore = defineStore('clips', () => {
   async function fetchClips(cameraId: number | null, offset = 0, retryingClampedPage = false, groupId: number | null = null) {
     const fetchId = ++latestFetchId
     loading.value = true
+    loadError.value = null
     currentCameraId.value = cameraId
     currentGroupId.value = groupId
     pageOffset.value = offset
@@ -121,6 +123,7 @@ export const useClipStore = defineStore('clips', () => {
       clips.value = rawClips.map(mapClip)
     } catch {
       if (fetchId !== latestFetchId) return
+      loadError.value = 'Could not load clips. Please try again.'
       clips.value = []
       totalCount.value = 0
     } finally {
@@ -213,7 +216,7 @@ export const useClipStore = defineStore('clips', () => {
   }
 
   return {
-    clips, totalCount, loading, pageSize, pageOffset,
+    clips, totalCount, loading, loadError, pageSize, pageOffset,
     currentCameraId, currentPage, totalPages,
     recentClips, reprocessStatus,
     fetchClips, toggleSave, deleteClip, retagClip, retagAll,

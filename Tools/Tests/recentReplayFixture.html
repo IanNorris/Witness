@@ -5,17 +5,19 @@ import { createPinia } from 'pinia'
 import { createRouter, createWebHistory } from 'vue-router'
 import CameraGrid from '/web-ui/src/components/camera/CameraGrid.vue'
 import RecentReplayOverlay from '/web-ui/src/components/clips/RecentReplayOverlay.vue'
+import DashboardClipSearch from '/web-ui/src/components/clips/DashboardClipSearch.vue'
 import { useCameraStore } from '/web-ui/src/stores/cameras.ts'
 import { useSettingsStore } from '/web-ui/src/stores/settings.ts'
 import '/web-ui/src/assets/styles/main.scss'
 const app = createApp({
-  components: { CameraGrid, RecentReplayOverlay },
+  components: { CameraGrid, RecentReplayOverlay, DashboardClipSearch },
   setup() {
     const cameraStore = useCameraStore(), settings = useSettingsStore()
     settings.streamingMode = 'jpeg'
+    settings.fullscreenMode = false
     cameraStore.isLoading = false
     cameraStore.cameras = [8, 9].map(id => ({ id, name: `Synthetic camera ${id}`, status: 'Connected', isRecording: true, motionActive: false, groups: [], previewUrl: '', streamUrl: '', stats: {fps: 15, bitrate: 0, uptime: '', reconnects: 0} }))
-    const replay = ref(null), status = ref('Starting fixture')
+    const replay = ref(null), search = ref(false), status = ref('Starting fixture')
     let originals = [], timer
     onMounted(() => {
       originals = [...document.querySelectorAll('.camera-grid-item .camera-card')]
@@ -26,9 +28,9 @@ const app = createApp({
       }, 500)
     })
     onUnmounted(() => clearInterval(timer))
-    return { replay, status, settings }
+    return { replay, search, status, settings }
   },
-  template: `<main class="container py-4"><h1>Recent replay — synthetic fixture</h1><p>No real cameras, database or credentials are used.</p><button class="btn btn-secondary" @click="settings.fullscreenMode = true">Fullscreen fixture</button><output>{{ status }}</output><CameraGrid @replay="replay = $event" /><RecentReplayOverlay v-if="replay" :camera-id="replay" :camera-name="'Synthetic camera ' + replay" @close="replay = null" /></main>`
+  template: `<main class="container py-4"><h1>Recent replay — synthetic fixture</h1><p>No real cameras, database or credentials are used.</p><button class="btn btn-secondary" @click="settings.fullscreenMode = true">Fullscreen fixture</button><button class="btn btn-secondary" @click="search = true">Search clips</button><output>{{ status }}</output><CameraGrid @replay="replay = $event" /><RecentReplayOverlay v-if="replay" :camera-id="replay" :camera-name="'Synthetic camera ' + replay" @close="replay = null" /><DashboardClipSearch v-if="search" @close="search = false" /></main>`
 })
 app.use(createPinia()).use(createRouter({history: createWebHistory(), routes: []})).mount('#app')
 </script></body></html>

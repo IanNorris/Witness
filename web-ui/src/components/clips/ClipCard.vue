@@ -12,6 +12,7 @@ const props = defineProps<{
   clip: Clip
   trivial?: boolean
   highlighted?: boolean
+  readOnly?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -184,7 +185,7 @@ function audioTitle(event: AudioEvent) {
         </div>
       </div>
 
-      <div class="clip-actions">
+      <div v-if="!readOnly" class="clip-actions">
         <button
           class="btn btn-sm"
           :class="clip.saved ? 'btn-warning' : 'btn-outline-secondary'"
