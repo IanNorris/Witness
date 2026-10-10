@@ -1441,7 +1441,7 @@ namespace Database
 		CREATE_QUERY( DeleteCamera );
 
 		CREATE_QUERY( CreateClip );
-		DB->CreateQuery("SelectCapturedClipMedia", "SELECT FilePath, ThumbnailPath FROM CapturedClipMedia WHERE ClipUID=@ClipUID;");
+		DB->CreateQuery("SelectCapturedClipMedia", "SELECT FilePath, ThumbnailPath, RequestedFrom, RequestedTo, ActualFrom, ActualTo, TimelineFrom, Coverage, Gaps FROM CapturedClipMedia WHERE ClipUID=@ClipUID;");
 		CREATE_QUERY( SelectClipID );
 		CREATE_QUERY( UpdateClip );
 		CREATE_QUERY( DeleteClip );

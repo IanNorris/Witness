@@ -8,10 +8,21 @@ using namespace Witness::Camera;
 void Check(bool ok, const char* message) { if (!ok) throw std::runtime_error(message); }
 int main(int argc, char** argv) {
     try {
-        Check(argc == 3, "Usage: HistoricalClipTests synthetic-input new-output-directory");
+        Check(argc == 3 || argc == 6, "Usage: HistoricalClipTests input new-output-directory [duration cut-from cut-to]");
         const fs::path input(argv[1]), output(argv[2]);
         Check(fs::is_regular_file(input) && !fs::exists(output), "Input missing or output directory already exists");
         fs::create_directories(output);
+        if (argc == 6) {
+            // Read-only real-media probe. Outputs belong in ignored artifacts,
+            // never alongside the original recording or in tracked fixtures.
+            const double duration = std::stod(argv[3]);
+            auto real = RemuxHistoricalClip({{input.string(), 1000, 1000 + duration, 0}},
+                1000 + std::stod(argv[4]), 1000 + std::stod(argv[5]), (output / "cut.mp4").string());
+            Check(real.Success, real.Error.c_str());
+            std::cout << "PASS media remux video=" << real.VideoPackets << " audio=" << real.AudioPackets
+                << " from=" << real.ActualFrom << " to=" << real.ActualTo << " gaps=" << real.Gaps.size() << '\n';
+            return 0;
+        }
         const std::vector<HistoricalClipSource> sources{{input.string(), 1000, 1008, 0}};
         auto cut = RemuxHistoricalClip(sources, 1003, 1006, (output / "cut.mp4").string());
         if (!cut.Success) std::cerr << cut.Error << '\n';
@@ -33,6 +44,10 @@ int main(int argc, char** argv) {
         Check(joined.Success && joined.Coverage.size() == 2 && joined.Gaps.size() == 1
             && joined.Gaps.front().From >= 1007.9 && joined.Gaps.front().To == 1010,
             "Multiple sources did not preserve the real gap");
+        auto adjacent = RemuxHistoricalClip({{input.string(), 1000, 1008, 0},
+            {input.string(), 1008, 1016, 0}}, 1003, 1015, (output / "adjacent.mp4").string());
+        Check(adjacent.Success && adjacent.Coverage.size() == 2 && adjacent.Gaps.empty(),
+            "Adjacent source boundary failed or introduced a false gap");
         auto snapshot = RemuxHistoricalClip({{input.string(), 1000, 1008,
             static_cast<int64_t>(fs::file_size(input))}}, 1003, 1006, (output / "snapshot.mp4").string());
         Check(snapshot.Success, "Committed source snapshot export failed");

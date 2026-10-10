@@ -128,6 +128,15 @@ class RecentCaptureHttpTests(unittest.TestCase):
                     captured = f'/clip/captured/{rows[0][0]}/video'
                     self.assertEqual(request(captured, principal=None)[0], 403)
                     self.assertEqual(request(captured)[0], 200)
+                    metadata_path = f'/clip/captured/{rows[0][0]}/metadata'
+                    self.assertEqual(request(metadata_path, principal=None)[0], 403)
+                    code, body = request(metadata_path)
+                    self.assertEqual(code, 200, body)
+                    metadata = json.loads(body)
+                    self.assertLessEqual(metadata['timelineFrom'], metadata['actualFrom'])
+                    self.assertEqual(metadata['actualFrom'], job['actualFrom'])
+                    self.assertEqual(metadata['gaps'], job['gaps'])
+                    self.assertNotIn('FilePath', metadata)
                     code, body = request(create, {'csrf': csrf, 'lookbackSeconds': 2})
                     self.assertEqual(code, 202, body)
                     second = json.loads(body)

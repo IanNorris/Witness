@@ -128,7 +128,7 @@ void CrowListener::StartRecentCaptures() {
     });
 }
 void CrowListener::HandleCapturedClipMedia(const crow::request& req, crow::response& res, int clipUID, const std::string& type) {
-    if (type != "video" && type != "thumbnail") {res.code = 404; res.end(); return;}
+    if (type != "video" && type != "thumbnail" && type != "metadata") {res.code = 404; res.end(); return;}
     int camera = 0;
     {
         SQLiteDatabaseQueryInstance query(m_GlobalContext->Database, "SelectClipID");
@@ -138,6 +138,28 @@ void CrowListener::HandleCapturedClipMedia(const crow::request& req, crow::respo
     if (camera <= 0) {res.code = 404; res.end(); return;}
     if (CrowAuth::IsCameraAuthenticated(*m_GlobalContext, req, nullptr, CrowAuth::Action::Read, CrowAuth::Privilege::Normal, camera) <= 0) {
         res.code = 403; res.end(); return;
+    }
+    if (type == "metadata") {
+        crow::json::wvalue value;
+        bool found = false;
+        SQLiteDatabaseQueryInstance query(m_GlobalContext->Database, "SelectCapturedClipMedia");
+        query->Bind("@ClipUID", clipUID);
+        query->Execute([&](const SQLiteDatabaseQuery& row) {
+            found = true;
+            value["requestedFrom"] = row.GetColumnValueDouble(2); value["requestedTo"] = row.GetColumnValueDouble(3);
+            value["actualFrom"] = row.GetColumnValueDouble(4); value["actualTo"] = row.GetColumnValueDouble(5);
+            value["timelineFrom"] = row.GetColumnValueDouble(6);
+            for (const auto& [name, index] : {std::pair{"coverage", 7}, std::pair{"gaps", 8}}) {
+                const auto text = row.GetColumnValueText(index);
+                const auto parsed = crow::json::load(text ? text : "[]");
+                if (!parsed) {res.code = 500; return false;}
+                value[name] = crow::json::wvalue(parsed);
+            }
+            return false;
+        });
+        if (!found) res.code = 404;
+        if (found && res.code != 500) {res.set_header("Content-Type", "application/json"); res.body = value.dump();}
+        res.set_header("Cache-Control", "private, no-store"); res.end(); return;
     }
     const auto path = GetCapturedClipPath(m_GlobalContext->Database, clipUID, type == "video");
     if (path.empty()) {res.code = 404; res.end(); return;}

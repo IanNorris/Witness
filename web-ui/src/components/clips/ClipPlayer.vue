@@ -5,6 +5,8 @@ import { useClipStore } from '../../stores/clips'
 import { useDetectionPlayback } from '../../composables/useDetectionOverlay'
 import AudioEventTimeline from './AudioEventTimeline.vue'
 import { useSettingsStore } from '../../stores/settings'
+import { api } from '../../composables/useApi'
+import { format } from 'date-fns'
 
 const props = defineProps<{
   clip: Clip
@@ -20,6 +22,11 @@ const modalRef = ref<HTMLElement | null>(null)
 let previousFocus: HTMLElement | null = null
 const canvasRef = ref<HTMLCanvasElement | null>(null)
 const playbackTime = ref(0)
+const mediaOrigin = ref(props.clip.timestamp)
+const captureGaps = ref<Array<{ from: number; to: number }>>([])
+const captureMetadataError = ref('')
+let disposed = false
+const timelineClip = computed(() => ({ ...props.clip, timestamp: mediaOrigin.value }))
 const backgroundOnly = computed(() => {
   const events = props.clip.audioEvents ?? []
   return events.length > 0 && events.every(event => event.group.toLowerCase() === 'wind')
@@ -36,7 +43,7 @@ const { enabled: overlayEnabled, toggle: toggleOverlay, loadDetections, frames: 
   props.clip.camera,
   canvasRef,
   videoRef,
-  props.clip.timestamp, // epoch seconds offset — detection timestamps are absolute
+  mediaOrigin, // Saved captures retain an exact media-to-wall-clock origin.
 )
 
 const hasDetections = computed(() => detectionFrames.value.length > 0)
@@ -44,16 +51,16 @@ const hasDetections = computed(() => detectionFrames.value.length > 0)
 function nudgeDetection(direction: 'next' | 'prev') {
   const video = videoRef.value
   if (!video || !detectionFrames.value.length) return
-  const absoluteTime = video.currentTime + props.clip.timestamp
+  const absoluteTime = video.currentTime + mediaOrigin.value
 
   let targetTime: number | null = null
   if (direction === 'next') {
     const frame = detectionFrames.value.find(f => f.t > absoluteTime + 0.5)
-    if (frame) targetTime = frame.t - props.clip.timestamp
+    if (frame) targetTime = frame.t - mediaOrigin.value
   } else {
     for (let i = detectionFrames.value.length - 1; i >= 0; i--) {
       if ((detectionFrames.value[i]?.t ?? 0) < absoluteTime - 0.5) {
-        targetTime = detectionFrames.value[i]!.t - props.clip.timestamp
+        targetTime = detectionFrames.value[i]!.t - mediaOrigin.value
         break
       }
     }
@@ -93,8 +100,21 @@ function handleKeydown(e: KeyboardEvent) {
 onMounted(async () => {
   previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
   modalRef.value?.focus()
+  if (props.clip.recordMode === 'Capture') {
+    try {
+      const metadata = await api<{ timelineFrom: number; gaps: Array<{ from: number; to: number }> }>(
+        `/clip/captured/${props.clip.uid}/metadata`, { redirectOnFail: false })
+      if (disposed) return
+      if (!Number.isFinite(metadata.timelineFrom) || !Array.isArray(metadata.gaps)) throw new Error('Invalid capture metadata')
+      mediaOrigin.value = metadata.timelineFrom
+      captureGaps.value = metadata.gaps
+    } catch {
+      if (disposed) return
+      captureMetadataError.value = 'Exact capture timing and coverage are unavailable.'
+    }
+  }
   // Pre-load detection data for this clip's time range
-  const from = props.clip.timestamp
+  const from = mediaOrigin.value
   const to = from + props.clip.duration
   await loadDetections(from, to)
   // Auto-enable overlay based on per-camera preference (default: on)
@@ -103,7 +123,7 @@ onMounted(async () => {
     toggleOverlay()
   }
 })
-onUnmounted(() => { if (previousFocus?.isConnected) previousFocus.focus() })
+onUnmounted(() => { disposed = true; if (previousFocus?.isConnected) previousFocus.focus() })
 </script>
 
 <template>
@@ -141,7 +161,11 @@ onUnmounted(() => { if (previousFocus?.isConnected) previousFocus.focus() })
               @timeupdate="playbackTime = videoRef?.currentTime ?? 0" />
             <canvas ref="canvasRef" class="detection-overlay" v-show="overlayEnabled" />
           </div>
-          <AudioEventTimeline :clip="clip" :playback-time="playbackTime" @seek="seekToAudioEvent" />
+          <AudioEventTimeline :clip="timelineClip" :playback-time="playbackTime" @seek="seekToAudioEvent" />
+          <p v-if="captureMetadataError" class="audio-mute-hint" role="status">{{ captureMetadataError }}</p>
+          <p v-for="(gap, index) in captureGaps" :key="index" class="audio-mute-hint" role="status">
+            Footage unavailable: {{ format(new Date(gap.from * 1000), 'HH:mm:ss') }}–{{ format(new Date(gap.to * 1000), 'HH:mm:ss') }}
+          </p>
           <div v-if="backgroundOnly && settings.muteBackgroundOnlyClips" class="audio-mute-hint">Only wind was classified; playback starts muted. Use the video controls to listen.</div>
         </div>
       </div>
