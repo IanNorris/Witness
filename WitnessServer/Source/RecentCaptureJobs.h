@@ -35,7 +35,11 @@ public:
     using Resolver = std::function<Sources(const Request&)>;
     using Exporter = std::function<Witness::Camera::HistoricalClipResult(const Sources&, const Request&, const std::function<bool()>&)>;
     using Clock = std::function<double()>;
-    RecentCaptureJobs(Resolver resolver, Exporter exporter, Clock clock = {});
+    struct Persistence {
+        std::vector<Snapshot> Recovered;
+        std::function<void(const std::vector<Snapshot>&)> Save;
+    };
+    RecentCaptureJobs(Resolver resolver, Exporter exporter, Clock clock = {}, Persistence persistence = {});
     ~RecentCaptureJobs();
     RecentCaptureJobs(const RecentCaptureJobs&) = delete;
     RecentCaptureJobs& operator=(const RecentCaptureJobs&) = delete;
@@ -56,10 +60,14 @@ private:
     Resolver Resolve;
     Exporter Export;
     Clock Now;
+    Persistence Journal;
     mutable std::mutex Mutex;
     std::condition_variable Wake;
     std::map<uint64_t, Job> Jobs;
     std::thread Thread;
     uint64_t NextId = 1;
+    uint64_t Revision = 0;
+    uint64_t SavedRevision = 0;
+    bool JournalFailed = false;
     bool Closing = false;
 };

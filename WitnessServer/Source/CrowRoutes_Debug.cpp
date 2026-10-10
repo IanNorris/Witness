@@ -1965,7 +1965,13 @@ bool CrowListener::Start()
 	try
 	{
 		m_PtzRequests.Start();
-		StartRecentCaptures();
+		try { StartRecentCaptures(); }
+		catch (const std::exception& error) {
+			// A damaged/full capture journal must not take the dashboard or
+			// existing camera recordings offline. Capture routes return 503.
+			m_RecentCaptures.reset();
+			LOG_ERROR("Recent captures unavailable: %s", error.what());
+		}
 		m_App.bindaddr( bindAddr ).port( m_Port );
 		Witness::HttpDiagnostics::ClearActiveRequests();
 

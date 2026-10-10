@@ -63,6 +63,16 @@ int main() {
             Check(jobs.Get(held[index], 7, static_cast<int>(index) + 10)->Status == RecentCaptureJobs::State::Cancelled,
                 "Shutdown left a pending capture live");
         Check(!jobs.Submit(request(19)), "Shutdown accepted new work");
+        std::atomic<int> forbiddenExports{0};
+        RecentCaptureJobs::Persistence broken;
+        broken.Save = [](const auto&) {throw std::runtime_error("Synthetic journal failure");};
+        RecentCaptureJobs unavailable([](const auto&) {return RecentCaptureJobs::Sources{};},
+            [&](const auto&, const auto&, const auto&) {++forbiddenExports; return Witness::Camera::HistoricalClipResult{};},
+            [&] {return now.load();}, std::move(broken));
+        const auto failed = unavailable.Submit(request(20)); Check(failed.has_value(), "Journal test admission failed");
+        Await([&] {return unavailable.Get(*failed, 7, 20)->Status == RecentCaptureJobs::State::Failed;});
+        Check(forbiddenExports == 0 && !unavailable.Submit(request(21)), "Journal failure allowed an untracked export");
+        unavailable.Shutdown();
         std::cout << "PASS background captures: independent wait, frozen stop, owner checks, bounds, cancellation, shutdown\n";
         return 0;
     } catch (const std::exception& error) {std::cerr << error.what() << '\n'; return 1;}

@@ -40,6 +40,7 @@ set(SERVER_SOURCES
     Source/CrowRoutes_Ptz.cpp
     Source/PtzRequestExecutor.cpp
     Source/RecentCaptureJobs.cpp
+    Source/RecentCaptureJournal.cpp
     Source/CrowRoutes_RecentCapture.cpp
     Source/CrowRoutes_Action.cpp
     Source/CrowRoutes_Setup.cpp
@@ -323,6 +324,11 @@ add_executable(RecentCaptureJobsTests EXCLUDE_FROM_ALL
     ../Tools/Tests/RecentCaptureJobsTests.cpp Source/RecentCaptureJobs.cpp)
 target_include_directories(RecentCaptureJobsTests PRIVATE Source)
 target_link_libraries(RecentCaptureJobsTests PRIVATE WitnessCamera Threads::Threads)
+
+add_executable(RecentCaptureJournalTests EXCLUDE_FROM_ALL
+    ../Tools/Tests/RecentCaptureJournalTests.cpp Source/RecentCaptureJobs.cpp Source/RecentCaptureJournal.cpp)
+target_include_directories(RecentCaptureJournalTests PRIVATE Source)
+target_link_libraries(RecentCaptureJournalTests PRIVATE WitnessCamera Threads::Threads Crow::Crow unofficial::sqlite3::sqlite3)
 
 add_executable(ConfigPathsTests EXCLUDE_FROM_ALL
     ../Tools/Tests/ConfigPathsTests.cpp Source/ConfigPaths.cpp)

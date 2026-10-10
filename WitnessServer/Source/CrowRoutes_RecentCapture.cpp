@@ -1,6 +1,7 @@
 #include "CrowListener.h"
 #include "CrowAuth.h"
 #include "AuthHelpers.h"
+#include "RecentCaptureJournal.h"
 #include <ContinuousOutputStream.h>
 #include <charconv>
 #include <chrono>
@@ -36,7 +37,12 @@ void JobResponse(crow::response& res, const RecentCaptureJobs::Snapshot& job) {
 }
 }
 void CrowListener::StartRecentCaptures() {
+    if (m_RecentCaptures) m_RecentCaptures->Shutdown();
     const auto context = m_GlobalContext;
+    const auto journal = std::make_shared<RecentCaptureJournal>((std::filesystem::path(context->CachePath) / "captures" / "capture-jobs.sqlite").string());
+    RecentCaptureJobs::Persistence persistence;
+    persistence.Recovered = journal->Load();
+    persistence.Save = [journal](const auto& values) {journal->Save(values);};
     m_RecentCaptures = std::make_unique<RecentCaptureJobs>([context](const RecentCaptureJobs::Request& request) {
         RecentCaptureJobs::Sources result;
         {
@@ -59,7 +65,7 @@ void CrowListener::StartRecentCaptures() {
     }, [](const RecentCaptureJobs::Sources& sources, const RecentCaptureJobs::Request& request, const auto& cancelled) {
         std::filesystem::create_directories(std::filesystem::path(request.Destination).parent_path());
         return Witness::Camera::RemuxHistoricalClip(sources.Files, request.From, request.To, request.Destination, cancelled);
-    });
+    }, RecentCaptureJobs::Clock{}, std::move(persistence));
 }
 void CrowListener::HandleRecentCaptureCreate(const crow::request& req, crow::response& res, int cameraId) {
     const double now = RequestTime(); // Freeze before auth/database waits.
