@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <climits>
 #include <memory>
+#include <mutex>
 
 extern "C" {
 #include <libavformat/avformat.h>
@@ -26,6 +27,10 @@ struct ContinuousOutputStreamData
 	explicit ContinuousOutputStreamData( const std::string& basePath ) : BasePath( basePath ) {}
 	std::string BasePath;
 	SegmentCompleteCallback OnSegmentComplete;
+	bool Fragmented = false;
+	mutable std::mutex SnapshotMutex;
+	ContinuousSegmentSnapshot Snapshot;
+	double PresentationEnd = 0;
 };
 
 ContinuousOutputStream::ContinuousOutputStream(const std::string& basePath, int cameraUID, InputStream* inputStream)
@@ -81,6 +86,18 @@ ContinuousOutputStream::~ContinuousOutputStream()
 void ContinuousOutputStream::SetSegmentCompleteCallback(SegmentCompleteCallback callback)
 {
 	m_Data->OnSegmentComplete = std::move(callback);
+}
+
+void ContinuousOutputStream::SetFragmentedRecordingEnabled(bool enabled)
+{
+	// Configuration belongs to the sole packet writer, not an HTTP thread.
+	if (!m_SegmentOpen) m_Data->Fragmented = enabled;
+}
+
+ContinuousSegmentSnapshot ContinuousOutputStream::GetCommittedSegment() const
+{
+	std::lock_guard lock(m_Data->SnapshotMutex);
+	return m_Data->Snapshot;
 }
 
 void ContinuousOutputStream::SetTargetSegmentDuration(int seconds)
@@ -175,7 +192,11 @@ CameraStreamError ContinuousOutputStream::StartNewSegment()
 		}
 	}
 
-	result = avformat_write_header(m_FormatContext, nullptr);
+	AVDictionary* options = nullptr;
+	if (m_Data->Fragmented)
+		av_dict_set(&options, "movflags", "empty_moov+default_base_moof+frag_custom+negative_cts_offsets", 0);
+	result = avformat_write_header(m_FormatContext, &options);
+	av_dict_free(&options);
 	if (result < 0)
 	{
 		LOG_ERROR("ContinuousOutputStream: Failed to write header for %s", filepath.c_str());
@@ -202,6 +223,7 @@ CameraStreamError ContinuousOutputStream::StartNewSegment()
 	m_QualifiedVideoDuration = 0;
 	m_TimestampSourceOffset = 0;
 	m_SegmentDuration = 0.0;
+	m_Data->PresentationEnd = 0.0;
 	m_WaitingForKeyframe = false;
 
 	LOG_INFO("ContinuousOutputStream: Camera %d started segment %s (target %ds)", m_CameraUID, filepath.c_str(), m_TargetSegmentDuration);
@@ -215,6 +237,10 @@ CameraStreamError ContinuousOutputStream::FinalizeCurrentSegment()
 		return CameraStreamError::Success;
 
 	m_SegmentOpen = false;
+	{
+		std::lock_guard lock(m_Data->SnapshotMutex);
+		m_Data->Snapshot = {};
+	}
 
 	std::string filepath = m_FormatContext->url ? m_FormatContext->url : "";
 	int duration = static_cast<int>(m_SegmentDuration);
@@ -296,6 +322,23 @@ CameraStreamError ContinuousOutputStream::WritePacket(const AVPacket* packet)
 			return err;
 	}
 
+	// Complete the previous GOP before admitting the new random-access packet.
+	// Flush the interleaver before asking movenc to seal its fragment, then flush
+	// AVIO before publishing a byte boundary. No HTTP reader accesses mux state.
+	if (m_Data->Fragmented && isKeyframe && m_LastWrittenDTS != AV_NOPTS_VALUE)
+	{
+		if (av_interleaved_write_frame(m_FormatContext, nullptr) < 0 ||
+			av_write_frame(m_FormatContext, nullptr) < 0)
+			return CameraStreamError::WriteFailed;
+		avio_flush(m_FormatContext->pb);
+		if (m_FormatContext->pb->error < 0) return CameraStreamError::WriteFailed;
+		const int64_t bytes = avio_tell(m_FormatContext->pb);
+		if (bytes <= 0) return CameraStreamError::WriteFailed;
+		std::lock_guard lock(m_Data->SnapshotMutex);
+		m_Data->Snapshot = {m_FormatContext->url ? m_FormatContext->url : "",
+			m_SegmentStartTimestamp, m_Data->PresentationEnd, bytes};
+	}
+
 	// Copy and normalize packet timestamps
 	AVPacket pktCopy;
 	memset(&pktCopy, 0, sizeof(pktCopy));
@@ -364,12 +407,15 @@ CameraStreamError ContinuousOutputStream::WritePacket(const AVPacket* packet)
 	av_packet_rescale_ts(&pktCopy, inputTimebase,
 		isAudio ? m_AudioOutStream->time_base : m_OutStream->time_base);
 
+	const double presentationEnd = isVideo ?
+		(static_cast<double>(pktCopy.pts) + static_cast<double>(pktCopy.duration)) * av_q2d(m_OutStream->time_base) : 0;
 	result = av_interleaved_write_frame(m_FormatContext, &pktCopy);
 	if (result < 0)
 	{
 		av_packet_unref(&pktCopy);
 		return CameraStreamError::WriteFailed;
 	}
+	if (isVideo) m_Data->PresentationEnd = (std::max)(m_Data->PresentationEnd, presentationEnd);
 	if (timestampRepaired)
 	{
 		++m_RepairedVideoTimestamps;

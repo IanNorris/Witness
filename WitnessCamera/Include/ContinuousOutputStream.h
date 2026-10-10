@@ -19,6 +19,16 @@ namespace Camera{
 class InputStream;
 struct ContinuousOutputStreamData;
 
+// Immutable readable prefix of an open fragmented DVR file. Bytes after this
+// boundary belong to an unfinished fragment and must never be served as media.
+struct ContinuousSegmentSnapshot
+{
+	std::string FilePath;
+	int64_t StartTimestamp = 0;
+	double Duration = 0;
+	int64_t CommittedBytes = 0;
+};
+
 // Callback invoked when a segment file is finalized.
 // Parameters: cameraUID, startTimestamp, endTimestamp, duration (seconds), filePath
 using SegmentCompleteCallback = std::function<void(int cameraUID, int64_t startTimestamp, int64_t endTimestamp, int duration, const std::string& filePath)>;
@@ -33,6 +43,10 @@ public:
 
 	// Set callback for when a segment is finalized
 	void SetSegmentCompleteCallback(SegmentCompleteCallback callback);
+
+	// Enable before writing; defaults off until active-DVR integration is ready.
+	void SetFragmentedRecordingEnabled(bool enabled);
+	ContinuousSegmentSnapshot GetCommittedSegment() const;
 
 	// Target segment duration in seconds (actual will be longer, split on next keyframe)
 	void SetTargetSegmentDuration(int seconds);
