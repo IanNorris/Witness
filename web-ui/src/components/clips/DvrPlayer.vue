@@ -19,6 +19,9 @@ const props = withDefaults(defineProps<{
   startAt?: number
   cameraName: string
   compact?: boolean
+  hideHeader?: boolean
+  pendingSave?: boolean
+  externalTimeline?: boolean
 }>(), {
   compact: false,
 })
@@ -761,6 +764,7 @@ onUnmounted(() => {
 })
 
 defineExpose({
+  refreshSegments: fetchSegments,
   currentTimestamp,
   elapsedTime,
   totalDuration,
@@ -778,7 +782,7 @@ defineExpose({
 
 <template>
   <div class="dvr-player" :class="{ compact }">
-    <div v-if="!compact" class="dvr-header">
+    <div v-if="!compact && !hideHeader" class="dvr-header">
       <span class="dvr-title">📹 {{ cameraName }} — DVR Playback</span>
       <button class="dvr-close" @click="emit('close')" title="Close">✕</button>
     </div>
@@ -788,13 +792,13 @@ defineExpose({
       <canvas ref="canvasRef" class="detection-overlay" v-show="overlayEnabled" />
       <span v-if="compact" class="dvr-cam-label">{{ cameraName }}</span>
       <div v-if="loading" class="dvr-error"><div class="spinner-border spinner-border-sm" /></div>
-      <div v-else-if="error" class="dvr-error dvr-error-compact">{{ error }}</div>
+      <div v-else-if="error" class="dvr-error dvr-error-compact">{{ pendingSave ? 'Currently saving — try again when the file finishes.' : error }}</div>
     </div>
     <div v-if="!compact" class="dvr-controls">
       <button class="dvr-btn" @click="togglePlay" :title="playing ? 'Pause' : 'Play'">
         {{ playing ? '⏸' : '▶' }}
       </button>
-      <div class="dvr-progress" @click="seek" @contextmenu.prevent="pinScrub" @mousemove="onScrubMove" @mouseleave="onScrubLeave">
+      <div v-if="!externalTimeline" class="dvr-progress" @click="seek" @contextmenu.prevent="pinScrub" @mousemove="onScrubMove" @mouseleave="onScrubLeave">
         <div class="dvr-progress-fill" :style="{ width: `${progressPct}%` }"></div>
         <!-- Scrub thumbnail preview -->
         <div v-if="scrubThumbTime" class="dvr-scrub-tooltip" :class="{ pinned: scrubPinned }" :style="{ left: `${scrubThumbX}px`, top: `${scrubThumbY}px` }">
@@ -812,7 +816,7 @@ defineExpose({
           </div>
         </div>
       </div>
-      <span class="dvr-time">{{ formattedTimestamp }} · {{ formattedElapsed }} / {{ formattedTotal }}</span>
+      <span class="dvr-time">{{ formattedTimestamp }}<template v-if="!externalTimeline"> · {{ formattedElapsed }} / {{ formattedTotal }}</template></span>
       <span v-if="segments.length > 1" class="dvr-seg-info">seg {{ currentSegIdx + 1 }}/{{ segments.length }}</span>
       <div class="dvr-rates">
         <button

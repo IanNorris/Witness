@@ -18,6 +18,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   openStream: [cameraId: number]
   openClips: [cameraId: number]
+  replay: [cameraId: number]
   dismissControls: []
 }>()
 
@@ -299,6 +300,8 @@ onUnmounted(() => {
         </button>
 
         <!-- Latency overlay -->
+        <button v-if="canvasMode && controlsSelected" class="fullscreen-replay-toggle"
+          @click.stop="emit('replay', camera.id)" title="Review recent DVR footage">↶ Replay</button>
         <div v-if="latencyLabel && effectiveMode !== 'jpeg'" class="latency-overlay">
           {{ latencyLabel }}
         </div>
@@ -386,6 +389,8 @@ onUnmounted(() => {
         </div>
       </div>
       <div class="d-flex gap-1">
+        <button class="btn btn-sm btn-outline-secondary" @click.stop="emit('replay', camera.id)"
+          title="Review recent DVR footage" aria-label="Review recent DVR footage">↶</button>
         <button
           class="btn btn-sm btn-outline-secondary"
           @click.stop="emit('openClips', camera.id)"
@@ -426,6 +431,7 @@ onUnmounted(() => {
   color: #e8f3ff; padding: 3px 7px; font-size: 11px;
 }
 .fullscreen-record-toggle.recording { border-color: #ff7e83; color: #ffb5b8; }
+.fullscreen-replay-toggle { position: absolute; top: 40px; right: 8px; z-index: 10; border: 1px solid #bdcedf; border-radius: 5px; background: #142940e8; color: #e8f3ff; padding: 3px 7px; font-size: 11px; }
 .ptz-floating-panel {
   position: fixed; bottom: 24px; right: 24px; left: auto; z-index: 2000;
   max-height: calc(100dvh - 48px); max-width: calc(100vw - 48px); overflow: auto;

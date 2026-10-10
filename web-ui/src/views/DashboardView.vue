@@ -4,6 +4,7 @@ import AppLayout from '../components/layout/AppLayout.vue'
 import CameraGrid from '../components/camera/CameraGrid.vue'
 import ActivityStrip from '../components/clips/ActivityStrip.vue'
 import ClipPlayer from '../components/clips/ClipPlayer.vue'
+import RecentReplayOverlay from '../components/clips/RecentReplayOverlay.vue'
 import { useCameraStore } from '../stores/cameras'
 import { useClipStore } from '../stores/clips'
 import { useSettingsStore } from '../stores/settings'
@@ -35,6 +36,8 @@ const savedGroup = localStorage.getItem(DASHBOARD_GROUP_KEY)
 const selectedGroupId = ref<number | null>(savedGroup !== null ? Number(savedGroup) : null)
 const showRecentActivity = ref(localStorage.getItem(DASHBOARD_ACTIVITY_KEY) !== '0')
 const playingClip = ref<Clip | null>(null)
+const replayCameraId = ref<number | null>(null)
+const replayCamera = computed(() => cameraStore.getCameraById(replayCameraId.value ?? -1))
 const editingLayout = ref(false)
 const editingLayoutMode = ref<'regular' | 'focus'>('regular')
 const focusPreviewCameraId = ref<number | null>(null)
@@ -663,6 +666,7 @@ onMounted(async () => {
       @focus-camera="focusCamera"
       @toggle-focus-eligibility="toggleFocusEligibility"
       @toggle-camera-visibility="toggleCameraVisibility"
+      @replay="replayCameraId = $event"
     />
 
     <div
@@ -798,6 +802,8 @@ onMounted(async () => {
     </Teleport>
 
     <ClipPlayer v-if="playingClip" :clip="playingClip" @close="playingClip = null" />
+    <RecentReplayOverlay v-if="replayCamera" :key="replayCamera.id" :camera-id="replayCamera.id"
+      :camera-name="replayCamera.name" @close="replayCameraId = null" />
   </AppLayout>
 </template>
 

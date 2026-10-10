@@ -28,6 +28,7 @@ const emit = defineEmits<{
   focusCamera: [cameraId: number]
   toggleFocusEligibility: [cameraId: number]
   toggleCameraVisibility: [cameraId: number]
+  replay: [cameraId: number]
 }>()
 
 const cameraStore = useCameraStore()
@@ -277,6 +278,7 @@ onUnmounted(() => {
         @dismiss-controls="selectedControlsCameraId = null"
         @open-stream="openStream"
         @open-clips="openClips"
+        @replay="emit('replay', $event)"
       />
       <span v-if="canvasMode && !editingLayout && focusedCameraId == null && tileFor(camera.id)?.automaticSlotNumber"
         class="automatic-slot-label">Auto {{ tileFor(camera.id)?.automaticSlotNumber }}</span>
