@@ -13,8 +13,24 @@
 
 namespace fs = std::filesystem;
 
-std::string GetClipName( const GlobalContext& Context, int CameraID, int64_t Timestamp, bool Manual, bool Video )
+std::string GetCapturedClipPath(const std::shared_ptr<SQLiteDatabase>& database, int64_t clipUID, bool video) {
+	if (clipUID <= 0) return {};
+	std::string result;
+	SQLiteDatabaseQueryInstance query(database, "SelectCapturedClipMedia");
+	query->Bind("@ClipUID", clipUID);
+	query->Execute([&](const SQLiteDatabaseQuery& row) {
+		const char* path = row.GetColumnValueText(video ? 0 : 1);
+		if (path) result = path;
+		return false;
+	});
+	return result;
+}
+std::string GetClipName( const GlobalContext& Context, int CameraID, int64_t Timestamp, bool Manual, bool Video, int64_t clipUID )
 {
+	if (clipUID > 0) {
+		const auto capture = GetCapturedClipPath(Context.Database, clipUID, Video);
+		if (!capture.empty()) return capture;
+	}
 	std::stringstream Stream;
 	Stream << CameraID;
 
@@ -44,10 +60,10 @@ std::string GetClipName( const GlobalContext& Context, int CameraID, int64_t Tim
 	return (fs::path(Context.CachePath) / Stream.str()).string();
 }
 
-static bool DeleteClipFiles( const GlobalContext& Context, int CameraID, int64_t Timestamp, bool Manual )
+static bool DeleteClipFiles( const GlobalContext& Context, int CameraID, int64_t Timestamp, bool Manual, int64_t clipUID )
 {
-	auto ThumbnailPath = GetClipName( Context, CameraID, Timestamp, Manual, false );
-	auto VideoPath = GetClipName( Context, CameraID, Timestamp, Manual, true );
+	auto ThumbnailPath = GetClipName( Context, CameraID, Timestamp, Manual, false, clipUID );
+	auto VideoPath = GetClipName( Context, CameraID, Timestamp, Manual, true, clipUID );
 
 	std::error_code error;
 	if( !std::filesystem::remove( ThumbnailPath, error ) )
@@ -119,7 +135,7 @@ void DeleteOldClips( const GlobalContext& Context, int DaysToDelete )
 
 		for( auto& Clip : ClipsToDelete )
 		{
-			if( !DeleteClipFiles( Context, Clip.CameraID, Clip.Timestamp, Clip.Manual ) )
+			if( !DeleteClipFiles( Context, Clip.CameraID, Clip.Timestamp, Clip.Manual, Clip.ClipID ) )
 			{
 				deleteFailed = true;
 				continue;

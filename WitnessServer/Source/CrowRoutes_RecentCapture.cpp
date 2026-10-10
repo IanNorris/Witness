@@ -2,6 +2,11 @@
 #include "CrowAuth.h"
 #include "AuthHelpers.h"
 #include "RecentCaptureJournal.h"
+#include "CapturedClipStorage.h"
+#include "ClipHelpers.h"
+#include "EventBroadcaster.h"
+#include <opencv2/videoio.hpp>
+#include <opencv2/imgcodecs.hpp>
 #include <ContinuousOutputStream.h>
 #include <charconv>
 #include <chrono>
@@ -62,10 +67,46 @@ void CrowListener::StartRecentCaptures() {
         // Normal, nonfragmented files must finalize before export. Completed
         // fragments will be admitted here only after their production rollout.
         return result;
-    }, [](const RecentCaptureJobs::Sources& sources, const RecentCaptureJobs::Request& request, const auto& cancelled) {
+    }, [context](const RecentCaptureJobs::Sources& sources, const RecentCaptureJobs::Request& request, const auto& cancelled) {
         std::filesystem::create_directories(std::filesystem::path(request.Destination).parent_path());
-        return Witness::Camera::RemuxHistoricalClip(sources.Files, request.From, request.To, request.Destination, cancelled);
+        auto result = Witness::Camera::RemuxHistoricalClip(sources.Files, request.From, request.To, request.Destination, cancelled);
+        if (result.Success) {
+            const char* databasePath = sqlite3_db_filename(context->Database->GetDatabase(), "main");
+            if (!databasePath) throw std::runtime_error("Capture clip database path is unavailable");
+            const auto uid = RegisterCapturedClip(databasePath, request.Camera, request.Destination, result, request.From, request.To);
+            try {
+                cv::VideoCapture video(request.Destination, cv::CAP_FFMPEG);
+                cv::Mat frame;
+                if (video.read(frame) && !frame.empty()) {
+                    auto thumbnail = std::filesystem::path(request.Destination); thumbnail.replace_extension(".jpg");
+                    cv::imwrite(thumbnail.string(), frame);
+                }
+            } catch (...) { /* A missing thumbnail does not discard saved media. */ }
+            if (context->Events) {
+                crow::json::wvalue event; event["clipUID"] = uid; event["cameraID"] = request.Camera;
+                event["timestamp"] = static_cast<int64_t>(result.ActualFrom); event["duration"] = result.ActualTo - result.TimelineFrom;
+                event["tags"] = ""; context->Events->Broadcast("clip:new", std::move(event));
+            }
+        }
+        return result;
     }, RecentCaptureJobs::Clock{}, std::move(persistence));
+}
+void CrowListener::HandleCapturedClipMedia(const crow::request& req, crow::response& res, int clipUID, const std::string& type) {
+    if (type != "video" && type != "thumbnail") {res.code = 404; res.end(); return;}
+    int camera = 0;
+    {
+        SQLiteDatabaseQueryInstance query(m_GlobalContext->Database, "SelectClipID");
+        query->Bind("@ClipUID", clipUID);
+        query->Execute([&](const SQLiteDatabaseQuery& row) {camera = row.GetColumnValueInt(2); return false;});
+    }
+    if (camera <= 0) {res.code = 404; res.end(); return;}
+    if (CrowAuth::IsCameraAuthenticated(*m_GlobalContext, req, nullptr, CrowAuth::Action::Read, CrowAuth::Privilege::Normal, camera) <= 0) {
+        res.code = 403; res.end(); return;
+    }
+    const auto path = GetCapturedClipPath(m_GlobalContext->Database, clipUID, type == "video");
+    if (path.empty()) {res.code = 404; res.end(); return;}
+    res.set_static_file_info_unsafe(path, type == "video" ? "video/mp4" : "image/jpeg");
+    res.set_header("Cache-Control", "private, no-store"); res.end();
 }
 void CrowListener::HandleRecentCaptureCreate(const crow::request& req, crow::response& res, int cameraId) {
     const double now = RequestTime(); // Freeze before auth/database waits.

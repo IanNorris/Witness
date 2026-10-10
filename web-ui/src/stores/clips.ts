@@ -235,7 +235,7 @@ function mapClip(raw: Record<string, unknown>): Clip {
     duration: raw.duration as number,
     tags: (raw.tags as string) ?? '',
     saved: (raw.saved as number) === 1,
-    recordMode: (raw.recordMode as number) === 0 ? 'Manual' : 'Auto',
+    recordMode: (raw.recordMode as number) === 2 ? 'Capture' : (raw.recordMode as number) === 0 ? 'Manual' : 'Auto',
     description: (raw.description as string) ?? '',
     detectionVersion: (raw.detectionVersion as number) ?? 0,
     lighting: (raw.lighting as number ?? 0) as LightingCondition,

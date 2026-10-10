@@ -1,6 +1,7 @@
 #include "CrowListener.h"
 #include "CrowAuth.h"
 #include "GlobalContext.h"
+#include "ClipHelpers.h"
 
 #include <filesystem>
 #include <fstream>
@@ -12,7 +13,7 @@ namespace fs = std::filesystem;
 
 // ===== Clip Handlers =====
 
-static std::string GetClipName( const GlobalContext& Context, int CameraID, int64_t Timestamp, bool Manual, bool Video )
+static std::string LegacyClipName( const GlobalContext& Context, int CameraID, int64_t Timestamp, bool Manual, bool Video )
 {
 	std::stringstream Stream;
 	Stream << CameraID;
@@ -84,7 +85,7 @@ void CrowListener::HandleClipThumbnail( const crow::request& req, crow::response
 				int CameraID = query.GetColumnValueInt( 2 );
 				int RecordMode = query.GetColumnValueInt( 6 );
 
-				ClipFilename = GetClipName( *m_GlobalContext, CameraID, Timestamp,
+				ClipFilename = LegacyClipName( *m_GlobalContext, CameraID, Timestamp,
 					RecordMode == 0, video );
 				Success = true;
 				return true;
@@ -198,7 +199,7 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 
 		if( Reviewed ) extraWhere += " AND Clip.Reviewed = " + std::to_string( *Reviewed );
 		if( Saved ) extraWhere += " AND Clip.Save = " + std::to_string( *Saved );
-		if( Mode ) extraWhere += " AND Clip.RecordMode = " + std::to_string( *Mode );
+		if( Mode ) extraWhere += *Mode == 0 ? " AND Clip.RecordMode IN (0,2)" : " AND Clip.RecordMode = " + std::to_string( *Mode );
 		if( Lighting ) extraWhere += " AND Clip.Lighting = " + std::to_string( *Lighting );
 		if( MinDuration ) extraWhere += " AND Clip.Duration >= " + std::to_string( *MinDuration );
 
@@ -611,8 +612,8 @@ void CrowListener::HandleClipDelete( const crow::request& req, crow::response& r
 	);
 
 	// Delete files
-	auto ThumbnailPath = GetClipName( *m_GlobalContext, CameraID, Timestamp, Manual, false );
-	auto VideoPath = GetClipName( *m_GlobalContext, CameraID, Timestamp, Manual, true );
+	auto ThumbnailPath = GetClipName( *m_GlobalContext, CameraID, Timestamp, Manual, false, ClipUID );
+	auto VideoPath = GetClipName( *m_GlobalContext, CameraID, Timestamp, Manual, true, ClipUID );
 
 	std::error_code error;
 	std::filesystem::remove( ThumbnailPath, error );
@@ -664,6 +665,11 @@ void CrowListener::HandleClipRetag( const crow::request& req, crow::response& re
 	}
 
 	SQLiteDatabaseQueryInstance ResetClipDetection( m_GlobalContext->Database, "ResetClipDetection" );
+	if (!GetCapturedClipPath(m_GlobalContext->Database, ClipUID, true).empty()) {
+		res.code = 409;
+		res.body = "Re-detection of overlapping captures requires isolated detection assets";
+		res.end(); return;
+	}
 	ResetClipDetection->Bind( "@ClipUID", ClipUID );
 	ResetClipDetection->Execute( [&]( const SQLiteDatabaseQuery& query ) { return true; } );
 

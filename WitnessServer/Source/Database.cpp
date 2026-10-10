@@ -1,5 +1,6 @@
 #include "Common.h"
 #include "SQLite.h"
+#include "CapturedClipStorage.h"
 
 #include <Log.h>
 
@@ -610,6 +611,7 @@ namespace Database
 	)RAW";
 	
 	std::string DeleteClip = R"RAW(
+		DELETE FROM CapturedClipMedia WHERE ClipUID == @ClipUID;
 		DELETE FROM ClipTag WHERE ClipUID == @ClipUID;
 		DELETE FROM Trail WHERE ClipUID == @ClipUID;
 		DELETE FROM Clip 
@@ -683,6 +685,7 @@ namespace Database
 	std::string SelectClipForReprocess = R"RAW(
 		SELECT * FROM Clip
 		WHERE (RecordingFinalized = 1 OR (RecordingFinalized IS NULL AND Duration > 0))
+		  AND (RecordMode IS NULL OR RecordMode != 2)
 		  AND (DetectionVersion < @DetectionVersion OR DetectionVersion IS NULL)
 		ORDER BY DetectionVersion ASC, Timestamp DESC
 		LIMIT 1;
@@ -704,6 +707,7 @@ namespace Database
 	std::string ResetClipDetectionBulk = R"RAW(
 		UPDATE Clip SET DetectionVersion = 0
 		WHERE (@CameraID = -1 OR Camera = @CameraID)
+		  AND (RecordMode IS NULL OR RecordMode != 2)
 		  AND Timestamp >= @TimestampFrom
 		  AND Timestamp <= @TimestampTo;
 	)RAW";
@@ -1296,6 +1300,7 @@ namespace Database
 		// explicitly use 0=pending, 1=finalized, -1=finalization failed.
 		// Duration is not a lifecycle marker: a valid sub-second clip is zero.
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Clip ADD COLUMN RecordingFinalized INTEGER;", nullptr, nullptr, nullptr );
+		EnsureCapturedClipSchema(DB->GetDatabase());
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN ContinuousRecording INT DEFAULT 0;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN LowLatencyHLS INT DEFAULT 0;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE ContinuousSegment ADD COLUMN FileSize INTEGER DEFAULT 0;", nullptr, nullptr, nullptr );
@@ -1436,6 +1441,7 @@ namespace Database
 		CREATE_QUERY( DeleteCamera );
 
 		CREATE_QUERY( CreateClip );
+		DB->CreateQuery("SelectCapturedClipMedia", "SELECT FilePath, ThumbnailPath FROM CapturedClipMedia WHERE ClipUID=@ClipUID;");
 		CREATE_QUERY( SelectClipID );
 		CREATE_QUERY( UpdateClip );
 		CREATE_QUERY( DeleteClip );

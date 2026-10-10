@@ -2,6 +2,7 @@
 #include "SQLite.h"
 #include "GlobalContext.h"
 #include "EventBroadcaster.h"
+#include "ClipHelpers.h"
 
 #include <Log.h>
 #include <algorithm>
@@ -191,7 +192,8 @@ void AudioIntelligenceWorker::ProcessClip( int64_t ClipUID, int64_t Timestamp, i
 {
 	std::stringstream Name;
 	Name << Camera << "_" << ( RecordMode == 1 ? "Auto" : "Manual" ) << "_" << Timestamp << ".mp4";
-	const std::string Path = ( fs::path( CachePath ) / Name.str() ).string();
+	const auto capturePath = GetCapturedClipPath(Database, ClipUID, true);
+	const std::string Path = capturePath.empty() ? ( fs::path( CachePath ) / Name.str() ).string() : capturePath;
 	if( !fs::exists( Path ) )
 	{
 		MarkProcessed( ClipUID );

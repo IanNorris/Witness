@@ -6,7 +6,8 @@
 class GlobalContext;
 class SQLiteDatabase;
 
-std::string GetClipName( const GlobalContext& Context, int CameraID, int64_t Timestamp, bool Manual, bool Video );
+std::string GetCapturedClipPath(const std::shared_ptr<SQLiteDatabase>& database, int64_t clipUID, bool video);
+std::string GetClipName( const GlobalContext& Context, int CameraID, int64_t Timestamp, bool Manual, bool Video, int64_t clipUID = 0 );
 void DeleteOldClips( const GlobalContext& Context, int DaysToDelete );
 void DeleteOldContinuousSegments( const GlobalContext& Context, int DaysToDelete );
 void BackfillContinuousSegmentFileSizes( const GlobalContext& Context );

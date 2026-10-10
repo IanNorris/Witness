@@ -28,7 +28,7 @@ const cameraStore = useCameraStore()
 const tagStore = useTagStore()
 
 const camera = computed(() => cameraStore.getCameraById(props.clip.camera))
-const thumbUrl = computed(() => clipStore.thumbnailUrl(props.clip.camera, props.clip.timestamp))
+const thumbUrl = computed(() => props.clip.recordMode === 'Capture' ? `/clip/captured/${props.clip.uid}/thumbnail` : clipStore.thumbnailUrl(props.clip.camera, props.clip.timestamp))
 const reprocessProgress = computed(() => clipStore.reprocessStatus.get(props.clip.uid))
 
 const clipDate = computed(() => new Date(props.clip.timestamp * 1000))
@@ -159,6 +159,7 @@ function audioTitle(event: AudioEvent) {
         </div>
         <div class="clip-tags mt-1">
           <span v-if="clip.recordMode === 'Manual'" class="badge bg-info clip-tag-chip">Manual</span>
+          <span v-if="clip.recordMode === 'Capture'" class="badge bg-info clip-tag-chip">Retroactive</span>
           <span
             v-for="dt in displayTags"
             :key="dt.display"
@@ -200,6 +201,7 @@ function audioTitle(event: AudioEvent) {
         <button
           class="btn btn-sm btn-outline-secondary"
           title="Re-detect"
+          v-if="clip.recordMode !== 'Capture'"
           @click="emit('retag', clip)"
         >
           ↻

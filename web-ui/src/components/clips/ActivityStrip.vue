@@ -68,7 +68,7 @@ function cameraName(cameraId: number) {
 }
 
 function thumbUrl(clip: Clip) {
-  return clipStore.thumbnailUrl(clip.camera, clip.timestamp)
+  return clip.recordMode === 'Capture' ? `/clip/captured/${clip.uid}/thumbnail` : clipStore.thumbnailUrl(clip.camera, clip.timestamp)
 }
 
 function livePreviewUrl(cameraId: number) {

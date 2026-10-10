@@ -166,6 +166,8 @@ void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int c
 	std::stringstream nameStream;
 	nameStream << camera << "_" << ( recordMode == 1 ? "Auto" : "Manual" ) << "_" << timestamp << ".mp4";
 	std::string clipPath = ( fs::path( CachePath ) / nameStream.str() ).string();
+	const auto capturePath = GetCapturedClipPath(Database, clipUID, true);
+	if (!capturePath.empty()) clipPath = capturePath;
 
 	if( !fs::exists( clipPath ) )
 	{
@@ -916,6 +918,8 @@ void ClipReprocessWorker::BackfillLighting()
 		std::stringstream nameStream;
 		nameStream << clip.Camera << "_" << ( clip.RecordMode == 1 ? "Auto" : "Manual" ) << "_" << clip.Timestamp << ".mp4";
 		std::string clipPath = ( fs::path( CachePath ) / nameStream.str() ).string();
+		const auto capturePath = GetCapturedClipPath(Database, clip.ClipUID, true);
+		if (!capturePath.empty()) clipPath = capturePath;
 
 		int lighting = 0; // Unknown
 

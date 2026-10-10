@@ -69,7 +69,7 @@ watch([() => clips.clips, grouping], async ([results, enabled]) => {
   const singles = () => results.map(clip => ({id: `clip-${clip.uid}`, representative: clip, clips: [clip], maximumDistance: 0}))
   groups.value = singles()
   try {
-    const next = enabled ? await buildActivityGroups(results, clip => clips.thumbnailUrl(clip.camera, clip.timestamp)) : singles()
+    const next = enabled ? await buildActivityGroups(results, clip => clip.recordMode === 'Capture' ? `/clip/captured/${clip.uid}/thumbnail` : clips.thumbnailUrl(clip.camera, clip.timestamp)) : singles()
     if (current === generation) groups.value = next
   } catch {
     if (current === generation) groups.value = singles()

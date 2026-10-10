@@ -153,6 +153,7 @@ private:
 
 	// Clips
 	void HandleClipThumbnail( const crow::request& req, crow::response& res, int cameraId, const std::string& clipId, bool video );
+	void HandleCapturedClipMedia(const crow::request& req, crow::response& res, int clipUID, const std::string& type);
 	void HandleClipEnum( const crow::request& req, crow::response& res, int cameraId, int maxCount, const std::string& startDate, const std::string& rangePeriod, int pageOffset );
 	void HandleClipToggleSave( const crow::request& req, crow::response& res );
 	void HandleClipDelete( const crow::request& req, crow::response& res );

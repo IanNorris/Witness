@@ -20,6 +20,7 @@ set(SERVER_SOURCES
     Source/AsyncWorker.cpp
     Source/AuthHelpers.cpp
     Source/ClipHelpers.cpp
+    Source/CapturedClipStorage.cpp
     Source/ConfigPaths.cpp
     Source/ClientHealthHistory.cpp
     Source/CpuUsage.cpp
@@ -329,6 +330,11 @@ add_executable(RecentCaptureJournalTests EXCLUDE_FROM_ALL
     ../Tools/Tests/RecentCaptureJournalTests.cpp Source/RecentCaptureJobs.cpp Source/RecentCaptureJournal.cpp)
 target_include_directories(RecentCaptureJournalTests PRIVATE Source)
 target_link_libraries(RecentCaptureJournalTests PRIVATE WitnessCamera Threads::Threads Crow::Crow unofficial::sqlite3::sqlite3)
+
+add_executable(CapturedClipStorageTests EXCLUDE_FROM_ALL
+    ../Tools/Tests/CapturedClipStorageTests.cpp Source/CapturedClipStorage.cpp)
+target_include_directories(CapturedClipStorageTests PRIVATE Source)
+target_link_libraries(CapturedClipStorageTests PRIVATE WitnessCamera Crow::Crow unofficial::sqlite3::sqlite3)
 
 add_executable(ConfigPathsTests EXCLUDE_FROM_ALL
     ../Tools/Tests/ConfigPathsTests.cpp Source/ConfigPaths.cpp)

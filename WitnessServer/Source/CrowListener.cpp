@@ -886,6 +886,10 @@ void CrowListener::RegisterRoutes()
 	});
 
 	// DVR (continuous recording playback)
+	CROW_ROUTE(m_App, "/clip/captured/<int>/<string>")
+	([this](const crow::request& req, crow::response& res, int clipUID, const std::string& type) {
+		HandleCapturedClipMedia(req, res, clipUID, type);
+	});
 	CROW_ROUTE(m_App, "/dvr/capture/<int>").methods(crow::HTTPMethod::POST)
 	([this](const crow::request& req, crow::response& res, int cameraId) {
 		HandleRecentCaptureCreate(req, res, cameraId);

@@ -14,7 +14,7 @@ const emit = defineEmits<{ close: [] }>()
 
 const clipStore = useClipStore()
 const settings = useSettingsStore()
-const videoSrc = ref(clipStore.videoUrl(props.clip.camera, props.clip.timestamp))
+const videoSrc = ref(props.clip.recordMode === 'Capture' ? `/clip/captured/${props.clip.uid}/video` : clipStore.videoUrl(props.clip.camera, props.clip.timestamp))
 const videoRef = ref<HTMLVideoElement | null>(null)
 const modalRef = ref<HTMLElement | null>(null)
 let previousFocus: HTMLElement | null = null
