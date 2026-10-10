@@ -106,6 +106,73 @@ int CameraWorker::GetVideoHeight() const
 	return m_VideoHeight.load();
 }
 
+void CameraWorker::StartRecentCapture(const std::shared_ptr<RecentCaptureLive>& request)
+{
+	if (!request || request->Cancelled->load()) return;
+	if (ContinuousStream) {
+		std::lock_guard lock(request->Mutex);
+		request->Status.Ready = true; request->Status.Finished = true; request->Status.UseDvr = true;
+		return;
+	}
+	try {
+		if (!IsConnected || !CameraStream) throw std::runtime_error("Camera is not connected");
+		if (RecentSpools.size() >= 8) throw std::runtime_error("Camera capture capacity exceeded");
+		std::filesystem::create_directories(request->Directory);
+		auto output = std::make_shared<ContinuousOutputStream>(request->Directory, Camera.ID, CameraStream.get());
+		output->SetTargetSegmentDuration(60);
+		output->SetTimestampNormalizationAllowed(DetectCameraProfile(Camera.Path) == CameraProfile::Reolink);
+		const std::weak_ptr<ContinuousOutputStream> weak = output;
+		output->SetSegmentCompleteCallback([request, weak](int, int64_t start, int64_t end, int, const std::string& path) {
+			double actualEnd = static_cast<double>(end);
+			if (const auto stream = weak.lock()) actualEnd = start + stream->GetCommittedSegment().ObservedDuration;
+			std::lock_guard lock(request->Mutex);
+			request->Status.Files.push_back({path, static_cast<double>(start), actualEnd, 0});
+			std::error_code error;
+			const auto bytes = std::filesystem::file_size(path, error);
+			if (!error) request->Status.ClosedBytes += bytes;
+			if (request->Status.ClosedBytes > 1024ULL * 1024 * 1024) {
+				request->Status.Error = "Live capture stopped at its one GiB spool limit";
+				request->StopAt->store(std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count());
+			}
+		});
+		bool first = true;
+		CameraStream->ReplayRecentPackets([&](const AVPacket* packet, int64_t timestamp) {
+			if (first) {output->SetInitialSegmentTimestamp(timestamp); first = false;}
+			if (output->WritePacket(packet) != CameraStreamError::Success) throw std::runtime_error("Capture history write failed");
+		});
+		RecentSpools.push_back({request, std::move(output)});
+		{std::lock_guard lock(request->Mutex); request->Status.Ready = true;}
+		WriteRecentCaptures(nullptr); // Fixed-stop requests can finish after history replay.
+	} catch (const std::exception& error) {
+		std::lock_guard lock(request->Mutex);
+		request->Status.Ready = true; request->Status.Finished = true; request->Status.Error = error.what();
+	}
+}
+
+void CameraWorker::WriteRecentCaptures(const AVPacket* packet)
+{
+	const double now = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
+	for (auto it = RecentSpools.begin(); it != RecentSpools.end();) {
+		const auto request = it->Request;
+		const double stop = request->StopAt->load();
+		bool done = request->Cancelled->load() || (stop > 0 && now >= stop);
+		try {
+			if (!done && packet && it->Output->WritePacket(packet) != CameraStreamError::Success)
+				throw std::runtime_error("Live capture packet write failed");
+		} catch (const std::exception& error) {
+			std::lock_guard lock(request->Mutex); request->Status.Error = error.what(); done = true;
+		}
+		if (!done) {++it; continue;}
+		it->Output->Finalize();
+		{std::lock_guard lock(request->Mutex); request->Status.Finished = true;}
+		if (request->Cancelled->load()) {
+			for (const auto& file : request->Get().Files) {std::error_code error; std::filesystem::remove(file.FilePath, error);}
+			std::error_code error; std::filesystem::remove(request->Directory, error); // Empty owned directory only.
+		}
+		it = RecentSpools.erase(it);
+	}
+}
+
 void CameraWorker::CreateInputStream()
 {
 	InputStreamSetup Setup;
@@ -272,11 +339,16 @@ void CameraWorker::CreateInputStream()
 
 		// Wire packet callback so ContinuousStream receives every video packet
 		auto contStream = ContinuousStream;
-		CameraStream->SetPacketCallback([contStream](const AVPacket* pkt)
+		CameraStream->SetPacketCallback([this, contStream](const AVPacket* pkt)
 		{
 			contStream->WritePacket(pkt);
+			WriteRecentCaptures(pkt);
 		});
 	}
+	else {
+		CameraStream->SetPacketCallback([this](const AVPacket* packet) {WriteRecentCaptures(packet);});
+	}
+	for (auto& spool : RecentSpools) spool.Output->ResetForReconnect(CameraStream.get());
 
 	// Live and continuous outputs retain raw pointers to the previous input.
 	// Retire it only after both outputs have been rebound to the new stream.
@@ -883,6 +955,14 @@ void CameraWorker::WorkerShutdown()
 	// A metadata reader may briefly own the last shared reference. Finish on
 	// this writer thread before releasing ownership, never on an HTTP worker.
 	if (ContinuousStream) ContinuousStream->Finalize();
+	WriteRecentCaptures(nullptr);
+	for (auto& spool : RecentSpools) {
+		spool.Output->Finalize();
+		std::lock_guard lock(spool.Request->Mutex);
+		spool.Request->Status.Finished = true;
+		spool.Request->Status.Error = "Live capture ended because its camera worker stopped";
+	}
+	RecentSpools.clear();
 	ContinuousStream = nullptr;
 	LiveStream = nullptr;
 	std::shared_ptr<InputStream> RetiredCameraStream;
@@ -932,6 +1012,7 @@ void CameraWorker::WorkerMain()
 
 			Context->LongPoll->NotifyAll();
 		});
+		Msg->Handle<RecentCaptureLiveMessage>([&](const RecentCaptureLiveMessage& data) {StartRecentCapture(data.Live);});
 
 		Msg->Handle<CameraStopRecordMessage>([&](const CameraStopRecordMessage& Data)
 		{

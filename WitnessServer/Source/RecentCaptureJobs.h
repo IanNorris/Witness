@@ -31,15 +31,18 @@ public:
     struct Sources {
         std::vector<Witness::Camera::HistoricalClipSource> Files;
         bool Pending = false; // The requested end intersects footage still saving.
+        bool LiveStopped = false; // A non-DVR spool ended before a user stop.
+        std::string Error;
     };
     using Resolver = std::function<Sources(const Request&)>;
     using Exporter = std::function<Witness::Camera::HistoricalClipResult(const Sources&, const Request&, const std::function<bool()>&)>;
     using Clock = std::function<double()>;
+    using Starter = std::function<void(const Request&, std::shared_ptr<std::atomic<bool>>, std::shared_ptr<std::atomic<double>>)>;
     struct Persistence {
         std::vector<Snapshot> Recovered;
         std::function<void(const std::vector<Snapshot>&)> Save;
     };
-    RecentCaptureJobs(Resolver resolver, Exporter exporter, Clock clock = {}, Persistence persistence = {});
+    RecentCaptureJobs(Resolver resolver, Exporter exporter, Clock clock = {}, Persistence persistence = {}, Starter starter = {});
     ~RecentCaptureJobs();
     RecentCaptureJobs(const RecentCaptureJobs&) = delete;
     RecentCaptureJobs& operator=(const RecentCaptureJobs&) = delete;
@@ -52,6 +55,7 @@ private:
     struct Job {
         Snapshot Value;
         std::shared_ptr<std::atomic<bool>> Cancelled = std::make_shared<std::atomic<bool>>(false);
+        std::shared_ptr<std::atomic<double>> StopAt = std::make_shared<std::atomic<double>>(0);
         double Deadline = 0;
         double NextCheck = 0;
     };
@@ -61,6 +65,7 @@ private:
     Exporter Export;
     Clock Now;
     Persistence Journal;
+    Starter StartLive;
     mutable std::mutex Mutex;
     std::condition_variable Wake;
     std::map<uint64_t, Job> Jobs;

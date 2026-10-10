@@ -88,6 +88,10 @@ public:
 	// Used by ContinuousOutputStream to receive packets without modifying the Stream interface.
 	using PacketCallback = std::function<void(const AVPacket*)>;
 	void SetPacketCallback(PacketCallback callback);
+	// Owning worker thread only. Replays retained raw packets from a video RAP
+	// without consuming normal recording history or changing its stream markers.
+	// The second argument is that RAP's observed wall-clock timestamp.
+	size_t ReplayRecentPackets(const std::function<void(const AVPacket*, int64_t)>& callback);
 
 	StreamStats GetStats() const;
 

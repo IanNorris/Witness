@@ -73,6 +73,23 @@ int main() {
         Await([&] {return unavailable.Get(*failed, 7, 20)->Status == RecentCaptureJobs::State::Failed;});
         Check(forbiddenExports == 0 && !unavailable.Submit(request(21)), "Journal failure allowed an untracked export");
         unavailable.Shutdown();
+        std::atomic<bool> liveFinished{false};
+        std::shared_ptr<std::atomic<double>> liveStop;
+        std::shared_ptr<std::atomic<bool>> liveCancel;
+        RecentCaptureJobs monitored([&](const auto&) {
+            RecentCaptureJobs::Sources sources; sources.LiveStopped = liveFinished.load(); return sources;
+        }, [](const auto&, const auto&, const auto&) {
+            Witness::Camera::HistoricalClipResult result; result.Success = true; return result;
+        }, [&] {return now.load();}, {}, [&](const auto&, auto cancelled, auto stopAt) {
+            liveCancel = std::move(cancelled); liveStop = std::move(stopAt);
+        });
+        const auto stopped = monitored.Submit(request(22, true)); Check(stopped.has_value(), "Live monitoring admission failed");
+        Check(liveStop && liveStop->load() == 0 && liveCancel && !liveCancel->load(), "Independent producer controls were not dispatched");
+        liveFinished = true; now = 1004;
+        Await([&] {return monitored.Get(*stopped, 7, 22)->Status == RecentCaptureJobs::State::Completed;});
+        Check(monitored.Get(*stopped, 7, 22)->Capture.To == 1004 && liveStop->load() == 1004,
+            "Unexpected producer stop left the job claiming to record");
+        monitored.Shutdown();
         std::cout << "PASS background captures: independent wait, frozen stop, owner checks, bounds, cancellation, shutdown\n";
         return 0;
     } catch (const std::exception& error) {std::cerr << error.what() << '\n'; return 1;}

@@ -5,6 +5,8 @@
 #include "CapturedClipStorage.h"
 #include "ClipHelpers.h"
 #include "EventBroadcaster.h"
+#include "CameraWorker.h"
+#include "RecentCaptureLive.h"
 #include <opencv2/videoio.hpp>
 #include <opencv2/imgcodecs.hpp>
 #include <ContinuousOutputStream.h>
@@ -48,8 +50,16 @@ void CrowListener::StartRecentCaptures() {
     RecentCaptureJobs::Persistence persistence;
     persistence.Recovered = journal->Load();
     persistence.Save = [journal](const auto& values) {journal->Save(values);};
-    m_RecentCaptures = std::make_unique<RecentCaptureJobs>([context](const RecentCaptureJobs::Request& request) {
+    const auto liveRequests = std::make_shared<RecentCaptureLiveRegistry>();
+    m_RecentCaptures = std::make_unique<RecentCaptureJobs>([context, liveRequests](const RecentCaptureJobs::Request& request) {
         RecentCaptureJobs::Sources result;
+        const auto live = liveRequests->Find(request.Destination);
+        if (!live) {result.Pending = true; return result;} // Admission/start dispatch race.
+        const auto liveState = live->Get();
+        if (!liveState.Ready) {result.Pending = true; return result;}
+        result.Error = liveState.Error;
+        result.LiveStopped = liveState.Finished && !liveState.UseDvr;
+        if (request.To == 0) return result; // Lightweight monitoring, no DVR query.
         {
             SQLiteDatabaseQueryInstance query(context->Database, "SelectContinuousSegments");
             query->Bind("@CameraUID", request.Camera);
@@ -64,12 +74,17 @@ void CrowListener::StartRecentCaptures() {
         const auto active = context->GetActiveDvrSegment(request.Camera);
         const double end = active.StartTimestamp + active.ObservedDuration;
         result.Pending = !active.FilePath.empty() && active.StartTimestamp < request.To && end > request.From;
+        if (!liveState.UseDvr) {
+            result.Files.insert(result.Files.end(), liveState.Files.begin(), liveState.Files.end());
+            result.Pending = !liveState.Finished;
+        }
         // Normal, nonfragmented files must finalize before export. Completed
         // fragments will be admitted here only after their production rollout.
         return result;
-    }, [context](const RecentCaptureJobs::Sources& sources, const RecentCaptureJobs::Request& request, const auto& cancelled) {
+    }, [context, liveRequests](const RecentCaptureJobs::Sources& sources, const RecentCaptureJobs::Request& request, const auto& cancelled) {
         std::filesystem::create_directories(std::filesystem::path(request.Destination).parent_path());
         auto result = Witness::Camera::RemuxHistoricalClip(sources.Files, request.From, request.To, request.Destination, cancelled);
+        if (result.Success && !sources.Error.empty()) result.Error = sources.Error;
         if (result.Success) {
             const char* databasePath = sqlite3_db_filename(context->Database->GetDatabase(), "main");
             if (!databasePath) throw std::runtime_error("Capture clip database path is unavailable");
@@ -88,8 +103,29 @@ void CrowListener::StartRecentCaptures() {
                 event["tags"] = ""; context->Events->Broadcast("clip:new", std::move(event));
             }
         }
+        if (const auto live = liveRequests->Find(request.Destination)) {
+            const auto state = live->Get();
+            if (state.Finished && !state.UseDvr) {
+                for (const auto& file : state.Files) {std::error_code error; std::filesystem::remove(file.FilePath, error);}
+                std::error_code error; std::filesystem::remove(live->Directory, error);
+            }
+        }
+        liveRequests->Remove(request.Destination);
         return result;
-    }, RecentCaptureJobs::Clock{}, std::move(persistence));
+    }, RecentCaptureJobs::Clock{}, std::move(persistence), [context, liveRequests](const auto& request, auto cancelled, auto stopAt) {
+        auto live = std::make_shared<RecentCaptureLive>();
+        live->Directory = request.Destination + ".live";
+        live->Cancelled = std::move(cancelled); live->StopAt = std::move(stopAt);
+        liveRequests->Add(request.Destination, live);
+        std::shared_ptr<CameraWorker> worker;
+        {
+            std::shared_lock lock(context->Mutex);
+            const auto camera = context->GetCameraMap().find(request.Camera);
+            if (camera != context->GetCameraMap().end()) worker = camera->second.Worker;
+        }
+        if (!worker) throw std::runtime_error("Camera worker is unavailable");
+        context->MessageBus->SendToClient(worker.get(), std::make_shared<RecentCaptureLiveMessage>(live));
+    });
 }
 void CrowListener::HandleCapturedClipMedia(const crow::request& req, crow::response& res, int clipUID, const std::string& type) {
     if (type != "video" && type != "thumbnail") {res.code = 404; res.end(); return;}

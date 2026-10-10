@@ -121,6 +121,10 @@ CameraStreamError ContinuousOutputStream::StartNewSegment()
 	// Generate filename from current unix timestamp
 	auto now = std::chrono::system_clock::now();
 	m_SegmentStartTimestamp = std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
+	if (m_InitialSegmentTimestamp > 0) {
+		m_SegmentStartTimestamp = m_InitialSegmentTimestamp;
+		m_InitialSegmentTimestamp = 0;
+	}
 
 	std::string filename = std::to_string(m_SegmentStartTimestamp) + ".mp4";
 	std::string filepath = (fs::path(m_Data->BasePath) / filename).string();

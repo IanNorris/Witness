@@ -62,6 +62,28 @@ void InputStream::SetPacketCallback( PacketCallback callback )
 	m_InputData->PacketCallback = std::move( callback );
 }
 
+size_t InputStream::ReplayRecentPackets(const std::function<void(const AVPacket*, int64_t)>& callback)
+{
+	if (!callback) return 0;
+	const auto& data = *m_InternalData;
+	size_t base = 0, first = data.PacketsBacklog.size();
+	int64_t timestamp = 0;
+	for (const auto& state : data.KeyframeStates) {
+		for (int index = 0; index < state.PacketCount && base + index < data.PacketsBacklog.size(); ++index) {
+			const auto& packet = data.PacketsBacklog[base + index];
+			if (packet.stream_index == data.ChosenStreamIndex && (packet.flags & AV_PKT_FLAG_KEY) && state.Timestamp > 0) {
+				first = base + index; timestamp = state.Timestamp; break;
+			}
+		}
+		if (first != data.PacketsBacklog.size()) break;
+		base += state.PacketCount;
+	}
+	if (!timestamp) return 0;
+	for (size_t index = first; index < data.PacketsBacklog.size(); ++index)
+		callback(&data.PacketsBacklog[index], timestamp);
+	return data.PacketsBacklog.size() - first;
+}
+
 CameraStreamError InputStream::Initialize()
 {
 	FFmpegLogContextScope LogContext( UniqueSourceID, "initialize" );
@@ -379,14 +401,9 @@ CameraStreamError InputStream::ProcessFrame( const std::shared_ptr<IRecordFilter
 				STREAM_ERROR( RefError, Result );
 			}
 
-			//No idea why, but the first packet always
-			//has an invalid DTS/PTS that's higher than
-			//the packets that follow it.
-			if (FrameIndex == 0)
-			{
-				NewPacket.dts = 0;
-				NewPacket.pts = 0;
-			}
+			// Retain the original clocks. In passthrough mode FrameIndex stays
+			// zero, so the old first-frame workaround zeroed every retained video
+			// timestamp and made independent history replay impossible.
 		}
 
 		OutputEnd = std::chrono::high_resolution_clock::now().time_since_epoch().count();

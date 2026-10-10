@@ -198,6 +198,7 @@ onUnmounted(() => {
           <p v-if="captureLabel" role="status">{{ captureLabel }}</p>
           <p v-if="captureError" role="alert">{{ captureError }} <button class="btn btn-sm btn-outline-secondary" @click="refreshCapture">Retry status</button></p>
           <p v-if="capture?.state === 'completed'">Media: {{ format(new Date(capture.actualFrom * 1000), 'HH:mm:ss') }}–{{ format(new Date(capture.actualTo * 1000), 'HH:mm:ss') }}</p>
+          <p v-if="capture?.state === 'completed' && capture.error" role="status">{{ capture.error }}</p>
           <p v-for="(gap, i) in capture?.gaps ?? []" :key="i">Unavailable: {{ format(new Date(gap.from * 1000), 'HH:mm:ss') }}–{{ format(new Date(gap.to * 1000), 'HH:mm:ss') }}</p>
           <small>Starts at a preceding keyframe; the end may include a later reference frame. Your existing camera recordings are unchanged.</small>
         </section>

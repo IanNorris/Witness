@@ -10,6 +10,7 @@
 #include <MotionFilter.h>
 #include <atomic>
 #include <mutex>
+#include "RecentCaptureLive.h"
 
 class GlobalContext;
 class ObservingMotionFilter;
@@ -143,6 +144,10 @@ private:
 	void OnClipFinished(bool ManualStop);
 
 	void CreateInputStream();
+	void StartRecentCapture(const std::shared_ptr<RecentCaptureLive>& request);
+	void WriteRecentCaptures(const AVPacket* packet);
+	struct RecentSpool { std::shared_ptr<RecentCaptureLive> Request; std::shared_ptr<ContinuousOutputStream> Output; };
+	std::vector<RecentSpool> RecentSpools;
 
 	std::shared_ptr<OutputStream> RecordStream;
 	std::shared_ptr<LiveOutputStream> LiveStream;

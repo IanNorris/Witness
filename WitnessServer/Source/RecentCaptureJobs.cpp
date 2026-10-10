@@ -7,8 +7,8 @@
 bool RecentCaptureJobs::Terminal(State state) {
     return state == State::Completed || state == State::Failed || state == State::Cancelled;
 }
-RecentCaptureJobs::RecentCaptureJobs(Resolver resolver, Exporter exporter, Clock clock, Persistence persistence)
-    : Resolve(std::move(resolver)), Export(std::move(exporter)), Now(std::move(clock)), Journal(std::move(persistence)) {
+RecentCaptureJobs::RecentCaptureJobs(Resolver resolver, Exporter exporter, Clock clock, Persistence persistence, Starter starter)
+    : Resolve(std::move(resolver)), Export(std::move(exporter)), Now(std::move(clock)), Journal(std::move(persistence)), StartLive(std::move(starter)) {
     if (!Resolve || !Export) throw std::invalid_argument("Capture callbacks are required");
     if (!Now) Now = [] {return std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();};
     NextId = static_cast<uint64_t>(Now() * 1000000);
@@ -35,7 +35,7 @@ std::optional<uint64_t> RecentCaptureJobs::Submit(Request request) {
         || request.From >= now || now - request.From > 21600
         || (request.To != 0 && (request.To <= request.From || request.To > now || request.To - request.From > 21600))
         || request.FinalizationWaitSeconds < 0 || request.FinalizationWaitSeconds > 960) return {};
-    std::lock_guard lock(Mutex);
+    std::unique_lock lock(Mutex);
     if (Closing || JournalFailed) return {};
     size_t active = 0;
     for (const auto& [id, job] : Jobs) {
@@ -54,9 +54,24 @@ std::optional<uint64_t> RecentCaptureJobs::Submit(Request request) {
     job.Value.Id = NextId++;
     job.Value.Capture = std::move(request);
     job.Value.Status = job.Value.Capture.To == 0 ? State::Recording : State::WaitingForMedia;
+    job.StopAt->store(job.Value.Capture.To);
     job.Deadline = now + job.Value.Capture.FinalizationWaitSeconds;
     const auto id = job.Value.Id;
-    Jobs.emplace(id, std::move(job)); ++Revision; Wake.notify_all(); return id;
+    const auto starterRequest = job.Value.Capture;
+    const auto cancelled = job.Cancelled;
+    const auto stopAt = job.StopAt;
+    Jobs.emplace(id, std::move(job)); ++Revision;
+    lock.unlock();
+    try {if (StartLive) StartLive(starterRequest, cancelled, stopAt);}
+    catch (const std::exception& error) {
+        std::lock_guard failedLock(Mutex);
+        const auto found = Jobs.find(id);
+        if (found != Jobs.end()) {
+            cancelled->store(true); found->second.Value.Status = State::Failed;
+            found->second.Value.Result.Error = error.what(); ++Revision;
+        }
+    }
+    Wake.notify_all(); return id;
 }
 std::optional<RecentCaptureJobs::Snapshot> RecentCaptureJobs::Get(uint64_t id, int owner, int camera) const {
     std::lock_guard lock(Mutex);
@@ -74,6 +89,7 @@ bool RecentCaptureJobs::StopCapture(uint64_t id, int owner, int camera, double r
     if (job.Value.Capture.Owner != owner || job.Value.Capture.Camera != camera || job.Value.Status != State::Recording
         || requestTime <= job.Value.Capture.From || requestTime > now) return false;
     job.Value.Capture.To = (std::min)(requestTime, job.Value.Capture.From + 21600);
+    job.StopAt->store(job.Value.Capture.To);
     job.Value.Status = State::WaitingForMedia;
     job.Deadline = now + job.Value.Capture.FinalizationWaitSeconds;
     job.NextCheck = 0; ++Revision; Wake.notify_all(); return true;
@@ -141,6 +157,7 @@ void RecentCaptureJobs::Worker() {
         Request request;
         std::shared_ptr<std::atomic<bool>> cancelled;
         double deadline = 0;
+        bool monitor = false;
         {
             std::unique_lock lock(Mutex);
             if (Closing) return;
@@ -148,11 +165,13 @@ void RecentCaptureJobs::Worker() {
             for (auto& [key, job] : Jobs) {
                 if (job.Value.Status == State::Recording && now >= job.Value.Capture.From + 21600) {
                     job.Value.Capture.To = job.Value.Capture.From + 21600;
+                    job.StopAt->store(job.Value.Capture.To);
                     job.Value.Status = State::WaitingForMedia;
                     job.Deadline = now + job.Value.Capture.FinalizationWaitSeconds;
                     ++Revision;
                 }
-                if (job.Value.Status == State::WaitingForMedia && job.NextCheck <= now) {
+                if ((job.Value.Status == State::WaitingForMedia || job.Value.Status == State::Recording) && job.NextCheck <= now) {
+                    monitor = job.Value.Status == State::Recording;
                     id = key; request = job.Value.Capture; cancelled = job.Cancelled;
                     deadline = job.Deadline; job.NextCheck = now + 1; break;
                 }
@@ -163,6 +182,18 @@ void RecentCaptureJobs::Worker() {
         bool ran = false;
         try {
             auto sources = Resolve(request);
+            if (monitor) {
+                if (sources.LiveStopped) {
+                    std::lock_guard lock(Mutex);
+                    const auto found = Jobs.find(id);
+                    if (found != Jobs.end() && found->second.Value.Status == State::Recording) {
+                        auto& job = found->second;
+                        job.Value.Capture.To = Now(); job.StopAt->store(job.Value.Capture.To);
+                        job.Value.Status = State::WaitingForMedia; job.Deadline = Now(); job.NextCheck = 0; ++Revision;
+                    }
+                }
+                continue;
+            }
             if (sources.Pending && Now() < deadline && !cancelled->load()) continue;
             {
                 std::lock_guard lock(Mutex);
@@ -182,6 +213,7 @@ void RecentCaptureJobs::Worker() {
             if (found == Jobs.end()) continue;
             auto& value = found->second.Value;
             value.Status = result.Success ? State::Completed : cancelled->load() ? State::Cancelled : State::Failed;
+            if (!result.Success) cancelled->store(true); // Stop any orphaned producer after resolver/export failure.
             value.Result = std::move(result);
             ++Revision;
         }

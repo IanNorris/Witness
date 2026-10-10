@@ -52,6 +52,8 @@ public:
 
 	// Target segment duration in seconds (actual will be longer, split on next keyframe)
 	void SetTargetSegmentDuration(int seconds);
+	// Owning worker only, before its first packet; used for retained live history.
+	void SetInitialSegmentTimestamp(int64_t timestamp) { if (!m_SegmentOpen && timestamp > 0) m_InitialSegmentTimestamp = timestamp; }
 	void SetTimestampNormalizationAllowed(bool allowed)
 	{
 		m_TimestampNormalizationAllowed = allowed;
@@ -101,6 +103,7 @@ private:
 	double m_SegmentDuration;			// Accumulated duration in seconds
 
 	int m_TargetSegmentDuration;		// Target duration before looking for next keyframe
+	int64_t m_InitialSegmentTimestamp = 0;
 	bool m_WaitingForKeyframe;			// Set when duration exceeded, waiting for next keyframe to split
 
 	char m_ErrorMessage[256];
