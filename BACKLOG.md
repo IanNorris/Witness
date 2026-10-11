@@ -2,9 +2,40 @@
 
 This file tracks work still to do. Implemented work is described in the
 feature documents and Git history rather than retained as checked-off tasks.
-Current priorities are production validation of the retention-stall fix,
-reliable DVR playback, and measured build/header/ABI cleanup. Audio, activity,
-scoped automation, and DVR investigations have working first implementations.
+Audio, activity, scoped automation, and DVR investigations have working first
+implementations. Production validation and reliability work remain ongoing.
+
+## Next feature priorities (10 October 2026)
+
+1. Retroactive manual clip generation directly from the dashboard: choose a
+   lookback (for example one minute), then either keep recording or finish at
+   the request time. Detailed coverage and recording requirements are below.
+   Include a per-camera instant-replay/DVR overlay (for example "Show this
+   camera 5 minutes ago") so missed activity can be reviewed before deciding
+   whether to save it. Keep the dashboard mounted behind it, provide seek and
+   return-to-live controls, and allow saving the reviewed interval or continuing
+   a recording. Investigate still-open DVR files: never require file rotation
+   merely to replay recent footage, serve only committed/decodable media, and
+   report the available live edge or gaps rather than claiming unwritten data.
+   If open-segment replay is not viable for a format/client, hatch the pending
+   region as "Currently saving" with a tooltip explaining that the last N
+   minutes may be unavailable until finalization. Distinguish this from a true
+   recording gap. Consider configurable one-minute DVR segments (currently
+   five minutes, split at a keyframe) to reduce the fallback delay, and hourly
+   folders for human-readable storage organization. Preserve legacy path/index
+   compatibility and validate the increased file count/retention cost.
+2. Clip search and grouping on the dashboard: search without leaving the live
+   view, reuse existing clip filters/grouping, and keep original clips accessible.
+3. Revisit installation and distribution after those features. Evaluate a
+   native Windows installer/service and portable package alongside a Linux
+   container/Compose deployment rather than forcing one installation method.
+   Cover persistent recordings/database/config volumes, secrets, optional
+   acceleration, authenticated first-run setup, upgrades, backups and rollback.
+   Validate installation on a clean machine without a developer toolchain;
+   default exposure should be conservative and never disable authentication.
+
+Provenance is deferred behind these usability and deployment priorities. AAC
+live/recorded audio coverage is also recorded below for a compatibility pass.
 
 ## Build and inference
 
@@ -71,6 +102,13 @@ are described in [TERMINAL_DASHBOARD.md](TERMINAL_DASHBOARD.md).
 
 ## Audio intelligence
 
+- Audit and complete AAC audio support for live playback and recordings where
+  feasible. Live AAC passthrough already exists; identify unsupported profiles,
+  camera configurations and recording paths rather than treating this as a new
+  codec implementation. Verify A/V synchronization, seeking, reconnection,
+  Main/Preview switching and export with H.264 and H.265 video. Prefer lossless
+  passthrough where compatible; make any required transcoding and CPU cost
+  explicit, and report unsupported audio instead of silently losing it.
 - Evaluate and tune the opt-in, post-clip sound classifier against labelled
   real-camera recordings, especially vehicle starts, footsteps, barking,
   speech and wind across different microphones. Add confidence/false-positive
@@ -80,6 +118,21 @@ are described in [TERMINAL_DASHBOARD.md](TERMINAL_DASHBOARD.md).
 
 ## Dashboard layouts
 
+- Make fullscreen camera-control selection explicit. Controls currently remain
+  active for the last interacted-with camera until the user clicks elsewhere;
+  add a clear selected-camera indication and predictable dismissal behaviour.
+- Rework and repair the PTZ controls, including regressions from earlier
+  attempts. Verify camera selection, supported commands, movement/stop behaviour
+  and home/preset actions against the actual cameras. In the planned fullscreen/PTZ
+  UI redesign, expose buttons for a configurable selection of named camera
+  viewpoints and show the active logical home. Keep the UI abstraction
+  camera-generic ("viewpoints"); Reolink presets are a provider implementation
+  detail. Coordinate this with the dynamic-home investigation below.
+- Add an optional clock to the fullscreen dashboard, using the established
+  server-local-time display convention.
+- Add an optional compact historical stream-health panel to the fullscreen
+  dashboard. Show recent per-camera disconnects, freezes, latency and recovery
+  trends at a glance rather than only instantaneous connection status.
 - Present three explicit dashboard modes: **Tiles**, **Layout**, and **Full
   Screen**. Tiles should remain the conventional responsive grid; Layout should
   use the configurable per-group canvas and automatic slots; Full Screen should
@@ -105,6 +158,13 @@ The grouping, user-relevance, and object-persistence design is recorded in
 [ACTIVITY_INTELLIGENCE.md](ACTIVITY_INTELLIGENCE.md). It identifies preserving
 empty/baseline observation evidence as a prerequisite for reliable persistence.
 
+- Add clip search and grouping within the dashboard, without navigating away
+  or restarting live players. Scope results to the selected group/cameras and
+  expose time range, object/audio tags and existing metadata filters. Reuse
+  existing activity similarity grouping, with representative, count, time span
+  and expansion into individual clips; do not confuse grouping with physical
+  clip merging or semantic search. Keep grouping reversible and make results,
+  pagination and loading/error states predictable in normal and fullscreen use.
 - In recent activity, use the interesting-object bounding boxes to select a
   tighter thumbnail crop/zoom. When face extraction produced a useful face
   image, offer it as an overlay without obscuring the wider event context.
@@ -118,6 +178,54 @@ empty/baseline observation evidence as a prerequisite for reliable persistence.
 
 ## Clip generation
 
+- Add a retroactive manual-recording trigger with a dropdown for how far back
+  to start, available from dashboard camera controls. Offer explicit actions
+  such as "Record from 1 minute ago and continue" and "Save the last minute"
+  (finish at the request's fixed server time, not when backfill completes).
+  Use the camera's in-memory pre-roll where available, and backfill
+  earlier footage from DVR/continuous recordings when the requested start is
+  outside that buffer. Report unavailable gaps rather than implying complete
+  coverage; preserve continuous audio/video timestamps and event metadata.
+  Respect decodable keyframe boundaries and show actual covered times. Backfill
+  must run off HTTP/camera workers, report progress/failure, and avoid duplicate
+  media at the historical/live join. Define behavior when a recording is already
+  active: do not silently terminate unrelated motion/API recordings or DVR;
+  explicitly extend/reuse or create an independent requested clip as appropriate.
+
+## Evidence provenance (deferred)
+
+- Explore human-readable, verifiable recording provenance. Reviewers' ability
+  to understand the evidence matters as much as the mechanism: camera-generated
+  visible timestamps are the preferred starting point for understandable time
+  context. An overlay alone is not tamper evidence or proof that the clock was
+  correct, and no technical feature should promise legal admissibility.
+- Preserve original encoded recordings and camera overlays. Avoid mandatory
+  server burn-in/re-encoding; optional Witness timestamped, redacted or joined
+  exports should be labelled as derived copies linked to their originals.
+- Record camera-reported wall time where available, server receive time,
+  original PTS/DTS, timing repairs, clock offsets/synchronization observations
+  and clock changes separately. Media timestamps are not inherently calendar
+  time; receive time includes transport delay. Investigate local time-server
+  support for internet-blocked cameras and explicitly flag uncertain clocks.
+- Consider hashing/signing finalized segments and their provenance manifests,
+  linking sequences and documenting gaps/restarts/retention. Protect signing
+  keys and retain independent checkpoints; optional RFC 3161 timestamping of
+  hashes proves existence by an external time, not the exact capture time.
+  A recorder signature establishes trust from signing/receipt, not camera capture.
+- Investigate preserving/verifying camera signatures where actually supported.
+  ONVIF Media Signing covers H.264/H.265 and currently excludes audio; generic
+  ONVIF support does not imply signing. Package originals, manifests and an
+  independently usable verifier/report for exports. Treat Frigate's signing
+  support as unverified, not an established absence or reason to claim superiority.
+
+Research references:
+
+- [Video evidence recovery and clock checks](https://www.gov.uk/government/publications/recovery-and-acquisition-of-video-evidence/recovery-and-aquisition-of-video-evidence-v30)
+- [Axis camera-signed video](https://developer.axis.com/video-streaming-and-recording/signed-video/)
+- [ONVIF Media Signing](https://www.onvif.org/add-on/media-signing-add-on/)
+- [Synology evidence integrity](https://www.synology.com/en-global/surveillance/feature/secure)
+- [RFC 3161 trusted timestamping](https://www.rfc-editor.org/info/rfc3161/)
+
 - Coalesce clips from the same camera when one stops and another starts within
   a configurable threshold (initially around one minute). Export them as one
   continuous clip and use DVR/continuous-recording segments to fill the gaps,
@@ -125,6 +233,13 @@ empty/baseline observation evidence as a prerequisite for reliable persistence.
   non-monotonic audio/video timestamps.
 
 ## DVR and historical search
+
+- Revisit cache-folder organisation: large flat directories are impractical to
+  browse manually (Explorer can take minutes to open them). Evaluate per-camera,
+  date and hour folders with readable filenames for DVR, previews and detection
+  assets; preserve existing database paths and support legacy files. Plan a
+  bounded background migration, retention/cleanup compatibility and tests so
+  reorganising storage cannot lose recordings or block startup.
 
 - Validate the new opt-in DVR page with real recordings, especially missing
   segments, concurrent cameras, browser media errors, and the manual bisection
@@ -134,6 +249,53 @@ empty/baseline observation evidence as a prerequisite for reliable persistence.
   operations off Crow request threads after measuring handler latency.
 
 ## Streaming diagnostics
+
+- Standardise the web viewer on MSE: remove JPEG/HLS playback choices and the
+  silent JPEG fallback. Unsupported codecs should retain accessible stream
+  controls and offer a supported sub-stream with a clear explanation. Preserve
+  still-image previews/thumbnails and external HLS integrations where needed;
+  removing viewer options does not imply deleting those endpoints.
+
+- Investigate two reported Reolink camera-firmware behaviours; research known
+  reports and supported workarounds, recording affected models/firmware before
+  attributing either symptom to a general provider issue:
+  - Failure to return correctly to the home position, sometimes leaving the
+    camera stuck. Record affected models/firmware and investigate the following
+    behaviour and recovery options rather than assuming API support or semantics:
+    - Model multiple named camera viewpoints, backed by stored Reolink presets
+      for that provider. Let Witness select a dynamic logical home from those
+      viewpoints using state such as day/night or vehicle present/absent.
+      Make it configurable whether a state change moves the camera immediately
+      or only changes the destination used after tracking finishes.
+    - Investigate `GetPtzPreset`, `SetPtzPreset`, `PtzCtrl`/`ToPos`,
+      `GetPtzGuard` and `SetPtzGuard` on the actual models/firmware. In particular,
+      determine whether `SetPtzGuard` can make an existing preset the native
+      guard/monitor point without first moving there and resetting the guard
+      from the current position. Prefer native dynamic guard switching if
+      practical and reliable; otherwise have Witness explicitly return to the
+      active viewpoint preset after tracking finishes, with a configurable
+      settling delay. Verify how native auto-return and tracking interact with
+      either approach, and avoid competing return commands.
+    - After `ToPos` and movement settling, compare the resulting view with a
+      saved reference image for the selected viewpoint to detect preset or
+      calibration drift. Compare readable PTZ coordinates as another detection
+      option if available and trustworthy. Account for day/night appearance,
+      vehicles and other legitimate scene changes so these do not become
+      position errors.
+    - Stage recovery only after verification indicates a position problem:
+      first evaluate a bounded retry of the active viewpoint, then optional
+      calibration followed by return to that viewpoint and repeat verification.
+      Investigate `GetPtzCheckState` and `PtzCheck`, including whether calibration
+      affects stored presets or the guard point. Treat command availability,
+      status semantics and firmware behaviour as investigation findings.
+      Keep automatic recovery opt-in and rate-limited, avoid fighting manual
+      PTZ operation or active tracking, and assess periodic recovery only after
+      verification and evidence justify it.
+  - Failure to switch correctly to night vision after the light has been on,
+    producing a black or mostly black image. Evaluate sustained-dark-image
+    detection and supported night-vision/light toggles as possible recovery.
+    Distinguish this from genuine darkness, obstruction or a failed stream,
+    and make any automatic camera-changing recovery opt-in and rate-limited.
 
 - Production-validate the guarded Reolink live AAC sample clock (30 September
   investigation, `Tools/REOLINK_HITCH_2026-09-30.txt`). Local captures confirmed
