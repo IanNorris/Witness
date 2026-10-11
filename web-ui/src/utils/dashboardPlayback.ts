@@ -4,15 +4,17 @@ export interface PlaybackPosition {
   paused: boolean
   revision: number
   lastInteraction: number
+  timelineEnd: number | null
 }
 
 export function createPlaybackPosition(now: number): PlaybackPosition {
-  return { requestedAt: null, viewedAt: null, paused: false, revision: 0, lastInteraction: now }
+  return { requestedAt: null, viewedAt: null, paused: false, revision: 0, lastInteraction: now, timelineEnd: null }
 }
 
 export function returnToLive(position: PlaybackPosition, now: number) {
   position.requestedAt = position.viewedAt = null
   position.paused = false
+  position.timelineEnd = null
   position.lastInteraction = now
   ++position.revision
 }

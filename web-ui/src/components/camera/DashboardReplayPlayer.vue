@@ -31,10 +31,10 @@ onMounted(() => {
   }, 2000)
 })
 onUnmounted(() => clearInterval(timer))
-defineExpose({ toggleOverlay: () => player.value?.toggleDetectionWithSave(), overlayEnabled: computed(() => player.value?.overlayEnabled ?? false) })
+defineExpose({ toggleOverlay: () => player.value?.toggleDetectionWithSave(), overlayEnabled: computed(() => player.value?.overlayEnabled ?? false), streamInfo: computed(() => player.value?.streamInfo ?? { tier: 'dvr' }) })
 </script>
 <template>
   <DvrPlayer ref="player" :camera-id="cameraId" :camera-name="cameraName" :from="from" :to="to"
     :start-at="startAt" compact embedded :initial-paused="position.paused" :muted="!audioEnabled"
-    @time="playback.observed(cameraId, $event)" />
+    @time="playback.observed(cameraId, $event)" @live="playback.live(cameraId)" />
 </template>

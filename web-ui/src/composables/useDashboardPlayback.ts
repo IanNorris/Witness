@@ -25,12 +25,19 @@ export function useDashboardPlayback(cameraIds: Ref<number[]>, held: Ref<boolean
     if (sync.value) { sharedTime = null; sharedPaused = false }
     sharedInteraction = now
   }
-  function seek(id: number, timestamp: number) {
+  function seek(id: number, timestamp: number, navigateWindow = false) {
     if (!Number.isFinite(timestamp)) return
     selected.value = id
     const now = Date.now(), target = Math.min(timestamp, now / 1000)
     if (target >= now / 1000 - 1) { live(id); return }
-    for (const camera of sync.value ? cameraIds.value : [id]) seekPosition(get(camera), target, now)
+    const sourceEnd = get(id).timelineEnd ?? Math.floor(now / 1000)
+    const timelineEnd = navigateWindow && (target < sourceEnd - 300 || target > sourceEnd)
+      ? Math.min(Math.floor(now / 1000), Math.floor(target + 120)) : get(id).timelineEnd
+    for (const camera of sync.value ? cameraIds.value : [id]) {
+      const position = get(camera)
+      if (navigateWindow) position.timelineEnd = timelineEnd
+      seekPosition(position, target, now)
+    }
     if (sync.value) { sharedTime = target; sharedWall = now; sharedPaused = get(id).paused }
     touch(id)
   }
@@ -43,7 +50,8 @@ export function useDashboardPlayback(cameraIds: Ref<number[]>, held: Ref<boolean
       const target = source.viewedAt, paused = source.paused
       if (target === null) live(id)
       else {
-        for (const camera of cameraIds.value) get(camera).paused = paused
+        const timelineEnd = source.timelineEnd
+        for (const camera of cameraIds.value) { get(camera).paused = paused; get(camera).timelineEnd = timelineEnd }
         seek(id, target)
       }
     }
@@ -51,6 +59,8 @@ export function useDashboardPlayback(cameraIds: Ref<number[]>, held: Ref<boolean
       // Freeze the current shared position before independent clocks take over.
       for (const id of cameraIds.value) {
         const position = get(id)
+        const source = cameraIds.value.find(camera => camera !== id && positions[camera])
+        position.timelineEnd = source === undefined ? null : get(source).timelineEnd
         if (position.viewedAt !== null) seekPosition(position, position.viewedAt, Date.now())
       }
     }

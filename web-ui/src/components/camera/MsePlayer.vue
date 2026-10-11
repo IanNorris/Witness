@@ -2,6 +2,7 @@
 import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { useMseStream } from '../../composables/useMseStream'
 import { useDetectionOverlay } from '../../composables/useDetectionOverlay'
+import { usePlaybackResources } from '../../composables/usePlaybackResources'
 
 const props = defineProps<{
   cameraId: number
@@ -63,6 +64,7 @@ const {
 	codecUnsupported,
 	renderSuppressed,
 	selectedStream,
+  streamInfo,
 	updateViewport,
   setAudioEnabled,
 } = useMseStream(
@@ -77,6 +79,7 @@ const {
 )
 
 watch(selectedStream, stream => emit('streamChanged', stream), { immediate: true })
+usePlaybackResources(props.cameraId, videoRef, 'mse', () => streamInfo.value)
 
 const { enabled: overlayEnabled, toggle: toggleOverlay } = useDetectionOverlay(
   props.cameraId,
@@ -122,6 +125,7 @@ defineExpose({
 	toggleOverlay,
 	codecUnsupported,
 	selectedStream,
+  streamInfo,
 	toggleAudio,
 	setAudioEnabled,
 })

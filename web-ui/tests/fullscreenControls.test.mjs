@@ -30,10 +30,12 @@ async function component(name) {
 function fixture() {
   const cleanup = [], recording = [], events = []
   const settings = Vue.reactive({ fullscreenMode: true, streamingMode: 'jpeg',
+    getCameraStreamChoice() { return this.cameraStreamChoice ?? 'auto' },
     toggleFullscreen() { this.fullscreenMode = !this.fullscreenMode } })
   const cameras = Vue.reactive([10, 12].map(id => ({ id, name: 'Fixture', status: 'Connected', ptzEnabled: true })))
   globalThis.__fullscreenVue = { ...Vue, onMounted() {}, onUnmounted(fn) { cleanup.push(fn) } }
   globalThis.__fullscreenImports = {
+    cameraStreamInfo: (camera, tier) => ({ tier, codec: camera.codec }),
     ...layoutFunctions,
     useRouter: () => ({ push() {} }), useSettingsStore: () => settings,
     useCameraStore: () => ({ cameras, getCameraById: id => cameras.find(camera => camera.id === id), toggleRecording(id) { recording.push(id) } }),
@@ -52,6 +54,47 @@ function fixture() {
     close() { for (const fn of cleanup) fn(); scope.stop() },
   }
 }
+
+test('pinned stream choices disable adaptation, while snapshots stay snapshots', async () => {
+  const f = fixture()
+  const previousMediaSource = globalThis.MediaSource
+  globalThis.MediaSource = { isTypeSupported: () => true }
+  const camera = Vue.reactive({ id: 12, name: 'Fixture', status: 'Connected', codec: 'hevc', hasSubStream: true, subCodec: 'h264' })
+  try {
+    f.settings.streamingMode = 'mse'
+    const state = f.setup(await component('CameraCard'), { camera })
+    assert.equal(state.adaptiveStreamEligible.value, true)
+    f.settings.cameraStreamChoice = 'main'
+    assert.equal(state.adaptiveStreamEligible.value, false)
+    assert.equal(state.useSubStream.value, false)
+    f.settings.cameraStreamChoice = 'sub'
+    assert.equal(state.adaptiveStreamEligible.value, false)
+    assert.equal(state.useSubStream.value, true)
+    assert.equal(state.mseCodecHint.value, 'avc1.42001e')
+    f.settings.streamingMode = 'jpeg'
+    assert.equal(state.effectiveModeWithFallback.value, 'jpeg')
+  } finally { globalThis.MediaSource = previousMediaSource; f.close() }
+})
+
+test('timeline commits the held slider draft instead of an advancing playback clock', async () => {
+  const f = fixture(), requested = []
+  const position = Vue.reactive({ requestedAt: 100, viewedAt: 100, timelineEnd: null })
+  const playback = { get: () => position, seek: (...args) => requested.push(args),
+    live() {}, hold() {}, touch() {} }
+  globalThis.__fullscreenVue.inject = () => playback
+  globalThis.__fullscreenImports.isSavingAt = () => false
+  const state = f.setup(await component('CameraPlaybackBar'), { cameraId: 12 })
+  try {
+    state.draftTime.value = 75
+    position.viewedAt = 103
+    // Even if the native control reports the old clock, retain the input draft.
+    state.commitSeek({ target: { value: '103' } })
+    assert.deepEqual(requested, [[12, 75, false]])
+    assert.equal(state.draftTime.value, null)
+    state.commitSeek({ target: { value: '80' } })
+    assert.deepEqual(requested[1], [12, 80, false])
+  } finally { f.close() }
+})
 
 test('fullscreen selection is independent of layout focus and Escape deselects before exiting', async () => {
   const f = fixture()

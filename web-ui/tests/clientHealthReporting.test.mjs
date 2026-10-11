@@ -13,6 +13,32 @@ const source = (await readFile('src/composables/useClientHealth.ts', 'utf8'))
 globalThis.localStorage = { getItem: () => 'persistent-browser', setItem: () => assert.fail('replaced browser identity') }
 const health = await import(moduleUrl(source))
 
+test('local exports retain DVR decoder message, requested time and bounded media ranges', () => {
+  globalThis.__BUILD_HASH__ = 'test-build'
+  globalThis.document = { visibilityState: 'visible' }
+  globalThis.location = { pathname: '/' }
+  const event = { t: '2026-10-11T00:00:00Z', type: 'mediaError', code: 4,
+    segmentId: 97804, requestedTimestamp: 1791672160, currentTime: 27, duration: 62,
+    networkState: 3, readyState: 0, paused: true, seeking: false,
+    message: 'Utility MF Media Engine CDM only support for media engine playback',
+    buffered: [[0, 27], ['invalid', 30]], seekable: [[0, 62]] }
+  globalThis.window = { _witnessDiag: { '10_dvr_test': { snapshot: () => ({
+    liveState: { selectedStream: 'dvr' }, currentState: { readyState: 0 }, events: [event], lastError: event,
+  }) } } }
+  window._witnessPlaybackResources = { snapshot: () => ({ streams: [{ cameraId: 10, mode: 'mse', tier: 'main', codec: 'hevc', width: 3840, height: 2160, paused: true }],
+    lastFailure: { t: event.t, cameraId: 10, code: 3, streams: [{ cameraId: 10, mode: 'mse', codec: 'hevc' }, { cameraId: 12, mode: 'dvr' }] } }) }
+  const session = health.collectLocalClientHealth()
+  const result = session.players[0]
+  assert.equal(session.decoderResources.streams[0].codec, 'hevc')
+  assert.equal(session.decoderResources.lastFailure.streams.length, 2)
+  assert.equal(result.selectedStream, 'dvr')
+  assert.equal(result.lastError.message, event.message)
+  assert.equal(result.lastError.segmentId, 97804)
+  assert.equal(result.lastError.requestedTimestamp, event.requestedTimestamp)
+  assert.deepEqual(result.lastError.buffered, [[0, 27]])
+  assert.deepEqual(result.lastError.seekable, [[0, 62]])
+})
+
 test('compact report bounds event/drift history without losing players or core health', () => {
   const t = '2026-10-04T00:00:00Z'
   const original = { sessionId: 'tab', sampledAtUtc: t, buildHash: 'build', userAgent: 'test', path: '/',

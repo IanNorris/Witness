@@ -2,6 +2,7 @@
 import { onMounted, onUnmounted, ref, computed, watch, provide } from 'vue'
 import AppLayout from '../components/layout/AppLayout.vue'
 import CameraGrid from '../components/camera/CameraGrid.vue'
+import CameraStreamChoices from '../components/camera/CameraStreamChoices.vue'
 import ActivityStrip from '../components/clips/ActivityStrip.vue'
 import ClipPlayer from '../components/clips/ClipPlayer.vue'
 import RecentReplayOverlay from '../components/clips/RecentReplayOverlay.vue'
@@ -582,6 +583,7 @@ onMounted(async () => {
             </select>
           </label>
           <label><input v-model="settings.dashboardQuietControls" type="checkbox"> Quiet controls on unselected live cameras</label>
+          <CameraStreamChoices :cameras="cameraStore.cameras" />
         </details>
         <div class="btn-group btn-group-sm" aria-label="Dashboard view">
           <button v-for="mode in (['tiles', 'layout', 'fullscreen'] as DashboardMode[])" :key="mode"

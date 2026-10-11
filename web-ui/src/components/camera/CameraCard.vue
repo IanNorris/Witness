@@ -10,6 +10,8 @@ import { useLiveAudio } from '../../composables/useLiveAudio'
 import CameraPlaybackBar from './CameraPlaybackBar.vue'
 import DashboardReplayPlayer from './DashboardReplayPlayer.vue'
 import { dashboardPlaybackKey } from '../../composables/useDashboardPlayback'
+import StreamIndicator from './StreamIndicator.vue'
+import { cameraStreamInfo } from '../../utils/streamChoice'
 
 const props = defineProps<{
   camera: Camera
@@ -27,6 +29,7 @@ const emit = defineEmits<{
 }>()
 
 const settings = useSettingsStore()
+const streamChoice = computed(() => settings.getCameraStreamChoice(props.camera.id))
 const cameraStore = useCameraStore()
 const playback = inject(dashboardPlaybackKey)
 const position = computed(() => playback?.get(props.camera.id))
@@ -149,7 +152,7 @@ function toggleDetectionOverlay() {
 
 onMounted(() => {
   refreshPreview()
-  if (effectiveMode.value === 'jpeg') {
+  if (effectiveModeWithFallback.value === 'jpeg') {
     startJpegLoop()
   }
   // Default to on; restore per-camera preference from localStorage
@@ -178,7 +181,7 @@ watch(() => (hlsPlayerRef.value as any)?.codecUnsupported, (unsupported: boolean
 
 // Helper to check if a codec name represents HEVC
 function isHevcCodec(codec?: string): boolean {
-  return codec === 'hevc' || codec === 'h265' || codec === 'hev1'
+  return /^(hevc|h265|hev1|hvc1)/.test(codec?.toLowerCase() ?? '')
 }
 
 // Proactive check: if camera reports HEVC and browser doesn't support it, skip HLS entirely
@@ -190,6 +193,8 @@ const proactiveCodecFallback = computed(() => {
 // Determine if we should use the sub-stream (H.264 fallback) instead of JPEG
 // Only use sub-stream if it exists AND its codec is actually supported
 const useSubStream = computed(() => {
+  if (streamChoice.value === 'sub' && props.camera.hasSubStream) return true
+  if (streamChoice.value === 'main') return false
   if (!proactiveCodecFallback.value) return false
   if (!props.camera.hasSubStream) return false
   // Don't use sub-stream if it's also HEVC and browser doesn't support it
@@ -198,8 +203,12 @@ const useSubStream = computed(() => {
 })
 
 const effectiveModeWithFallback = computed(() => {
+  if (effectiveMode.value === 'jpeg') return 'jpeg'
+  if (codecFallback.value) return 'jpeg'
+  if (useSubStream.value && (typeof MediaSource === 'undefined' || !MediaSource.isTypeSupported(`video/mp4; codecs="${isHevcCodec(props.camera.subCodec) ? 'hev1.1.6.L93.B0' : 'avc1.42001e'}"`))) return 'jpeg'
+  if (useSubStream.value && isHevcCodec(props.camera.subCodec) && !hevcSupported) return 'jpeg'
   // If main codec unsupported and no viable sub-stream, fall back to JPEG
-  if ((codecFallback.value || proactiveCodecFallback.value) && !useSubStream.value) return 'jpeg'
+  if (proactiveCodecFallback.value && !useSubStream.value) return 'jpeg'
   // Sub-stream always uses MSE (WebSocket-based) since we have a WS route for it
   if (useSubStream.value) return 'mse'
   return effectiveMode.value
@@ -229,8 +238,19 @@ const mseCodecHint = computed(() => {
 })
 
 const adaptiveStreamEligible = computed(() => {
+	if (streamChoice.value !== 'auto') return false
 	if (!props.camera.hasSubStream || useSubStream.value || !props.camera.subCodec) return false
 	return !isHevcCodec(props.camera.subCodec) || hevcSupported
+})
+watch(() => [streamChoice.value, props.camera.codec, props.camera.subCodec], () => { codecFallback.value = false; selectedMseStream.value = null })
+const selectedStreamInfo = computed(() => reviewing.value ? replayPlayerRef.value?.streamInfo ?? { tier: 'dvr' } :
+  effectiveModeWithFallback.value === 'mse' && hlsPlayerRef.value && 'streamInfo' in hlsPlayerRef.value ? hlsPlayerRef.value.streamInfo :
+  cameraStreamInfo(props.camera, useSubStream.value ? 'sub' : 'main'))
+watch(effectiveModeWithFallback, mode => {
+  jpegRunning = false
+  if (refreshTimer) clearTimeout(refreshTimer)
+  refreshTimer = null
+  if (mode === 'jpeg') startJpegLoop()
 })
 
 onUnmounted(() => {
@@ -318,9 +338,11 @@ onUnmounted(() => {
         <!-- Latency overlay -->
         <button v-if="!playback && canvasMode && controlsSelected" class="fullscreen-replay-toggle"
           @click.stop="emit('replay', camera.id)" title="Review recent DVR footage">↶ Replay</button>
-        <div v-if="!reviewing && latencyLabel && effectiveMode !== 'jpeg'" class="latency-overlay">
-          {{ latencyLabel }}
-        </div>
+        <StreamIndicator :camera-id="camera.id"
+          :label="reviewing ? 'DVR' : effectiveModeWithFallback === 'jpeg' ? 'JPEG' : latencyLabel || 'U'"
+          :jpeg="!reviewing && effectiveModeWithFallback === 'jpeg'"
+          :codec-fallback="!reviewing && effectiveModeWithFallback === 'jpeg' && effectiveMode !== 'jpeg'"
+          :info="selectedStreamInfo" :has-sub="camera.hasSubStream" :replay="reviewing" />
 
         <!-- Live audio toggle -->
         <button

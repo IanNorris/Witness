@@ -227,6 +227,7 @@ export interface MseStreamState {
   codecUnsupported: Ref<boolean>
   renderSuppressed: Ref<boolean>
 	selectedStream: Ref<'main' | 'sub'>
+  streamInfo: Ref<{ tier: string; codec?: string; width?: number; height?: number; fps?: number }>
 	updateViewport: (width: number, height: number) => void
 }
 
@@ -291,6 +292,7 @@ export function useMseStream(
   const codecUnsupported = ref(false)
   const renderSuppressed = ref(false)
 	const selectedStream = ref<'main' | 'sub'>(useSubStream ? 'sub' : 'main')
+  const streamInfo = ref<{ tier: string; codec?: string; width?: number; height?: number; fps?: number }>({ tier: selectedStream.value })
 
   const diagId = String(cameraId) + (suffix ? '_' + suffix : '_mse')
   const diag = new MseDiagnostics(diagId)
@@ -841,6 +843,8 @@ export function useMseStream(
 				})
 			}
 			selectedStream.value = nextStream
+      streamInfo.value = { tier: nextStream, codec: typeof msg.codec === 'string' ? msg.codec : undefined,
+        width: Number(msg.width) || undefined, height: Number(msg.height) || undefined, fps: Number(msg.fps) || undefined }
 			hasReceivedStreamSelection = true
 			break
 		}
@@ -1688,6 +1692,7 @@ export function useMseStream(
       isActive: isActive.value,
       renderSuppressed: renderSuppressed.value,
 		selectedStream: selectedStream.value,
+    ...streamInfo.value,
       releaseRenderOnIndependent,
       renderSuppressionToken,
       latencyMs: latencyMs.value,
@@ -1811,6 +1816,7 @@ export function useMseStream(
 		codecUnsupported,
 		renderSuppressed,
 		selectedStream,
+    streamInfo,
 		updateViewport,
 	}
 }

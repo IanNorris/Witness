@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { useLocalStorage } from '../composables/useLocalStorage'
+import { validStreamChoice, type StreamChoice } from '../utils/streamChoice'
 
 export const useSettingsStore = defineStore('settings', () => {
   const cameraPreviewScale = useLocalStorage('cameraPreviewScale', 25)
@@ -18,6 +19,14 @@ export const useSettingsStore = defineStore('settings', () => {
   const trailColumnWidth = useLocalStorage('trailColumnWidth', 400)
   const dashboardReturnLiveSeconds = useLocalStorage('dashboardReturnLiveSeconds', 180)
   const dashboardQuietControls = useLocalStorage('dashboardQuietControls', true)
+  const cameraStreamChoices = useLocalStorage<Record<string, StreamChoice>>('witness-camera-stream-choices', {})
+  function getCameraStreamChoice(id: number): StreamChoice {
+    const values = cameraStreamChoices.value
+    return validStreamChoice(values && typeof values === 'object' ? values[String(id)] : undefined)
+  }
+  function setCameraStreamChoice(id: number, choice: unknown) {
+    cameraStreamChoices.value = { ...(cameraStreamChoices.value && typeof cameraStreamChoices.value === 'object' ? cameraStreamChoices.value : {}), [String(id)]: validStreamChoice(choice) }
+  }
 
   function increaseScale() {
     cameraPreviewScale.value = Math.min(100, cameraPreviewScale.value + 5)
@@ -54,6 +63,8 @@ export const useSettingsStore = defineStore('settings', () => {
     trailColumnWidth,
     dashboardReturnLiveSeconds,
     dashboardQuietControls,
+    getCameraStreamChoice,
+    setCameraStreamChoice,
     increaseScale,
     decreaseScale,
     toggleFullscreen,

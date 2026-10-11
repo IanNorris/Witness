@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { api } from '../../composables/useApi'
+import CameraStreamChoices from '../camera/CameraStreamChoices.vue'
+import { useCameraStore } from '../../stores/cameras'
+const cameraStore = useCameraStore()
 
 const loading = ref(true)
 
@@ -31,11 +34,12 @@ async function saveSetting(name: string) {
   })
 }
 
-onMounted(fetchSettings)
+onMounted(() => { void fetchSettings(); if (!cameraStore.cameras.length) void cameraStore.fetchCameras() })
 </script>
 
 <template>
   <div>
+    <CameraStreamChoices :cameras="cameraStore.cameras" class="mb-4" />
     <h6 class="mb-3">Streaming Settings</h6>
     <p class="text-muted small">Changes take effect on server restart.</p>
 

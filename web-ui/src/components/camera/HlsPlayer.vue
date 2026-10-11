@@ -2,6 +2,9 @@
 import { ref, watch } from 'vue'
 import { useHls } from '../../composables/useHls'
 import { useDetectionOverlay } from '../../composables/useDetectionOverlay'
+import { usePlaybackResources } from '../../composables/usePlaybackResources'
+import { useCameraStore } from '../../stores/cameras'
+import { cameraStreamInfo } from '../../utils/streamChoice'
 
 const props = defineProps<{
   cameraId: number
@@ -13,6 +16,11 @@ const props = defineProps<{
 
 const videoRef = ref<HTMLVideoElement | null>(null)
 const canvasRef = ref<HTMLCanvasElement | null>(null)
+const cameraStore = useCameraStore()
+usePlaybackResources(props.cameraId, videoRef, 'hls', () => {
+  const camera = cameraStore.getCameraById(props.cameraId)
+  return camera ? cameraStreamInfo(camera, 'main') : { tier: 'main' }
+})
 const { showSpinner, connectionLost, latencyMs, codecUnsupported, setAudioEnabled } = useHls(
   props.cameraId,
   videoRef,

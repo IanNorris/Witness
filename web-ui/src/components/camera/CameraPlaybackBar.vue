@@ -11,11 +11,20 @@ const playback = inject(dashboardPlaybackKey)
 interface Range { from: number; to: number }
 const ranges = ref<Range[]>([]), pending = ref<Range[]>([]), clips = ref<Range[]>([])
 const now = ref(Math.floor(Date.now() / 1000))
-const from = computed(() => Math.min(now.value - 300, (position.value?.requestedAt ?? now.value) - 120))
 const position = computed(() => playback?.get(props.cameraId))
+const end = computed(() => position.value?.timelineEnd ?? now.value)
+const from = computed(() => end.value - 300)
 const menu = ref<'back' | 'forward' | null>(null)
 const error = ref(''), partial = ref(false), busy = ref(false)
 const hoverTime = ref<number | null>(null)
+// Native sliders update on input but commit on change. Media timeupdates must
+// not replace the user's draft between pointer-down and pointer-up.
+const draftTime = ref<number | null>(null)
+function commitSeek(event: Event) {
+  const timestamp = draftTime.value ?? Number((event.target as HTMLInputElement).value)
+  seek(timestamp)
+  draftTime.value = null
+}
 const panel = ref<HTMLElement | null>(null)
 let resizeObserver: ResizeObserver | undefined
 const clock = computed(() => position.value?.viewedAt ?? now.value)
@@ -24,66 +33,74 @@ let timer: ReturnType<typeof setInterval> | undefined
 let startup: ReturnType<typeof setTimeout> | undefined
 let clockTimer: ReturnType<typeof setInterval> | undefined
 const valid = (range: Range) => Number.isFinite(range.from) && Number.isFinite(range.to) && range.to > range.from
+// Pending describes the open file, not playable coverage. Keep its live-side
+// boundary attached to the clock between snapshots; never extend saved media.
+const saving = computed(() => pending.value.map(range => ({ ...range, to: Math.max(range.to, now.value) })))
 const missing = computed(() => {
   if (error.value || !ranges.value.length && busy.value) return []
-  const available = [...ranges.value, ...pending.value].sort((a, b) => a.from - b.from)
+  const available = [...ranges.value, ...saving.value].sort((a, b) => a.from - b.from)
   const gaps: Range[] = []
   let cursor = from.value
   for (const range of available) {
-    if (range.from > cursor) gaps.push({ from: cursor, to: Math.min(now.value, range.from) })
+    if (range.from > cursor) gaps.push({ from: cursor, to: Math.min(end.value, range.from) })
     cursor = Math.max(cursor, range.to)
   }
-  if (cursor < now.value) gaps.push({ from: cursor, to: now.value })
+  if (cursor < end.value) gaps.push({ from: cursor, to: end.value })
   return gaps.filter(range => range.to > range.from)
 })
 function style(range: Range) {
-  const left = Math.max(from.value, range.from), right = Math.min(now.value, range.to)
-  return { left: `${(left - from.value) / (now.value - from.value) * 100}%`, width: `${Math.max(0, right - left) / (now.value - from.value) * 100}%` }
+  const left = Math.min(end.value, Math.max(from.value, range.from)), right = Math.min(end.value, range.to)
+  return { left: `${(left - from.value) / (end.value - from.value) * 100}%`, width: `${Math.max(0, right - left) / (end.value - from.value) * 100}%` }
 }
 async function refresh() {
   if (disposed || props.hidden || document.hidden || busy.value) return
   busy.value = true
-  const start = Math.floor(from.value), end = now.value
+  const start = Math.floor(from.value), queryEnd = Math.floor(end.value)
+  const windowEnd = position.value?.timelineEnd
   controller = new AbortController()
   const abortTimer = setTimeout(() => controller?.abort(), 12_000)
   try {
     // Staggered, sequential requests avoid a burst of twice the camera count.
     const signal = controller.signal
-    const coverage = await withTimelineBudget(() => api<{ ranges: Range[]; pending?: Range[] }>(`/dvr/coverage/${props.cameraId}/${start}/${end}`, { signal, redirectOnFail: false }))
-    const events = await withTimelineBudget(() => api<{ clips: Range[]; clipsTruncated?: boolean }>(`/dvr/events/${props.cameraId}/${start}/${end}`, { signal, redirectOnFail: false }))
-    if (disposed || props.hidden) return
+    const coverage = await withTimelineBudget(() => api<{ ranges: Range[]; pending?: Range[] }>(`/dvr/coverage/${props.cameraId}/${start}/${queryEnd}`, { signal, redirectOnFail: false }))
+    const events = await withTimelineBudget(() => api<{ clips: Range[]; clipsTruncated?: boolean }>(`/dvr/events/${props.cameraId}/${start}/${queryEnd}`, { signal, redirectOnFail: false }))
+    if (disposed || props.hidden || position.value?.timelineEnd !== windowEnd) return
     ranges.value = (coverage.ranges ?? []).filter(valid)
     pending.value = (coverage.pending ?? []).filter(valid)
     clips.value = (events.clips ?? []).filter(valid)
     partial.value = !!events.clipsTruncated
     error.value = ''
   } catch {
-    if (!disposed && !props.hidden) error.value = 'DVR availability unavailable — retrying'
-  } finally { clearTimeout(abortTimer); busy.value = false }
+    if (!disposed && !props.hidden && position.value?.timelineEnd === windowEnd) error.value = 'DVR availability unavailable — retrying'
+  } finally {
+    clearTimeout(abortTimer); busy.value = false
+    if (!disposed && !props.hidden && position.value?.timelineEnd !== windowEnd) void refresh()
+  }
 }
-function seek(timestamp: number) {
+function seek(timestamp: number, navigateWindow = false) {
   menu.value = null
   if (!playback || !Number.isFinite(timestamp)) return
   // An open file is not missing footage: selecting it explicitly means live.
-  if (timestamp >= now.value - 1 || isSavingAt(timestamp, pending.value)) playback.live(props.cameraId)
-  else playback.seek(props.cameraId, timestamp)
+  if (timestamp >= now.value - 1 || isSavingAt(timestamp, saving.value)) playback.live(props.cameraId)
+  else playback.seek(props.cameraId, timestamp, navigateWindow)
 }
-function skip(direction: 'back' | 'forward', amount: number) { seek(clock.value + (direction === 'back' ? -amount : amount)) }
+function skip(direction: 'back' | 'forward', amount: number) { seek(clock.value + (direction === 'back' ? -amount : amount), true) }
 function preview(event: PointerEvent) {
   const bounds = (event.currentTarget as HTMLElement).getBoundingClientRect()
-  hoverTime.value = from.value + Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width)) * (now.value - from.value)
+  hoverTime.value = from.value + Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width)) * (end.value - from.value)
 }
 const previewLabel = computed(() => {
   const time = hoverTime.value
   if (time === null) return ''
   if (error.value) return 'Availability unknown'
-  if (isSavingAt(time, pending.value)) return 'Currently saving · Go live'
+  if (isSavingAt(time, saving.value)) return 'Currently saving · Go live'
   const available = ranges.value.some(range => time >= range.from && time < range.to)
   return `${format(new Date(time * 1000), 'HH:mm:ss')} · ${available ? clips.value.some(range => time >= range.from && time < range.to) ? 'Clip / activity' : 'DVR footage' : 'No DVR data'}`
 })
 watch(menu, value => playback?.hold(props.cameraId, value !== null))
 watch(() => props.hidden, hidden => { if (hidden) controller?.abort(); else refresh() })
 watch(() => position.value?.requestedAt, () => { if (!busy.value) refresh() })
+watch(() => position.value?.timelineEnd, () => { controller?.abort(); if (!busy.value) void refresh() })
 onMounted(() => {
   if (panel.value) {
     resizeObserver = new ResizeObserver(() => {
@@ -105,12 +122,13 @@ onUnmounted(() => { disposed = true; controller?.abort(); resizeObserver?.discon
       <span v-for="(range, i) in ranges" :key="`r${i}`" class="playback-range coverage" :style="style(range)" />
       <span v-for="(clip, i) in clips" :key="`c${i}`" class="playback-range activity" :style="style(clip)" />
       <span v-for="(range, i) in missing" :key="`g${i}`" class="playback-range missing" :style="style(range)" />
-      <span v-for="(range, i) in pending" :key="`p${i}`" class="playback-range saving" :style="style(range)" />
-      <input type="range" :min="Math.floor(from)" :max="now" :value="clock" step="1" :disabled="!!error || busy && !ranges.length"
+      <span v-for="(range, i) in saving" :key="`p${i}`" class="playback-range saving" :style="style(range)" />
+      <input type="range" :min="Math.floor(from)" :max="end" :value="draftTime ?? clock" step="1" :disabled="!!error || busy && !ranges.length"
         :aria-label="`Camera ${cameraId} viewing time`" :aria-valuetext="position.requestedAt === null ? 'Live' : format(new Date(clock * 1000), 'HH:mm:ss')"
-        @change="seek(Number(($event.target as HTMLInputElement).value))" />
+        @input="draftTime = Number(($event.target as HTMLInputElement).value)"
+        @change="commitSeek" @pointercancel="draftTime = null" @blur="draftTime = null" />
     </div>
-    <div class="playback-scale"><span>{{ format(new Date(from * 1000), 'HH:mm') }}</span><span>{{ previewLabel || (position.requestedAt === null ? '' : format(new Date(clock * 1000), 'HH:mm:ss')) }}</span><span>Live</span></div>
+    <div class="playback-scale"><span>{{ format(new Date(from * 1000), 'HH:mm') }}</span><span>{{ previewLabel || (position.requestedAt === null ? '' : format(new Date(clock * 1000), 'HH:mm:ss')) }}</span><span>{{ position.timelineEnd === null ? 'Live' : format(new Date(end * 1000), 'HH:mm') }}</span></div>
     <div class="playback-buttons">
       <div v-for="direction in (['back', 'forward'] as const)" :key="direction" class="seek-split" :class="direction">
         <button :disabled="direction === 'forward' && position.requestedAt === null" :aria-label="`${direction} 30 seconds`" @click="skip(direction, 30)">{{ direction === 'back' ? '↶ 30s' : '30s ↷' }}</button>
@@ -129,12 +147,12 @@ onUnmounted(() => { disposed = true; controller?.abort(); resizeObserver?.discon
 
 <style scoped>
 .camera-playback-bar { position: relative; background: var(--bs-body-bg); color: var(--bs-body-color); padding: 5px 8px; }
-.playback-track { position: relative; height: 22px; background: repeating-linear-gradient(90deg, var(--bs-body-bg) 0 4px, var(--bs-secondary-color) 4px 5px, var(--bs-body-bg) 5px 10px); border-radius: 3px; }
+.playback-track { position: relative; height: 22px; background: var(--bs-body-bg); border-radius: 3px; }
 .playback-track.unknown { background: var(--bs-tertiary-bg); }
 .playback-range { position: absolute; top: 0; height: 100%; pointer-events: none; }
 .coverage { background: #354b64; }
 .activity { background: var(--bs-success); opacity: .85; }
-.missing { background: repeating-linear-gradient(90deg, var(--bs-body-bg) 0 4px, var(--bs-secondary-color) 4px 5px, var(--bs-body-bg) 5px 10px); }
+.missing { background: repeating-linear-gradient(135deg, #994951 0 2px, #29171e 2px 6px); }
 .saving { background: repeating-linear-gradient(135deg, var(--bs-secondary-color) 0 2px, var(--bs-body-bg) 2px 6px); }
 .playback-track input { position: absolute; inset: 0; margin: 0; width: 100%; height: 22px; appearance: none; background: transparent; }
 .playback-track input::-webkit-slider-runnable-track { height: 22px; background: transparent; }

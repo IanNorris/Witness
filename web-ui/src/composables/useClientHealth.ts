@@ -61,9 +61,20 @@ export interface ClientPlayerEvent {
   driftSamples?: DriftSample[]
   wsReadyState?: number
   intentionalClose?: boolean
+  segmentId?: number
+  requestedTimestamp?: number
+  currentTime?: number
+  duration?: number
+  networkState?: number
+  seeking?: boolean
+  paused?: boolean
+  slot?: string
+  buffered?: number[][]
+  seekable?: number[][]
 }
 
 export interface ClientHealthSession {
+  decoderResources?: { streams: DecoderResource[]; lastFailure?: { t: string; cameraId: number; code: number; streams: DecoderResource[] } }
   browserId?: string
   username?: string
   userUid?: number
@@ -128,7 +139,7 @@ function sanitizeEvent(value: unknown): ClientPlayerEvent | null {
     type,
     reason: optionalBoundedText(source.reason, 64),
     code: optionalFinite(source.code),
-    message: optionalBoundedText(source.message, 160),
+    message: optionalBoundedText(source.message, 512),
     name: optionalBoundedText(source.name, 80),
     readyState: optionalFinite(source.readyState),
     mediaSourceState: optionalBoundedText(source.mediaSourceState, 32),
@@ -143,7 +154,42 @@ function sanitizeEvent(value: unknown): ClientPlayerEvent | null {
     driftSamples: sanitizeDriftSamples(source.driftSamples),
     wsReadyState: optionalFinite(source.wsReadyState),
     intentionalClose: typeof source.intentionalClose === 'boolean' ? source.intentionalClose : undefined,
+    segmentId: optionalFinite(source.segmentId),
+    requestedTimestamp: optionalFinite(source.requestedTimestamp),
+    currentTime: optionalFinite(source.currentTime),
+    duration: optionalFinite(source.duration),
+    networkState: optionalFinite(source.networkState),
+    seeking: typeof source.seeking === 'boolean' ? source.seeking : undefined,
+    paused: typeof source.paused === 'boolean' ? source.paused : undefined,
+    slot: optionalBoundedText(source.slot, 8),
+    buffered: sanitizeRanges(source.buffered),
+    seekable: sanitizeRanges(source.seekable),
   }
+}
+
+interface DecoderResource { cameraId: number; mode: string; tier?: string; codec?: string; width?: number; height?: number; fps?: number; readyState?: number; paused?: boolean }
+function sanitizeDecoderResources(value: unknown): ClientHealthSession['decoderResources'] {
+  if (!value || typeof value !== 'object') return undefined
+  const data = value as Record<string, unknown>
+  const streams = (values: unknown): DecoderResource[] => Array.isArray(values) ? values.slice(0, 64).flatMap(candidate => {
+    if (!candidate || typeof candidate !== 'object') return []
+    const stream = candidate as Record<string, unknown>
+    const cameraId = optionalFinite(stream.cameraId)
+    if (cameraId === undefined) return []
+    return [{ cameraId, mode: boundedText(stream.mode, 16), tier: optionalBoundedText(stream.tier, 16),
+      codec: optionalBoundedText(stream.codec, 80), width: optionalFinite(stream.width), height: optionalFinite(stream.height),
+      fps: optionalFinite(stream.fps), readyState: optionalFinite(stream.readyState), paused: typeof stream.paused === 'boolean' ? stream.paused : undefined }]
+  }) : []
+  const failure = data.lastFailure as Record<string, unknown> | undefined
+  return { streams: streams(data.streams), lastFailure: failure && Number.isFinite(Date.parse(boundedText(failure.t, 40))) &&
+    optionalFinite(failure.cameraId) !== undefined && optionalFinite(failure.code) !== undefined ? {
+      t: boundedText(failure.t, 40), cameraId: failure.cameraId as number, code: failure.code as number, streams: streams(failure.streams),
+    } : undefined }
+}
+
+function sanitizeRanges(value: unknown): number[][] | undefined {
+  if (!Array.isArray(value)) return undefined
+  return value.slice(0, 4).filter((range): range is number[] => Array.isArray(range) && range.length === 2 && range.every(v => typeof v === 'number' && Number.isFinite(v)))
 }
 
 function sanitizeEvents(value: unknown): ClientPlayerEvent[] | undefined {
@@ -218,6 +264,7 @@ function validateSession(value: unknown): ClientHealthSession | null {
   if (!Number.isFinite(Date.parse(sampledAtUtc))) return null
   return {
     browserId: boundedText(source.browserId, 80) || undefined,
+    decoderResources: sanitizeDecoderResources(source.decoderResources),
     sessionId: id,
     sampledAtUtc,
     buildHash: boundedText(source.buildHash, 80),
@@ -308,6 +355,7 @@ export function collectLocalClientHealth(): ClientHealthSession {
   players.sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }))
   return {
     browserId: BROWSER_ID,
+    decoderResources: sanitizeDecoderResources((root._witnessPlaybackResources as { snapshot?: () => unknown } | undefined)?.snapshot?.()),
     sessionId: TAB_ID,
     sampledAtUtc: new Date().toISOString(),
     buildHash: boundedText(__BUILD_HASH__, 80),
@@ -381,6 +429,7 @@ export function compactHealthReport(session: ClientHealthSession): ClientHealthS
     lastError: compactError(player.lastError),
   })) }
   if (overBudget()) {
+    report.decoderResources = undefined
     for (const player of report.players) {
       player.recentEvents = player.recentEvents?.slice(-2)
       player.driftSamples = player.driftSamples?.slice(-1).map(sample => compactDrift(sample)!)

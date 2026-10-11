@@ -5,6 +5,11 @@ import { useDetectionPlayback, CLASS_COLORS } from '../../composables/useDetecti
 import { useSettingsStore } from '../../stores/settings'
 import { format } from 'date-fns'
 import { createPlaybackGuard } from '../../composables/playbackGuard'
+import { waitForDvrSeek } from '../../utils/dvrSeek'
+import { usePlaybackResources } from '../../composables/usePlaybackResources'
+import { readDvrStreamMetadata } from '../../utils/dvrStreamMetadata'
+import type { StreamInfo } from '../../utils/streamChoice'
+import { recordingPlaybackError } from '../../utils/streamChoice'
 
 interface DvrSegment {
   id: number
@@ -34,11 +39,14 @@ const emit = defineEmits<{
   close: []
   time: [timestamp: number]
   gap: [timestamp: number]
+  live: []
 }>()
 
 const videoA = ref<HTMLVideoElement | null>(null)
 const videoB = ref<HTMLVideoElement | null>(null)
 const canvasRef = ref<HTMLCanvasElement | null>(null)
+const frozenFrameRef = ref<HTMLCanvasElement | null>(null)
+const hasFrozenFrame = ref(false)
 const activeSlot = ref<'a' | 'b'>('a')
 const segments = ref<DvrSegment[]>([])
 const currentSegIdx = ref(0)
@@ -47,17 +55,64 @@ const playing = ref(false)
 const wantsPlayback = ref(!props.initialPaused)
 const playbackRate = ref(1)
 const error = ref<string | null>(null)
+const mediaErrorCode = ref<number | null>(null)
+watch(error, value => { if (value === null) mediaErrorCode.value = null }, { flush: 'sync' })
+const displayedError = computed(() => mediaErrorCode.value === null ? error.value :
+  recordingPlaybackError(mediaErrorCode.value, replayStreamInfo.value.codec))
 const loading = ref(true)
+const seeking = ref(false)
+const busy = computed(() => loading.value || seeking.value)
+let cancelSeek: (() => void) | undefined
+let requestedTimestamp = props.startAt ?? props.from
+let targetSegmentId: number | undefined
+const diagnosticId = `${props.cameraId}_dvr_${crypto.randomUUID()}`
+const diagnosticEvents: Record<string, unknown>[] = []
+let lastDiagnosticError: Record<string, unknown> | undefined
+let diagnosticErrors = 0
+let diagnosticStalls = 0
+function mediaState(video = getActive()) {
+  const ranges = (value?: TimeRanges) => Array.from({ length: Math.min(value?.length ?? 0, 4) }, (_, i) => [value!.start(i), value!.end(i)])
+  return { readyState: video?.readyState, networkState: video?.networkState,
+    currentTime: video?.currentTime, duration: video?.duration, seeking: video?.seeking,
+    paused: video?.paused, buffered: ranges(video?.buffered), seekable: ranges(video?.seekable),
+    code: video?.error?.code, message: video?.error?.message?.slice(0, 512) }
+}
+function recordDvr(type: string, video = getActive(), extra: Record<string, unknown> = {}) {
+  const event = { t: new Date().toISOString(), type, generation: loadGeneration,
+    segmentId: targetSegmentId, requestedTimestamp, ...mediaState(video), ...extra }
+  diagnosticEvents.push(event)
+  if (diagnosticEvents.length > 100) diagnosticEvents.shift()
+  if (['mediaError', 'seekTimeout', 'seekFailed', 'playRejected', 'mutedPlayRejected', 'segmentListError'].includes(type)) {
+    lastDiagnosticError = event; diagnosticErrors++
+    console.warn(`[DVR] Camera ${props.cameraId}: ${type}`, event)
+  }
+  if (type === 'waiting' || type === 'stalled') diagnosticStalls++
+}
+const diagnosticRoot = window as unknown as Record<string, unknown>
+const diagnosticRegistry = (diagnosticRoot._witnessDiag ??= {}) as Record<string, unknown>
+diagnosticRegistry[diagnosticId] = { snapshot: () => ({
+  liveState: { selectedStream: 'dvr', ...replayStreamInfo.value },
+  currentState: { ...mediaState(), playbackQuality: getActive()?.getVideoPlaybackQuality?.() },
+  stats: { errorCount: diagnosticErrors, stallCount: diagnosticStalls },
+  events: diagnosticEvents, lastError: lastDiagnosticError,
+}) }
 let swapPending = false
 // Every asynchronous media load captures this value. A newer seek invalidates
 // older canplay/timeout callbacks so they cannot swap a stale segment onscreen.
 let loadGeneration = 0
 let fetchGeneration = 0
+let fetchController: AbortController | undefined
+let metadataController: AbortController | undefined
+let metadataSegmentId: number | undefined
 
 const rates = [1, 2, 4, 8]
 
 // Detection overlay — use a computed ref that follows the active video
 const activeVideoRef = computed(() => activeSlot.value === 'a' ? videoA.value : videoB.value)
+const replayStreamInfo = ref<StreamInfo>({ tier: 'dvr' })
+usePlaybackResources(props.cameraId, videoA, 'dvr', () => replayStreamInfo.value, (type, data) => recordDvr(type, videoA.value, data))
+// Standalone DVR prefetch also consumes a decoder; dashboard replay has no B slot.
+usePlaybackResources(props.cameraId, videoB, 'dvr-prefetch', () => ({ tier: 'dvr' }))
 const detectionVideoRef = ref<HTMLVideoElement | null>(null)
 
 // Keep detectionVideoRef in sync with active slot
@@ -243,19 +298,44 @@ function unpinScrub() {
 }
 
 function getActive(): HTMLVideoElement | null {
+  if (props.embedded) return videoA.value
   return activeSlot.value === 'a' ? videoA.value : videoB.value
 }
 function getBack(): HTMLVideoElement | null {
+  if (props.embedded) return null
   return activeSlot.value === 'a' ? videoB.value : videoA.value
 }
 
 const currentSeg = computed(() => segments.value[currentSegIdx.value] ?? null)
 const embeddedPlaybackGuard = createPlaybackGuard(props.cameraId, getActive, (type, data) => {
-  if (type === 'playRejected' || type === 'mutedPlayRejected') console.warn('DVR playback', props.cameraId, type, data)
+  recordDvr(type, getActive(), data)
+  if (data.name === 'NotSupportedError') { mediaErrorCode.value = 4; error.value = 'Recording playback unsupported' }
 })
 function playActive() {
   if (props.embedded) void embeddedPlaybackGuard.play('dashboardReplay')
-  else getActive()?.play().catch(() => {})
+  else getActive()?.play().catch((e: Error) => recordDvr('playRejected', getActive(), { name: e.name, message: e.message }))
+}
+
+function freezePreviousFrame() {
+  // Keep the original still across repeated seeks; never capture an unfinished
+  // replacement. A small canvas needs no decoder and avoids retaining a 4K bitmap.
+  if (!props.embedded || busy.value) return
+  const video = getActive(), canvas = frozenFrameRef.value
+  if (!video || !canvas || video.readyState < 2 || !video.videoWidth) return
+  const scale = Math.min(1, 960 / video.videoWidth)
+  canvas.width = Math.max(1, Math.round(video.videoWidth * scale))
+  canvas.height = Math.max(1, Math.round(video.videoHeight * scale))
+  try {
+    const context = canvas.getContext('2d')
+    if (!context) return
+    context.drawImage(video, 0, 0, canvas.width, canvas.height)
+    hasFrozenFrame.value = true
+  } catch { hasFrozenFrame.value = false }
+}
+
+function clearFrozenFrame() {
+  hasFrozenFrame.value = false
+  if (frozenFrameRef.value) frozenFrameRef.value.width = frozenFrameRef.value.height = 0
 }
 const totalDuration = computed(() => segments.value.reduce((sum, s) => sum + s.duration, 0))
 
@@ -293,7 +373,9 @@ function formatSec(s: number): string {
 
 // Event handlers — only respond if the firing element is the active one
 function handleTimeUpdate(source: HTMLVideoElement) {
-  if (source !== getActive()) return
+  // The old active video can continue firing while the requested segment loads
+  // in the back slot. It must not overwrite the newly selected timeline time.
+  if (source !== getActive() || busy.value || swapPending || source.seeking || error.value) return
   currentTime.value = source.currentTime
   playing.value = !source.paused
   emit('time', currentTimestamp.value)
@@ -341,57 +423,18 @@ function preloadNext(idx: number) {
 }
 
 function swapToNext() {
-  if (swapPending) return
-  swapPending = true
-  const generation = ++loadGeneration
-  const nextIdx = currentSegIdx.value + 1
-  if (nextIdx >= segments.value.length) {
-    playing.value = false
-    swapPending = false
-    return
-  }
-  const back = getBack()
-  if (!back) { swapPending = false; return }
-
-  const expectedSrc = `/dvr/segment/${segments.value[nextIdx]!.id}`
-
-  const doSwap = () => {
-    if (generation !== loadGeneration) return
-    currentSegIdx.value = nextIdx
-    back.playbackRate = playbackRate.value
-    activeSlot.value = activeSlot.value === 'a' ? 'b' : 'a'
-    // Pause old video (now the back)
-    const oldActive = getBack()
-    if (oldActive) oldActive.pause()
-    if (wantsPlayback.value) playActive()
-    swapPending = false
-    preloadNext(nextIdx)
-  }
-
-  // If back doesn't have the right segment loaded, load it now
-  if (!back.src.endsWith(expectedSrc)) {
-    back.src = expectedSrc
-    back.load()
-  }
-
-  if (back.readyState >= 3) {
-    doSwap()
-  } else {
-    const handler = () => {
-      back.removeEventListener('canplay', handler)
-      doSwap()
-    }
-    back.addEventListener('canplay', handler)
-    // Safety: force swap after 2s if canplay never fires
-    setTimeout(() => {
-      back.removeEventListener('canplay', handler)
-      if (swapPending && generation === loadGeneration) doSwap()
-    }, 2000)
-  }
+  if (!swapPending) loadSegment(currentSegIdx.value + 1)
 }
 
-async function fetchSegments() {
+async function fetchSegments(startAt = props.startAt) {
+  freezePreviousFrame()
   const generation = ++fetchGeneration
+  fetchController?.abort()
+  const controller = new AbortController()
+  fetchController = controller
+  const fetchTimeout = setTimeout(() => controller.abort(), 10000)
+  cancelSeek?.()
+  seeking.value = false
   ++loadGeneration
   swapPending = false
   getActive()?.pause()
@@ -400,7 +443,7 @@ async function fetchSegments() {
   error.value = null
   try {
     const data = await api<{ segments: DvrSegment[] }>(
-      `/dvr/segments/${props.cameraId}/${props.from}/${props.to}`
+      `/dvr/segments/${props.cameraId}/${props.from}/${props.to}`, { signal: controller.signal, redirectOnFail: false }
     )
     if (generation !== fetchGeneration) return
     segments.value = data.segments ?? []
@@ -411,13 +454,13 @@ async function fetchSegments() {
 
     let startIdx = 0
     let seekOffset = 0
-    if (props.startAt !== undefined) {
+    if (startAt !== undefined) {
       let found = false
       for (let i = 0; i < segments.value.length; i++) {
         const seg = segments.value[i]!
-        if (props.startAt >= seg.from && props.startAt < seg.to) {
+        if (startAt >= seg.from && startAt < seg.to) {
           startIdx = i
-          seekOffset = props.startAt - seg.from
+          seekOffset = startAt - seg.from
           found = true
           break
         }
@@ -426,130 +469,93 @@ async function fetchSegments() {
     }
 
     loadSegment(startIdx, seekOffset)
-  } catch {
-    if (generation === fetchGeneration) error.value = 'Failed to load DVR segments'
+  } catch (e) {
+    if (generation === fetchGeneration) {
+      recordDvr('segmentListError', getActive(), { message: e instanceof Error ? e.message : 'Segment list request failed' })
+      error.value = 'Failed to load DVR segments'
+    }
   } finally {
+    clearTimeout(fetchTimeout)
+    if (fetchController === controller) fetchController = undefined
     if (generation === fetchGeneration) loading.value = false
   }
 }
 
-function loadSegment(idx: number, seekTo = 0) {
-  if (idx < 0 || idx >= segments.value.length) return
-  const seg = segments.value[idx]!
+function prepareSeek(video: HTMLVideoElement, idx: number, offset: number, swap: boolean) {
+  freezePreviousFrame()
+  cancelSeek?.()
   const generation = ++loadGeneration
+  const seg = segments.value[idx]!
+  targetSegmentId = seg.id
+  requestedTimestamp = seg.from + offset
+  seeking.value = true
   error.value = null
-
-  const active = getActive()
-  const isInitialLoad = !active || !active.src || active.readyState === 0
-
-  if (isInitialLoad) {
-    swapPending = false
-    if (!active) return
+  swapPending = swap
+  getActive()?.pause()
+  video.pause()
+  recordDvr('seekRequested', video)
+  cancelSeek = waitForDvrSeek(video, offset, () => {
+    if (generation !== loadGeneration) return
     currentSegIdx.value = idx
-    active.src = `/dvr/segment/${seg.id}`
-    active.playbackRate = playbackRate.value
-    if (seekTo > 0) {
-      const onLoaded = () => {
-        active.removeEventListener('loadeddata', onLoaded)
-        if (generation !== loadGeneration) return
-        active.currentTime = seekTo
-      }
-      active.addEventListener('loadeddata', onLoaded)
-    }
-    active.load()
+    currentTime.value = video.currentTime
+    if (swap) activeSlot.value = activeSlot.value === 'a' ? 'b' : 'a'
+    swapPending = false
+    seeking.value = false
+    clearFrozenFrame()
+    recordDvr('seekReady', video)
+    emit('time', currentTimestamp.value)
     if (wantsPlayback.value) playActive()
     preloadNext(idx)
-  } else {
-    // Load into back video, swap when ready to avoid flash
-    const back = getBack()
-    if (!back) return
-    swapPending = true
-    back.pause()
-    back.src = `/dvr/segment/${seg.id}`
-    back.playbackRate = playbackRate.value
-    let completed = false
-    let seekFallback: ReturnType<typeof setTimeout> | null = null
-    let loadTimeout: ReturnType<typeof setTimeout> | null = null
+  }, reason => {
+    if (generation !== loadGeneration) return
+    seeking.value = false
+    swapPending = false
+    recordDvr(reason, video)
+    mediaErrorCode.value = reason === 'mediaError' ? video.error?.code ?? 0 : null
+    error.value = reason === 'seekTimeout' ? 'Recording took too long to load' : 'Could not load or seek this recording'
+  })
+}
 
-    const cleanup = () => {
-      back.removeEventListener('canplay', onReady)
-      back.removeEventListener('error', onError)
-      back.removeEventListener('seeked', doSwap)
-      if (seekFallback) clearTimeout(seekFallback)
-      if (loadTimeout) clearTimeout(loadTimeout)
-    }
-
-    const doSwap = () => {
-      if (completed) return
-      if (generation !== loadGeneration) {
-        completed = true
-        cleanup()
-        return
-      }
-      completed = true
-      cleanup()
-      currentSegIdx.value = idx
-      activeSlot.value = activeSlot.value === 'a' ? 'b' : 'a'
-      // Pause old active (now back), then use that free slot for prefetch.
-      const oldActive = getBack()
-      if (oldActive) oldActive.pause()
-      if (wantsPlayback.value) playActive()
-      swapPending = false
-      preloadNext(idx)
-    }
-
-    const onReady = () => {
-      back.removeEventListener('canplay', onReady)
-      if (generation !== loadGeneration) {
-        cleanup()
-        return
-      }
-      if (seekTo > 0) {
-        back.addEventListener('seeked', doSwap, { once: true })
-        back.currentTime = seekTo
-        // Some browsers omit seeked on short or keyframe-aligned seeks.
-        seekFallback = setTimeout(doSwap, 2000)
-      } else {
-        doSwap()
-      }
-    }
-
-    const onError = () => {
-      if (generation !== loadGeneration) {
-        cleanup()
-        return
-      }
-      completed = true
-      cleanup()
-      swapPending = false
-      error.value = 'Failed to load DVR segment'
-    }
-
-    back.addEventListener('canplay', onReady)
-    back.addEventListener('error', onError)
-    loadTimeout = setTimeout(() => {
-      if (generation !== loadGeneration || completed) {
-        cleanup()
-        return
-      }
-      completed = true
-      cleanup()
-      swapPending = false
-      error.value = 'DVR segment load timed out'
-      back.removeAttribute('src')
-      back.load()
-    }, 10000)
-    back.load()
+function loadSegment(idx: number, seekTo = 0) {
+  if (idx < 0 || idx >= segments.value.length) return
+  const active = getActive()
+  const swap = !props.embedded && !!active?.src && active.readyState > 0
+  const video = swap ? getBack() : active
+  if (!video) return
+  prepareSeek(video, idx, seekTo, swap)
+  const segmentId = segments.value[idx]!.id
+  metadataController?.abort()
+  const controller = new AbortController()
+  metadataController = controller
+  metadataSegmentId = segmentId
+  replayStreamInfo.value = { tier: 'dvr' }
+  const metadataTimeout = setTimeout(() => controller.abort(), 5000)
+  void readDvrStreamMetadata(segmentId, controller.signal).then(info => {
+    if (metadataController === controller && !controller.signal.aborted && info) replayStreamInfo.value = info
+  }).catch(() => { /* Missing metadata must never block playback or guess a codec. */ })
+    .finally(() => clearTimeout(metadataTimeout))
+  if (props.embedded) {
+    // Release the old resource rather than keeping a paused HEVC decoder alive
+    // while another video element opens the replacement segment.
+    video.removeAttribute('src')
+    video.load()
   }
+  video.src = `/dvr/segment/${segments.value[idx]!.id}`
+  video.playbackRate = playbackRate.value
+  video.load()
 }
 
 function seekActive(offset: number) {
-  ++loadGeneration
-  swapPending = false
   const active = getActive()
   if (!active) return
-  active.currentTime = offset
-  preloadNext(currentSegIdx.value)
+  // A failed initial resource needs reloading, not another currentTime assignment.
+  if (active.error || active.readyState === 0) loadSegment(currentSegIdx.value, offset)
+  else prepareSeek(active, currentSegIdx.value, offset, false)
+}
+
+function retrySeek() {
+  recordDvr('retry')
+  void fetchSegments(requestedTimestamp)
 }
 
 function togglePlay() {
@@ -562,7 +568,7 @@ function setPlaying(value: boolean) {
   wantsPlayback.value = value
   const vid = getActive()
   if (!vid) return
-  if (value) playActive()
+  if (value && !busy.value && !error.value) playActive()
   else vid.pause()
 }
 
@@ -575,12 +581,16 @@ function setRate(rate: number) {
 }
 
 function seekToTimestamp(ts: number) {
+  requestedTimestamp = ts
   for (let i = 0; i < segments.value.length; i++) {
     const seg = segments.value[i]!
     if (ts >= seg.from && ts < seg.to) {
       error.value = null
       const offset = Math.max(0, Math.min(ts - seg.from, seg.duration - 0.1))
-      if (i !== currentSegIdx.value) {
+      // In single-video mode src changes before the new frame is ready, while
+      // currentSegIdx still describes the last presented frame. A rapid seek
+      // back must reload that resource, not seek within the pending replacement.
+      if (i !== currentSegIdx.value || !getActive()?.src.endsWith(`/dvr/segment/${seg.id}`)) {
         loadSegment(i, offset)
       } else {
         seekActive(offset)
@@ -589,6 +599,9 @@ function seekToTimestamp(ts: number) {
     }
   }
   ++loadGeneration
+  cancelSeek?.()
+  seeking.value = false
+  swapPending = false
   getActive()?.pause()
   error.value = 'No recording at the selected time'
 }
@@ -618,6 +631,16 @@ function seek(event: MouseEvent) {
 }
 
 function attachHandlers(el: HTMLVideoElement) {
+  for (const type of ['loadedmetadata', 'loadeddata', 'canplay', 'seeking', 'seeked', 'waiting', 'stalled', 'error']) {
+    el.addEventListener(type, () => {
+      if (type === 'loadedmetadata' && metadataSegmentId === targetSegmentId) replayStreamInfo.value = { ...replayStreamInfo.value, tier: 'dvr', width: el.videoWidth || undefined, height: el.videoHeight || undefined }
+      recordDvr(type === 'error' ? 'mediaError' : type, el, { slot: el === videoA.value ? 'a' : 'b' })
+      if (type === 'error' && el === getActive() && !busy.value) {
+        mediaErrorCode.value = el.error?.code ?? 0
+        error.value = 'Recording playback failed'
+      }
+    })
+  }
   el.addEventListener('timeupdate', () => handleTimeUpdate(el))
   el.addEventListener('ended', () => handleEnded(el))
   el.addEventListener('play', () => handlePlay(el))
@@ -764,6 +787,20 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  cancelSeek?.()
+  clearFrozenFrame()
+  fetchController?.abort()
+  metadataController?.abort()
+  recordDvr('replayClosed')
+  // Preserve the last causal snapshot when navigating to Health, without
+  // retaining video elements, decoders or this component's reactive state.
+  const finalSnapshot = (diagnosticRegistry[diagnosticId] as { snapshot: () => Record<string, unknown> }).snapshot()
+  finalSnapshot.liveState = { selectedStream: 'dvr-ended' }
+  const retired = { retiredDvr: true, snapshot: () => finalSnapshot }
+  diagnosticRegistry[diagnosticId] = retired
+  const retiredIds = Object.keys(diagnosticRegistry).filter(id => (diagnosticRegistry[id] as { retiredDvr?: boolean })?.retiredDvr)
+  retiredIds.slice(0, Math.max(0, retiredIds.length - 8)).forEach(id => delete diagnosticRegistry[id])
+  setTimeout(() => { if (diagnosticRegistry[diagnosticId] === retired) delete diagnosticRegistry[diagnosticId] }, 10 * 60 * 1000)
   ++fetchGeneration
   ++loadGeneration
   swapPending = false
@@ -777,7 +814,8 @@ onUnmounted(() => {
 })
 
 defineExpose({
-  loading,
+  loading: busy,
+  streamInfo: replayStreamInfo,
   isSwapping: () => swapPending,
   refreshSegments: fetchSegments,
   currentTimestamp,
@@ -802,12 +840,16 @@ defineExpose({
       <button class="dvr-close" @click="emit('close')" title="Close">✕</button>
     </div>
     <div class="dvr-video-wrap">
-      <video ref="videoA" class="dvr-video" :class="{ active: activeSlot === 'a' }" :muted="muted" playsinline />
-      <video ref="videoB" class="dvr-video" :class="{ active: activeSlot === 'b' }" :muted="muted" playsinline />
-      <canvas ref="canvasRef" class="detection-overlay" v-show="overlayEnabled" />
+      <video ref="videoA" class="dvr-video" :class="{ active: activeSlot === 'a', 'seeking-hidden': embedded && busy }" :muted="muted" playsinline />
+      <video v-if="!embedded" ref="videoB" class="dvr-video" :class="{ active: activeSlot === 'b' }" :muted="muted" playsinline />
+      <canvas v-if="embedded" ref="frozenFrameRef" class="dvr-frozen-frame" v-show="busy && hasFrozenFrame" aria-hidden="true" />
+      <canvas ref="canvasRef" class="detection-overlay" v-show="overlayEnabled && !busy" />
       <span v-if="compact && !embedded" class="dvr-cam-label">{{ cameraName }}</span>
-      <div v-if="loading" class="dvr-error"><div class="spinner-border spinner-border-sm" /></div>
-      <div v-else-if="error" class="dvr-error dvr-error-compact">{{ pendingSave ? 'Currently saving — try again when the file finishes.' : error }}</div>
+      <div v-if="busy" class="dvr-seeking" role="status" aria-live="polite"><div class="spinner-border spinner-border-sm" /><span>Seeking recording…</span></div>
+      <div v-else-if="error" class="dvr-error dvr-error-compact" role="alert">
+        <span>{{ pendingSave ? 'Currently saving — try again when the file finishes.' : displayedError }}</span>
+        <div class="dvr-error-actions"><button type="button" class="btn btn-sm btn-outline-light" @click="retrySeek">Retry</button><button v-if="embedded" type="button" class="btn btn-sm btn-outline-light" @click="emit('live')">Go Live</button></div>
+      </div>
     </div>
     <div v-if="!compact" class="dvr-controls">
       <button class="dvr-btn" @click="togglePlay" :title="playing ? 'Pause' : 'Play'">
@@ -951,6 +993,8 @@ defineExpose({
 }
 
 .dvr-error {
+  flex-direction: column;
+  gap: 0.6rem;
   position: absolute;
   inset: 0;
   display: flex;
@@ -960,6 +1004,10 @@ defineExpose({
   font-size: 0.9rem;
   background: rgba(0,0,0,0.7);
 }
+.dvr-video.active.seeking-hidden { opacity: 0; }
+.dvr-frozen-frame { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; filter: blur(8px); opacity: 0.65; pointer-events: none; z-index: 2; }
+.dvr-seeking { position: absolute; inset: 0; z-index: 3; display: flex; align-items: center; justify-content: center; gap: 0.6rem; background: rgba(0,0,0,0.5); color: #e2e8f0; font-size: 0.8rem; }
+.dvr-error-actions { display: flex; gap: 0.5rem; }
 
 .dvr-controls {
   display: flex;
