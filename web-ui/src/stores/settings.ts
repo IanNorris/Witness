@@ -4,7 +4,9 @@ import { validStreamChoice, type StreamChoice } from '../utils/streamChoice'
 
 export const useSettingsStore = defineStore('settings', () => {
   const cameraPreviewScale = useLocalStorage('cameraPreviewScale', 25)
-  const streamingMode = useLocalStorage<'hls' | 'jpeg' | 'mse'>('streamingMode', 'mse')
+  const streamingMode = useLocalStorage<'mse'>('streamingMode', 'mse')
+  streamingMode.value = 'mse' // Migrate old HLS/JPEG preferences.
+  const dashboardClock = useLocalStorage('dashboardClock', false)
   const fullscreenMode = useLocalStorage('fullscreenMode', false)
   const darkMode = useLocalStorage('darkMode', false)
   const clipsPerPage = useLocalStorage('clipsPerPage', 24)
@@ -40,15 +42,11 @@ export const useSettingsStore = defineStore('settings', () => {
     fullscreenMode.value = !fullscreenMode.value
   }
 
-  function toggleStreamingMode() {
-    const modes: ('hls' | 'jpeg' | 'mse')[] = ['hls', 'mse', 'jpeg']
-    const idx = modes.indexOf(streamingMode.value)
-    streamingMode.value = modes[(idx + 1) % modes.length]!
-  }
 
   return {
     cameraPreviewScale,
     streamingMode,
+    dashboardClock,
     fullscreenMode,
     darkMode,
     clipsPerPage,
@@ -68,6 +66,5 @@ export const useSettingsStore = defineStore('settings', () => {
     increaseScale,
     decreaseScale,
     toggleFullscreen,
-    toggleStreamingMode,
   }
 })

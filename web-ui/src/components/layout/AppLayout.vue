@@ -223,6 +223,12 @@ onBeforeUnmount(() => {
             </RouterLink>
           </div>
 
+          <div class="nav-item">
+            <RouterLink to="/dvr" class="nav-link" @click="mobileMenuOpen = false">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+              DVR
+            </RouterLink>
+          </div>
           <div class="sidebar-section">Clips</div>
           <!-- Groups mode: show groups that have cameras -->
           <template v-if="groupStore.activeGroups.length > 0">

@@ -3,6 +3,7 @@
 #include "GlobalContext.h"
 #include "AuthHelpers.h"
 #include "sodium.h"
+#include <ctime>
 
 // ===== Auth Handlers =====
 
@@ -230,6 +231,20 @@ void CrowListener::HandleAuthGetProfile( const crow::request& req, crow::respons
 		ResponseBody["userUid"] = UserUID;
 		ResponseBody["admin"] = Admin;
 		ResponseBody["displayName"] = DisplayName;
+
+		// Supply server-local clock information without assuming the viewer's timezone.
+		const auto now = std::chrono::system_clock::now();
+		const std::time_t seconds = std::chrono::system_clock::to_time_t( now );
+		std::tm local{};
+#ifdef _WIN32
+		localtime_s( &local, &seconds );
+		const auto localAsUtc = _mkgmtime( &local );
+#else
+		localtime_r( &seconds, &local );
+		const auto localAsUtc = timegm( &local );
+#endif
+		ResponseBody["serverTimeUnixMs"] = static_cast<int64_t>( std::chrono::duration_cast<std::chrono::milliseconds>( now.time_since_epoch() ).count() );
+		ResponseBody["serverUtcOffsetMinutes"] = static_cast<int>( std::difftime( localAsUtc, seconds ) / 60 );
 
 		res.set_header( "Content-Type", "application/json" );
 		res.body = ResponseBody.dump();

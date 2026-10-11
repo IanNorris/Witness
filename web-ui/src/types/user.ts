@@ -13,6 +13,8 @@ export interface Group {
 }
 
 export interface AuthProfile {
+  serverTimeUnixMs?: number
+  serverUtcOffsetMinutes?: number
   csrf: string
   username: string
   admin: boolean

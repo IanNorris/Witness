@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import type { StreamInfo } from '../../utils/streamChoice'
 import { streamSummary } from '../../utils/streamChoice'
 import { useSettingsStore } from '../../stores/settings'
-defineProps<{ cameraId: number; label: string; info: StreamInfo; hasSub?: boolean; replay?: boolean; jpeg?: boolean; codecFallback?: boolean }>()
+defineProps<{ cameraId: number; label: string; info: StreamInfo; hasSub?: boolean; replay?: boolean; codecFallback?: boolean }>()
 const settings = useSettingsStore()
 const dialog = ref<HTMLDialogElement | null>(null)
 const dialogOpen = ref(false)
@@ -11,15 +11,14 @@ function openDetails() { if (dialog.value && !dialog.value.open) { dialog.value.
 function closeDetails() { dialog.value?.close(); dialogOpen.value = false }
 </script>
 <template>
-  <button type="button" class="latency-overlay stream-indicator" :title="jpeg ? `JPEG preview · Camera stream: ${streamSummary(info)}` : streamSummary(info)"
+  <button type="button" class="latency-overlay stream-indicator" :title="streamSummary(info)"
     :aria-label="`Stream details: ${streamSummary(info)}`" aria-haspopup="dialog" :aria-expanded="dialogOpen"
     @click.stop="openDetails" @dblclick.stop @pointerdown.stop>{{ label || 'Stream' }}</button>
   <Teleport to="body">
     <dialog ref="dialog" class="stream-dialog" aria-label="Playback stream details" @click.self="closeDetails" @close="dialogOpen = false">
       <section class="stream-information">
         <header><strong>Playback stream</strong><button type="button" class="btn-close" aria-label="Close stream details" @click="closeDetails" /></header>
-        <div>{{ jpeg ? 'Camera stream: ' : '' }}{{ streamSummary(info) }}</div>
-        <p v-if="jpeg" class="mb-0">Showing JPEG previews, not video playback. The stream choice remains available below; choose Auto or Sub to try a supported video stream.</p>
+        <div>{{ streamSummary(info) }}</div>
         <p v-if="codecFallback" class="small text-warning mb-0" role="status">Video playback is unavailable for this stream in this browser. Its codec or decoder may not be supported on this viewing machine. Live previews can use a supported sub-stream; DVR retains the recorded primary stream.</p>
         <p v-if="replay" class="mb-0">Recorded footage: live stream choices do not change this video.</p>
         <template v-else>

@@ -6,6 +6,8 @@ import { useTagStore } from '../../stores/tags'
 import { useEventStream } from '../../composables/useEventStream'
 import { formatDistanceToNow } from 'date-fns'
 import type { Clip } from '../../types/clip'
+import ActivityThumbnail from './ActivityThumbnail.vue'
+import { useLocalStorage } from '../../composables/useLocalStorage'
 import { buildActivityGroups, type ActivityGroup } from '../../composables/useActivityGrouping'
 
 const TRIVIAL_DURATION = 2
@@ -24,6 +26,7 @@ const props = defineProps<{
 }>()
 
 const clipStore = useClipStore()
+const objectFocus = useLocalStorage('witness-activity-object-focus', true)
 const cameraStore = useCameraStore()
 const tagStore = useTagStore()
 const events = useEventStream()
@@ -176,6 +179,7 @@ onUnmounted(() => {
   >
     <div class="strip-header">
       <span class="strip-title">Recent Activity</span>
+      <button class="strip-grouping-toggle" :class="{ active: objectFocus }" :aria-pressed="objectFocus" title="Use saved detected-object crops where available; turn off for full scenes" @click.stop="objectFocus = !objectFocus">Object focus</button>
       <span class="strip-count text-muted-custom">
         {{ matchingClipCount }} unreviewed<span v-if="groupingEnabled && !groupingPending"> · {{ activityGroups.length }} activities</span>
       </span>
@@ -216,7 +220,7 @@ onUnmounted(() => {
           @keydown.enter.self.prevent="onClickClip(group.representative)"
           @keydown.space.self.prevent="onClickClip(group.representative)"
         >
-          <img :src="thumbUrl(group.representative)" :alt="`Clip ${group.representative.uid}`" loading="lazy" />
+          <ActivityThumbnail :clip="group.representative" :src="thumbUrl(group.representative)" :focus="objectFocus" />
           <div class="strip-thumb-tags">
             <span v-for="tag in clipTags(group.representative)" :key="tag.name" class="strip-tag">
               {{ tag.icon || tag.display }}
@@ -255,7 +259,7 @@ onUnmounted(() => {
           @keydown.enter.self.prevent="onClickClip(clip)"
           @keydown.space.self.prevent="onClickClip(clip)"
         >
-          <img :src="thumbUrl(clip)" :alt="`Clip ${clip.uid}`" loading="lazy" />
+          <ActivityThumbnail :clip="clip" :src="thumbUrl(clip)" :focus="objectFocus" />
           <div class="strip-thumb-tags">
             <span v-for="tag in clipTags(clip)" :key="tag.name" class="strip-tag">
               {{ tag.icon || tag.display }}
@@ -371,7 +375,7 @@ onUnmounted(() => {
   border-color: #dc3545;
   cursor: default;
 }
-.strip-thumb img {
+.strip-thumb :deep(img) {
   width: 100%;
   height: 100%;
   object-fit: cover;

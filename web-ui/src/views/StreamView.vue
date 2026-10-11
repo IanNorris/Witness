@@ -2,7 +2,6 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppLayout from '../components/layout/AppLayout.vue'
-import HlsPlayer from '../components/camera/HlsPlayer.vue'
 import MsePlayer from '../components/camera/MsePlayer.vue'
 import { useCameraStore } from '../stores/cameras'
 import { useSettingsStore } from '../stores/settings'
@@ -17,31 +16,25 @@ const settings = useSettingsStore()
 
 const cameraId = computed(() => Number(route.params.cameraId))
 const camera = computed(() => cameraStore.getCameraById(cameraId.value))
-const useSubStream = computed(() => settings.getCameraStreamChoice(cameraId.value) === 'sub' && !!camera.value?.hasSubStream)
+const runtimeUnsupported = ref(false)
+const supportsCodec = (codec?: string) => typeof MediaSource !== 'undefined' &&
+  (isHevcCodec(codec) ? ['hev1.1.6.L93.B0', 'hvc1.1.6.L93.B0'] : ['avc1.42001e']).some(value => MediaSource.isTypeSupported(`video/mp4; codecs="${value}"`))
+const useSubStream = computed(() => {
+  const choice = settings.getCameraStreamChoice(cameraId.value)
+  return !!camera.value?.hasSubStream && (choice === 'sub' || (choice === 'auto' && !supportsCodec(camera.value?.codec) && supportsCodec(camera.value?.subCodec)))
+})
 
 function isHevcCodec(codec?: string): boolean {
-  const normalized = codec?.toLowerCase()
-  return normalized === 'hevc' || normalized === 'h265' || normalized === 'hev1'
+  return /^(hevc|h265|hev1|hvc1)/.test(codec?.toLowerCase() ?? '')
 }
 
 const mseCodecHint = computed(() =>
   isHevcCodec(useSubStream.value ? camera.value?.subCodec : camera.value?.codec) ? 'hev1.1.6.L93.B0' : 'avc1.42001e',
 )
-const subUnsupported = computed(() => useSubStream.value && (typeof MediaSource === 'undefined' ||
-  !MediaSource.isTypeSupported(`video/mp4; codecs="${mseCodecHint.value}"`)))
-
-const effectiveMode = computed(() => {
-  if (useSubStream.value) return 'mse'
-  if (settings.streamingMode === 'mse') {
-    const mimeType = `video/mp4; codecs="${mseCodecHint.value}"`
-    if (typeof MediaSource === 'undefined' || !MediaSource.isTypeSupported(mimeType)) {
-      return 'hls'
-    }
-  }
-  return settings.streamingMode
-})
-
-const hlsPlayerRef = ref<InstanceType<typeof HlsPlayer> | InstanceType<typeof MsePlayer> | null>(null)
+const unsupported = computed(() => runtimeUnsupported.value || !supportsCodec(useSubStream.value ? camera.value?.subCodec : camera.value?.codec))
+const hlsPlayerRef = ref<InstanceType<typeof MsePlayer> | null>(null)
+watch(() => hlsPlayerRef.value?.codecUnsupported, value => { if (value) runtimeUnsupported.value = true })
+watch(() => [cameraId.value, settings.getCameraStreamChoice(cameraId.value), camera.value?.codec, camera.value?.subCodec], () => { runtimeUnsupported.value = false })
 const streamInfo = computed(() => hlsPlayerRef.value && 'streamInfo' in hlsPlayerRef.value ? hlsPlayerRef.value.streamInfo :
   camera.value ? cameraStreamInfo(camera.value, useSubStream.value ? 'sub' : 'main') : {})
 const detectionOverlayActive = ref(false)
@@ -78,7 +71,7 @@ onMounted(async () => {
   }
 })
 
-// Auto-enable overlay when HlsPlayer becomes available
+// Auto-enable overlay when the MSE player becomes available.
 watch(hlsPlayerRef, (player) => {
   if (player && detectionOverlayActive.value && !player.overlayEnabled) {
     player.toggleOverlay()
@@ -114,9 +107,9 @@ watch(hlsPlayerRef, (player) => {
     </template>
 
     <div v-if="camera" class="stream-container" @click="cameraStore.toggleRecording(cameraId)">
-      <div v-if="subUnsupported" class="alert alert-warning m-3" @click.stop>Sub-stream playback is unsupported in this browser. Choose Main or Auto in stream details.</div>
+      <div v-if="unsupported" class="alert alert-warning m-3" @click.stop role="status">Video playback is unavailable for this stream in this browser. Choose Auto or a supported Sub stream in stream details.</div>
       <MsePlayer
-        v-else-if="effectiveMode === 'mse'"
+        v-else
         :key="`${cameraId}:${mseCodecHint}:${useSubStream}`"
         ref="hlsPlayerRef"
         :camera-id="cameraId"
@@ -125,11 +118,10 @@ watch(hlsPlayerRef, (player) => {
         :use-sub-stream="useSubStream"
         :audio-enabled="audioActive"
       />
-      <HlsPlayer v-else ref="hlsPlayerRef" :camera-id="cameraId" suffix="_stream" :debug="true" :low-latency="camera.lowLatencyHLS" :audio-enabled="audioActive" />
       <div v-if="camera.isRecording" class="rec-overlay">
         <span class="rec-dot" /> REC
       </div>
-      <StreamIndicator :camera-id="cameraId" :label="latencyLabel || 'Stream'" :info="streamInfo" :has-sub="camera.hasSubStream" />
+      <StreamIndicator :camera-id="cameraId" :label="unsupported ? 'Unsupported' : latencyLabel || 'Stream'" :codec-fallback="unsupported" :info="streamInfo" :has-sub="camera.hasSubStream" />
     </div>
     <div v-else class="text-muted-custom text-center py-5">
       Camera not found

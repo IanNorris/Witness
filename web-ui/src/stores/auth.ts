@@ -10,6 +10,7 @@ export const useAuthStore = defineStore('auth', () => {
   const csrfToken = ref('')
   const isAuthenticated = ref(false)
   const isLoading = ref(true)
+  const serverClock = ref<{ unixMs: number; offsetMinutes: number; receivedAt: number } | null>(null)
 
   const initials = computed(() => {
     const name = displayName.value || username.value
@@ -26,6 +27,8 @@ export const useAuthStore = defineStore('auth', () => {
         displayName.value = profile.displayName || profile.username
         isAdmin.value = profile.admin
         isAuthenticated.value = true
+        serverClock.value = Number.isFinite(profile.serverTimeUnixMs) && Number.isFinite(profile.serverUtcOffsetMinutes)
+          ? { unixMs: profile.serverTimeUnixMs!, offsetMinutes: profile.serverUtcOffsetMinutes!, receivedAt: performance.now() } : null
       }
     } catch {
       isAuthenticated.value = false
@@ -60,11 +63,13 @@ export const useAuthStore = defineStore('auth', () => {
       username.value = ''
       isAdmin.value = false
       csrfToken.value = ''
+      serverClock.value = null
     }
   }
 
   return {
     username,
+    serverClock,
     displayName,
     isAdmin,
     csrfToken,

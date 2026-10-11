@@ -55,7 +55,7 @@ function fixture() {
   }
 }
 
-test('pinned stream choices disable adaptation, while snapshots stay snapshots', async () => {
+test('pinned stream choices disable adaptation and legacy snapshot preferences cannot restore JPEG', async () => {
   const f = fixture()
   const previousMediaSource = globalThis.MediaSource
   globalThis.MediaSource = { isTypeSupported: () => true }
@@ -72,7 +72,7 @@ test('pinned stream choices disable adaptation, while snapshots stay snapshots',
     assert.equal(state.useSubStream.value, true)
     assert.equal(state.mseCodecHint.value, 'avc1.42001e')
     f.settings.streamingMode = 'jpeg'
-    assert.equal(state.effectiveModeWithFallback.value, 'jpeg')
+    assert.equal(state.effectiveModeWithFallback.value, 'mse')
   } finally { globalThis.MediaSource = previousMediaSource; f.close() }
 })
 

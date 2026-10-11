@@ -16,12 +16,16 @@ const cameras = [8, 9].map(id => ({ id, name: `Synthetic ${id}`, status: 'Connec
   codec: 'h264', width: 1920, height: 1080, hasSubStream: id === 8, subCodec: id === 8 ? 'h264' : undefined, subWidth: 640, subHeight: 360 }))
 const json = (res, data) => { res.setHeader('Content-Type', 'application/json'); res.end(JSON.stringify(data)) }
 let recordingMutations = 0
+let activityEnabled = false
 const server = createServer(async (req, res) => {
   const path = new URL(req.url, 'http://localhost').pathname
   try {
-    if (path === '/auth/profile') return json(res, { csrf: 'synthetic', username: 'tester', admin: false })
+    if (path === '/auth/profile') return json(res, { csrf: 'synthetic', username: 'tester', admin: false, serverTimeUnixMs: now * 1000, serverUtcOffsetMinutes: 120 })
     if (path === '/camera/enum') return json(res, cameras)
     if (path === '/group/enum') return json(res, { groups: [] })
+    if (activityEnabled && path.startsWith('/clip/recent/')) return json(res, { clips: [{ clipUID: 123, cameraID: 8, timestamp: now - 60, duration: 20, tags: 'person', detectionVersion: 1 }] })
+    if (activityEnabled && path.startsWith('/api/detection/8')) return json(res, { frames: [{ boxes: [{ crop: 'X:\\WitnessCache\\crops\\8\\object.jpg', cls: 'person', conf: .9 }] }] })
+    if (path.startsWith('/api/detection/crop/') || path.startsWith('/clip/thumb/')) { res.setHeader('Content-Type', 'image/svg+xml'); return res.end('<svg xmlns="http://www.w3.org/2000/svg" width="160" height="90"><rect width="160" height="90" fill="#346"/></svg>') }
     if (path.startsWith('/camera/record/')) { recordingMutations++; return json(res, {}) }
     if (path.startsWith('/camera/preview/')) { res.setHeader('Content-Type', 'image/svg+xml'); return res.end('<svg xmlns="http://www.w3.org/2000/svg" width="160" height="90"><rect width="160" height="90" fill="#346"/></svg>') }
     if (path.startsWith('/dvr/coverage/')) return json(res, { ranges: [{ from: now - 240, to: now - 120 }, { from: now - 100, to: now - 30 }], pending: [{ from: now - 30, to: now, targetSeconds: 60 }] })
@@ -59,7 +63,7 @@ try {
   assert.equal(await page.getByLabel('Synthetic 9 live stream', { exact: true }).locator('option[value="sub"]').isDisabled(), true)
   await page.getByLabel('Synthetic 8 live stream', { exact: true }).selectOption('sub')
   assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('witness-camera-stream-choices'))['8']), 'sub')
-  assert.equal(await page.locator('.mse-container').count(), 0, 'stream preference does not override snapshots mode')
+  assert.equal(await page.locator('.mse-container').count(), 2, 'legacy snapshot preference migrates to MSE')
   await page.getByLabel('Synthetic 8 live stream', { exact: true }).selectOption('auto')
   await page.getByText('Playback settings', { exact: true }).click()
   assert.equal(await page.getByRole('checkbox', { name: 'Sync cameras', exact: true }).isChecked(), false)
@@ -157,6 +161,10 @@ try {
   await page.getByRole('button', { name: 'Close ×', exact: true }).click()
   await first.getByRole('button', { name: 'Go Live', exact: true }).click()
   await page.getByRole('button', { name: 'Full Screen', exact: true }).click()
+  await page.getByRole('checkbox', { name: 'Clock', exact: true }).check()
+  await page.locator('.dashboard-clock').waitFor()
+  assert.equal(await page.locator('.dashboard-clock').getAttribute('title'), 'Server local time')
+  assert.ok((await page.locator('.dashboard-clock').innerText()).includes(new Date((now + 7200) * 1000).toISOString().slice(11, 16)), 'clock uses server offset, not viewer timezone')
   await page.waitForTimeout(3000)
   assert.equal(await first.locator('.camera-playback-bar').evaluate(el => getComputedStyle(el).opacity), '0')
   await page.mouse.move(400, 350)
@@ -172,6 +180,12 @@ try {
     await page.setViewportSize({ width, height: 900 })
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no horizontal overflow')
   }
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Escape') // First Escape can dismiss the selected camera's controls.
+  await page.getByRole('button', { name: 'Open menu', exact: true }).click()
+  await page.locator('.mobile-drawer').getByRole('link', { name: 'DVR', exact: true }).click()
+  await page.waitForURL('**/dvr')
+  assert.equal(await page.locator('.mobile-drawer').count(), 0, 'mobile DVR navigation closes the drawer')
   assert.equal(recordingMutations, 0)
   assert.deepEqual(errors, [])
   const livePage = await browser.newPage({ viewport: { width: 1280, height: 900 } })
@@ -225,8 +239,8 @@ try {
   for (const recovery of ['sub', 'auto']) {
     await liveCard.locator('.stream-indicator').click()
     await livePage.getByRole('dialog').getByLabel('Live stream choice', { exact: true }).selectOption('main')
-    await liveCard.getByRole('button', { name: /Stream details:/ }).filter({ hasText: 'JPEG' }).waitFor()
-    await livePage.getByText('Showing JPEG previews, not video playback.', { exact: false }).waitFor()
+    await liveCard.getByRole('button', { name: /Stream details:/ }).filter({ hasText: 'Unsupported' }).waitFor()
+    await livePage.getByText('Video playback is unavailable for this stream in this browser.', { exact: false }).waitFor()
     await livePage.getByRole('button', { name: 'Close stream details', exact: true }).click()
     await liveCard.locator('.stream-indicator').click()
     await livePage.getByRole('dialog').getByLabel('Live stream choice', { exact: true }).selectOption(recovery)
@@ -237,6 +251,20 @@ try {
   assert.deepEqual(liveErrors, [])
   assert.equal(recordingMutations, 0, 'stream controls do not trigger recording')
   await livePage.close()
+  activityEnabled = true
+  const activityPage = await browser.newPage({ viewport: { width: 1280, height: 900 } })
+  await activityPage.addInitScript(() => { localStorage.setItem('witness-activity-grouping-enabled', '0'); localStorage.setItem('showRecentActivity', 'true'); localStorage.setItem('fullscreenMode', 'false') })
+  await activityPage.routeWebSocket('**/ws/events', () => {})
+  await activityPage.routeWebSocket('**/ws/stream/**', () => {})
+  await activityPage.goto(`http://127.0.0.1:${server.address().port}`)
+  const objectImage = activityPage.getByAltText('Clip 123', { exact: true })
+  await activityPage.waitForFunction(() => document.querySelector('img[alt="Clip 123"]')?.getAttribute('src') === '/api/detection/crop/8/object.jpg')
+  await activityPage.getByRole('button', { name: 'Object focus', exact: true }).click()
+  assert.equal(await objectImage.getAttribute('src'), `/clip/thumb/8/${now - 60}`)
+  await activityPage.getByRole('button', { name: 'Object focus', exact: true }).click()
+  await objectImage.dispatchEvent('error')
+  assert.equal(await objectImage.getAttribute('src'), `/clip/thumb/8/${now - 60}`, 'missing crop falls back to the original scene')
+  await activityPage.close()
   console.log('PASS: independent/synced real-video seek, pause, gaps, saving→live, menu directions, capture-only UI, fullscreen fading, 3-minute auto-live, narrow widths; no recording mutations')
 } finally {
   await browser?.close(); await new Promise(done => server.close(done)); await rm(scratch, { recursive: true, force: true })

@@ -2,6 +2,7 @@
 import { onMounted, onUnmounted, ref, computed, watch, provide } from 'vue'
 import AppLayout from '../components/layout/AppLayout.vue'
 import CameraGrid from '../components/camera/CameraGrid.vue'
+import DashboardClock from '../components/camera/DashboardClock.vue'
 import CameraStreamChoices from '../components/camera/CameraStreamChoices.vue'
 import ActivityStrip from '../components/clips/ActivityStrip.vue'
 import ClipPlayer from '../components/clips/ClipPlayer.vue'
@@ -582,6 +583,7 @@ onMounted(async () => {
               <option :value="0">Never</option><option :value="60">1 minute</option><option :value="180">3 minutes</option><option :value="300">5 minutes</option><option :value="600">10 minutes</option>
             </select>
           </label>
+          <label><input v-model="settings.dashboardClock" type="checkbox"> Show fullscreen clock</label>
           <label><input v-model="settings.dashboardQuietControls" type="checkbox"> Quiet controls on unselected live cameras</label>
           <CameraStreamChoices :cameras="cameraStore.cameras" />
         </details>
@@ -656,14 +658,6 @@ onMounted(async () => {
         <div class="vr mx-1" style="border-color: var(--bs-border-color);"></div>
         <button
           class="btn btn-sm"
-          :class="settings.streamingMode !== 'jpeg' ? 'btn-outline-primary' : 'btn-outline-secondary'"
-          @click="settings.toggleStreamingMode"
-          :title="'Playback mode: ' + settings.streamingMode.toUpperCase() + ' (click to change)'"
-        >
-          {{ settings.streamingMode === 'jpeg' ? 'Snapshots' : 'Video' }} <span class="mode-detail mobile-hide">{{ settings.streamingMode.toUpperCase() }}</span>
-        </button>
-        <button
-          class="btn btn-sm"
           :class="showRecentActivity ? 'btn-outline-primary' : 'btn-outline-secondary'"
           @click="toggleRecentActivity"
           :title="showRecentActivity ? 'Hide recent activity' : 'Show recent activity'"
@@ -677,6 +671,7 @@ onMounted(async () => {
       <span class="ui-count-pill">{{ currentCameras.length }} cameras · {{ currentCameras.filter(camera => camera.status === 'Connected').length }} connected</span>
     </section>
     <div id="dashboard-layout-editor-host" />
+    <DashboardClock v-if="settings.fullscreenMode && settings.dashboardClock" :style="{ bottom: `${fullscreenInsets.bottom + 12}px`, right: `${fullscreenInsets.right + 12}px` }" />
     <p v-if="layoutMessage || (!editingLayout && regularActivityConflict)" class="layout-notice" role="status">
       {{ layoutMessage || 'Activity is docked because the current cameras occupy its saved rectangle. Use Arrange to adjust it.' }}
     </p>
@@ -731,6 +726,7 @@ onMounted(async () => {
       :style="fullscreenControlsStyle"
     >
       <label class="dashboard-sync"><input type="checkbox" :checked="playback.sync.value" @change="playback.setSync(($event.target as HTMLInputElement).checked)"> Sync cameras</label>
+      <label class="dashboard-sync"><input v-model="settings.dashboardClock" type="checkbox"> Clock</label>
       <select v-model.number="settings.dashboardReturnLiveSeconds" aria-label="Return to live after inactivity">
         <option :value="0">Stay in replay</option><option :value="60">Live after 1 min</option><option :value="180">Live after 3 min</option><option :value="300">Live after 5 min</option><option :value="600">Live after 10 min</option>
       </select>

@@ -5,34 +5,24 @@ feature documents and Git history rather than retained as checked-off tasks.
 Audio, activity, scoped automation, and DVR investigations have working first
 implementations. Production validation and reliability work remain ongoing.
 
-## Next feature priorities (10 October 2026)
+## Near-term work (reviewed 11 October 2026)
 
-1. Retroactive manual clip generation directly from the dashboard: choose a
-   lookback (for example one minute), then either keep recording or finish at
-   the request time. Detailed coverage and recording requirements are below.
-   Include a per-camera instant-replay/DVR overlay (for example "Show this
-   camera 5 minutes ago") so missed activity can be reviewed before deciding
-   whether to save it. Keep the dashboard mounted behind it, provide seek and
-   return-to-live controls, and allow saving the reviewed interval or continuing
-   a recording. Investigate still-open DVR files: never require file rotation
-   merely to replay recent footage, serve only committed/decodable media, and
-   report the available live edge or gaps rather than claiming unwritten data.
-   If open-segment replay is not viable for a format/client, hatch the pending
-   region as "Currently saving" with a tooltip explaining that the last N
-   minutes may be unavailable until finalization. Distinguish this from a true
-   recording gap. Consider configurable one-minute DVR segments (currently
-   five minutes, split at a keyframe) to reduce the fallback delay, and hourly
-   folders for human-readable storage organization. Preserve legacy path/index
-   compatibility and validate the increased file count/retention cost.
-2. Clip search and grouping on the dashboard: search without leaving the live
-   view, reuse existing clip filters/grouping, and keep original clips accessible.
-3. Revisit installation and distribution after those features. Evaluate a
-   native Windows installer/service and portable package alongside a Linux
-   container/Compose deployment rather than forcing one installation method.
-   Cover persistent recordings/database/config volumes, secrets, optional
-   acceleration, authenticated first-run setup, upgrades, backups and rollback.
-   Validate installation on a clean machine without a developer toolchain;
-   default exposure should be conservative and never disable authentication.
+Prioritise smaller usability/reliability improvements before the deferred
+spatial-reconstruction and provenance projects. Dashboard replay, retroactive
+capture, clip search/grouping and layout automation are implemented; remaining
+validation and follow-ups are listed in their sections below.
+
+- Simplify viewer choices to MSE and finish codec/failure feedback.
+- Add the compact historical health panel. The optional fullscreen server-local
+  clock is implemented; validate placement with production layouts.
+- Improve recent-activity thumbnails and low-value-event filtering.
+- Revisit installation and distribution. Evaluate a native Windows
+  installer/service and portable package alongside a Linux container/Compose
+  deployment rather than forcing one installation method. Cover persistent
+  recordings/database/config volumes, secrets, optional acceleration,
+  authenticated first-run setup, upgrades, backups and rollback. Validate on a
+  clean machine without a developer toolchain; exposure should be conservative
+  and never disable authentication.
 
 Provenance is deferred behind these usability and deployment priorities. AAC
 live/recorded audio coverage is also recorded below for a compatibility pass.
@@ -57,21 +47,20 @@ live/recorded audio coverage is also recorded below for a compatibility pass.
   builds must never update package metadata or invalidate dependencies merely
   because a global tool installation changed.
 
-- Reduce the ONNX Runtime/vcpkg build surface. In particular, remove unused
-  operator kernels and GPU providers from CPU deployments, and investigate a
-  supported prebuilt package so routine toolchain changes do not require a
-  multi-hour dependency rebuild.
+- Further reduce unused ONNX operator kernels if measurements justify it.
+  CPU-only/prebuilt ONNX deployment and dependency reuse already exist; validate
+  clean-machine consumption and security-update procedures rather than rebuild
+  that implementation. Avoid multi-hour routine dependency rebuilds.
 - Extend the existing build profiler beyond the initial Crow PCH and header
   isolation pass (measured in [BUILDING.md](BUILDING.md)). Compare clean and
   incremental rebuild fan-out, then pursue narrower PIMPL boundaries where
-  they reduce both compile time and DLL ABI warnings.
-- Clean up the native DLL ABI boundaries currently producing MSVC C4251
-  warnings. Inventory exported classes that expose STL containers, strings,
-  callbacks, mutexes, smart pointers, or chrono types; move implementation
-  state behind PIMPL where it provides a stable ownership and ABI boundary,
-  and keep deliberately header-defined value types explicit rather than merely
-  suppressing the warning globally. Add a small cross-DLL construction and
-  destruction test so allocator/runtime mismatches are caught.
+  they reduce compile time while preserving the now-tested DLL ABI boundaries.
+- Keep the now-warning-clean native DLL ownership boundaries covered by the
+  cross-DLL lifetime tests. Pursue further PIMPL changes only for measured
+  rebuild/ownership benefits, not an already-resolved C4251 cleanup task.
+  Resolve remaining third-party Sass deprecations and the web chunk-size
+  advisory without globally suppressing warnings. See [BUILDING.md](BUILDING.md)
+  for the completed ownership and linker-warning passes.
 
 ## Operational UI and logging
 
@@ -86,15 +75,15 @@ are described in [TERMINAL_DASHBOARD.md](TERMINAL_DASHBOARD.md).
   colour-coded queue/latency thresholds, per-camera throughput and
   per-activation versus all-frame processing costs. Include scaling/JPEG work
   and activation counts in its copy/export table.
-- Add reliable hardware decoder/encoder capacity and fallback information to
-  the combined server/browser health view; avoid treating vendor-specific
-  session limits as universal.
-- Persist a bounded history of browser/client health reports server-side,
-  keyed by logged-in username plus a stable locally stored browser/session
-  identifier. A health export from any browser should include recent telemetry
-  from all known clients, including hidden tabs and sessions that have since
-  disconnected, so opening the Health page cannot erase or perturb the evidence
-  of a playback failure.
+- Extend the existing browser playback-resource snapshots and suspected
+  decoder-pressure warning with capability/fallback evidence where available;
+  do not claim an exact hardware capacity from loaded-video counts. Preserve
+  unsupported-codec versus decode-failure distinctions in both browsers.
+- Extend the implemented bounded, server-persisted client-health history to
+  retain the new decoder-resource context and richer DVR failure fields.
+  Browser-local exports already retain them, but the server payload whitelist
+  still strips some details. Validate exports from another browser and after
+  restart without losing the causal evidence from disconnected sessions.
 - Show dismissible warning toasts when a camera becomes unhealthy. Define
   health using connection stability, stream freshness, decode errors, latency,
   and sustained queue pressure, with rate limiting and recovery notification so
@@ -115,17 +104,16 @@ are described in [TERMINAL_DASHBOARD.md](TERMINAL_DASHBOARD.md).
   controls and, only after measurement, consider short-window live audio
   triggers without retaining continuous audio. See
   [AUDIO_INTELLIGENCE.md](AUDIO_INTELLIGENCE.md).
+- Add audio-event lanes to the all-clips timeline (DVR audio events and clip
+  labels already exist). Explore opt-in wind-only muting during playback, with
+  confidence/hysteresis and audible-event overrides; do not suppress speech,
+  sirens or other interesting sounds merely because wind is also present.
 
 ## Dashboard layouts
 
-- Make fullscreen camera-control selection explicit. Controls currently remain
-  active for the last interacted-with camera until the user clicks elsewhere;
-  add a clear selected-camera indication and predictable dismissal behaviour.
-- Rework and repair the PTZ controls, including regressions from earlier
-  attempts. Verify camera selection, supported commands, movement/stop behaviour
-  and home/preset actions against the actual cameras. In the planned fullscreen/PTZ
-  UI redesign, expose buttons for a configurable selection of named camera
-  viewpoints and show the active logical home. Keep the UI abstraction
+- Extend the repaired, isolated PTZ controls with buttons for a configurable
+  selection of named camera viewpoints and show the active logical home. Keep
+  the UI abstraction
   camera-generic ("viewpoints"); Reolink presets are a provider implementation
   detail. Coordinate this with the dynamic-home investigation below.
 - Add an optional clock to the fullscreen dashboard, using the established
@@ -133,24 +121,10 @@ are described in [TERMINAL_DASHBOARD.md](TERMINAL_DASHBOARD.md).
 - Add an optional compact historical stream-health panel to the fullscreen
   dashboard. Show recent per-camera disconnects, freezes, latency and recovery
   trends at a glance rather than only instantaneous connection status.
-- Present three explicit dashboard modes: **Tiles**, **Layout**, and **Full
-  Screen**. Tiles should remain the conventional responsive grid; Layout should
-  use the configurable per-group canvas and automatic slots; Full Screen should
-  be the distraction-free presentation of the selected layout.
-- Allow the recent-activity view to occupy an arbitrary resizable rectangle in
-  a custom layout, rather than only a full-width or full-height dock edge. This
-  should make it possible to fill otherwise unusable gaps in asymmetric camera
-  grids.
-- Add generated layout presets driven by a per-group camera priority order,
-  such as `1 large + 2 medium + 4 small`, `4 medium + 4 small`, and `16 small`.
-  Keep the current hand-authored layout as the custom option.
-- Explore numbered automatic slots for motion-active cameras. Fill slots in
-  camera-priority order, keep the highest-priority active camera in the lowest
-  numbered slot, use configurable fallback cameras when nothing is active, and
-  apply hold time/hysteresis so views do not churn during adjacent events.
-- Keep every camera in a dashboard group connected and primed even when it is
-  temporarily absent from an automatic slot; promotion must not incur the
-  camera stream's normal startup delay.
+- Validate the implemented layout presets, activity rectangles and automatic
+  slots on larger groups and small screens. Hidden group cameras remain mounted
+  to avoid cold promotion; measure decoder/resource cost and balance priming
+  against supported sub-stream selection rather than starting duplicate feeds.
 
 ## Activity quality
 
@@ -158,16 +132,14 @@ The grouping, user-relevance, and object-persistence design is recorded in
 [ACTIVITY_INTELLIGENCE.md](ACTIVITY_INTELLIGENCE.md). It identifies preserving
 empty/baseline observation evidence as a prerequisite for reliable persistence.
 
-- Add clip search and grouping within the dashboard, without navigating away
-  or restarting live players. Scope results to the selected group/cameras and
-  expose time range, object/audio tags and existing metadata filters. Reuse
-  existing activity similarity grouping, with representative, count, time span
-  and expansion into individual clips; do not confuse grouping with physical
-  clip merging or semantic search. Keep grouping reversible and make results,
-  pagination and loading/error states predictable in normal and fullscreen use.
-- In recent activity, use the interesting-object bounding boxes to select a
-  tighter thumbnail crop/zoom. When face extraction produced a useful face
-  image, offer it as an overlay without obscuring the wider event context.
+- Validate the implemented dashboard clip search/grouping with production data,
+  particularly group/camera scoping, tag/time filters, pagination, loading/error
+  states and fullscreen interaction. Keep individual clips accessible and avoid
+  interrupting mounted live players.
+- Validate the new optional recent-activity object-focus thumbnails with
+  production data. Saved non-baseline detection crops are used when available,
+  with full-scene fallback; visual grouping still compares original thumbnails.
+  Add an extracted-face overlay without obscuring the wider event context.
 - Remove clips from recent activity when post-processing finds no object or
   event worth retaining. Keep the underlying retention/audit policy separate so
   hiding low-value activity does not silently delete evidence unless configured.
@@ -175,22 +147,58 @@ empty/baseline observation evidence as a prerequisite for reliable persistence.
   vehicles, animals, night-vision transitions and static scenes. Expose why a
   group formed and make false groups easy to split or mark uninteresting;
   retain the current representative/time-span/expansion behavior.
+- Implement the remaining user-relevance and usual-place/object-persistence
+  stages in [ACTIVITY_INTELLIGENCE.md](ACTIVITY_INTELLIGENCE.md): uninteresting
+  examples, retained baseline observations, appearance/movement/disappearance
+  history and day/night resets. Existing thumbnail grouping alone does not
+  establish persistent object identity or prove that an object remained present.
+
+## Spatial scene understanding (deferred research)
+
+Prioritise smaller usability/reliability improvements before this large feature.
+
+- Explore single-camera depth estimation as an optional aid to spatial zones,
+  approaching/leaving trajectories and persistent objects in usual locations.
+  Do not require overlapping cameras: start with a ground map, user-marked
+  landmarks and known distances rather than a full textured 3D property model.
+  Distinguish inferred relative depth, estimated metric depth and triangulated
+  measurements; retain uncertainty and never present estimates as exact evidence.
+- Evaluate Depth Anything V2 (including metric variants), Apple Depth Pro and
+  Depth Anything 3. Benchmark CPU cost, memory, model licensing, outdoor CCTV,
+  infrared/night imagery and temporal stability before selecting a model.
+  Prefer cached static-scene estimates with occasional refresh where viable;
+  validate how moving objects, lighting and scene changes affect those maps.
+- Add optional multi-camera track fusion/3D triangulation where overlapping
+  views provide a useful baseline (including vertically separated cameras).
+  Validate calibration, distortion, metric scale, capture-time alignment,
+  correspondence and occlusion; distant targets with a small baseline may
+  remain poorly constrained. Keep single-camera operation useful independently.
+- For PTZ, initially calibrate verified presets and zoom settings separately.
+  Invalidate spatial mapping during movement or unverified viewpoint changes;
+  investigate pose estimation later rather than assuming motor coordinates are
+  accurate or synchronised with frames. A PTZ sweep alone is not stereo depth.
+
+Research starting points:
+
+- [Depth Anything V2](https://github.com/DepthAnything/Depth-Anything-V2)
+- [Apple Depth Pro](https://github.com/apple-aiml-research/ml-depth-pro)
+- [Depth Anything 3](https://github.com/ByteDance-Seed/Depth-Anything-3)
+- [NVIDIA multi-view 3D tracking](https://docs.nvidia.com/metropolis/deepstream/9.1/text/DS_MV3DT.html)
+- [COLMAP reconstruction](https://colmap.github.io/tutorial.html)
+- [DeepPTZ calibration](https://openaccess.thecvf.com/content_WACV_2020/html/Zhang_DeepPTZ_Deep_Self-Calibration_for_PTZ_Cameras_WACV_2020_paper.html)
 
 ## Clip generation
 
-- Add a retroactive manual-recording trigger with a dropdown for how far back
-  to start, available from dashboard camera controls. Offer explicit actions
-  such as "Record from 1 minute ago and continue" and "Save the last minute"
-  (finish at the request's fixed server time, not when backfill completes).
-  Use the camera's in-memory pre-roll where available, and backfill
-  earlier footage from DVR/continuous recordings when the requested start is
-  outside that buffer. Report unavailable gaps rather than implying complete
-  coverage; preserve continuous audio/video timestamps and event metadata.
-  Respect decodable keyframe boundaries and show actual covered times. Backfill
-  must run off HTTP/camera workers, report progress/failure, and avoid duplicate
-  media at the historical/live join. Define behavior when a recording is already
-  active: do not silently terminate unrelated motion/API recordings or DVR;
-  explicitly extend/reuse or create an independent requested clip as appropriate.
+- Production-validate the implemented retroactive save/continue jobs, especially
+  retained-to-DVR/live joins, reconnects, active segments, missing coverage,
+  cancellation and restart recovery. Preserve independent capture ownership:
+  do not stop unrelated motion/API recordings. Check reported coverage against
+  actual decoded playback, including audio and keyframe boundaries.
+- Coalesce clips from the same camera when one stops and another starts within
+  a configurable threshold (initially around one minute). Export them as one
+  continuous clip and use DVR/continuous-recording segments to fill the gaps,
+  while preserving the original event metadata and avoiding duplicate or
+  non-monotonic audio/video timestamps.
 
 ## Evidence provenance (deferred)
 
@@ -226,12 +234,6 @@ Research references:
 - [Synology evidence integrity](https://www.synology.com/en-global/surveillance/feature/secure)
 - [RFC 3161 trusted timestamping](https://www.rfc-editor.org/info/rfc3161/)
 
-- Coalesce clips from the same camera when one stops and another starts within
-  a configurable threshold (initially around one minute). Export them as one
-  continuous clip and use DVR/continuous-recording segments to fill the gaps,
-  while preserving the original event metadata and avoiding duplicate or
-  non-monotonic audio/video timestamps.
-
 ## DVR and historical search
 
 - Revisit cache-folder organisation: large flat directories are impractical to
@@ -250,11 +252,9 @@ Research references:
 
 ## Streaming diagnostics
 
-- Standardise the web viewer on MSE: remove JPEG/HLS playback choices and the
-  silent JPEG fallback. Unsupported codecs should retain accessible stream
-  controls and offer a supported sub-stream with a clear explanation. Preserve
-  still-image previews/thumbnails and external HLS integrations where needed;
-  removing viewer options does not imply deleting those endpoints.
+- Validate MSE-only live viewing across supported browsers, including old
+  JPEG/HLS preference migration and unsupported Main → Auto/Sub recovery.
+  Still-image previews/thumbnails and external HLS endpoints remain supported.
 
 - Investigate two reported Reolink camera-firmware behaviours; research known
   reports and supported workarounds, recording affected models/firmware before
@@ -303,8 +303,9 @@ Research references:
   negative-duration/missing-PTS warnings. Retain investigation of rare clock
   resets, long-session A/V drift and the original production hitch; short replay
   tests alone cannot prove those solved. Other audio codecs/ASC extensions and
-  recording output deliberately retain their existing timing. Aggregate repeated
-  FFmpeg messages so they cannot evict reconnect/recovery evidence.
+  recording output deliberately retain their existing timing. Validate the
+  implemented FFmpeg warning clustering during long sessions so repeated
+  messages cannot evict reconnect/recovery evidence.
 
 - Add bounded, opt-in retention of encoded media around an anomaly so the exact
   access units can be replayed through software decoders offline. Redact stream

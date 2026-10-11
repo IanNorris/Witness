@@ -3,7 +3,6 @@ import { ref, onMounted, onUnmounted, computed, watch, inject } from 'vue'
 import type { Camera } from '../../types/camera'
 import { useSettingsStore } from '../../stores/settings'
 import { useCameraStore } from '../../stores/cameras'
-import HlsPlayer from './HlsPlayer.vue'
 import MsePlayer from './MsePlayer.vue'
 import PtzControls from './PtzControls.vue'
 import { useLiveAudio } from '../../composables/useLiveAudio'
@@ -37,24 +36,15 @@ const reviewing = computed(() => position.value?.requestedAt != null)
 function touchPlayback() { playback?.touch(props.camera.id) }
 const canvasMode = computed(() => settings.fullscreenMode || props.layoutMode === true)
 
-// MSE requires MediaSource API — fall back to HLS if unavailable
-const effectiveMode = computed(() => {
-  if (settings.streamingMode === 'mse') {
-    if (typeof MediaSource === 'undefined' || !MediaSource.isTypeSupported('video/mp4; codecs="avc1.42001e"')) {
-      return 'hls'
-    }
-  }
-  return settings.streamingMode
-})
+// MSE-only live playback; unsupported streams retain the stream-choice control.
+const effectiveMode = computed(() => typeof MediaSource !== 'undefined' ? 'mse' : 'unsupported')
 
 // Proactive HEVC detection: check if browser supports H.265 in MSE
 const hevcSupported = typeof MediaSource !== 'undefined' &&
   (MediaSource.isTypeSupported('video/mp4; codecs="hev1.1.6.L93.B0"') ||
    MediaSource.isTypeSupported('video/mp4; codecs="hvc1.1.6.L93.B0"'))
-const imgSrc = ref('')
-const isConnected = ref(false)
-const imgRef = ref<HTMLImageElement | null>(null)
-const hlsPlayerRef = ref<InstanceType<typeof HlsPlayer> | InstanceType<typeof MsePlayer> | null>(null)
+const isConnected = computed(() => props.camera.status === 'Connected')
+const hlsPlayerRef = ref<InstanceType<typeof MsePlayer> | null>(null)
 const replayPlayerRef = ref<InstanceType<typeof DashboardReplayPlayer> | null>(null)
 const detectionOverlayActive = ref(false)
 const selectedMseStream = ref<'main' | 'sub' | null>(null)
@@ -71,8 +61,6 @@ const {
   toggleMotionAudio,
 } = useLiveAudio(() => props.camera.id, () => props.camera.motionActive)
 const detectionStorageKey = `witness-detection-overlay-${props.camera.id}`
-let refreshTimer: ReturnType<typeof setInterval> | null = null
-let jpegRunning = false
 let clickTimer: ReturnType<typeof setTimeout> | null = null
 
 const measuredLatencyLabel = computed(() => {
@@ -81,44 +69,6 @@ const measuredLatencyLabel = computed(() => {
   const sec = ms / 1000
   return sec >= 0 ? `+${sec.toFixed(1)}s` : `${sec.toFixed(1)}s`
 })
-
-function refreshPreview() {
-  if (props.camera.status === 'Connected') {
-    isConnected.value = true
-    imgSrc.value = `/camera/preview/${props.camera.id}?t=${Date.now()}`
-  } else {
-    isConnected.value = false
-  }
-}
-
-// Continuous JPEG: reload as soon as previous frame loads
-function startJpegLoop() {
-  jpegRunning = true
-  loadNextFrame()
-}
-
-function loadNextFrame() {
-  if (!jpegRunning) return
-  if (reviewing.value) { refreshTimer = setTimeout(loadNextFrame, 1000); return }
-  const img = imgRef.value
-  if (!img) {
-    refreshTimer = setTimeout(loadNextFrame, 100)
-    return
-  }
-  imgSrc.value = `/camera/preview/${props.camera.id}?t=${Date.now()}`
-}
-
-function onJpegLoad() {
-  if (jpegRunning) {
-    refreshTimer = setTimeout(loadNextFrame, 33)
-  }
-}
-
-function onJpegError() {
-  if (jpegRunning) {
-    refreshTimer = setTimeout(loadNextFrame, 1000)
-  }
-}
 
 // Fullscreen clicks select controls; recording is explicit there. Tile-view
 // single click retains its existing recording shortcut.
@@ -151,10 +101,6 @@ function toggleDetectionOverlay() {
 }
 
 onMounted(() => {
-  refreshPreview()
-  if (effectiveModeWithFallback.value === 'jpeg') {
-    startJpegLoop()
-  }
   // Default to on; restore per-camera preference from localStorage
   const saved = localStorage.getItem(detectionStorageKey)
   const shouldEnable = saved === null || saved === '1'
@@ -163,15 +109,14 @@ onMounted(() => {
   }
 })
 
-// Auto-enable overlay when HlsPlayer becomes available
+// Auto-enable overlay when the MSE player becomes available.
 watch(hlsPlayerRef, (player) => {
   if (player && detectionOverlayActive.value && !player.overlayEnabled) {
     player.toggleOverlay()
   }
 })
 
-// Auto-fallback when codec is unsupported at runtime (e.g. HEVC without browser support)
-// Works for both HLS and MSE player components which both expose codecUnsupported
+// Keep runtime codec rejection visible, with stream controls available for recovery.
 const codecFallback = ref(false)
 watch(() => (hlsPlayerRef.value as any)?.codecUnsupported, (unsupported: boolean | undefined) => {
   if (unsupported) {
@@ -184,13 +129,13 @@ function isHevcCodec(codec?: string): boolean {
   return /^(hevc|h265|hev1|hvc1)/.test(codec?.toLowerCase() ?? '')
 }
 
-// Proactive check: if camera reports HEVC and browser doesn't support it, skip HLS entirely
+// Proactive check for an unsupported primary HEVC stream.
 const proactiveCodecFallback = computed(() => {
   if (hevcSupported) return false
   return isHevcCodec(props.camera.codec)
 })
 
-// Determine if we should use the sub-stream (H.264 fallback) instead of JPEG
+// Determine if Auto should use a supported sub-stream instead of the primary.
 // Only use sub-stream if it exists AND its codec is actually supported
 const useSubStream = computed(() => {
   if (streamChoice.value === 'sub' && props.camera.hasSubStream) return true
@@ -203,15 +148,10 @@ const useSubStream = computed(() => {
 })
 
 const effectiveModeWithFallback = computed(() => {
-  if (effectiveMode.value === 'jpeg') return 'jpeg'
-  if (codecFallback.value) return 'jpeg'
-  if (useSubStream.value && (typeof MediaSource === 'undefined' || !MediaSource.isTypeSupported(`video/mp4; codecs="${isHevcCodec(props.camera.subCodec) ? 'hev1.1.6.L93.B0' : 'avc1.42001e'}"`))) return 'jpeg'
-  if (useSubStream.value && isHevcCodec(props.camera.subCodec) && !hevcSupported) return 'jpeg'
-  // If main codec unsupported and no viable sub-stream, fall back to JPEG
-  if (proactiveCodecFallback.value && !useSubStream.value) return 'jpeg'
-  // Sub-stream always uses MSE (WebSocket-based) since we have a WS route for it
-  if (useSubStream.value) return 'mse'
-  return effectiveMode.value
+  if (effectiveMode.value === 'unsupported' || codecFallback.value) return 'unsupported'
+  const hevc = isHevcCodec(useSubStream.value ? props.camera.subCodec : props.camera.codec)
+  const supported = hevc ? hevcSupported : MediaSource.isTypeSupported('video/mp4; codecs="avc1.42001e"')
+  return supported ? 'mse' : 'unsupported'
 })
 
 const latencyLabel = computed(() => {
@@ -246,16 +186,8 @@ watch(() => [streamChoice.value, props.camera.codec, props.camera.subCodec], () 
 const selectedStreamInfo = computed(() => reviewing.value ? replayPlayerRef.value?.streamInfo ?? { tier: 'dvr' } :
   effectiveModeWithFallback.value === 'mse' && hlsPlayerRef.value && 'streamInfo' in hlsPlayerRef.value ? hlsPlayerRef.value.streamInfo :
   cameraStreamInfo(props.camera, useSubStream.value ? 'sub' : 'main'))
-watch(effectiveModeWithFallback, mode => {
-  jpegRunning = false
-  if (refreshTimer) clearTimeout(refreshTimer)
-  refreshTimer = null
-  if (mode === 'jpeg') startJpegLoop()
-})
 
 onUnmounted(() => {
-  jpegRunning = false
-  if (refreshTimer) clearTimeout(refreshTimer)
   if (clickTimer) clearTimeout(clickTimer)
 })
 </script>
@@ -267,15 +199,8 @@ onUnmounted(() => {
     @pointermove="touchPlayback" @pointerdown="touchPlayback" @keydown="touchPlayback">
     <div class="camera-preview">
       <div class="camera-video-wrap" data-playback-viewport @click.prevent="onSingleClick" @dblclick.prevent="onDoubleClick">
-        <!-- HLS preview mode -->
+        <!-- Recorded replay replaces live decoding for this camera. -->
         <DashboardReplayPlayer v-if="reviewing && !dashboardHidden" ref="replayPlayerRef" :camera-id="camera.id" :camera-name="camera.name" :audio-enabled="audioActive" />
-        <HlsPlayer
-          v-else-if="!reviewing && effectiveModeWithFallback === 'hls' && isConnected"
-          ref="hlsPlayerRef"
-          :camera-id="camera.id"
-          :low-latency="camera.lowLatencyHLS"
-          :audio-enabled="audioActive && !dashboardHidden"
-        />
 
         <!-- MSE preview mode -->
         <MsePlayer
@@ -290,15 +215,9 @@ onUnmounted(() => {
           @stream-changed="onStreamChanged"
         />
 
-        <!-- JPEG preview mode -->
-        <img
-          v-else-if="!reviewing && imgSrc && effectiveModeWithFallback === 'jpeg'"
-          ref="imgRef"
-          :src="imgSrc"
-          :alt="camera.name"
-          @load="onJpegLoad"
-          @error="onJpegError"
-        />
+        <div v-else-if="!reviewing && isConnected && effectiveModeWithFallback === 'unsupported'" class="camera-overlay" @click.stop role="status">
+          <div class="text-center p-3">Video playback unavailable<br><small>This browser cannot play the selected stream. Use stream details to choose Auto or Sub.</small></div>
+        </div>
 
         <!-- Disconnected state -->
         <div v-if="!isConnected && !reviewing" class="camera-overlay connection-lost">
@@ -313,11 +232,6 @@ onUnmounted(() => {
         <!-- REC overlay -->
         <div v-if="camera.isRecording" class="rec-overlay">
           <span class="rec-dot" /> REC
-        </div>
-
-        <!-- H.265 fallback indicator -->
-        <div v-if="!reviewing && proactiveCodecFallback && !useSubStream && isConnected" class="codec-fallback-overlay">
-          H.265 → JPEG
         </div>
 
         <!-- Camera name overlay in fullscreen -->
@@ -339,14 +253,13 @@ onUnmounted(() => {
         <button v-if="!playback && canvasMode && controlsSelected" class="fullscreen-replay-toggle"
           @click.stop="emit('replay', camera.id)" title="Review recent DVR footage">↶ Replay</button>
         <StreamIndicator :camera-id="camera.id"
-          :label="reviewing ? 'DVR' : effectiveModeWithFallback === 'jpeg' ? 'JPEG' : latencyLabel || 'U'"
-          :jpeg="!reviewing && effectiveModeWithFallback === 'jpeg'"
-          :codec-fallback="!reviewing && effectiveModeWithFallback === 'jpeg' && effectiveMode !== 'jpeg'"
+          :label="reviewing ? 'DVR' : effectiveModeWithFallback === 'unsupported' ? 'Unsupported' : latencyLabel || 'U'"
+          :codec-fallback="!reviewing && effectiveModeWithFallback === 'unsupported'"
           :info="selectedStreamInfo" :has-sub="camera.hasSubStream" :replay="reviewing" />
 
         <!-- Live audio toggle -->
         <button
-          v-if="effectiveMode !== 'jpeg' && isConnected"
+          v-if="(reviewing || effectiveModeWithFallback === 'mse') && isConnected"
           class="btn btn-sm audio-toggle"
           :class="audioActive ? 'btn-success' : 'btn-outline-secondary'"
           @click.stop="toggleAudio"
@@ -362,7 +275,7 @@ onUnmounted(() => {
         </button>
 
         <button
-          v-if="effectiveMode !== 'jpeg' && isConnected"
+          v-if="(reviewing || effectiveModeWithFallback === 'mse') && isConnected"
           class="btn btn-sm motion-audio-toggle"
           :class="audioMode === 'motion' ? (audioActive ? 'btn-success' : 'btn-info') : 'btn-outline-secondary'"
           @click.stop="toggleMotionAudio"
@@ -377,7 +290,7 @@ onUnmounted(() => {
 
         <!-- Detection overlay toggle -->
         <button
-          v-if="effectiveMode !== 'jpeg' && isConnected"
+          v-if="(reviewing || effectiveModeWithFallback === 'mse') && isConnected"
           class="btn btn-sm detection-toggle"
           :class="detectionOverlayActive ? 'btn-success' : 'btn-outline-secondary'"
           @click.stop="toggleDetectionOverlay"
@@ -455,6 +368,7 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.reviewing:has(.dvr-error) :is(.audio-toggle, .motion-audio-toggle, .detection-toggle) { visibility: hidden; }
 .has-playback-bar { position: relative; }
 .camera-card-fullscreen > :deep(.camera-playback-bar) { position: absolute; bottom: 0; left: 0; right: 0; z-index: 30; }
 .camera-card-fullscreen.has-playback-bar :is(.audio-toggle, .motion-audio-toggle, .detection-toggle, .ptz-toggle) { bottom: calc(var(--camera-playback-height, 82px) + 8px); }
