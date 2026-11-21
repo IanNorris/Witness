@@ -16,8 +16,12 @@ export const useDashboardStore = defineStore('dashboards', () => {
   const list = ref<DashboardSummary[]>([])
   const admin = ref(false)
   const loaded = ref(false)
-  // Monotonic counter bumped by dashboard:changed so open views can refetch.
+  // Latest revision announced by dashboard:changed (-1 once deleted). Views
+  // compare it with the revision they hold, so a client's own save (which
+  // announces the revision it already has) is not mistaken for someone else's.
   const changes = ref(new Map<number, number>())
+  // Bumped by access:changed: what every dashboard shows may differ.
+  const accessEpoch = ref(0)
   let unsubscribe: (() => void) | null = null
 
   const personal = computed(() => list.value.filter(d => d.scope === 'personal'))
@@ -112,21 +116,18 @@ export const useDashboardStore = defineStore('dashboards', () => {
       if (evt.event === 'dashboard:changed') {
         const id = Number(evt.data.id)
         const next = new Map(changes.value)
-        next.set(id, (next.get(id) ?? 0) + 1)
+        next.set(id, evt.data.deleted ? -1 : Number(evt.data.revision) || 0)
         changes.value = next
         void fetchList().catch(() => undefined)
       } else if (evt.event === 'access:changed') {
-        // Access changes alter what every dashboard shows; refetch all.
-        const next = new Map<number, number>()
-        for (const d of list.value) next.set(d.id, (changes.value.get(d.id) ?? 0) + 1)
-        changes.value = next
+        accessEpoch.value++
         void fetchList().catch(() => undefined)
       }
     })
   }
 
   return {
-    list, admin, loaded, changes, personal, shared,
+    list, admin, loaded, changes, accessEpoch, personal, shared,
     fetchList, get, create, save, remove, share, history, revision, accessPreview,
     lastDashboardId, rememberDashboard, listen,
   }

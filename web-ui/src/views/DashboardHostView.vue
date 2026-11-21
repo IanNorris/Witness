@@ -63,7 +63,10 @@ async function load(showSpinner = true) {
 }
 watch(dashboardId, () => load())
 // Published changes re-lay out in place; mounted cameras keep their players.
-watch(() => store.changes.get(dashboardId.value), (next, previous) => { if (next !== previous) void load(false) })
+watch(() => store.changes.get(dashboardId.value), announced => {
+  if (announced !== undefined && announced !== record.value?.revision) void load(false)
+})
+watch(() => store.accessEpoch, () => void load(false))
 
 // ----- Playback (live / DVR scrub-back) -----------------------------------
 const playbackHeld = computed(() => searchingClips.value || playingClip.value !== null || replayCameraId.value !== null)

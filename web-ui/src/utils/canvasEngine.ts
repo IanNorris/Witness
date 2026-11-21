@@ -62,6 +62,38 @@ export function largestEmptyAt(tiles: readonly Placed[], cols: number, rows: num
   return best
 }
 
+// Slot sizes to offer when dropping into empty space: sizes already used on
+// the canvas (most common first), then quarter/sixteenth-style defaults.
+export function preferredSlotSizes(tiles: readonly Rect[], cols: number, rows: number): MinSize[] {
+  const counts = new Map<string, { size: MinSize; n: number }>()
+  for (const t of tiles) {
+    const key = `${t.w}x${t.h}`
+    const entry = counts.get(key) ?? { size: { w: t.w, h: t.h }, n: 0 }
+    entry.n++
+    counts.set(key, entry)
+  }
+  const used = [...counts.values()].sort((a, b) => b.n - a.n || b.size.w * b.size.h - a.size.w * a.size.h).map(e => e.size)
+  const defaults = [2, 3, 4].map(d => ({ w: Math.round(cols / d), h: Math.round(rows / d) }))
+  const result: MinSize[] = []
+  for (const size of [...used, ...defaults]) if (!result.some(s => s.w === size.w && s.h === size.h)) result.push(size)
+  return result
+}
+
+// A slot inside an empty region under the pointer, aligned to that region in
+// multiples of the slot size, so drops line up with a grid of equal tiles.
+// The first preferred size that fits wins; tries are bounded by `min`.
+export function slotAt(region: Rect, gx: number, gy: number, preferred: readonly MinSize[], min: MinSize): Rect {
+  for (const size of preferred) {
+    if (size.w < min.w || size.h < min.h || size.w > region.w || size.h > region.h) continue
+    const column = Math.max(0, Math.floor((gx - region.x) / size.w))
+    const row = Math.max(0, Math.floor((gy - region.y) / size.h))
+    const x = Math.min(region.x + column * size.w, region.x + region.w - size.w)
+    const y = Math.min(region.y + row * size.h, region.y + region.h - size.h)
+    return { x, y, w: size.w, h: size.h }
+  }
+  return region
+}
+
 export function firstEmptySpot(tiles: readonly Placed[], cols: number, rows: number, size: MinSize): Rect | null {
   for (let y = 0; y + size.h <= rows; y++)
     for (let x = 0; x + size.w <= cols; x++) {
@@ -209,8 +241,10 @@ export type DropTarget =
 // Interprets a pointer position (fractional grid units) during a drag.
 // Over a tile's outer 25% edge zone: split; over its centre: swap/replace;
 // over empty space: place into the largest empty rectangle there.
+// With `slots`, empty-space drops snap to a slot of one of those sizes
+// (see slotAt); without, they fill the whole empty rectangle.
 export function findDropTarget(tiles: readonly Placed[], gx: number, gy: number, cols: number, rows: number,
-  dragged: string | null, minFor: (id: string) => MinSize, incomingMin: MinSize): DropTarget {
+  dragged: string | null, minFor: (id: string) => MinSize, incomingMin: MinSize, slots?: readonly MinSize[]): DropTarget {
   if (gx < 0 || gy < 0 || gx >= cols || gy >= rows) return { kind: 'none' }
   const over = tiles.find(t => t.id !== dragged && gx >= t.x && gx < t.x + t.w && gy >= t.y && gy < t.y + t.h)
   if (over) {
@@ -227,7 +261,7 @@ export function findDropTarget(tiles: readonly Placed[], gx: number, gy: number,
   const ignore = dragged ? new Set([dragged]) : undefined
   const rect = largestEmptyAt(tiles, cols, rows, gx, gy, ignore)
   if (!rect || rect.w < incomingMin.w || rect.h < incomingMin.h) return { kind: 'none' }
-  return { kind: 'place', rect }
+  return { kind: 'place', rect: slots ? slotAt(rect, gx, gy, slots, incomingMin) : rect }
 }
 
 // Proportional rescale onto a new grid (e.g. 12x12 -> 48x48), keeping shared

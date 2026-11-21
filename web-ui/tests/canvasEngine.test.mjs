@@ -109,3 +109,27 @@ test('rescale keeps shared edges shared', () => {
   assert.equal(scaled[0].x + scaled[0].w, scaled[1].x)
   assert.ok(engine.isValidLayout(scaled, 48, 48))
 })
+
+test('empty-space drops snap to grid slots instead of filling the whole gap', () => {
+  // A 2 x 2 grid with the right column empty: dropping lands in one 24 x 24 slot.
+  const tiles = [{ id: 'a', x: 0, y: 0, w: 24, h: 24 }, { id: 'b', x: 0, y: 24, w: 24, h: 24 }]
+  const slots = engine.preferredSlotSizes(tiles, 48, 48)
+  assert.deepEqual(slots[0], { w: 24, h: 24 })
+  assert.deepEqual(engine.findDropTarget(tiles, 30, 40, 48, 48, null, min, min(), slots), { kind: 'place', rect: { x: 24, y: 24, w: 24, h: 24 } })
+  assert.deepEqual(engine.findDropTarget(tiles, 30, 5, 48, 48, null, min, min(), slots), { kind: 'place', rect: { x: 24, y: 0, w: 24, h: 24 } })
+  // Without slots (Shift) the whole empty column is used.
+  assert.deepEqual(engine.findDropTarget(tiles, 30, 40, 48, 48, null, min, min()).rect, { x: 24, y: 0, w: 24, h: 48 })
+  // Smaller gaps fall back to the next size that fits, aligned to the gap.
+  const gap = { x: 36, y: 0, w: 12, h: 48 }
+  assert.deepEqual(engine.slotAt(gap, 40, 30, [{ w: 24, h: 24 }, { w: 12, h: 12 }], min()), { x: 36, y: 24, w: 12, h: 12 })
+  // An empty canvas offers a quarter first.
+  assert.deepEqual(engine.preferredSlotSizes([], 48, 48)[0], { w: 24, h: 24 })
+})
+
+test('unlinked edge resize changes only the dragged tile', () => {
+  const tiles = [{ id: 'a', x: 0, y: 0, w: 16, h: 24 }, { id: 'b', x: 16, y: 0, w: 16, h: 24 }, { id: 'c', x: 0, y: 24, w: 16, h: 24 }]
+  const result = engine.resizeTile(tiles, 'b', ['right'], 8, 0, 48, 48, min, false)
+  assert.deepEqual(result.map(t => [t.id, t.x, t.w]), [['a', 0, 16], ['b', 16, 24], ['c', 0, 16]])
+  const shrink = engine.resizeTile(tiles, 'a', ['right'], -6, 0, 48, 48, min, false)
+  assert.deepEqual(shrink.map(t => [t.id, t.x, t.w]), [['a', 0, 10], ['b', 16, 16], ['c', 0, 16]])
+})

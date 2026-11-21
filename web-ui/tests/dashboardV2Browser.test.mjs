@@ -97,6 +97,20 @@ try {
   const firstCamera = await page.locator('.edit-tile', { hasText: 'Garden' }).boundingBox()
   assert.ok(firstCamera.width < frame.width * 0.4, 'split halves the target')
 
+  // Dragging a right edge resizes only that tile (Shift would move the shared divider).
+  const porch = page.locator('.edit-tile', { hasText: 'Porch' })
+  await porch.click()
+  const porchBefore = await porch.boundingBox(), drivewayBefore = await page.locator('.edit-tile', { hasText: 'Driveway' }).boundingBox()
+  const handle = await porch.locator('.handle.h-e').boundingBox()
+  await page.mouse.move(handle.x + 10, handle.y + 10)
+  await page.mouse.down()
+  await page.mouse.move(handle.x + 10 + frame.width * 0.2, handle.y + 10, { steps: 6 })
+  await page.mouse.up()
+  assert.ok((await porch.boundingBox()).width > porchBefore.width + frame.width * 0.15, 'porch grew into the empty slot')
+  assert.deepEqual(await page.locator('.edit-tile', { hasText: 'Driveway' }).boundingBox(), drivewayBefore, 'neighbouring column untouched')
+  await page.keyboard.press('Control+z')
+  assert.equal((await porch.boundingBox()).width, porchBefore.width)
+
   await page.keyboard.press('Control+z')
   assert.ok((await page.locator('.edit-tile', { hasText: 'Garden' }).boundingBox()).width > frame.width * 0.45, 'undo restores the split target')
   await page.keyboard.press('Control+Shift+z')

@@ -13,7 +13,7 @@ import {
   type DashboardDocument, type DashboardRecord, type DashboardTile, type Rect, type SpotlightTile, type TileType,
 } from '../types/dashboard'
 import {
-  findDropTarget, fillGaps, isValidLayout, largestEmptyAt, firstEmptySpot, moveTile, resizeTile, snap, snapToLines,
+  findDropTarget, fillGaps, isValidLayout, largestEmptyAt, firstEmptySpot, preferredSlotSizes, slotAt, moveTile, resizeTile, snap, snapToLines,
   splitTile, swapTiles, equalGrid, type DropTarget, type Edge,
 } from '../utils/canvasEngine'
 import { DASHBOARD_TEMPLATES, fillTemplate, type DashboardTemplate } from '../utils/dashboardTemplates'
@@ -311,7 +311,8 @@ function onDragMove(event: PointerEvent) {
     const yEdge = d.edges.includes('top') ? tile.y : d.edges.includes('bottom') ? tile.y + tile.h : null
     if (xEdge !== null) { const s = snapToLines(xEdge + dx, edgeLines(d.tileId, 'x'), 1); dx = Math.round(s.value) - xEdge; if (s.line !== null) guides.value.x.push(s.line) }
     if (yEdge !== null) { const s = snapToLines(yEdge + dy, edgeLines(d.tileId, 'y'), 1); dy = Math.round(s.value) - yEdge; if (s.line !== null) guides.value.y.push(s.line) }
-    const result = resizeTile(d.original, d.tileId, d.edges, dx, dy, cols.value, rows.value, minFor, !event.ctrlKey)
+    // Only this tile by default; Shift moves the shared divider with its neighbours.
+    const result = resizeTile(d.original, d.tileId, d.edges, dx, dy, cols.value, rows.value, minFor, event.shiftKey)
     if (result) setTiles(result as DashboardTile[])
     const current = doc.value.tiles.find(t => t.id === d.tileId)!
     ghost.value = { rect: current, verb: `${current.w} × ${current.h} cells · ${Math.round(current.w / cols.value * doc.value.target.width)}×${Math.round(current.h / rows.value * doc.value.target.height)}`, valid: !!result }
@@ -324,7 +325,11 @@ function onDragMove(event: PointerEvent) {
   const source: Source | DashboardTile = d.kind === 'new' ? d.source : doc.value.tiles.find(t => t.id === d.tileId)!
   const incomingMin = MIN_SIZE[source.type]
   const dragged = d.kind === 'move' ? d.tileId : null
-  const target = findDropTarget(doc.value.tiles, gx, gy, cols.value, rows.value, dragged, minFor, incomingMin)
+  // Empty-space drops land in a grid slot (sizes already on the canvas first);
+  // Shift fills the whole empty area instead.
+  const others = dragged ? doc.value.tiles.filter(t => t.id !== dragged) : doc.value.tiles
+  const slots = event.shiftKey ? undefined : preferredSlotSizes(others, cols.value, rows.value)
+  const target = findDropTarget(doc.value.tiles, gx, gy, cols.value, rows.value, dragged, minFor, incomingMin, slots)
 
   if (d.kind === 'move' && target.kind !== 'swap' && target.kind !== 'split') {
     // Keep the tile's size where it fits; otherwise fill the empty space.
@@ -341,7 +346,9 @@ function onDragMove(event: PointerEvent) {
       pendingDrop = () => setTiles(moved as DashboardTile[])
       return
     }
-    const space = largestEmptyAt(doc.value.tiles, cols.value, rows.value, gx, gy, new Set([moving.id]))
+    const region = largestEmptyAt(doc.value.tiles, cols.value, rows.value, gx, gy, new Set([moving.id]))
+    const space = region && (event.shiftKey ? region
+      : slotAt(region, gx, gy, [{ w: moving.w, h: moving.h }, ...(slots ?? [])], incomingMin))
     if (space && space.w >= incomingMin.w && space.h >= incomingMin.h) {
       ghost.value = { rect: space, verb: 'Fit here', valid: true }
       pendingDrop = () => applyRects([{ id: moving.id, ...space }])
@@ -608,8 +615,15 @@ onUnmounted(() => {
 })
 watch(dashboardId, () => load())
 // Someone else published while we edit: only flag it; the save conflict flow decides.
-const remoteChanged = ref(false)
-watch(() => store.changes.get(dashboardId.value), (next, previous) => { if (next !== previous && next !== undefined) remoteChanged.value = true })
+// Only a revision newer than ours (or a delete) is someone else's change; our
+// own save announces the revision we already hold.
+const dismissedRemote = ref(0)
+const remoteRevision = computed(() => store.changes.get(dashboardId.value))
+const remoteChanged = computed(() => {
+  const announced = remoteRevision.value
+  if (announced === undefined || !record.value || saving.value) return false
+  return announced === -1 || (announced > record.value.revision && announced !== dismissedRemote.value)
+})
 </script>
 
 <template>
@@ -674,7 +688,7 @@ watch(() => store.changes.get(dashboardId.value), (next, previous) => { if (next
           Unsaved changes from an earlier session were found.
           <button type="button" @click="restoreDraft">Restore</button><button type="button" @click="discardDraft">Discard</button>
         </div>
-        <div v-if="remoteChanged && !conflict" class="banner" role="status">Someone else saved this dashboard. Saving will ask how to combine your changes.<button type="button" @click="remoteChanged = false">OK</button></div>
+        <div v-if="remoteChanged && !conflict" class="banner" role="status">Someone else saved this dashboard. Saving will ask how to combine your changes.<button type="button" @click="dismissedRemote = remoteRevision ?? 0">OK</button></div>
         <div v-if="trayNotice" class="banner" role="status">{{ trayNotice }}<button type="button" @click="trayNotice = ''">×</button></div>
         <div ref="stageRef" class="stage">
           <div ref="frameRef" class="frame" :class="{ 'show-grid': showGrid && mode === 'edit' }"
@@ -710,7 +724,7 @@ watch(() => store.changes.get(dashboardId.value), (next, previous) => { if (next
           <button type="button" @click="doFillGaps" title="Grow tiles into empty space (F)">Fill gaps</button>
           <button type="button" @click="autoArrange" title="Arrange all tiles in an equal grid">Auto-arrange</button>
           <label><input v-model="showGrid" type="checkbox"> Grid (G)</label>
-          <span class="tools-hint">Alt: fine steps · Ctrl while resizing: this tile only · Shift-click: select several</span>
+          <span class="tools-hint">Alt: fine steps · Shift while resizing: move the shared edge · Shift while dropping: fill the empty area · Shift-click: select several</span>
         </div>
       </main>
 
