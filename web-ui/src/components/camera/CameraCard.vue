@@ -18,6 +18,15 @@ const props = defineProps<{
   controlsSelected?: boolean
   layoutMode?: boolean
   fullscreenControlsVisible?: boolean
+  // Dashboards v2: chromeless wall display (fades idle chrome like fullscreen).
+  kiosk?: boolean
+  // Dashboards v2: per-tile stream preference; a per-device choice still wins.
+  tileStream?: 'auto' | 'main' | 'sub'
+  hideName?: boolean
+  // Dashboards v2: double-click maximises the tile instead of exiting fullscreen.
+  doubleClickMaximizes?: boolean
+  // Dashboards v2: the tile's "playback bar" option.
+  noPlaybackBar?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -25,10 +34,14 @@ const emit = defineEmits<{
   openClips: [cameraId: number]
   replay: [cameraId: number]
   dismissControls: []
+  toggleMaximize: [cameraId: number]
 }>()
 
 const settings = useSettingsStore()
-const streamChoice = computed(() => settings.getCameraStreamChoice(props.camera.id))
+const streamChoice = computed(() => {
+  const device = settings.getCameraStreamChoice(props.camera.id)
+  return device !== 'auto' ? device : props.tileStream ?? 'auto'
+})
 const cameraStore = useCameraStore()
 const playback = inject(dashboardPlaybackKey)
 const position = computed(() => playback?.get(props.camera.id))
@@ -84,7 +97,9 @@ function onSingleClick() {
 
 function onDoubleClick() {
   if (clickTimer) { clearTimeout(clickTimer); clickTimer = null }
-  if (settings.fullscreenMode) {
+  if (props.doubleClickMaximizes) {
+    emit('toggleMaximize', props.camera.id)
+  } else if (settings.fullscreenMode) {
     settings.toggleFullscreen()
   } else {
     emit('openStream', props.camera.id)
@@ -194,8 +209,8 @@ onUnmounted(() => {
 
 <template>
   <div class="camera-card" :class="{ 'camera-card-fullscreen': canvasMode, 'controls-selected': controlsSelected,
-    'has-playback-bar': !!playback, 'reviewing': reviewing, 'playback-quiet': !!playback && settings.dashboardQuietControls && !controlsSelected && !reviewing,
-    'playback-idle': !!playback && settings.fullscreenMode && !fullscreenControlsVisible && !reviewing && !playback.isHeld(camera.id) }"
+    'has-playback-bar': !!playback && !noPlaybackBar, 'reviewing': reviewing, 'playback-quiet': !!playback && settings.dashboardQuietControls && !controlsSelected && !reviewing,
+    'playback-idle': !!playback && (settings.fullscreenMode || kiosk) && !fullscreenControlsVisible && !reviewing && !playback.isHeld(camera.id) }"
     @pointermove="touchPlayback" @pointerdown="touchPlayback" @keydown="touchPlayback">
     <div class="camera-preview">
       <div class="camera-video-wrap" data-playback-viewport @click.prevent="onSingleClick" @dblclick.prevent="onDoubleClick">
@@ -235,7 +250,7 @@ onUnmounted(() => {
         </div>
 
         <!-- Camera name overlay in fullscreen -->
-        <div v-if="canvasMode" class="camera-name-overlay">
+        <div v-if="canvasMode && !hideName" class="camera-name-overlay">
           {{ camera.name }}
         </div>
         <button v-if="canvasMode && controlsSelected" class="control-selection-label"
@@ -363,7 +378,7 @@ onUnmounted(() => {
       </div>
     </div>
     <div v-if="reviewing && position?.viewedAt" class="dashboard-replay-badge">Replay · {{ new Date(position.viewedAt * 1000).toLocaleTimeString() }}</div>
-    <CameraPlaybackBar v-if="playback" :camera-id="camera.id" :hidden="dashboardHidden" />
+    <CameraPlaybackBar v-if="playback && !noPlaybackBar" :camera-id="camera.id" :hidden="dashboardHidden" />
   </div>
 </template>
 

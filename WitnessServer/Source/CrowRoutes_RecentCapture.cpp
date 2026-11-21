@@ -101,7 +101,7 @@ void CrowListener::StartRecentCaptures() {
             if (context->Events) {
                 crow::json::wvalue event; event["clipUID"] = uid; event["cameraID"] = request.Camera;
                 event["timestamp"] = static_cast<int64_t>(result.ActualFrom); event["duration"] = result.ActualTo - result.TimelineFrom;
-                event["tags"] = ""; context->Events->Broadcast("clip:new", std::move(event));
+                event["tags"] = ""; context->Events->Broadcast("clip:new", std::move(event), request.Camera);
             }
         }
         if (const auto live = liveRequests->Find(request.Destination)) {

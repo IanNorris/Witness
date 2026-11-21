@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <set>
 #include "crow.h"
 #include "Common.h"
 #include "GlobalContext.h"
@@ -18,6 +19,13 @@ namespace CrowAuth
 	// Returns UserUID (>= 0) on success, -1 on failure
 	int IsAuthenticated( const GlobalContext& Context, const crow::request& req, const crow::json::rvalue* body,
 		Action actionType, Privilege requiredPrivilege );
+
+	// Cameras a user can access through CameraGroupMapping x UserGroupMapping.
+	// enabledOnly matches /camera/enum (dashboards); events include disabled cameras.
+	std::set<int> AccessibleCameraIds( const GlobalContext& Context, int userUID, bool enabledOnly );
+
+	// True when the user holds the administrator flag.
+	bool IsAdministrator( const GlobalContext& Context, int userUID );
 
 	// Returns UserUID (> 0) on success, 0 on failure
 	int IsCameraAuthenticated( const GlobalContext& Context, const crow::request& req, const crow::json::rvalue* body,

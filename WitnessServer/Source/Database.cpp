@@ -1,6 +1,7 @@
 #include "Common.h"
 #include "SQLite.h"
 #include "CapturedClipStorage.h"
+#include "DashboardStorage.h"
 
 #include <Log.h>
 
@@ -382,12 +383,12 @@ namespace Database
 	)RAW";
 
 	std::string FindUserForAuth = R"RAW(
-		SELECT UserUID, Username, DisplayName, Enabled, Admin FROM User 
+		SELECT UserUID, Username, DisplayName, Enabled, Admin, LongSession FROM User 
 		WHERE UserUID = @UserUID
 	)RAW";
 
 	std::string FindUsers = R"RAW(
-		SELECT UserUID, Username, DisplayName, Enabled, Admin FROM User 
+		SELECT UserUID, Username, DisplayName, Enabled, Admin, LongSession FROM User 
 	)RAW";
 
 	std::string CreateUser = R"RAW(
@@ -398,6 +399,10 @@ namespace Database
 	std::string DeleteUser = R"RAW(
 		DELETE FROM UserGroupMapping
 			WHERE UserUID = @UserUID;
+		DELETE FROM DashboardShare
+			WHERE PrincipalType = 1 AND PrincipalUID = @UserUID;
+		DELETE FROM Dashboard
+			WHERE OwnerUserUID = @UserUID AND Scope = 0;
 		DELETE FROM Session
 			WHERE UserUID = @UserUID;
 		DELETE FROM User
@@ -417,6 +422,15 @@ namespace Database
 		UPDATE User 
 		SET
 			Admin = @Admin
+		WHERE 
+			Username == @Username
+		;
+	)RAW";
+
+	std::string SetUserLongSessionState = R"RAW(
+		UPDATE User 
+		SET
+			LongSession = @LongSession
 		WHERE 
 			Username == @Username
 		;
@@ -510,6 +524,8 @@ namespace Database
 	)RAW";
 
 	std::string DeleteCamera = R"RAW(
+		DELETE FROM CameraGroupMapping
+			WHERE Camera == @CameraId;
 		DELETE FROM Camera 
 		WHERE 
 				CameraUID == @CameraId 
@@ -707,6 +723,7 @@ namespace Database
 	std::string ResetClipDetectionBulk = R"RAW(
 		UPDATE Clip SET DetectionVersion = 0
 		WHERE (@CameraID = -1 OR Camera = @CameraID)
+		  AND Camera IN (SELECT CGM.Camera FROM CameraGroupMapping CGM INNER JOIN UserGroupMapping UGM ON UGM.`Group` = CGM.`Group` WHERE UGM.UserUID = @UserUID)
 		  AND (RecordMode IS NULL OR RecordMode != 2)
 		  AND Timestamp >= @TimestampFrom
 		  AND Timestamp <= @TimestampTo;
@@ -767,9 +784,11 @@ namespace Database
 
 	std::string DeleteGroup = R"RAW(
 		DELETE FROM CameraGroupMapping
-			WHERE `Group` = @Group;
+			WHERE `Group` = @GroupUID;
 		DELETE FROM UserGroupMapping
-			WHERE `Group` = @Group;
+			WHERE `Group` = @GroupUID;
+		DELETE FROM DashboardShare
+			WHERE PrincipalType = 2 AND PrincipalUID = @GroupUID;
 		DELETE FROM CameraGroup
 			WHERE GroupUID = @GroupUID;
 	)RAW";
@@ -830,11 +849,13 @@ namespace Database
 
 	// Clip review
 	std::string SetClipReviewed = R"RAW(
-		UPDATE Clip SET Reviewed = @Reviewed WHERE ClipUID = @ClipUID;
+		UPDATE Clip SET Reviewed = @Reviewed WHERE ClipUID = @ClipUID
+			AND Camera IN (SELECT CGM.Camera FROM CameraGroupMapping CGM INNER JOIN UserGroupMapping UGM ON UGM.`Group` = CGM.`Group` WHERE UGM.UserUID = @UserUID);
 	)RAW";
 
 	std::string SetAllClipsReviewed = R"RAW(
-		UPDATE Clip SET Reviewed = 1 WHERE Reviewed = 0;
+		UPDATE Clip SET Reviewed = 1 WHERE Reviewed = 0
+			AND Camera IN (SELECT CGM.Camera FROM CameraGroupMapping CGM INNER JOIN UserGroupMapping UGM ON UGM.`Group` = CGM.`Group` WHERE UGM.UserUID = @UserUID);
 	)RAW";
 
 	std::string SelectRecentUnreviewed = R"RAW(
@@ -853,6 +874,7 @@ namespace Database
 		SELECT date(Timestamp, 'unixepoch', 'localtime') AS day, COUNT(*) AS cnt
 		FROM Clip
 		WHERE Timestamp >= @TimestampFrom AND Timestamp < @TimestampTo
+			AND Camera IN (SELECT CGM.Camera FROM CameraGroupMapping CGM INNER JOIN UserGroupMapping UGM ON UGM.`Group` = CGM.`Group` WHERE UGM.UserUID = @UserUID)
 		GROUP BY day
 		ORDER BY day;
 	)RAW";
@@ -864,6 +886,7 @@ namespace Database
 		FROM Clip
 		INNER JOIN Camera ON Camera.CameraUID = Clip.Camera
 		WHERE Clip.Timestamp >= @TimestampFrom AND Clip.Timestamp < @TimestampTo
+			AND Clip.Camera IN (SELECT CGM.Camera FROM CameraGroupMapping CGM INNER JOIN UserGroupMapping UGM ON UGM.`Group` = CGM.`Group` WHERE UGM.UserUID = @UserUID)
 		ORDER BY Clip.Timestamp ASC;
 	)RAW";
 
@@ -1309,6 +1332,9 @@ namespace Database
 		// Duration is not a lifecycle marker: a valid sub-second clip is zero.
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Clip ADD COLUMN RecordingFinalized INTEGER;", nullptr, nullptr, nullptr );
 		EnsureCapturedClipSchema(DB->GetDatabase());
+		// Long-session accounts (unattended wall displays) keep a renewing cookie.
+		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE User ADD COLUMN LongSession INTEGER NOT NULL DEFAULT 0;", nullptr, nullptr, nullptr );
+		EnsureDashboardSchema(DB->GetDatabase());
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN ContinuousRecording INT DEFAULT 0;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE Camera ADD COLUMN LowLatencyHLS INT DEFAULT 0;", nullptr, nullptr, nullptr );
 		sqlite3_exec( DB->GetDatabase(), "ALTER TABLE ContinuousSegment ADD COLUMN FileSize INTEGER DEFAULT 0;", nullptr, nullptr, nullptr );
@@ -1426,6 +1452,7 @@ namespace Database
 		CREATE_QUERY( DeleteUser );
 		CREATE_QUERY( SetUserEnabledState );
 		CREATE_QUERY( SetUserAdminState );
+		CREATE_QUERY( SetUserLongSessionState );
 		CREATE_QUERY( SetUserDisplayName );
 		CREATE_QUERY( SetUserPassword );
 

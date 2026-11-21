@@ -152,15 +152,6 @@ void CrowListener::HandleCameraTagExclusions( const crow::request& req, crow::re
 
 void CrowListener::HandleClipReview( const crow::request& req, crow::response& res )
 {
-	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, nullptr,
-		CrowAuth::Action::ReadWrite, CrowAuth::Privilege::Normal );
-	if( UserUID < 0 )
-	{
-		res.code = 403;
-		res.end();
-		return;
-	}
-
 	auto body = crow::json::load( req.body );
 	if( !body )
 	{
@@ -169,9 +160,21 @@ void CrowListener::HandleClipReview( const crow::request& req, crow::response& r
 		return;
 	}
 
+	// Writes need the CSRF token from the body. Updates are limited to clips
+	// from cameras the user can access (enforced in the SQL).
+	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, &body,
+		CrowAuth::Action::ReadWrite, CrowAuth::Privilege::Normal );
+	if( UserUID < 0 )
+	{
+		res.code = 403;
+		res.end();
+		return;
+	}
+
 	if( body.has("all") && body["all"].b() )
 	{
 		SQLiteDatabaseQueryInstance q( m_GlobalContext->Database, "SetAllClipsReviewed" );
+		q->Bind( "@UserUID", UserUID );
 		q->Execute( nullptr );
 	}
 	else if( body.has("ids") )
@@ -182,6 +185,7 @@ void CrowListener::HandleClipReview( const crow::request& req, crow::response& r
 			SQLiteDatabaseQueryInstance q( m_GlobalContext->Database, "SetClipReviewed" );
 			q->Bind( "@ClipUID", clipId );
 			q->Bind( "@Reviewed", 1 );
+			q->Bind( "@UserUID", UserUID );
 			q->Execute( nullptr );
 		}
 	}
@@ -192,6 +196,7 @@ void CrowListener::HandleClipReview( const crow::request& req, crow::response& r
 		SQLiteDatabaseQueryInstance q( m_GlobalContext->Database, "SetClipReviewed" );
 		q->Bind( "@ClipUID", clipId );
 		q->Bind( "@Reviewed", reviewed );
+		q->Bind( "@UserUID", UserUID );
 		q->Execute( nullptr );
 	}
 
@@ -309,6 +314,7 @@ void CrowListener::HandleClipCalendar( const crow::request& req, crow::response&
 	std::vector<crow::json::wvalue> days;
 
 	SQLiteDatabaseQueryInstance q( m_GlobalContext->Database, "SelectClipCountsByDay" );
+	q->Bind( "@UserUID", UserUID );
 	q->Bind( "@TimestampFrom", (int64_t)startTime );
 	q->Bind( "@TimestampTo", (int64_t)endTime );
 
@@ -373,6 +379,7 @@ void CrowListener::HandleClipTimeline( const crow::request& req, crow::response&
 	std::vector<RawClip> rawClips;
 
 	SQLiteDatabaseQueryInstance q( m_GlobalContext->Database, "SelectClipsForTimeline" );
+	q->Bind( "@UserUID", UserUID );
 	q->Bind( "@TimestampFrom", tsFrom );
 	q->Bind( "@TimestampTo", tsTo );
 

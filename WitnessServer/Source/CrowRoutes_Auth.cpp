@@ -1,5 +1,8 @@
 #include "CrowListener.h"
+
+namespace { constexpr int SessionCookieLongMaxAge = 60 * 60 * 24 * 400; }
 #include "CrowAuth.h"
+#include "EventBroadcaster.h"
 #include "GlobalContext.h"
 #include "AuthHelpers.h"
 #include "sodium.h"
@@ -84,6 +87,7 @@ void CrowListener::HandleAuthLogin( const crow::request& req, crow::response& re
 		}
 	}
 
+	int LongSession = 0;
 	int Enabled = 0;
 	int Admin = 0;
 
@@ -97,6 +101,7 @@ void CrowListener::HandleAuthLogin( const crow::request& req, crow::response& re
 			{
 				Enabled = query.GetColumnValueInt( 3 );
 				Admin = query.GetColumnValueInt( 4 );
+				LongSession = query.GetColumnValueInt( 5 );
 				Success = true;
 				return true;
 			}
@@ -128,7 +133,9 @@ void CrowListener::HandleAuthLogin( const crow::request& req, crow::response& re
 		std::string PortName = std::to_string( m_Port );
 		std::string SessionTokenValue = "SessionToken-" + PortName;
 
-		std::string MaxAge = std::to_string( 60 * 60 * 24 * 30 * 2 ); // +2 Months
+		// Long-session accounts get the longest lifetime browsers honour (400 days);
+		// /auth/profile renews it, so an unattended display stays signed in.
+		std::string MaxAge = LongSession ? std::to_string( SessionCookieLongMaxAge ) : std::to_string( 60 * 60 * 24 * 30 * 2 ); // +2 Months
 		res.add_header( "Set-Cookie", SessionTokenValue + "=" + SessionToken + "; HttpOnly; Secure; SameSite=Strict; Path=/; max-age=" + MaxAge + ";" );
 
 		res.set_header( "Content-Type", "application/json" );
@@ -202,6 +209,7 @@ void CrowListener::HandleAuthGetProfile( const crow::request& req, crow::respons
 
 	std::string DisplayName;
 	int Enabled = 0;
+	int LongSession = 0;
 	int Admin = 0;
 
 	bool UserFound = false;
@@ -217,6 +225,7 @@ void CrowListener::HandleAuthGetProfile( const crow::request& req, crow::respons
 				DisplayName = query.GetColumnValueText( 2 );
 				Enabled = query.GetColumnValueInt( 3 );
 				Admin = query.GetColumnValueInt( 4 );
+				LongSession = query.GetColumnValueInt( 5 );
 				UserFound = true;
 				return true;
 			}
@@ -231,6 +240,15 @@ void CrowListener::HandleAuthGetProfile( const crow::request& req, crow::respons
 		ResponseBody["userUid"] = UserUID;
 		ResponseBody["admin"] = Admin;
 		ResponseBody["displayName"] = DisplayName;
+		ResponseBody["longSession"] = LongSession != 0;
+
+		if( LongSession )
+		{
+			// Renew on use: re-issue the same token with a fresh lifetime.
+			std::string PortName = std::to_string( m_Port );
+			res.add_header( "Set-Cookie", "SessionToken-" + PortName + "=" + SessionToken +
+				"; HttpOnly; Secure; SameSite=Strict; Path=/; max-age=" + std::to_string( SessionCookieLongMaxAge ) + ";" );
+		}
 
 		// Supply server-local clock information without assuming the viewer's timezone.
 		const auto now = std::chrono::system_clock::now();
@@ -291,6 +309,7 @@ void CrowListener::HandleAuthEnumUsers( const crow::request& req, crow::response
 			User["displayName"] = query.GetColumnValueText( 2 );
 			User["enabled"] = query.GetColumnValueInt( 3 );
 			User["admin"] = query.GetColumnValueInt( 4 );
+			User["longSession"] = query.GetColumnValueInt( 5 );
 
 			Array.push_back( std::move( User ) );
 			LookupArray.push_back( UserLookup{ uid, (int)Array.size() - 1 } );
@@ -554,6 +573,51 @@ void CrowListener::HandleAuthToggleAdmin( const crow::request& req, crow::respon
 	res.end();
 }
 
+void CrowListener::HandleAuthToggleLongSession( const crow::request& req, crow::response& res )
+{
+	auto body = crow::json::load( req.body );
+	if( !body )
+	{
+		res.code = 400;
+		res.end();
+		return;
+	}
+
+	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, &body,
+		CrowAuth::Action::ReadWrite, CrowAuth::Privilege::Administrator );
+	if( UserUID < 0 )
+	{
+		res.code = 400;
+		res.end();
+		return;
+	}
+
+	if( !body.has("username") || !body.has("value") )
+	{
+		res.code = 400;
+		res.body = "Missing fields";
+		res.end();
+		return;
+	}
+
+	std::string UsernameStr = body["username"].s();
+	bool Value = body["value"].b();
+	std::string Username( UsernameStr.begin(), UsernameStr.end() );
+
+	SQLiteDatabaseQueryInstance SetUserLongSessionState( m_GlobalContext->Database, "SetUserLongSessionState" );
+	SetUserLongSessionState->Bind( "@Username", Username.c_str() );
+	SetUserLongSessionState->Bind( "@LongSession", Value ? 1 : 0 );
+
+	int Result = SetUserLongSessionState->Execute(
+		[&]( const SQLiteDatabaseQuery& query ) { return true; }
+	);
+
+	res.set_header( "Content-Type", "application/json" );
+	res.body = "{}";
+	res.code = Result >= 0 ? 200 : 500;
+	res.end();
+}
+
 void CrowListener::HandleAuthSetDisplayName( const crow::request& req, crow::response& res )
 {
 	auto body = crow::json::load( req.body );
@@ -670,6 +734,8 @@ void CrowListener::HandleAuthSetUserGroups( const crow::request& req, crow::resp
 			DeleteMapping->Execute( [&]( const SQLiteDatabaseQuery& query ) { return true; } );
 		}
 	}
+
+	m_GlobalContext->Events->InvalidateAccess();
 
 	res.set_header( "Content-Type", "application/json" );
 	res.body = "{}";

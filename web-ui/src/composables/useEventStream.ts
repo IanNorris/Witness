@@ -126,6 +126,11 @@ function installCameraHandler() {
       cameraStore.cameras = [...cameraStore.cameras]
     }
 
+    // Group mappings changed: the visible camera set may differ now.
+    if (evt.event === 'access:changed') {
+      void cameraStore.fetchCameras()
+    }
+
     if (evt.event === 'camera:recording') {
       const d = evt.data as { cameraID: number; recording: boolean }
       const cam = cameraStore.getCameraById(d.cameraID)

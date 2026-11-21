@@ -338,7 +338,7 @@ void CameraWorker::CreateInputStream()
 					ev["from"] = startTimestamp;
 					ev["to"] = endTimestamp;
 					ev["duration"] = duration;
-					Context->Events->Broadcast("dvr:segment", std::move(ev));
+					Context->Events->Broadcast("dvr:segment", std::move(ev), cameraUID);
 				}
 			);
 		}
@@ -687,7 +687,7 @@ void CameraWorker::WorkerInit()
 												recEv["name"] = matchedName;
 												recEv["confidence"] = matchConf;
 												recEv["timestamp"] = frame.Timestamp;
-												events->Broadcast( "face:recognized", std::move( recEv ) );
+												events->Broadcast( "face:recognized", std::move( recEv ), frame.CameraID );
 											}
 										}
 
@@ -733,7 +733,7 @@ void CameraWorker::WorkerInit()
 			}
 
 			ev["boxes"] = std::move( boxArray );
-			events->Broadcast( "detection:frame", std::move( ev ) );
+			events->Broadcast( "detection:frame", std::move( ev ), frame.CameraID );
 
 			// Trigger detection-based actions only during active motion (not baseline/idle)
 			if( frame.IsMotion && soundManager )

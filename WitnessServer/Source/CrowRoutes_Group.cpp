@@ -1,12 +1,14 @@
 #include "CrowListener.h"
 #include "CrowAuth.h"
+#include "EventBroadcaster.h"
 #include "GlobalContext.h"
 // ===== Group Handlers =====
 
 void CrowListener::HandleGroupEnum( const crow::request& req, crow::response& res )
 {
+	// Access groups are an administrative concept (dashboards v2).
 	int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, nullptr,
-		CrowAuth::Action::Read, CrowAuth::Privilege::Normal );
+		CrowAuth::Action::Read, CrowAuth::Privilege::Administrator );
 	if( UserUID < 0 )
 	{
 		res.code = 400;
@@ -155,6 +157,7 @@ void CrowListener::HandleGroupDelete( const crow::request& req, crow::response& 
 	SQLiteDatabaseQueryInstance DeleteGroup( m_GlobalContext->Database, "DeleteGroup" );
 	DeleteGroup->Bind( "@GroupUID", GroupUID );
 	DeleteGroup->Execute( nullptr );
+	m_GlobalContext->Events->InvalidateAccess();
 
 	res.set_header( "Content-Type", "application/json" );
 	res.body = "{}";

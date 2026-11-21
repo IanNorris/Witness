@@ -162,6 +162,7 @@ void ClipReprocessWorker::MarkClipProcessed( int64_t clipUID )
 void ClipReprocessWorker::ProcessClip( int64_t clipUID, int64_t timestamp, int camera, int recordMode, const std::string& existingTags,
 	int queuePosition, int queueTotal )
 {
+	m_ProgressCamera = camera;
 	// Build clip filename: {Camera}_{Auto|Manual}_{Timestamp}.mp4
 	std::stringstream nameStream;
 	nameStream << camera << "_" << ( recordMode == 1 ? "Auto" : "Manual" ) << "_" << timestamp << ".mp4";
@@ -878,7 +879,7 @@ void ClipReprocessWorker::BroadcastProgress( int64_t clipUID, const std::string&
 		ev["tags"] = tags;
 	if( lighting >= 0 )
 		ev["lighting"] = lighting;
-	Events->Broadcast( "reprocess:progress", std::move( ev ) );
+	Events->Broadcast( "reprocess:progress", std::move( ev ), clipUID > 0 ? m_ProgressCamera : 0 );
 }
 
 void ClipReprocessWorker::BackfillLighting()

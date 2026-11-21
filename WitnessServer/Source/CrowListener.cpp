@@ -481,6 +481,12 @@ void CrowListener::RegisterRoutes()
 		HandleAuthToggleAdmin( req, res );
 	});
 
+	CROW_ROUTE( m_App, "/auth/toggle_long_session" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res )
+	{
+		HandleAuthToggleLongSession( req, res );
+	});
+
 	CROW_ROUTE( m_App, "/auth/set_display_name" ).methods( crow::HTTPMethod::POST )
 	([this]( const crow::request& req, crow::response& res )
 	{
@@ -599,6 +605,26 @@ void CrowListener::RegisterRoutes()
 	{
 		HandleCameraTagExclusions( req, res, cameraId );
 	});
+
+	// Dashboards (v2)
+	CROW_ROUTE( m_App, "/dashboard/enum" )
+	([this]( const crow::request& req, crow::response& res ) { HandleDashboardEnum( req, res ); });
+	CROW_ROUTE( m_App, "/dashboard/get/<int>" )
+	([this]( const crow::request& req, crow::response& res, int id ) { HandleDashboardGet( req, res, id ); });
+	CROW_ROUTE( m_App, "/dashboard/history/<int>" )
+	([this]( const crow::request& req, crow::response& res, int id ) { HandleDashboardHistory( req, res, id ); });
+	CROW_ROUTE( m_App, "/dashboard/revision/<int>/<int>" )
+	([this]( const crow::request& req, crow::response& res, int id, int revision ) { HandleDashboardRevision( req, res, id, revision ); });
+	CROW_ROUTE( m_App, "/dashboard/access_preview/<int>" )
+	([this]( const crow::request& req, crow::response& res, int id ) { HandleDashboardAccessPreview( req, res, id ); });
+	CROW_ROUTE( m_App, "/dashboard/create" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res ) { HandleDashboardCreate( req, res ); });
+	CROW_ROUTE( m_App, "/dashboard/update" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res ) { HandleDashboardUpdate( req, res ); });
+	CROW_ROUTE( m_App, "/dashboard/delete" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res ) { HandleDashboardDelete( req, res ); });
+	CROW_ROUTE( m_App, "/dashboard/share" ).methods( crow::HTTPMethod::POST )
+	([this]( const crow::request& req, crow::response& res ) { HandleDashboardShare( req, res ); });
 
 	// Groups
 	CROW_ROUTE( m_App, "/group/enum" )
@@ -1113,16 +1139,22 @@ void CrowListener::RegisterRoutes()
 
 	// WebSocket event stream
 	CROW_WEBSOCKET_ROUTE( m_App, "/ws/events" )
-		.onaccept([this]( const crow::request& req, void** ) -> bool
+		.onaccept([this]( const crow::request& req, void** userdata ) -> bool
 		{
 			// Reject unauthenticated WebSocket connections
 			int UserUID = CrowAuth::IsAuthenticated( *m_GlobalContext, req, nullptr,
 				CrowAuth::Action::Read, CrowAuth::Privilege::Normal );
-			return UserUID >= 0;
+			if( UserUID < 0 )
+				return false;
+			// Remember the user so camera-scoped events can be filtered.
+			*userdata = reinterpret_cast<void*>( static_cast<intptr_t>( UserUID ) );
+			return true;
 		})
 		.onopen([this]( crow::websocket::connection& conn )
 		{
-			m_GlobalContext->Events->AddConnection( &conn );
+			const int UserUID = static_cast<int>( reinterpret_cast<intptr_t>( conn.userdata() ) );
+			m_GlobalContext->Events->AddConnection( &conn, UserUID );
+			const std::set<int> allowedCameras = m_GlobalContext->Events->AllowedCameras( UserUID );
 
 			// Send initial state: all cameras with recording status
 			crow::json::wvalue initData;
@@ -1131,6 +1163,8 @@ void CrowListener::RegisterRoutes()
 				std::shared_lock<std::shared_mutex> lock( m_GlobalContext->Mutex );
 				for( auto& [id, state] : m_GlobalContext->GetCameraMap() )
 				{
+					if( !EventVisibleTo( id, allowedCameras ) )
+						continue;
 					crow::json::wvalue cam;
 					cam["cameraID"] = id;
 					cam["name"] = state.Name;

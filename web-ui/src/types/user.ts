@@ -19,4 +19,6 @@ export interface AuthProfile {
   username: string
   admin: boolean
   displayName: string
+  userUid?: number
+  longSession?: boolean
 }

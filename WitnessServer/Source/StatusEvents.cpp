@@ -27,7 +27,7 @@ void WitnessServer::HandleCameraReconnectMessage(const CameraReconnectMessage& D
 		ev["status"] = "Reconnecting";
 		ev["recording"] = false;
 		ev["motionActive"] = false;
-		Context->Events->Broadcast( "camera:state", std::move( ev ) );
+		Context->Events->Broadcast( "camera:state", std::move( ev ), Data.Camera );
 	}
 }
 
@@ -39,7 +39,7 @@ void WitnessServer::HandleCameraConnectedMessage(const CameraConnectedMessage& D
 		crow::json::wvalue ev;
 		ev["cameraID"] = Data.Camera;
 		ev["status"] = "Connected";
-		Context->Events->Broadcast( "camera:state", std::move( ev ) );
+		Context->Events->Broadcast( "camera:state", std::move( ev ), Data.Camera );
 	}
 
 	if( !AllCamerasReported )

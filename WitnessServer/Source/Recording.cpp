@@ -128,7 +128,7 @@ void WitnessServer::StopCameraRecording( const ClipStatistics& ClipStats, int Ca
 			ev["timestamp"] = (int64_t)ClipStats.TimestampClipStarted;
 			ev["duration"] = (int64_t)(ClipStats.TimestampClipEnded - ClipStats.TimestampClipStarted);
 			ev["tags"] = Tags;
-			Context->Events->Broadcast( "clip:new", std::move( ev ) );
+			Context->Events->Broadcast( "clip:new", std::move( ev ), CameraID );
 
 			return true;
 		});

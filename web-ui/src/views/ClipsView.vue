@@ -12,7 +12,8 @@ import { useCameraStore } from '../stores/cameras'
 import { useClipStore } from '../stores/clips'
 import { useSettingsStore } from '../stores/settings'
 import { useFilterStore } from '../stores/filters'
-import { useGroupStore } from '../stores/groups'
+import { useDashboardStore } from '../stores/dashboards'
+import { readingOrderCameras } from '../types/dashboard'
 import type { Clip } from '../types/clip'
 
 const route = useRoute()
@@ -20,7 +21,7 @@ const cameraStore = useCameraStore()
 const clipStore = useClipStore()
 const settings = useSettingsStore()
 const filterStore = useFilterStore()
-const groupStore = useGroupStore()
+const dashboardStore = useDashboardStore()
 
 const playingClip = ref<Clip | null>(null)
 const confirmDelete = ref<Clip | null>(null)
@@ -34,21 +35,30 @@ const highlightedClipId = ref<number | null>(null)
 const cameraId = computed(() =>
   route.params.cameraId ? Number(route.params.cameraId) : null
 )
-const groupId = computed(() =>
-  route.params.groupId ? Number(route.params.groupId) : null
+// "Clips for this dashboard": the dashboard's cameras, filtered server-side
+// by the viewer's access like any dashboard read.
+const dashboardId = computed(() =>
+  route.params.dashboardId ? Number(route.params.dashboardId) : null
 )
-const isGroupMode = computed(() => groupId.value !== null)
+const isGroupMode = computed(() => dashboardId.value !== null)
+const dashboardName = ref('')
+const dashboardCameraIds = ref<number[] | null>(null)
 
-const groupCameras = computed(() => {
-  if (!groupId.value) return []
-  return groupStore.camerasInGroup(groupId.value)
-})
+const groupCameras = computed(() =>
+  (dashboardCameraIds.value ?? []).map(id => cameraStore.getCameraById(id)).filter(camera => camera !== undefined)
+)
+
+async function loadDashboardCameras() {
+  dashboardCameraIds.value = null
+  dashboardName.value = ''
+  if (dashboardId.value === null) return
+  const record = await dashboardStore.get(dashboardId.value)
+  dashboardName.value = record?.name ?? 'Dashboard'
+  dashboardCameraIds.value = record ? readingOrderCameras(record.document, cameraStore.cameras.map(camera => camera.id)) : []
+}
 
 const title = computed(() => {
-  if (isGroupMode.value && groupId.value) {
-    const group = groupStore.getGroupById(groupId.value)
-    return group ? group.displayName : 'Group'
-  }
+  if (isGroupMode.value) return `Clips — ${dashboardName.value || 'Dashboard'}`
   if (cameraId.value) {
     const cam = cameraStore.getCameraById(cameraId.value)
     return cam ? `Clips — ${cam.name}` : 'Clips'
@@ -71,9 +81,10 @@ async function loadClips() {
   if (cameraStore.cameras.length === 0) {
     await cameraStore.fetchCameras()
   }
-  // The server applies group and duration filters before LIMIT/OFFSET.
+  // The server applies camera-list and duration filters before LIMIT/OFFSET.
+  if (isGroupMode.value && dashboardCameraIds.value === null) await loadDashboardCameras()
   const camId = isGroupMode.value ? null : cameraId.value
-  await clipStore.fetchClips(camId, 0, false, groupId.value)
+  await clipStore.fetchClips(camId, 0, false, isGroupMode.value ? dashboardCameraIds.value : null)
 }
 
 // If navigated with ?t= query param (e.g. from trails view), set time range around that timestamp
@@ -88,7 +99,7 @@ function applyTimestampQuery() {
 }
 
 watch(cameraId, () => loadClips())
-watch(groupId, () => { trailFilterClipIds.value = null; loadClips() })
+watch(dashboardId, async () => { trailFilterClipIds.value = null; await loadDashboardCameras(); loadClips() })
 watch(() => filterStore.filterQueryString, () => loadClips())
 watch(() => filterStore.timeRange, () => loadClips())
 watch(() => settings.hideShortClips, () => loadClips())
@@ -96,9 +107,6 @@ onMounted(async () => {
   applyTimestampQuery()
   if (route.query.trails === '1') {
     settings.showTrails = true
-  }
-  if (groupStore.groups.length === 0) {
-    await groupStore.fetchGroups()
   }
   if (!route.query.t) {
     await loadClips()
@@ -149,7 +157,7 @@ function changePageSize(event: Event) {
   const val = Number((event.target as HTMLSelectElement).value)
   settings.clipsPerPage = val
   const camId = isGroupMode.value ? null : cameraId.value
-  clipStore.fetchClips(camId, 0, false, groupId.value)
+  clipStore.fetchClips(camId, 0, false, isGroupMode.value ? dashboardCameraIds.value : null)
 }
 
 function handleTagClick(_tag: string) {

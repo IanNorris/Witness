@@ -148,3 +148,38 @@ int CrowAuth::IsCameraAuthenticated( const GlobalContext& Context, const crow::r
 
 	return Success ? UserUID : 0;
 }
+
+
+std::set<int> CrowAuth::AccessibleCameraIds( const GlobalContext& Context, int userUID, bool enabledOnly )
+{
+	std::set<int> Result;
+	if( userUID <= 0 )
+		return Result;
+	SQLiteDatabaseQueryInstance GetCamerasForUser( Context.Database, "GetCamerasForUser" );
+	GetCamerasForUser->Bind( "@User", userUID );
+	GetCamerasForUser->Execute(
+		[&]( const SQLiteDatabaseQuery& query )
+		{
+			// Column 0 is CameraUID, column 5 is Enabled (see Camera table).
+			if( !enabledOnly || query.GetColumnValueInt( 5 ) != 0 )
+				Result.insert( query.GetColumnValueInt( 0 ) );
+			return true;
+		}
+	);
+	return Result;
+}
+
+bool CrowAuth::IsAdministrator( const GlobalContext& Context, int userUID )
+{
+	bool Admin = false;
+	SQLiteDatabaseQueryInstance FindUserForAuth( Context.Database, "FindUserForAuth" );
+	FindUserForAuth->Bind( "@UserUID", userUID );
+	FindUserForAuth->Execute(
+		[&]( const SQLiteDatabaseQuery& query )
+		{
+			Admin = query.GetColumnValueInt( 4 ) != 0 && query.GetColumnValueInt( 3 ) != 0;
+			return true;
+		}
+	);
+	return Admin;
+}

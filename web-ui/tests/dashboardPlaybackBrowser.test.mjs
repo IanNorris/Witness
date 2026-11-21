@@ -23,6 +23,13 @@ const server = createServer(async (req, res) => {
     if (path === '/auth/profile') return json(res, { csrf: 'synthetic', username: 'tester', admin: false, serverTimeUnixMs: now * 1000, serverUtcOffsetMinutes: 120 })
     if (path === '/camera/enum') return json(res, cameras)
     if (path === '/group/enum') return json(res, { groups: [] })
+    // Dashboards v2: one personal wall dashboard with both cameras and a clock badge.
+    const wall = { id: 1, name: 'Synthetic wall', scope: 'personal', kind: 'canvas', revision: 1, updatedAt: now, owned: true, canEdit: true, tiles: 2, redacted: 0, cameras: [8, 9] }
+    if (path === '/dashboard/enum') return json(res, { dashboards: [wall], admin: false })
+    if (path === '/dashboard/get/1') return json(res, { ...wall, document: { schema: 2, kind: 'canvas', grid: { cols: 48, rows: 48, gap: 4, radius: 8 }, target: { width: 1920, height: 1080 },
+      tiles: [{ id: 'a', type: 'camera', camera: 8, x: 0, y: 0, w: 24, h: 48, stream: 'auto', fit: 'contain', label: true, playback: true },
+        { id: 'b', type: 'camera', camera: 9, x: 24, y: 0, w: 24, h: 48, stream: 'auto', fit: 'contain', label: true, playback: true }],
+      badges: [{ id: 'b1', type: 'clock', anchor: 'bottom-right', size: 'm' }], behavior: { priority: [], returnToLiveSeconds: 180, quietControls: true }, mobileOrder: [] } })
     if (activityEnabled && path.startsWith('/clip/recent/')) return json(res, { clips: [{ clipUID: 123, cameraID: 8, timestamp: now - 60, duration: 20, tags: 'person', detectionVersion: 1 }] })
     if (activityEnabled && path.startsWith('/api/detection/8')) return json(res, { frames: [{ boxes: [{ crop: 'X:\\WitnessCache\\crops\\8\\object.jpg', cls: 'person', conf: .9 }] }] })
     if (path.startsWith('/api/detection/crop/') || path.startsWith('/clip/thumb/')) { res.setHeader('Content-Type', 'image/svg+xml'); return res.end('<svg xmlns="http://www.w3.org/2000/svg" width="160" height="90"><rect width="160" height="90" fill="#346"/></svg>') }
@@ -160,11 +167,19 @@ try {
   assert.equal(await page.locator('.recent-replay-panel video').count(), 0, 'saving never opens a duplicate decoder')
   await page.getByRole('button', { name: 'Close ×', exact: true }).click()
   await first.getByRole('button', { name: 'Go Live', exact: true }).click()
-  await page.getByRole('button', { name: 'Full Screen', exact: true }).click()
-  await page.getByRole('checkbox', { name: 'Clock', exact: true }).check()
-  await page.locator('.dashboard-clock').waitFor()
-  assert.equal(await page.locator('.dashboard-clock').getAttribute('title'), 'Server local time')
-  assert.ok((await page.locator('.dashboard-clock').innerText()).includes(new Date((now + 7200) * 1000).toISOString().slice(11, 16)), 'clock uses server offset, not viewer timezone')
+  // Fullscreen now belongs to dashboards: open the wall dashboard, then its kiosk view.
+  await page.getByLabel('Dashboard', { exact: true }).selectOption('1')
+  await page.waitForURL('**/d/1')
+  await page.getByRole('button', { name: 'Full screen', exact: true }).click()
+  await page.waitForURL('**/kiosk/1')
+  await first.waitFor()
+  const clock = page.locator('.dash-badge .clock-tile')
+  await clock.waitFor()
+  assert.equal(await clock.getAttribute('title'), 'Server local time')
+  // Compare against the page's current (fake) time; a minute boundary may pass mid-test.
+  const pageNow = await page.evaluate(() => Date.now())
+  const clockText = await clock.innerText()
+  assert.ok([-60000, 0, 60000].some(skew => clockText.includes(new Date(pageNow + skew + 7200000).toISOString().slice(11, 16))), `clock uses server offset, not viewer timezone (${clockText})`)
   await page.waitForTimeout(3000)
   assert.equal(await first.locator('.camera-playback-bar').evaluate(el => getComputedStyle(el).opacity), '0')
   await page.mouse.move(400, 350)
@@ -176,6 +191,8 @@ try {
   await first.getByRole('button', { name: 'Pause replay', exact: true }).click()
   await page.clock.fastForward(181_000)
   await page.waitForFunction(() => document.querySelectorAll('.dvr-player').length === 0)
+  // The kiosk button requests real browser fullscreen; leave it before resizing.
+  await page.evaluate(() => document.fullscreenElement ? document.exitFullscreen() : undefined)
   for (const width of [390, 320]) {
     await page.setViewportSize({ width, height: 900 })
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'no horizontal overflow')

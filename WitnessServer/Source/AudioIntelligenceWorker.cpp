@@ -242,7 +242,7 @@ void AudioIntelligenceWorker::ProcessClip( int64_t ClipUID, int64_t Timestamp, i
 		EventData["clipUID"] = ClipUID;
 		EventData["cameraID"] = Camera;
 		EventData["eventCount"] = Events.size();
-		Context->Events->Broadcast( "audio:classified", std::move( EventData ) );
+		Context->Events->Broadcast( "audio:classified", std::move( EventData ), Camera );
 		LOG_DEBUG( "Audio intelligence: clip %lld produced %zu grouped events", static_cast<long long>( ClipUID ), Events.size() );
 	}
 	catch( const std::exception& Error )

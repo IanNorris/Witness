@@ -82,7 +82,10 @@ onMounted(fetchGroups)
 <template>
   <div>
     <div class="d-flex justify-content-between align-items-center mb-3">
-      <h6 class="mb-0">Groups</h6>
+      <div>
+        <h6 class="mb-0">Access groups</h6>
+        <p class="small text-muted mb-0">Groups decide which cameras each user can see. Dashboards are managed separately and only ever show cameras the viewer can access.</p>
+      </div>
       <button class="btn btn-sm btn-primary" @click="addGroup">+ Add Group</button>
     </div>
 

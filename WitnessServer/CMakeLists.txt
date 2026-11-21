@@ -21,6 +21,9 @@ set(SERVER_SOURCES
     Source/AuthHelpers.cpp
     Source/ClipHelpers.cpp
     Source/CapturedClipStorage.cpp
+    Source/DashboardDocument.cpp
+    Source/DashboardStorage.cpp
+    Source/CrowRoutes_Dashboard.cpp
     Source/ConfigPaths.cpp
     Source/ClientHealthHistory.cpp
     Source/CpuUsage.cpp
@@ -94,6 +97,8 @@ set(SERVER_HEADERS
     Source/ClientHealthEndpoint.h
     Source/ConfigPaths.h
     Source/DetectionAssetFiles.h
+    Source/DashboardDocument.h
+    Source/DashboardStorage.h
     Source/DetectionCleanup.h
     Source/ClipReprocessWorker.h
     Source/Common.h
@@ -335,6 +340,28 @@ add_executable(CapturedClipStorageTests EXCLUDE_FROM_ALL
     ../Tools/Tests/CapturedClipStorageTests.cpp Source/CapturedClipStorage.cpp)
 target_include_directories(CapturedClipStorageTests PRIVATE Source)
 target_link_libraries(CapturedClipStorageTests PRIVATE WitnessCamera Crow::Crow unofficial::sqlite3::sqlite3)
+
+# Dashboards v2: pure document model, storage visibility matrix, and the
+# camera-scoped event filter.
+add_executable(DashboardDocumentTests EXCLUDE_FROM_ALL
+    ../Tools/Tests/DashboardDocumentTests.cpp Source/DashboardDocument.cpp)
+target_include_directories(DashboardDocumentTests PRIVATE Source)
+target_link_libraries(DashboardDocumentTests PRIVATE Crow::Crow)
+
+add_executable(DashboardStorageTests EXCLUDE_FROM_ALL
+    ../Tools/Tests/DashboardStorageTests.cpp Source/DashboardStorage.cpp)
+target_include_directories(DashboardStorageTests PRIVATE Source)
+target_link_libraries(DashboardStorageTests PRIVATE unofficial::sqlite3::sqlite3)
+
+add_executable(EventAccessFilterTests EXCLUDE_FROM_ALL ../Tools/Tests/EventAccessFilterTests.cpp)
+target_include_directories(EventAccessFilterTests PRIVATE Source)
+target_link_libraries(EventAccessFilterTests PRIVATE WitnessCommon Crow::Crow Threads::Threads)
+
+if(MSVC)
+    foreach(dashboard_test DashboardDocumentTests DashboardStorageTests EventAccessFilterTests)
+        target_compile_options(${dashboard_test} PRIVATE /utf-8 /W3)
+    endforeach()
+endif()
 
 add_executable(ConfigPathsTests EXCLUDE_FROM_ALL
     ../Tools/Tests/ConfigPathsTests.cpp Source/ConfigPaths.cpp)

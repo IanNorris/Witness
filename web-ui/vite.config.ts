@@ -34,6 +34,8 @@ export default defineConfig({
       '/debug': { target: 'https://localhost:11236', secure: false },
       '/setup': { target: 'https://localhost:11236', secure: false },
       '/dvr': { target: 'https://localhost:11236', secure: false },
+      // Regex so the SPA's /dashboards manager route is not proxied.
+      '^/dashboard/': { target: 'https://localhost:11236', secure: false },
       '/ws': { target: 'wss://localhost:11236', secure: false, ws: true },
     },
   },

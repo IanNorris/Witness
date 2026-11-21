@@ -36,6 +36,8 @@ public:
 	);
 
 private:
+	// Camera of the clip currently reported by BroadcastProgress (access filtering).
+	int m_ProgressCamera = 0;
 
 	virtual void WorkerMain() override;
 	void ProcessClip( int64_t clipUID, int64_t timestamp, int camera, int recordMode, const std::string& existingTags,

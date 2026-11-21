@@ -12,7 +12,7 @@ static void BroadcastMotionState( GlobalContext& Context, int CameraID, bool Act
 	crow::json::wvalue Event;
 	Event["cameraID"] = CameraID;
 	Event["active"] = Active;
-	Context.Events->Broadcast( "camera:motion", std::move( Event ) );
+	Context.Events->Broadcast( "camera:motion", std::move( Event ), CameraID );
 }
 
 void WitnessServer::HandleCameraBeginMotionMessage(const CameraBeginMotionMessage& Data)
@@ -87,7 +87,7 @@ void WitnessServer::HandleCameraBeginMotionMessage(const CameraBeginMotionMessag
 				crow::json::wvalue ev;
 				ev["cameraID"] = Data.Camera;
 				ev["recording"] = true;
-				Context->Events->Broadcast( "camera:recording", std::move( ev ) );
+				Context->Events->Broadcast( "camera:recording", std::move( ev ), Data.Camera );
 			}
 		}
 	}
@@ -123,7 +123,7 @@ void WitnessServer::HandleCameraBeginMotionMessage(const CameraBeginMotionMessag
 				crow::json::wvalue pairedEv;
 				pairedEv["cameraID"] = pairedId;
 				pairedEv["recording"] = true;
-				Context->Events->Broadcast("camera:recording", std::move(pairedEv));
+				Context->Events->Broadcast("camera:recording", std::move(pairedEv), pairedId);
 
 				StartCameraRecording(pairedState->Worker, Data.ClipStats.TimestampClipStarted, pairedId, false, Data.Result);
 				LOG_INFO("Motion on camera %d triggered paired camera %d", Data.Camera, pairedId);
@@ -168,7 +168,7 @@ void WitnessServer::HandleCameraEndMotionMessage(const CameraEndMotionMessage& D
 				crow::json::wvalue ev;
 				ev["cameraID"] = Data.Camera;
 				ev["recording"] = false;
-				Context->Events->Broadcast( "camera:recording", std::move( ev ) );
+				Context->Events->Broadcast( "camera:recording", std::move( ev ), Data.Camera );
 			}
 		}
 	}
@@ -208,7 +208,7 @@ void WitnessServer::HandleCameraEndMotionMessage(const CameraEndMotionMessage& D
 				crow::json::wvalue pairedEv;
 				pairedEv["cameraID"] = pairedId;
 				pairedEv["recording"] = false;
-				Context->Events->Broadcast("camera:recording", std::move(pairedEv));
+				Context->Events->Broadcast("camera:recording", std::move(pairedEv), pairedId);
 
 				auto pairedStop = std::make_shared<CameraStopRecordMessage>(pairedId, false);
 				if (pairedState->Worker)

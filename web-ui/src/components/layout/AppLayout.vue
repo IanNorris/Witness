@@ -3,7 +3,6 @@ import { ref, onBeforeUnmount, onMounted, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import { useAuthStore } from '../../stores/auth'
 import { useCameraStore } from '../../stores/cameras'
-import { useGroupStore } from '../../stores/groups'
 import { useEventStream } from '../../composables/useEventStream'
 import { ensureClientHealthResponder, startClientHealthReporting } from '../../composables/useClientHealth'
 import { openHealthMonitor } from '../../composables/useHealthMonitor'
@@ -13,7 +12,6 @@ defineProps<{ wrapActions?: boolean }>()
 
 const auth = useAuthStore()
 const cameraStore = useCameraStore()
-const groupStore = useGroupStore()
 const { connected } = useEventStream()
 const route = useRoute()
 let stopClientHealthResponder: (() => void) | null = null
@@ -56,7 +54,6 @@ watch(
 onMounted(() => {
   updateClock()
   clockTimer = setInterval(updateClock, 1000)
-  groupStore.fetchGroups()
 })
 onBeforeUnmount(() => {
   if (clockTimer) clearInterval(clockTimer)
@@ -87,6 +84,12 @@ onBeforeUnmount(() => {
           </RouterLink>
         </div>
         <div class="nav-item">
+          <RouterLink to="/dashboards" class="nav-link">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M10 10v10"/></svg>
+            Dashboards
+          </RouterLink>
+        </div>
+        <div class="nav-item">
           <RouterLink to="/clips" class="nav-link">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
             All Clips
@@ -100,21 +103,8 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="sidebar-section">Clips</div>
-        <!-- Groups mode: show groups that have cameras -->
-        <template v-if="groupStore.activeGroups.length > 0">
-          <div
-            v-for="group in groupStore.activeGroups"
-            :key="group.id"
-            class="nav-item sidebar-camera"
-          >
-            <RouterLink :to="`/clips/group/${group.id}`" class="nav-link">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="opacity: 0.6"><rect x="2" y="2" width="20" height="20" rx="3"/><line x1="2" y1="10" x2="22" y2="10"/><line x1="12" y1="2" x2="12" y2="22"/></svg>
-              {{ group.displayName }}
-            </RouterLink>
-          </div>
-        </template>
-        <!-- Fallback: show individual cameras when no groups configured -->
-        <template v-else>
+        <!-- Per-camera clip links (groups are access control only) -->
+        <template v-if="cameraStore.cameras.length">
           <div
             v-for="camera in cameraStore.cameras"
             :key="camera.id"
@@ -224,27 +214,20 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="nav-item">
+            <RouterLink to="/dashboards" class="nav-link" @click="mobileMenuOpen = false">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M10 10v10"/></svg>
+              Dashboards
+            </RouterLink>
+          </div>
+          <div class="nav-item">
             <RouterLink to="/dvr" class="nav-link" @click="mobileMenuOpen = false">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
               DVR
             </RouterLink>
           </div>
           <div class="sidebar-section">Clips</div>
-          <!-- Groups mode: show groups that have cameras -->
-          <template v-if="groupStore.activeGroups.length > 0">
-            <div
-              v-for="group in groupStore.activeGroups"
-              :key="group.id"
-              class="nav-item sidebar-camera"
-            >
-              <RouterLink :to="`/clips/group/${group.id}`" class="nav-link" @click="mobileMenuOpen = false">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="opacity: 0.6"><rect x="2" y="2" width="20" height="20" rx="3"/><line x1="2" y1="10" x2="22" y2="10"/><line x1="12" y1="2" x2="12" y2="22"/></svg>
-                {{ group.displayName }}
-              </RouterLink>
-            </div>
-          </template>
-          <!-- Fallback: individual cameras when no groups -->
-          <template v-else>
+          <!-- Per-camera clip links -->
+          <template v-if="cameraStore.cameras.length">
             <div
               v-for="camera in cameraStore.cameras"
               :key="camera.id"

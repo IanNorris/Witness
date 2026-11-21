@@ -4,8 +4,29 @@ import { useAuthStore } from '../stores/auth'
 const routes: RouteRecordRaw[] = [
   {
     path: '/',
-    component: () => import('../views/DashboardView.vue'),
+    component: () => import('../views/OverviewView.vue'),
     meta: { requiresAuth: true },
+  },
+  {
+    path: '/dashboards',
+    component: () => import('../views/DashboardManagerView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/d/:id(\\d+)',
+    component: () => import('../views/DashboardHostView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    path: '/d/:id(\\d+)/edit',
+    component: () => import('../views/DashboardEditView.vue'),
+    meta: { requiresAuth: true },
+  },
+  {
+    // Chromeless wall display. All state is in the URL so reloads restore it.
+    path: '/kiosk/:id(\\d+)',
+    component: () => import('../views/DashboardHostView.vue'),
+    meta: { requiresAuth: true, kiosk: true },
   },
   {
     path: '/clips',
@@ -18,9 +39,14 @@ const routes: RouteRecordRaw[] = [
     meta: { requiresAuth: true },
   },
   {
-    path: '/clips/group/:groupId',
+    // "Clips for this dashboard" (replaces the old per-group clip pages).
+    path: '/clips/dashboard/:dashboardId(\\d+)',
     component: () => import('../views/ClipsView.vue'),
     meta: { requiresAuth: true },
+  },
+  {
+    path: '/clips/group/:groupId',
+    redirect: '/clips',
   },
   {
     path: '/clips/:cameraId',

@@ -15,7 +15,7 @@ onMounted(async () => {
 const tabs = [
   { path: '/admin/cameras', label: 'Cameras' },
   { path: '/admin/users', label: 'Users' },
-  { path: '/admin/groups', label: 'Groups' },
+  { path: '/admin/groups', label: 'Access groups' },
   { path: '/admin/detection', label: 'Detection' },
   { path: '/admin/storage', label: 'Storage' },
   { path: '/admin/streaming', label: 'Streaming' },

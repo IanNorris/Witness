@@ -1,6 +1,7 @@
 #include "Common.h"
 #include "Witness.h"
 #include "CrowListener.h"
+#include "CrowAuth.h"
 #include "EventBroadcaster.h"
 #include "StreamBroadcaster.h"
 #include "SetupServer.h"
@@ -274,6 +275,11 @@ bool WitnessServer::Initialize( DebugConsole* DebugConsoleInstance )
 		return false;
 	}
 
+	{
+		GlobalContext* ctx = Context.get();
+		Context->Events->SetAccessResolver( [ctx]( int userUID )
+			{ return CrowAuth::AccessibleCameraIds( *ctx, userUID, false ); } );
+	}
 	Context->Events->Start();
 	Context->Streams->Start();
 

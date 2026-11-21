@@ -6,6 +6,19 @@ export function setCsrfToken(token: string) {
   csrfToken.value = token
 }
 
+// Carries the HTTP status and parsed JSON body so callers can distinguish
+// e.g. a revision conflict (409) from a validation failure (422).
+export class ApiError extends Error {
+  readonly status: number
+  readonly body: unknown
+  constructor(message: string, status: number, body: unknown) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.body = body
+  }
+}
+
 export interface ApiOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE'
   body?: Record<string, unknown>
@@ -43,11 +56,13 @@ export async function api<T = unknown>(
     }
     // Try to include server error message
     let errorMsg = `API error: ${response.status} ${response.statusText}`
+    let errBody: unknown = null
     try {
-      const errBody = await response.json()
-      if (errBody?.error) errorMsg = errBody.error
+      errBody = await response.json()
+      const error = (errBody as { error?: unknown } | null)?.error
+      if (typeof error === 'string' && error) errorMsg = error
     } catch { /* ignore parse errors */ }
-    throw new Error(errorMsg)
+    throw new ApiError(errorMsg, response.status, errBody)
   }
 
   const text = await response.text()

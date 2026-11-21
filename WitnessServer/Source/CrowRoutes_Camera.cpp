@@ -1,5 +1,6 @@
 #include "CrowListener.h"
 #include "CrowAuth.h"
+#include "EventBroadcaster.h"
 #include "GlobalContext.h"
 #include "CameraWorker.h"
 #include "Messages.h"
@@ -163,7 +164,8 @@ void CrowListener::HandleCameraEnum( const crow::request& req, crow::response& r
 							Camera["ptzEnabled"] = PtzEnabled;
 						}
 
-						Camera["groups"] = std::move( Groups );
+						// Groups are access control only; non-admins never see the mapping.
+						Camera["groups"] = asAdmin ? std::move( Groups ) : std::vector<crow::json::wvalue>{};
 
 						{
 							auto CameraState = m_GlobalContext->FindCameraById( ID );
@@ -462,6 +464,8 @@ void CrowListener::HandleCameraDelete( const crow::request& req, crow::response&
 		DeleteCamera->Execute( nullptr );
 	}
 
+	m_GlobalContext->Events->InvalidateAccess();
+
 	auto DeleteMsg = std::make_shared<CameraRemovedMessage>( CameraUID );
 	m_GlobalContext->MessageBus->SendToClient( nullptr, DeleteMsg );
 
@@ -544,6 +548,7 @@ void CrowListener::HandleCameraSetGroups( const crow::request& req, crow::respon
 		}
 	}
 
+	m_GlobalContext->Events->InvalidateAccess();
 	m_GlobalContext->LongPoll->NotifyAll();
 
 	res.set_header( "Content-Type", "application/json" );

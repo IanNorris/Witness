@@ -137,6 +137,7 @@ private:
 	void HandleAuthNewUser( const crow::request& req, crow::response& res );
 	void HandleAuthChangePassword( const crow::request& req, crow::response& res );
 	void HandleAuthToggleEnabled( const crow::request& req, crow::response& res );
+	void HandleAuthToggleLongSession( const crow::request& req, crow::response& res );
 	void HandleAuthToggleAdmin( const crow::request& req, crow::response& res );
 	void HandleAuthSetDisplayName( const crow::request& req, crow::response& res );
 	void HandleAuthSetUserGroups( const crow::request& req, crow::response& res );
@@ -170,6 +171,15 @@ private:
 	void HandleCameraTagExclusions( const crow::request& req, crow::response& res, int cameraId );
 
 	// Groups
+	void HandleDashboardEnum( const crow::request& req, crow::response& res );
+	void HandleDashboardGet( const crow::request& req, crow::response& res, int id );
+	void HandleDashboardHistory( const crow::request& req, crow::response& res, int id );
+	void HandleDashboardRevision( const crow::request& req, crow::response& res, int id, int revision );
+	void HandleDashboardAccessPreview( const crow::request& req, crow::response& res, int id );
+	void HandleDashboardCreate( const crow::request& req, crow::response& res );
+	void HandleDashboardUpdate( const crow::request& req, crow::response& res );
+	void HandleDashboardDelete( const crow::request& req, crow::response& res );
+	void HandleDashboardShare( const crow::request& req, crow::response& res );
 	void HandleGroupEnum( const crow::request& req, crow::response& res );
 	void HandleGroupCreate( const crow::request& req, crow::response& res );
 	void HandleGroupUpdate( const crow::request& req, crow::response& res );

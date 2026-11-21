@@ -17,6 +17,7 @@ interface User {
   displayName: string
   enabled: number
   admin: number
+  longSession?: number
   groups: number[]
 }
 
@@ -112,6 +113,16 @@ async function toggleAdmin(user: User) {
   user.admin = user.admin ? 0 : 1
 }
 
+// Long session: for unattended wall displays. The account's cookie lasts
+// 400 days and renews whenever the display loads its profile.
+async function toggleLongSession(user: User) {
+  await api('/auth/toggle_long_session', {
+    method: 'POST',
+    body: { username: user.username, value: !user.longSession },
+  })
+  user.longSession = user.longSession ? 0 : 1
+}
+
 function setDisplayName(user: User) {
   inputTitle.value = 'Set Display Name'
   inputLabel.value = 'Display name'
@@ -200,8 +211,9 @@ onMounted(() => {
         <tr>
           <th>Username</th>
           <th>Display Name</th>
-          <th>Groups</th>
+          <th>Access groups</th>
           <th class="text-center">Admin</th>
+          <th class="text-center" title="Stays signed in on unattended wall displays (renewing 400-day session)">Long session</th>
           <th class="text-center">Enabled</th>
           <th>Actions</th>
         </tr>
@@ -234,6 +246,18 @@ onMounted(() => {
                 :disabled="isSelf(user)"
                 :title="isSelf(user) ? 'Cannot change your own admin status' : ''"
                 @change="toggleAdmin(user)"
+              />
+            </div>
+          </td>
+          <td class="text-center">
+            <div class="form-check d-inline-block mb-0">
+              <input
+                class="form-check-input"
+                type="checkbox"
+                :checked="!!user.longSession"
+                :aria-label="`Long session for ${user.username}`"
+                title="For unattended wall displays: the session lasts 400 days and renews on use. Takes effect the next time the display loads."
+                @change="toggleLongSession(user)"
               />
             </div>
           </td>

@@ -22,7 +22,7 @@ export const useClipStore = defineStore('clips', () => {
   const loadError = ref<string | null>(null)
   const pageOffset = ref(0)
   const currentCameraId = ref<number | null>(null)
-  const currentGroupId = ref<number | null>(null)
+  const currentCameraFilter = ref<number[] | null>(null)
   const reprocessStatus = ref<Map<number, ReprocessProgress>>(new Map())
 
   const settings = useSettingsStore()
@@ -44,7 +44,7 @@ export const useClipStore = defineStore('clips', () => {
       if (audioRefreshTimer) clearTimeout(audioRefreshTimer)
       audioRefreshTimer = setTimeout(() => {
         audioRefreshTimer = null
-        void fetchClips(currentCameraId.value, pageOffset.value, false, currentGroupId.value)
+        void fetchClips(currentCameraId.value, pageOffset.value, false, currentCameraFilter.value)
       }, 350)
       return
     }
@@ -79,12 +79,14 @@ export const useClipStore = defineStore('clips', () => {
     reprocessStatus.value = updated
   })
 
-  async function fetchClips(cameraId: number | null, offset = 0, retryingClampedPage = false, groupId: number | null = null) {
+  // cameraFilter narrows an all-camera search (e.g. clips for one dashboard);
+  // the server still intersects it with the user's camera access.
+  async function fetchClips(cameraId: number | null, offset = 0, retryingClampedPage = false, cameraFilter: number[] | null = null) {
     const fetchId = ++latestFetchId
     loading.value = true
     loadError.value = null
     currentCameraId.value = cameraId
-    currentGroupId.value = groupId
+    currentCameraFilter.value = cameraFilter
     pageOffset.value = offset
 
     const camParam = cameraId ?? -1
@@ -105,7 +107,11 @@ export const useClipStore = defineStore('clips', () => {
       if (settings.hideShortClips) {
         query.set('minDuration', String(Math.max(2, Number(query.get('minDuration') ?? 0))))
       }
-      if (groupId !== null) query.set('group', String(groupId))
+      if (cameraFilter !== null) {
+        // An empty dashboard matches nothing; never widen to every camera.
+        if (cameraFilter.length === 0) { clips.value = []; totalCount.value = 0; return }
+        if (cameraId === null) query.set('cameras', cameraFilter.slice(0, 64).join(','))
+      }
       const queryString = query.size ? `?${query.toString()}` : ''
       const data = await api<{ count: number; clips: Record<string, unknown>[] }>(
         `/clip/enum/${camParam}/${pageSize.value}/${startDate}/${rangePeriod}/${offset}${queryString}`
@@ -116,7 +122,7 @@ export const useClipStore = defineStore('clips', () => {
       if (!retryingClampedPage && rawClips.length === 0 && totalCount.value > 0 && offset > 0) {
         const lastPageOffset = Math.max(0, Math.floor((totalCount.value - 1) / pageSize.value) * pageSize.value)
         if (lastPageOffset !== offset) {
-          await fetchClips(cameraId, lastPageOffset, true, groupId)
+          await fetchClips(cameraId, lastPageOffset, true, cameraFilter)
           return
         }
       }
@@ -193,18 +199,18 @@ export const useClipStore = defineStore('clips', () => {
 
   function nextPage() {
     if (currentPage.value < totalPages.value - 1) {
-      fetchClips(currentCameraId.value, pageOffset.value + pageSize.value, false, currentGroupId.value)
+      fetchClips(currentCameraId.value, pageOffset.value + pageSize.value, false, currentCameraFilter.value)
     }
   }
 
   function prevPage() {
     if (pageOffset.value > 0) {
-      fetchClips(currentCameraId.value, Math.max(0, pageOffset.value - pageSize.value), false, currentGroupId.value)
+      fetchClips(currentCameraId.value, Math.max(0, pageOffset.value - pageSize.value), false, currentCameraFilter.value)
     }
   }
 
   function goToPage(page: number) {
-    fetchClips(currentCameraId.value, page * pageSize.value, false, currentGroupId.value)
+    fetchClips(currentCameraId.value, page * pageSize.value, false, currentCameraFilter.value)
   }
 
   function thumbnailUrl(cameraId: number, timestamp: number) {

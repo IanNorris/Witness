@@ -1448,6 +1448,13 @@ void CrowListener::HandleDetectionQuery( const crow::request& req, crow::respons
 		res.end();
 		return;
 	}
+	// Not 403: the web client treats 401/403 as "signed out".
+	if( CrowAuth::AccessibleCameraIds( *m_GlobalContext, UserUID, false ).count( cameraId ) == 0 )
+	{
+		res.code = 404;
+		res.end();
+		return;
+	}
 
 	// Parse from/to query params (epoch seconds)
 	double from = 0, to = 0;

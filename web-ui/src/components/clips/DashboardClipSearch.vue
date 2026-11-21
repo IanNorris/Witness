@@ -10,7 +10,7 @@ import { useTagStore } from '../../stores/tags'
 import { buildActivityGroups, type ActivityGroup } from '../../composables/useActivityGrouping'
 import type { Clip } from '../../types/clip'
 
-const props = defineProps<{ groupId?: number | null; cameraIds?: Set<number> | null }>()
+const props = defineProps<{ cameraIds?: Set<number> | null }>()
 const emit = defineEmits<{ close: [] }>()
 const cameras = useCameraStore(), clips = useClipStore(), filters = useFilterStore(), tags = useTagStore()
 const selectedCamera = ref<number | null>(null)
@@ -28,7 +28,7 @@ let previousFocus: HTMLElement | null = null
 let generation = 0
 let loadTimer: ReturnType<typeof setTimeout> | undefined
 
-function reload() { return clips.fetchClips(selectedCamera.value, 0, false, props.groupId ?? null) }
+function reload() { return clips.fetchClips(selectedCamera.value, 0, false, props.cameraIds ? [...props.cameraIds] : null) }
 function applyTags() {
   const next = tagQuery.value.split(',').map(t => t.trim()).filter(Boolean)
   if (next.join(',') === filters.activeFilters.tags.join(',')) reload()
@@ -55,7 +55,7 @@ function toggleGroup(id: string) {
 }
 watch(() => filters.activeFilters.tags.join(', '), value => { tagQuery.value = value })
 watch(() => filters.timeRange, range => { if (!range) period.value = 'all' })
-watch([selectedCamera, () => props.groupId, () => filters.filterQueryString, () => filters.timeRange], () => {
+watch([selectedCamera, () => [...(props.cameraIds ?? [])].join(','), () => filters.filterQueryString, () => filters.timeRange], () => {
   clearTimeout(loadTimer)
   loadTimer = setTimeout(reload, 200)
 })

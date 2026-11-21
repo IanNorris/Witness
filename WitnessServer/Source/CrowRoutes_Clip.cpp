@@ -153,8 +153,9 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 	const char* pMinDuration = req.url_params.get( "minDuration" );
 	const char* pTags = req.url_params.get( "tags" );
 	const char* pGroup = req.url_params.get( "group" );
+	const char* pCameras = req.url_params.get( "cameras" );
 
-	bool hasFilters = pReviewed || pSaved || pMode || pLighting || pMinDuration || pTags || pGroup;
+	bool hasFilters = pReviewed || pSaved || pMode || pLighting || pMinDuration || pTags || pGroup || pCameras;
 	// These values are interpolated into the filtered query below. Reject anything
 	// other than a bounded decimal integer before constructing SQL.
 	auto parseFilterInteger = []( const char* Value, int Minimum, int Maximum ) -> std::optional<int>
@@ -176,9 +177,29 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 	const auto Lighting = pLighting ? parseFilterInteger( pLighting, 0, 2 ) : std::optional<int>{};
 	const auto MinDuration = pMinDuration ? parseFilterInteger( pMinDuration, 0, 86400 ) : std::optional<int>{};
 	const auto Group = pGroup ? parseFilterInteger( pGroup, 1, 1000000000 ) : std::optional<int>{};
+	// cameras=1,2,3 restricts an all-camera search (e.g. "clips for this
+	// dashboard"). It only narrows: the user-access join below still applies.
+	std::vector<int> CameraFilter;
+	bool CamerasValid = true;
+	if( pCameras )
+	{
+		std::string list = pCameras;
+		size_t start = 0;
+		while( CamerasValid && start <= list.size() )
+		{
+			const size_t comma = list.find( ',', start );
+			const std::string item = list.substr( start, comma == std::string::npos ? std::string::npos : comma - start );
+			const auto value = parseFilterInteger( item.c_str(), 1, 1000000000 );
+			if( !value || CameraFilter.size() >= 64 ) CamerasValid = false;
+			else CameraFilter.push_back( *value );
+			if( comma == std::string::npos ) break;
+			start = comma + 1;
+		}
+		CamerasValid = CamerasValid && !CameraFilter.empty() && cameraId == -1;
+	}
 	if( (pReviewed && !Reviewed) || (pSaved && !Saved) || (pMode && !Mode) ||
 		(pLighting && !Lighting) || (pMinDuration && !MinDuration) ||
-		(pGroup && (!Group || cameraId != -1)) )
+		(pGroup && (!Group || cameraId != -1)) || !CamerasValid )
 	{
 		res.code = 400;
 		res.end();
@@ -198,6 +219,12 @@ void CrowListener::HandleClipEnum( const crow::request& req, crow::response& res
 		std::string extraWhere;
 
 		if( Reviewed ) extraWhere += " AND Clip.Reviewed = " + std::to_string( *Reviewed );
+		if( !CameraFilter.empty() )
+		{
+			std::string inList;
+			for( int id : CameraFilter ) inList += ( inList.empty() ? "" : "," ) + std::to_string( id );
+			extraWhere += " AND Clip.Camera IN (" + inList + ")";
+		}
 		if( Saved ) extraWhere += " AND Clip.Save = " + std::to_string( *Saved );
 		if( Mode ) extraWhere += *Mode == 0 ? " AND Clip.RecordMode IN (0,2)" : " AND Clip.RecordMode = " + std::to_string( *Mode );
 		if( Lighting ) extraWhere += " AND Clip.Lighting = " + std::to_string( *Lighting );
@@ -708,6 +735,7 @@ void CrowListener::HandleClipRetagBulk( const crow::request& req, crow::response
 	{
 		SQLiteDatabaseQueryInstance q( m_GlobalContext->Database, "ResetClipDetectionBulk" );
 		q->Bind( "@CameraID", cameraId );
+		q->Bind( "@UserUID", UserUID );
 		q->Bind( "@TimestampFrom", from );
 		q->Bind( "@TimestampTo", to );
 		q->Execute( [&]( const SQLiteDatabaseQuery& query ) { return true; } );
