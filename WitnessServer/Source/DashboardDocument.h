@@ -45,6 +45,7 @@ namespace Dashboard
 		int IdleCamera = 0;
 		int IdleEverySeconds = 20;
 		bool Warm = true;
+		int MinSplit = 1;                 // 1..4, at most MaxSplit: cells always filled
 		int MaxSplit = 4;                 // 1..4 simultaneous cameras
 
 		// activity / timeline / detection scope
@@ -88,6 +89,9 @@ namespace Dashboard
 		std::vector<int> Priority;
 		int ReturnToLiveSeconds = 180;
 		bool QuietControls = true;
+		// Full-quality streams: 0 = automatic decode budget, -1 = no limit,
+		// 1..16 = at most that many (larger tiles first).
+		int MainStreams = 0;
 		std::vector<int> MobileOrder;    // optional phone ordering override
 	};
 

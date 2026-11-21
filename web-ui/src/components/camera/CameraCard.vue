@@ -27,6 +27,11 @@ const props = defineProps<{
   doubleClickMaximizes?: boolean
   // Dashboards v2: the tile's "playback bar" option.
   noPlaybackBar?: boolean
+  // Prepare a changed stream in a hidden second player and swap it in once
+  // its first frame is presented, instead of tearing down the visible one.
+  seamlessSwitch?: boolean
+  // Dashboards v2: shown before the camera name, e.g. "AUTO" in a spotlight.
+  namePrefix?: string
 }>()
 
 const emit = defineEmits<{
@@ -131,12 +136,15 @@ watch(hlsPlayerRef, (player) => {
   }
 })
 
-// Keep runtime codec rejection visible, with stream controls available for recovery.
+// Runtime codec rejection: drop to a playable sub-stream when there is one
+// (unless Main is pinned on this device); otherwise keep the failure visible,
+// with stream controls available for recovery.
 const codecFallback = ref(false)
+const runtimeMainRejected = ref(false)
 watch(() => (hlsPlayerRef.value as any)?.codecUnsupported, (unsupported: boolean | undefined) => {
-  if (unsupported) {
-    codecFallback.value = true
-  }
+  if (!unsupported) return
+  if (!useSubStream.value && subPlayable.value && deviceStreamChoice.value !== 'main') runtimeMainRejected.value = true
+  else codecFallback.value = true
 })
 
 // Helper to check if a codec name represents HEVC
@@ -150,17 +158,24 @@ const proactiveCodecFallback = computed(() => {
   return isHevcCodec(props.camera.codec)
 })
 
-// Determine if Auto should use a supported sub-stream instead of the primary.
-// Only use sub-stream if it exists AND its codec is actually supported
+// A sub-stream exists and this browser can decode it.
+const subPlayable = computed(() => !!props.camera.hasSubStream && !(isHevcCodec(props.camera.subCodec) && !hevcSupported))
+const deviceStreamChoice = computed(() => settings.getCameraStreamChoice(props.camera.id))
+
+// Use the sub-stream when chosen, or when the main stream cannot be decoded
+// here (e.g. HEVC on a wall display without HEVC support) and the sub-stream
+// can. Dashboards may ask for Main on large tiles; that is a preference, not
+// a pin. Only an explicit per-device Main choice keeps the main stream.
 const useSubStream = computed(() => {
   if (streamChoice.value === 'sub' && props.camera.hasSubStream) return true
-  if (streamChoice.value === 'main') return false
-  if (!proactiveCodecFallback.value) return false
-  if (!props.camera.hasSubStream) return false
-  // Don't use sub-stream if it's also HEVC and browser doesn't support it
-  if (isHevcCodec(props.camera.subCodec) && !hevcSupported) return false
-  return true
+  if (deviceStreamChoice.value === 'main') return false
+  return (proactiveCodecFallback.value || runtimeMainRejected.value) && subPlayable.value
 })
+
+// Whether this browser can decode the main stream, so a sub-stream request may
+// be served main while the sub-stream is unusable on the server.
+const mainPlayable = computed(() => typeof MediaSource !== 'undefined' &&
+  (isHevcCodec(props.camera.codec) ? hevcSupported : MediaSource.isTypeSupported('video/mp4; codecs="avc1.42001e"')))
 
 const effectiveModeWithFallback = computed(() => {
   if (effectiveMode.value === 'unsupported' || codecFallback.value) return 'unsupported'
@@ -198,12 +213,56 @@ const adaptiveStreamEligible = computed(() => {
 	return !isHevcCodec(props.camera.subCodec) || hevcSupported
 })
 watch(() => [streamChoice.value, props.camera.codec, props.camera.subCodec], () => { codecFallback.value = false; selectedMseStream.value = null })
+watch(() => [props.camera.codec, deviceStreamChoice.value], () => { runtimeMainRejected.value = false })
+
+// ----- Seamless stream switching (double buffering) ------------------------
+interface PlayerConfig { key: string; useSub: boolean; codecHint: string; adaptive: boolean }
+const PENDING_TIMEOUT_MS = 8000
+const desiredPlayer = computed<PlayerConfig>(() => ({
+  key: `${props.camera.id}-${useSubStream.value ? 'forced-sub' : 'main'}-${adaptiveStreamEligible.value ? 'adaptive' : 'fixed'}`,
+  useSub: useSubStream.value, codecHint: mseCodecHint.value, adaptive: adaptiveStreamEligible.value,
+}))
+const activePlayer = ref<PlayerConfig>(desiredPlayer.value)
+const pendingPlayer = ref<PlayerConfig | null>(null)
+let pendingTimer: ReturnType<typeof setTimeout> | null = null
+function clearPending() {
+  if (pendingTimer) clearTimeout(pendingTimer)
+  pendingTimer = null
+  pendingPlayer.value = null
+}
+function promotePending() {
+  if (!pendingPlayer.value) return
+  activePlayer.value = pendingPlayer.value
+  clearPending()
+}
+watch(desiredPlayer, next => {
+  if (next.key === activePlayer.value.key) { clearPending(); return }
+  // Switch in place when nothing is on screen to protect (or not requested).
+  if (!props.seamlessSwitch || reviewing.value || !isConnected.value || props.dashboardHidden || effectiveModeWithFallback.value !== 'mse') {
+    activePlayer.value = next
+    clearPending()
+    return
+  }
+  if (pendingPlayer.value?.key === next.key) return
+  if (pendingTimer) clearTimeout(pendingTimer)
+  pendingPlayer.value = next
+  // Never strand the switch: if the new stream shows nothing, cut over anyway.
+  pendingTimer = setTimeout(promotePending, PENDING_TIMEOUT_MS)
+})
+const players = computed(() => pendingPlayer.value ? [activePlayer.value, pendingPlayer.value] : [activePlayer.value])
+function setPlayerRef(key: string, el: unknown) {
+  if (key === activePlayer.value.key && el) hlsPlayerRef.value = el as InstanceType<typeof MsePlayer>
+}
+function onPlayerReady(key: string) {
+  if (pendingPlayer.value?.key === key) promotePending()
+}
 const selectedStreamInfo = computed(() => reviewing.value ? replayPlayerRef.value?.streamInfo ?? { tier: 'dvr' } :
   effectiveModeWithFallback.value === 'mse' && hlsPlayerRef.value && 'streamInfo' in hlsPlayerRef.value ? hlsPlayerRef.value.streamInfo :
   cameraStreamInfo(props.camera, useSubStream.value ? 'sub' : 'main'))
 
 onUnmounted(() => {
   if (clickTimer) clearTimeout(clickTimer)
+  if (pendingTimer) clearTimeout(pendingTimer)
 })
 </script>
 
@@ -218,17 +277,23 @@ onUnmounted(() => {
         <DashboardReplayPlayer v-if="reviewing && !dashboardHidden" ref="replayPlayerRef" :camera-id="camera.id" :camera-name="camera.name" :audio-enabled="audioActive" />
 
         <!-- MSE preview mode -->
-        <MsePlayer
-          v-else-if="!reviewing && effectiveModeWithFallback === 'mse' && isConnected"
-		  :key="`${camera.id}-${useSubStream ? 'forced-sub' : 'main'}-${adaptiveStreamEligible ? 'adaptive' : 'fixed'}`"
-          ref="hlsPlayerRef"
-          :camera-id="camera.id"
-          :use-sub-stream="useSubStream"
-          :codec-hint="mseCodecHint"
-          :audio-enabled="audioActive && !dashboardHidden"
-          :adaptive-stream="adaptiveStreamEligible"
-          @stream-changed="onStreamChanged"
-        />
+        <!-- MSE preview; during a seamless switch the next stream plays hidden beneath -->
+        <template v-else-if="!reviewing && effectiveModeWithFallback === 'mse' && isConnected">
+          <MsePlayer
+            v-for="player in players"
+            :key="player.key"
+            :ref="(el: unknown) => setPlayerRef(player.key, el)"
+            :class="{ 'mse-pending': player.key !== activePlayer.key }"
+            :camera-id="camera.id"
+            :use-sub-stream="player.useSub"
+            :codec-hint="player.codecHint"
+            :audio-enabled="player.key === activePlayer.key && audioActive && !dashboardHidden"
+            :adaptive-stream="player.adaptive"
+            :allow-main-fallback="player.useSub && mainPlayable"
+            @stream-changed="(stream: 'main' | 'sub') => { if (player.key === activePlayer.key) onStreamChanged(stream) }"
+            @ready="onPlayerReady(player.key)"
+          />
+        </template>
 
         <div v-else-if="!reviewing && isConnected && effectiveModeWithFallback === 'unsupported'" class="camera-overlay" @click.stop role="status">
           <div class="text-center p-3">Video playback unavailable<br><small>This browser cannot play the selected stream. Use stream details to choose Auto or Sub.</small></div>
@@ -250,8 +315,8 @@ onUnmounted(() => {
         </div>
 
         <!-- Camera name overlay in fullscreen -->
-        <div v-if="canvasMode && !hideName" class="camera-name-overlay">
-          {{ camera.name }}
+        <div v-if="canvasMode && (!hideName || namePrefix)" class="camera-name-overlay">
+          <span v-if="namePrefix" class="camera-name-prefix">{{ namePrefix }}</span><template v-if="namePrefix && !hideName"> · </template><template v-if="!hideName">{{ camera.name }}</template>
         </div>
         <button v-if="canvasMode && controlsSelected" class="control-selection-label"
           @click.stop="emit('dismissControls')" title="Dismiss camera controls (Esc)">
@@ -383,11 +448,18 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/* Prepared stream: decoding and laid out at the tile's size (so its first
+   frame is real), but not visible. Near-zero rather than zero opacity keeps
+   browsers compositing it, which first-frame detection relies on. */
+.mse-pending { position: absolute; inset: 0; opacity: .01; pointer-events: none; }
 .reviewing:has(.dvr-error) :is(.audio-toggle, .motion-audio-toggle, .detection-toggle) { visibility: hidden; }
 .has-playback-bar { position: relative; }
 .camera-card-fullscreen > :deep(.camera-playback-bar) { position: absolute; bottom: 0; left: 0; right: 0; z-index: 30; }
-.camera-card-fullscreen.has-playback-bar :is(.audio-toggle, .motion-audio-toggle, .detection-toggle, .ptz-toggle) { bottom: calc(var(--camera-playback-height, 82px) + 8px); }
-.camera-card-fullscreen.has-playback-bar .camera-name-overlay { bottom: calc(var(--camera-playback-height, 82px) + 44px); }
+/* Name label and stream indicator share the row above the playback bar; the
+   audio/detection/PTZ buttons sit one row above them when they appear. */
+.camera-card-fullscreen.has-playback-bar :is(.audio-toggle, .motion-audio-toggle, .detection-toggle, .ptz-toggle) { bottom: calc(var(--camera-playback-height, 82px) + 40px); }
+.camera-card-fullscreen.has-playback-bar .camera-name-overlay { bottom: calc(var(--camera-playback-height, 82px) + 8px); }
+.camera-name-prefix { color: #9fd0f7; font-size: .68rem; font-weight: 700; letter-spacing: .06em; }
 .camera-card-fullscreen.has-playback-bar.playback-idle .camera-name-overlay { bottom: 8px; }
 .camera-card-fullscreen.reviewing .camera-preview { height: calc(100% - var(--camera-playback-height, 82px)); }
 .dashboard-replay-badge { position: absolute; top: 38px; left: 8px; z-index: 15; background: #142235ee; color: #f5d791; border-radius: 4px; padding: 3px 6px; font-size: 11px; pointer-events: none; }
@@ -400,6 +472,11 @@ onUnmounted(() => {
 @media (pointer: coarse) { .playback-quiet :deep(.playback-buttons), .playback-quiet :deep(.playback-track input) { opacity: 1 !important; } }
 @media (prefers-reduced-motion: reduce) { .has-playback-bar :deep(.camera-playback-bar) { transition: none; } }
 .camera-card-fullscreen.controls-selected { position: relative; }
+/* Dashboards: the playback bar overlays the card bottom. Lift the stream
+   indicator (latency, stream choice, codec fallback) to the same row as the
+   audio/detection buttons, bottom-right, as in the tile view. */
+.camera-card-fullscreen.has-playback-bar :deep(.stream-indicator) { bottom: calc(var(--camera-playback-height, 82px) + 8px); }
+.camera-card-fullscreen.has-playback-bar.playback-idle :deep(.stream-indicator) { bottom: 8px; }
 .camera-card-fullscreen.controls-selected::after {
   content: ''; position: absolute; inset: 0; border: 2px solid #67b5ff;
   z-index: 25; pointer-events: none;

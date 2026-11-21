@@ -75,6 +75,7 @@ const routes: RouteRecordRaw[] = [
       { path: 'cameras', component: () => import('../components/admin/CameraManager.vue') },
       { path: 'users', component: () => import('../components/admin/UserManager.vue') },
       { path: 'groups', component: () => import('../components/admin/GroupManager.vue') },
+      { path: 'dashboards', component: () => import('../views/DashboardManagerView.vue'), props: { embedded: true } },
       { path: 'detection', component: () => import('../components/admin/DetectionSettings.vue') },
       { path: 'storage', component: () => import('../components/admin/StorageSettings.vue') },
       { path: 'streaming', component: () => import('../components/admin/StreamingSettings.vue') },

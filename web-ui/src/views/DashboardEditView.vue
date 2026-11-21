@@ -9,7 +9,7 @@ import { useFittedBox, isPhoneViewport } from '../composables/useViewport'
 import { useCameraStore } from '../stores/cameras'
 import { useDashboardStore, type SharePrincipal } from '../stores/dashboards'
 import {
-  MIN_SIZE, TILE_LIMIT, cloneDocument, defaultTile, readingOrderCameras,
+  MIN_SIZE, TILE_LIMIT, cloneDocument, defaultTile, readingOrderCameras, spotlightsBySize,
   type DashboardDocument, type DashboardRecord, type DashboardTile, type Rect, type SpotlightTile, type TileType,
 } from '../types/dashboard'
 import {
@@ -520,6 +520,15 @@ function alignSelected(kind: 'left' | 'top' | 'size') {
 }
 
 // ----- Inspector helpers ----------------------------------------------------------
+const spotlightOrder = computed(() => draft.value ? spotlightsBySize(draft.value).map(t => t.id) : [])
+function spotlightRank(id: string) { return spotlightOrder.value.indexOf(id) + 1 }
+function spotlightRankText(id: string) {
+  const rank = spotlightRank(id), total = spotlightOrder.value.length
+  if (total <= 1) return 'Shows the most important camera with motion.'
+  const ordinal = ['1st', '2nd', '3rd'][rank - 1] ?? `${rank}th`
+  return rank === 1 ? `Largest spotlight: fills 1st of ${total}. Smaller spotlights take the next cameras.`
+    : `Fallback: fills ${ordinal} of ${total} (spotlights fill largest first).`
+}
 function cameraName(id: number) { return cameraStore.getCameraById(id)?.name ?? `Camera ${id}` }
 function moveInList(list: number[], index: number, direction: number) {
   const next = [...list], to = index + direction
@@ -742,6 +751,7 @@ const remoteChanged = computed(() => {
 
         <template v-else-if="selectedTile">
           <h3>{{ tileTitle(selectedTile) }}</h3>
+          <p v-if="selectedTile.type === 'spotlight' && spotlightRank(selectedTile.id) > 0" class="readout">{{ spotlightRankText(selectedTile.id) }}</p>
           <p class="readout">{{ selectedTile.w }} × {{ selectedTile.h }} cells · {{ Math.round(selectedTile.w / cols * draft.target.width) }}×{{ Math.round(selectedTile.h / rows * draft.target.height) }} at target</p>
 
           <template v-if="selectedTile.type === 'camera'">
@@ -752,7 +762,7 @@ const remoteChanged = computed(() => {
             </label>
             <label>Stream
               <select class="form-select form-select-sm" :value="selectedTile.stream" @change="updateTile(selectedTile.id, { stream: ($event.target as HTMLSelectElement).value as any })">
-                <option value="auto">Auto (by tile size)</option><option value="main">Main</option><option value="sub">Sub</option>
+                <option value="auto">Auto (dashboard stream budget)</option><option value="main">Always main</option><option value="sub">Always sub-stream</option>
               </select>
             </label>
             <label class="check"><input type="checkbox" :checked="selectedTile.label" @change="updateTile(selectedTile.id, { label: ($event.target as HTMLInputElement).checked })"> Show name</label>
@@ -784,20 +794,29 @@ const remoteChanged = computed(() => {
                 <option v-for="camera in cameraStore.cameras.filter(c => !(selectedTile as SpotlightTile).sources.cameras.includes(c.id))" :key="camera.id" :value="camera.id">{{ camera.name }}</option>
               </select>
             </label>
-            <label>Show up to
-              <select class="form-select form-select-sm" :value="selectedTile.maxSplit" @change="updateTile(selectedTile.id, { maxSplit: Number(($event.target as HTMLSelectElement).value) })">
-                <option :value="1">1 camera</option><option :value="2">2 cameras (split)</option><option :value="3">3 cameras</option><option :value="4">4 cameras (2 × 2)</option>
-              </select>
-            </label>
+            <div class="split-range">
+              <label>Show at least
+                <select class="form-select form-select-sm" :value="Math.min(selectedTile.minSplit ?? 1, selectedTile.maxSplit)" @change="updateTile(selectedTile.id, { minSplit: Number(($event.target as HTMLSelectElement).value) })">
+                  <option v-for="n in [1, 2, 3, 4].filter(n => n <= (selectedTile as SpotlightTile).maxSplit)" :key="n" :value="n">{{ n }}</option>
+                </select>
+              </label>
+              <label>Show up to
+                <select class="form-select form-select-sm" :value="selectedTile.maxSplit" @change="updateTile(selectedTile.id, { maxSplit: Number(($event.target as HTMLSelectElement).value), minSplit: Math.min((selectedTile as SpotlightTile).minSplit ?? 1, Number(($event.target as HTMLSelectElement).value)) })">
+                  <option :value="1">1 camera</option><option :value="2">2 (split)</option><option :value="3">3</option><option :value="4">4 (2 × 2)</option>
+                </select>
+              </label>
+            </div>
+            <p class="readout">Cameras with motion come first; remaining cells show the highest-priority cameras.</p>
             <label>{{ selectedTile.trigger === 'rotate' ? 'Seconds per camera' : 'Hold after motion (seconds)' }}
               <input class="form-control form-control-sm" type="number" min="3" max="120" :value="selectedTile.holdSeconds" @change="updateTile(selectedTile.id, { holdSeconds: Math.max(3, Math.min(120, Number(($event.target as HTMLInputElement).value) || 15)) })">
             </label>
             <label v-if="selectedTile.trigger === 'motion'">When nothing moves
               <select class="form-select form-select-sm" :value="selectedTile.idle.kind" @change="updateTile(selectedTile.id, { idle: (($event.target as HTMLSelectElement).value === 'camera' ? { kind: 'camera', camera: (selectedTile as SpotlightTile).sources.cameras[0] ?? available[0] ?? 0 } : ($event.target as HTMLSelectElement).value === 'rotate' ? { kind: 'rotate', everySeconds: 20 } : { kind: ($event.target as HTMLSelectElement).value }) as any })">
-                <option value="last">Keep the last camera</option><option value="camera">Show a chosen camera</option><option value="rotate">Rotate through sources</option><option value="blank">Show nothing</option>
+                <option value="last">Keep the last camera</option><option value="camera">Show a home camera</option><option value="rotate">Rotate through sources</option><option value="blank">Show nothing</option>
               </select>
             </label>
-            <label v-if="selectedTile.trigger === 'motion' && selectedTile.idle.kind === 'camera'">Idle camera
+            <p v-if="selectedTile.trigger === 'motion' && selectedTile.idle.kind === 'camera'" class="readout">When motion elsewhere takes this spotlight, the home camera moves to the next smaller spotlight instead of disappearing.</p>
+            <label v-if="selectedTile.trigger === 'motion' && selectedTile.idle.kind === 'camera'">Home camera
               <select class="form-select form-select-sm" :value="selectedTile.idle.camera" @change="updateTile(selectedTile.id, { idle: { kind: 'camera', camera: Number(($event.target as HTMLSelectElement).value) } })">
                 <option v-for="camera in cameraStore.cameras" :key="camera.id" :value="camera.id">{{ camera.name }}</option>
               </select>
@@ -893,6 +912,14 @@ const remoteChanged = computed(() => {
               <option :value="0">Never</option><option :value="60">1 minute</option><option :value="180">3 minutes</option><option :value="300">5 minutes</option><option :value="600">10 minutes</option>
             </select>
           </label>
+          <label>Full-quality streams
+            <select class="form-select form-select-sm" :value="draft.behavior.mainStreams ?? 0" @change="setBehavior({ mainStreams: Number(($event.target as HTMLSelectElement).value) })">
+              <option :value="0">Automatic (largest tiles, within a decode budget)</option>
+              <option v-for="n in [1, 2, 3, 4, 6, 8]" :key="n" :value="n">Largest {{ n }} tile{{ n === 1 ? '' : 's' }}</option>
+              <option :value="-1">No limit (size-based only)</option>
+            </select>
+          </label>
+          <p class="readout">Other cameras use their sub-stream. Pin a camera tile to Main or Sub in its settings.</p>
           <label class="check"><input type="checkbox" :checked="draft.behavior.quietControls" @change="setBehavior({ quietControls: ($event.target as HTMLInputElement).checked })"> Quiet controls on unselected cameras</label>
           <h3>Camera priority</h3>
           <p class="readout">Spotlights using "all cameras" pick active cameras in this order.</p>
@@ -1045,6 +1072,7 @@ const remoteChanged = computed(() => {
 .inspector label { display: block; margin: 0 0 10px; font-size: .78rem; color: #c3d2e2; }
 .inspector label > select, .inspector label > input:not([type='checkbox']) { margin-top: 4px; }
 .inspector label.check { display: flex; align-items: center; gap: 7px; }
+.split-range { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .check-list { max-height: 200px; overflow: auto; margin-bottom: 10px; }
 .rank-list { padding-left: 1.2rem; margin: 0 0 10px; font-size: .78rem; }
 .rank-list li { display: flex; align-items: center; gap: 4px; padding: 2px 0; }

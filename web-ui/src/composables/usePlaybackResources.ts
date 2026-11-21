@@ -1,6 +1,6 @@
 import { ref, watch, onUnmounted, type Ref } from 'vue'
 import type { StreamInfo } from '../utils/streamChoice'
-export interface PlaybackResource extends StreamInfo { id: string; cameraId: number; mode: string; readyState: number; paused: boolean; hasSource: boolean }
+export interface PlaybackResource extends StreamInfo { id: string; cameraId: number; mode: string; readyState: number; paused: boolean; hasSource: boolean; errored?: boolean }
 const resources = new Map<string, () => PlaybackResource>()
 export const decoderPressureWarning = ref<{ cameraId: number; activeStreams: number; streams: PlaybackResource[] } | null>(null)
 let lastWarningAt = -Infinity
@@ -13,6 +13,15 @@ export function suspectDecoderPressure(code: number, streams: PlaybackResource[]
   // of decoder pressure. MEDIA_ERR_DECODE remains ambiguous even here.
   return code === 3 && streams.length > 1
 }
+// A decode error is often followed by automatic recovery: e.g. a wall display
+// that cannot decode an HEVC main stream drops to the camera's H.264
+// sub-stream. Only warn if, after a short grace period, the failing camera
+// still has no stream presenting frames.
+export const PRESSURE_GRACE_MS = 5000
+export function cameraRecovered(cameraId: number, streams: PlaybackResource[]): boolean {
+  return streams.some(stream => stream.cameraId === cameraId && stream.readyState >= 2 && !stream.paused && !stream.errored)
+}
+let pendingWarning: ReturnType<typeof setTimeout> | null = null
 if (typeof window !== 'undefined') (window as unknown as Record<string, unknown>)._witnessPlaybackResources = {
   snapshot: () => ({ streams: playbackResourceSnapshot(), lastFailure }),
 }
@@ -21,7 +30,7 @@ export function usePlaybackResources(cameraId: number, video: Ref<HTMLVideoEleme
   const id = `${cameraId}_${mode}_${crypto.randomUUID()}`
   const snapshot = (): PlaybackResource => ({ id, cameraId, mode, ...info(),
     width: video.value?.videoWidth || info().width, height: video.value?.videoHeight || info().height,
-    readyState: video.value?.readyState ?? 0, paused: video.value?.paused ?? true,
+    readyState: video.value?.readyState ?? 0, paused: video.value?.paused ?? true, errored: !!video.value?.error,
     hasSource: !!(video.value?.currentSrc || video.value?.src || video.value?.srcObject) })
   let detach: (() => void) | undefined
   const stop = watch(video, element => {
@@ -34,9 +43,14 @@ export function usePlaybackResources(cameraId: number, video: Ref<HTMLVideoEleme
       lastFailure = { t: new Date().toISOString(), cameraId, code, streams }
       log?.('decoderFailure', { code, activeStreams: streams.length, streams })
       if (!suspectDecoderPressure(code, streams)) return
-      if (Date.now() - lastWarningAt < 60000) return
-      lastWarningAt = Date.now()
-      decoderPressureWarning.value = { cameraId, activeStreams: streams.length, streams }
+      if (Date.now() - lastWarningAt < 60000 || pendingWarning) return
+      pendingWarning = setTimeout(() => {
+        pendingWarning = null
+        const current = playbackResourceSnapshot()
+        if (cameraRecovered(cameraId, current)) return // degraded and playing: nothing to report
+        lastWarningAt = Date.now()
+        decoderPressureWarning.value = { cameraId, activeStreams: streams.length, streams }
+      }, PRESSURE_GRACE_MS)
     }
     element.addEventListener('error', onError)
     detach = () => element.removeEventListener('error', onError)

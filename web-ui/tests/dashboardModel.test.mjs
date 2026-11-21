@@ -113,3 +113,51 @@ test('normalisation fills defaults and drops unknown tile types', () => {
   assert.deepEqual(d.tiles[0].idle, { kind: 'camera', camera: 3 })
   assert.equal(d.grid.cols, 48)
 })
+
+test('front PTZ scenario: home camera holds the big spotlight and moves down when motion takes it', () => {
+  // Big spotlight (home = 1, "Front PTZ"), smaller fallback spotlight; both draw from all cameras.
+  const big = { ...spotlight('big', [], { maxSplit: 1, idle: { kind: 'camera', camera: 1 } }), sources: { kind: 'all', cameras: [] }, x: 0, y: 0, w: 36, h: 36 }
+  const small = { ...spotlight('small', [], { maxSplit: 1, idle: { kind: 'last' } }), sources: { kind: 'all', cameras: [] }, x: 36, y: 0, w: 12, h: 12 }
+  // Array order puts the small one first: resolution must still go largest first.
+  const d = doc([small, big], { behavior: { priority: [3, 2, 1], returnToLiveSeconds: 180, quietControls: true, mainStreams: 0 } })
+  const quiet = resolve(d, [])
+  assert.deepEqual(quiet.spotlights.get('big'), [1], 'home camera at rest')
+  const motion = resolve(d, [3])
+  assert.deepEqual(motion.spotlights.get('big'), [3], 'motion camera takes the large slot')
+  assert.deepEqual(motion.spotlights.get('small'), [1], 'displaced home camera moves to the fallback slot')
+  const two = resolve(d, [3, 2])
+  assert.deepEqual(two.spotlights.get('small'), [1], 'home camera outranks a second motion camera in the fallback')
+  const homeMoving = resolve(d, [1])
+  assert.deepEqual(homeMoving.spotlights.get('big'), [1], 'home camera with motion keeps the large slot')
+  assert.ok(quiet.mounted.includes(1) && quiet.mounted.includes(3), 'warm sources keep swaps instant')
+})
+
+test('stream budget keeps main streams for the largest tiles and pins win', () => {
+  const demand = (camera, area, preference = 'auto', pixels = 3840 * 2160, hasSubStream = true) => ({ camera, area, preference, pixels, hasSubStream })
+  // Automatic: two 4K mains fit the budget; the rest go to sub, largest first.
+  const plan = model.allocateStreams([demand(1, 100), demand(2, 400), demand(3, 50), demand(4, 200)], 0)
+  assert.deepEqual([...plan].sort(), [[1, 'sub'], [2, 'auto'], [3, 'sub'], [4, 'auto']])
+  // A pinned main counts against the budget; pinned sub is never upgraded.
+  const pinned = model.allocateStreams([demand(1, 10, 'main'), demand(2, 400), demand(3, 300), demand(4, 500, 'sub')], 0)
+  assert.equal(pinned.get(1), 'main'); assert.equal(pinned.get(2), 'auto'); assert.equal(pinned.get(3), 'sub'); assert.equal(pinned.get(4), 'sub')
+  // Explicit count, and "no limit".
+  assert.deepEqual([...model.allocateStreams([demand(1, 1, 'auto', 1), demand(2, 2, 'auto', 1)], 1)].sort(), [[1, 'sub'], [2, 'auto']])
+  assert.deepEqual([...model.allocateStreams([demand(1, 1), demand(2, 2), demand(3, 3)], -1)].map(e => e[1]), ['auto', 'auto', 'auto'])
+  // Cameras without a sub-stream cannot be downgraded; 1080p fits eight within the budget.
+  assert.equal(model.allocateStreams([demand(1, 9), demand(2, 1, 'auto', 3840 * 2160, false), demand(3, 8)], 1).get(2), 'auto')
+  const hd = model.allocateStreams(Array.from({ length: 10 }, (_, i) => demand(i + 1, 100 - i, 'auto', 1920 * 1080)), 0)
+  assert.equal([...hd.values()].filter(v => v === 'auto').length, 8)
+})
+
+test('spotlight minimum tops up with the highest-priority cameras', () => {
+  const wide = { ...spotlight('s', [3, 2, 1, 4], { minSplit: 2, maxSplit: 2, idle: { kind: 'last' } }), w: 48, h: 24 }
+  const d = doc([wide])
+  assert.deepEqual(resolve(d, []).spotlights.get('s'), [3, 2], 'quiet: two top-priority cameras')
+  assert.deepEqual(resolve(d, [4]).spotlights.get('s'), [4, 3], 'one active camera plus the top priority')
+  assert.deepEqual(resolve(d, [4, 1]).spotlights.get('s'), [1, 4], 'two active cameras fill both cells in priority order')
+  d.tiles[0].idle = { kind: 'blank' }
+  assert.deepEqual(resolve(d, []).spotlights.get('s'), [], '"show nothing" keeps an idle spotlight empty')
+  assert.deepEqual(resolve(d, [4]).spotlights.get('s'), [4, 3], 'minimum still applies once something moves')
+  const normalised = model.normaliseDocument({ tiles: [{ id: 's', type: 'spotlight', x: 0, y: 0, w: 8, h: 8, minSplit: 4, maxSplit: 2 }] })
+  assert.equal(normalised.tiles[0].minSplit, 2, 'minimum clamped to maximum')
+})

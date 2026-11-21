@@ -116,6 +116,41 @@ int main()
         Retry.Reject(3000000);
         Require(!Retry.Observe(9000000, true, true)); // exhausted; no endless churn
     }
+    {
+        // Whole-span requalification: 20 fps (50 ms) Tapo-like preview.
+        auto Run = [](Witness::Camera::TimestampRequalification& Retry, int64_t Start, int Frames,
+            auto ArrivalMs, auto CadenceOk, int KeyEvery = 20) {
+            bool Ready = false;
+            for (int Frame = 0; Frame < Frames && !Ready; ++Frame)
+                Ready = Retry.ObserveSpan(Start + ArrivalMs(Frame), true, CadenceOk(Frame), 50.0, Frame % KeyEvery == 0);
+            return Ready;
+        };
+        Witness::Camera::TimestampRequalification Retry;
+        Retry.Reject(0);
+        // Jittered arrivals (49.5-52.6 ms) with one noisy window in 30 still requalify.
+        Require(Run(Retry, 60000, 260, [](int F) { return F * 50 + (F % 3) - 1; }, [](int F) { return F % 30 != 7; }));
+        Retry.Recover();
+        Retry.Reject(1000000);
+        const int64_t Start = 1000000 + 120000;
+        // A delivery stall restarts the span; 10 s must then elapse again.
+        Require(!Run(Retry, Start, 150, [](int F) { return F * 50; }, [](int) { return true; }));
+        Require(!Retry.ObserveSpan(Start + 7450 + 1500, true, true, 50.0, false));
+        Require(!Run(Retry, Start + 9000, 190, [](int F) { return F * 50; }, [](int) { return true; }));
+        Require(Run(Retry, Start + 9000 + 9500, 40, [](int F) { return F * 50; }, [](int) { return true; }));
+        Retry.Recover();
+        // Arrival 10% slower than declared never requalifies.
+        Retry.Reject(3000000);
+        Require(!Run(Retry, 3000000 + 240000, 600, [](int F) { return F * 55; }, [](int) { return true; }));
+        // Mostly off-cadence windows never requalify, even with matching totals.
+        Require(!Run(Retry, 3000000 + 300000, 600, [](int F) { return F * 50; }, [](int F) { return F % 2 == 0; }));
+        // A packet fault restarts the span.
+        Witness::Camera::TimestampRequalification Faulty;
+        Faulty.Reject(0);
+        Require(!Run(Faulty, 60000, 150, [](int F) { return F * 50; }, [](int) { return true; }));
+        Require(!Faulty.ObserveSpan(60000 + 7500, false, true, 50.0, true));
+        Require(!Faulty.ObserveSpan(60000 + 7550, true, true, 50.0, true));
+        Require(Faulty.StableSinceMs == 60000 + 7550);
+    }
 	{
 		Witness::Camera::AudioSampleClock Clock;
 		int64_t Output = 0;

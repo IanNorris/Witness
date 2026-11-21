@@ -84,12 +84,6 @@ onBeforeUnmount(() => {
           </RouterLink>
         </div>
         <div class="nav-item">
-          <RouterLink to="/dashboards" class="nav-link">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M10 10v10"/></svg>
-            Dashboards
-          </RouterLink>
-        </div>
-        <div class="nav-item">
           <RouterLink to="/clips" class="nav-link">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
             All Clips
@@ -213,12 +207,6 @@ onBeforeUnmount(() => {
             </RouterLink>
           </div>
 
-          <div class="nav-item">
-            <RouterLink to="/dashboards" class="nav-link" @click="mobileMenuOpen = false">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 10h18M10 10v10"/></svg>
-              Dashboards
-            </RouterLink>
-          </div>
           <div class="nav-item">
             <RouterLink to="/dvr" class="nav-link" @click="mobileMenuOpen = false">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>

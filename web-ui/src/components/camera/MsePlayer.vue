@@ -11,10 +11,14 @@ const props = defineProps<{
   codecHint?: string
   audioEnabled?: boolean
 	adaptiveStream?: boolean
+	allowMainFallback?: boolean
 }>()
 
 const emit = defineEmits<{
   streamChanged: [stream: 'main' | 'sub']
+  // First decoded frame has been presented (always a keyframe). Used to
+  // swap a background-prepared stream in without a visible gap.
+  ready: []
 }>()
 
 const containerRef = ref<HTMLDivElement | null>(null)
@@ -76,6 +80,7 @@ const {
   () => props.audioEnabled ?? false,
 	props.adaptiveStream ?? false,
 	() => ({ width: viewportWidth, height: viewportHeight }),
+	props.allowMainFallback ?? false,
 )
 
 watch(selectedStream, stream => emit('streamChanged', stream), { immediate: true })
@@ -104,7 +109,22 @@ watch(renderSuppressed, suppressed => {
   canvas.getContext('2d')?.drawImage(video, 0, 0, canvas.width, canvas.height)
 }, { flush: 'sync' })
 
+let readySent = false
+let readyFrameHandle: number | null = null
+function signalReady() {
+	if (readySent) return
+	readySent = true
+	emit('ready')
+}
+function watchFirstFrame() {
+	const video = videoRef.value as (HTMLVideoElement & { requestVideoFrameCallback?: (cb: () => void) => number; cancelVideoFrameCallback?: (h: number) => void }) | null
+	if (!video) return
+	if (typeof video.requestVideoFrameCallback === 'function') readyFrameHandle = video.requestVideoFrameCallback(signalReady)
+	else video.addEventListener('timeupdate', () => { if (video.currentTime > 0 && video.readyState >= 2) signalReady() })
+}
+
 onMounted(() => {
+	watchFirstFrame()
 	measureViewport()
 	updateViewport(viewportWidth, viewportHeight)
 	if (!props.adaptiveStream || !containerRef.value) return
@@ -114,6 +134,8 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+	const video = videoRef.value as (HTMLVideoElement & { cancelVideoFrameCallback?: (h: number) => void }) | null
+	if (readyFrameHandle !== null) video?.cancelVideoFrameCallback?.(readyFrameHandle)
 	resizeObserver?.disconnect()
 	resolutionQuery?.removeEventListener('change', handleDevicePixelRatioChange)
 	if (resizeTimer) clearTimeout(resizeTimer)

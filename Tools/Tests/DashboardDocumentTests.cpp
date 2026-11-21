@@ -43,11 +43,11 @@ namespace
 			{"id": "b", "type": "camera", "x": 24, "y": 0, "w": 24, "h": 24, "camera": 2},
 			{"id": "s", "type": "spotlight", "x": 0, "y": 24, "w": 24, "h": 24,
 			 "sources": {"kind": "list", "cameras": [3, 2, 1]}, "idle": {"kind": "camera", "camera": 3},
-			 "maxSplit": 4, "holdSeconds": 20},
+			 "minSplit": 2, "maxSplit": 4, "holdSeconds": 20},
 			{"id": "act", "type": "activity", "x": 24, "y": 24, "w": 24, "h": 24,
 			 "scope": {"kind": "list", "cameras": [1, 3]}}
 		],
-		"behavior": {"priority": [3, 1, 2]},
+		"behavior": {"priority": [3, 1, 2], "mainStreams": 3},
 		"mobileOrder": [2]
 	})";
 }
@@ -69,6 +69,10 @@ int main()
 			Document again = ParseOk( canonical );
 			Expect( Emit( again ) == canonical, "canonical emission is stable" );
 			Expect( again.Tiles[2].MaxSplit == 4 && again.Tiles[2].HoldSeconds == 20, "spotlight fields preserved" );
+			Expect( again.MainStreams == 3, "stream budget preserved" );
+			Expect( again.Tiles[2].MinSplit == 2, "spotlight minimum preserved" );
+			Expect( ParseOk( R"({"tiles":[{"id":"s","type":"spotlight","x":0,"y":0,"w":8,"h":8,"minSplit":4,"maxSplit":2}]})" ).Tiles[0].MinSplit == 2, "minimum clamped to maximum" );
+			Expect( !Parse( R"({"behavior":{"mainStreams":40}})", false ).Ok, "stream budget bounded" );
 		}
 
 		// Structural validation.

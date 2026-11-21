@@ -7,6 +7,8 @@ import { useIsPhone } from '../composables/useViewport'
 import { describeError, useDashboardStore, type SharePrincipal } from '../stores/dashboards'
 import { createEmptyDocument, type DashboardSummary } from '../types/dashboard'
 
+// Also embedded as the Settings → Dashboards tab (inside the admin layout).
+defineProps<{ embedded?: boolean }>()
 const route = useRoute()
 const router = useRouter()
 const store = useDashboardStore()
@@ -51,8 +53,8 @@ onMounted(() => { store.listen(); void store.fetchList() })
 </script>
 
 <template>
-  <AppLayout>
-    <template #title>Dashboards</template>
+  <component :is="embedded ? 'div' : AppLayout">
+    <template v-if="!embedded" #title>Dashboards</template>
     <section class="view-heading" aria-label="Dashboards">
       <div><div class="ui-eyebrow">DASHBOARDS</div><h1>Dashboards</h1><p>Layouts for wall displays and desktops. On phones, a dashboard shows its cameras as a list.</p></div>
       <button v-if="!phone && !creating" class="btn btn-sm btn-primary" type="button" @click="creating = true">New dashboard</button>
@@ -94,7 +96,7 @@ onMounted(() => { store.listen(); void store.fetchList() })
     </div>
 
     <ShareDialog v-if="sharing" :dashboard-id="sharing.id" :shares="sharing.shares" @close="sharing = null" @saved="sharing = null" />
-  </AppLayout>
+  </component>
 </template>
 
 <style scoped>

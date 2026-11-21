@@ -186,6 +186,7 @@ ParseResult Parse( const std::string& json, bool allowUnavailable )
 			read.CameraList( behavior, "priority", doc.Priority );
 			read.Int( behavior, "returnToLiveSeconds", doc.ReturnToLiveSeconds, 0, 3600 );
 			read.Bool( behavior, "quietControls", doc.QuietControls );
+			read.Int( behavior, "mainStreams", doc.MainStreams, -1, 16 );
 		}
 	}
 	read.CameraList( root, "mobileOrder", doc.MobileOrder );
@@ -255,6 +256,8 @@ ParseResult Parse( const std::string& json, bool allowUnavailable )
 				}
 				read.Bool( t, "warm", tile.Warm );
 				read.Int( t, "maxSplit", tile.MaxSplit, 1, 4 );
+				read.Int( t, "minSplit", tile.MinSplit, 1, 4 );
+				tile.MinSplit = std::min( tile.MinSplit, tile.MaxSplit );
 				read.Bool( t, "label", tile.Label );
 			}
 			else if( UsesScope( tile.Type ) )
@@ -510,6 +513,7 @@ std::string Emit( const Document& doc )
 			if( tile.IdleKind == "camera" ) t["idle"]["camera"] = tile.IdleCamera;
 			if( tile.IdleKind == "rotate" ) t["idle"]["everySeconds"] = tile.IdleEverySeconds;
 			t["warm"] = tile.Warm;
+			t["minSplit"] = tile.MinSplit;
 			t["maxSplit"] = tile.MaxSplit;
 			t["label"] = tile.Label;
 		}
@@ -563,6 +567,7 @@ std::string Emit( const Document& doc )
 	root["behavior"]["priority"] = IntList( doc.Priority );
 	root["behavior"]["returnToLiveSeconds"] = doc.ReturnToLiveSeconds;
 	root["behavior"]["quietControls"] = doc.QuietControls;
+	root["behavior"]["mainStreams"] = doc.MainStreams;
 	root["mobileOrder"] = IntList( doc.MobileOrder );
 	return root.dump();
 }

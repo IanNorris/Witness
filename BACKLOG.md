@@ -199,6 +199,24 @@ Research starting points:
   continuous clip and use DVR/continuous-recording segments to fill the gaps,
   while preserving the original event metadata and avoiding duplicate or
   non-monotonic audio/video timestamps.
+- Record both streams of a camera (for example HEVC main and H.264 sub) as
+  alternate renditions of the same clip, because the HEVC main stream
+  occasionally glitches in recordings. Paired cameras (PTZ wide/focus) extend
+  this to one clip with up to four renditions: wide main/sub and focus
+  main/sub.
+  - **Model:** keep one clip and one event timeline, with the renditions
+    linked to it, rather than separate clips.
+  - **Joining:** align renditions on presentation clocks, as DVR captures
+    already do, so you can switch between them or splice around a damaged
+    span. Record coverage and gaps per rendition.
+  - **Clip viewer:** a rendition dropdown (camera × stream) that keeps the
+    playback position when switching, and marks renditions that are missing
+    or damaged over the current span.
+  - **Storage:** retention and storage accounting count each rendition.
+    Recording the sub-stream should be opt-in per camera, with its cost shown
+    in the storage settings.
+  - **Detection:** detection, trails and tags stay attached to the single
+    clip (computed on one designated rendition), not duplicated per stream.
 
 ## Evidence provenance (deferred)
 

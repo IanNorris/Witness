@@ -14,7 +14,7 @@ import TextTile from './tiles/TextTile.vue'
 import { useCameraStore } from '../../stores/cameras'
 import { dashboardPlaybackKey } from '../../composables/useDashboardPlayback'
 import {
-  ActiveHolds, readingOrderCameras, resolveDashboard, splitCells, spotlightCandidates,
+  ActiveHolds, allocateStreams, readingOrderCameras, resolveDashboard, splitCells, spotlightCandidates,
   type CameraTile, type DashboardDocument, type DashboardTile, type Rect, type ScopedTileBase, type SpotlightTile,
 } from '../../types/dashboard'
 import type { Clip } from '../../types/clip'
@@ -179,6 +179,41 @@ function cameraTileFor(id: number): CameraTile | undefined {
   const tile = slot ? tileById.value.get(slot.tileId) : undefined
   return tile?.type === 'camera' ? tile : undefined
 }
+// Stream budget: the largest visible tiles keep their main stream; the rest
+// are switched to sub-streams (dashboard "Full-quality streams" setting).
+const streamPlan = computed(() => allocateStreams([...slots.value].map(([id, slot]) => {
+  const camera = cameraStore.getCameraById(id)
+  return {
+    camera: id,
+    area: slot.w * slot.h,
+    preference: cameraTileFor(id)?.stream ?? 'auto',
+    pixels: (camera?.width || 1920) * (camera?.height || 1080),
+    hasSubStream: !!camera?.hasSubStream,
+  }
+}), doc.value.behavior.mainStreams ?? 0))
+// The canvas decides main vs sub explicitly (rather than leaving "auto" to
+// the server's in-socket switch, which freezes the picture until the next
+// keyframe). Every change then goes through CameraCard's seamless switch.
+const canvasSize = ref({ width: 0, height: 0 })
+let sizeObserver: ResizeObserver | null = null
+function streamFor(id: number): 'main' | 'sub' {
+  const camera = cameraStore.getCameraById(id)
+  if (!camera?.hasSubStream) return 'main'
+  const slot = slots.value.get(id)
+  if (!slot) return 'sub' // parked warm sources stay cheap until shown
+  const planned = streamPlan.value.get(id) ?? 'auto'
+  if (planned !== 'auto') return planned
+  return tileNeedsMainStream(slot, camera.subWidth, camera.subHeight) ? 'main' : 'sub'
+}
+// Same threshold as the server: the sub-stream may be upscaled by up to 25%.
+function tileNeedsMainStream(slot: Rect, subWidth?: number, subHeight?: number) {
+  if (!subWidth || !subHeight || canvasSize.value.width <= 0) return true
+  const scale = window.devicePixelRatio || 1
+  const bucket = (v: number) => Math.ceil(v * scale / 64) * 64
+  const width = bucket(slot.w / cols.value * canvasSize.value.width)
+  const height = bucket(slot.h / rows.value * canvasSize.value.height)
+  return width > Math.ceil(subWidth * 1.25) || height > Math.ceil(subHeight * 1.25)
+}
 function hideName(id: number) {
   const slot = slots.value.get(id)
   const tile = slot ? tileById.value.get(slot.tileId) : undefined
@@ -197,10 +232,12 @@ function activityOrientation(tile: DashboardTile) {
   if (tile.type === 'activity' && tile.direction !== 'auto') return tile.direction
   return tileAspect(tile) >= 1 ? 'horizontal' : 'vertical'
 }
-function spotlightLabel(tile: SpotlightTile) {
-  const shown = resolved.value.spotlights.get(tile.id) ?? []
-  const names = shown.map(id => cameraStore.getCameraById(id)?.name).filter(Boolean)
-  return `${tile.trigger === 'rotate' ? 'ROTATE' : 'AUTO'}${names.length === 1 ? ` · ${names[0]}` : names.length > 1 ? ` · ${names.length}` : ''}`
+// Spotlight cameras carry "AUTO"/"ROTATE" in their own name label.
+function namePrefixFor(id: number): string | undefined {
+  const slot = slots.value.get(id)
+  const tile = slot?.spotlight ? tileById.value.get(slot.tileId) : undefined
+  if (tile?.type !== 'spotlight' || !tile.label) return undefined
+  return tile.trigger === 'rotate' ? 'ROTATE' : 'AUTO'
 }
 // Widget tiles render as their own elements; camera pixels come from the
 // mounted camera layer above, so camera tiles only draw placeholders here.
@@ -229,10 +266,18 @@ function onKeydown(event: KeyboardEvent) {
 function onActivity() { if (maximized.value !== null) armMaximizeTimer() }
 
 onMounted(() => {
+  if (rootRef.value && typeof ResizeObserver !== 'undefined') {
+    sizeObserver = new ResizeObserver(entries => {
+      const box = entries[0]?.contentRect
+      if (box) canvasSize.value = { width: box.width, height: box.height }
+    })
+    sizeObserver.observe(rootRef.value)
+  }
   window.addEventListener('keydown', onKeydown)
   document.addEventListener('pointerdown', onOutsidePointer, true)
 })
 onUnmounted(() => {
+  sizeObserver?.disconnect()
   window.removeEventListener('keydown', onKeydown)
   document.removeEventListener('pointerdown', onOutsidePointer, true)
   clearInterval(rotationTimer)
@@ -241,7 +286,7 @@ onUnmounted(() => {
   holds.clear()
 })
 
-defineExpose({ resolved, slots, maximized, selectedControls })
+defineExpose({ resolved, slots, maximized, selectedControls, streamPlan, streamFor, canvasSize })
 </script>
 
 <template>
@@ -283,18 +328,13 @@ defineExpose({ resolved, slots, maximized, selectedControls })
       <TileBoundary>
         <CameraCard :camera="camera" layout-mode :kiosk="kiosk" :dashboard-hidden="!slots.has(camera.id)"
           :controls-selected="selectedControls === camera.id" :fullscreen-controls-visible="chromeVisible"
-          :tile-stream="cameraTileFor(camera.id)?.stream" :hide-name="hideName(camera.id)"
+          :tile-stream="streamFor(camera.id)" seamless-switch :name-prefix="namePrefixFor(camera.id)" :hide-name="hideName(camera.id)"
           :no-playback-bar="cameraTileFor(camera.id)?.playback === false" double-click-maximizes
           @toggle-maximize="toggleMaximize" @dismiss-controls="selectedControls = null"
           @open-stream="router.push(`/live/${$event}`)" @open-clips="router.push(`/clips/${$event}`)" />
       </TileBoundary>
     </div>
 
-    <!-- Spotlight labels sit above their cameras -->
-    <template v-if="maximized === null">
-      <div v-for="tile in doc.tiles.filter(t => t.type === 'spotlight' && t.label && (resolved.spotlights.get(t.id) ?? []).length > 0)" :key="`label-${tile.id}`"
-        class="dash-spotlight-label" :style="rectStyle(tile, { height: 'auto', width: 'auto' })">{{ spotlightLabel(tile as SpotlightTile) }}</div>
-    </template>
     <button v-if="maximized !== null" class="dash-restore" type="button" @click="maximized = null" title="Return to the dashboard (Esc)">Restore layout</button>
 
     <div v-for="badge in doc.badges" :key="badge.id" class="dash-badge" :class="`anchor-${badge.anchor} size-${badge.size}`">
@@ -314,7 +354,6 @@ defineExpose({ resolved, slots, maximized, selectedControls })
 .dash-camera.maximized { z-index: 5; }
 .dash-parked { left: -10000px; top: -10000px; width: 2px; height: 2px; opacity: .7; pointer-events: none; }
 .dash-tile-camera, .dash-tile-spotlight { background: #070b10; }
-.dash-spotlight-label { position: absolute; z-index: 4; margin: 8px; padding: 2px 7px; border-radius: 4px; background: rgba(8, 12, 18, .72); color: #cfe6fb; font-size: 11px; font-weight: 600; letter-spacing: .04em; pointer-events: none; }
 .dash-restore { position: absolute; z-index: 6; top: 10px; left: 50%; transform: translateX(-50%); border: 1px solid #4a6280; border-radius: 99px; background: rgba(15, 24, 37, .9); color: #e8f3ff; padding: 4px 12px; font-size: 12px; }
 .dash-ptz { width: 100%; height: 100%; overflow: auto; background: #0b1119; padding: .4rem; }
 .dash-ptz-name { color: #cfe0f2; font-size: .75rem; margin-bottom: .25rem; }

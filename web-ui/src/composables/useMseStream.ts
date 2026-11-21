@@ -284,6 +284,9 @@ export function useMseStream(
   audioEnabled: () => boolean = () => false,
 	adaptiveStream: boolean = false,
 	viewportSize: () => { width: number; height: number } | null = () => null,
+	// Sub-stream requests may be served the main stream when the sub-stream is
+	// unusable server-side. Only set when this browser can decode the main codec.
+	allowMainFallback: boolean = false,
 ): MseStreamState {
   const showSpinner = ref(false)
   const connectionLost = ref(false)
@@ -480,7 +483,7 @@ export function useMseStream(
 		const viewport = adaptiveStream && !useSubStream ? viewportSize() : null
 		const query = viewport && viewport.width > 0 && viewport.height > 0
 			? `?width=${viewport.width}&height=${viewport.height}`
-			: ''
+			: useSubStream && allowMainFallback ? '?fallback=main' : ''
 		return `${proto}//${location.host}${path}${query}`
   }
 

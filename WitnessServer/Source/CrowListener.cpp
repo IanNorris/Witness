@@ -99,9 +99,12 @@ namespace
 		const std::string SubCodec = SubWorker ? SubWorker->GetCodecName() : std::string{};
 		const auto SubInit = SubLive ? SubLive->GetInitSnapshot() :
 			Witness::Camera::LiveStreamInitSnapshot{};
+		// A sub-stream whose timestamp repair has been rejected (e.g. Tapo
+		// sawtooth after a long Wi-Fi stall) drops keyframes; never serve it.
 		const bool SubReady = SubWorker && SubWorker->IsConnected() && SubLive &&
 			SubWidth > 0 && SubHeight > 0 && !SubCodec.empty() &&
-			SubInit.Data && !SubInit.Data->empty();
+			SubInit.Data && !SubInit.Data->empty() &&
+			!SubLive->GetStreamingSummary().TimestampNormalizationRejected;
 		bool UseSubStream = ForceSubStream && SubReady;
 		if( !ForceSubStream && RequestedWidth > 0 && RequestedHeight > 0 && SubReady )
 		{
@@ -1107,7 +1110,17 @@ void CrowListener::RegisterRoutes()
 
 			const auto selection = SelectMseStream( *m_GlobalContext, cameraId, 0, 0, true );
 			if( !selection.SubStream )
-				return false;
+			{
+				// Clients that can decode the main stream ask to fall back to it
+				// rather than being refused while the sub-stream is unusable.
+				const char* fallback = req.url_params.get( "fallback" );
+				const bool allowMain = fallback && std::string( fallback ) == "main";
+				const auto mainSelection = allowMain ? SelectMseStream( *m_GlobalContext, cameraId, 0, 0, false ) : MseStreamSelection{};
+				if( !mainSelection.LiveStream )
+					return false;
+				*userdata = reinterpret_cast<void*>( static_cast<intptr_t>( mainSelection.ChannelId ) );
+				return true;
+			}
 
 			*userdata = reinterpret_cast<void*>( static_cast<intptr_t>(
 				cameraId + StreamBroadcaster::SubStreamChannelOffset ) );
@@ -1117,8 +1130,19 @@ void CrowListener::RegisterRoutes()
 		{
 			int subChannelId = static_cast<int>( reinterpret_cast<intptr_t>( conn.userdata() ) );
 			int cameraId = BaseCameraId( subChannelId );
+			const bool fallbackAccepted = subChannelId < StreamBroadcaster::SubStreamChannelOffset;
 
-			const auto selection = SelectMseStream( *m_GlobalContext, cameraId, 0, 0, true );
+			auto selection = SelectMseStream( *m_GlobalContext, cameraId, 0, 0, true );
+			if( !selection.SubStream && fallbackAccepted )
+			{
+				selection = SelectMseStream( *m_GlobalContext, cameraId, 0, 0, false );
+				if( selection.LiveStream )
+				{
+					SubscribeMseStream( *m_GlobalContext, &conn, selection, 0, 0, false );
+					LOG_INFO( "[MSE] Sub-stream for camera %d unusable; serving main stream instead", cameraId );
+					return;
+				}
+			}
 			if( !selection.SubStream )
 			{
 				conn.close( "sub-stream unavailable" );

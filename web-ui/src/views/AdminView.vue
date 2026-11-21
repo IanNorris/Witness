@@ -16,6 +16,7 @@ const tabs = [
   { path: '/admin/cameras', label: 'Cameras' },
   { path: '/admin/users', label: 'Users' },
   { path: '/admin/groups', label: 'Access groups' },
+  { path: '/admin/dashboards', label: 'Dashboards' },
   { path: '/admin/detection', label: 'Detection' },
   { path: '/admin/storage', label: 'Storage' },
   { path: '/admin/streaming', label: 'Streaming' },

@@ -1081,11 +1081,20 @@ CameraStreamError LiveOutputStream::WriteInterleavedPacket(const AVPacket* Packe
                 !(Packet->flags & AV_PKT_FLAG_CORRUPT) &&
                 (!_LiveData->_DecodeCorruptionActive || _LiveData->_DecodeCorruptionActivityID < _LiveData->_CurrentDiagnosticActivity);
             _LiveData->_RequalificationArrivalGuard.Observe(ArrivalTicks, Packet->duration, Valid);
-            const bool CadenceValid = _LiveData->_RequalificationArrivalGuard.Ready(av_rescale_q(
-                AV_TIME_BASE, AV_TIME_BASE_Q, Timebase)) && !TimestampCadenceClock::CadenceDrifted(
+            const bool WindowReady = _LiveData->_RequalificationArrivalGuard.Ready(av_rescale_q(
+                AV_TIME_BASE, AV_TIME_BASE_Q, Timebase));
+            const bool CadenceValid = WindowReady && !TimestampCadenceClock::CadenceDrifted(
                 _LiveData->_RequalificationArrivalGuard.ArrivalTicks, _LiveData->_RequalificationArrivalGuard.DurationTicks);
-            if (_LiveData->_TimestampRequalification.Observe(NowMs, CadenceValid,
-                Valid && (Packet->flags & AV_PKT_FLAG_KEY))) {
+            const bool CleanKeyframe = Valid && (Packet->flags & AV_PKT_FLAG_KEY);
+            const double DurationMs = Packet->duration > 0
+                ? static_cast<double>(Packet->duration) * 1000.0 * av_q2d(Timebase) : 0.0;
+            // Judge cadence over the whole span when packets declare durations;
+            // otherwise keep the strict rolling-window rule. Before the rolling
+            // window fills, its cadence is unknown rather than off.
+            const bool Requalified = DurationMs > 0
+                ? _LiveData->_TimestampRequalification.ObserveSpan(NowMs, Valid, !WindowReady || CadenceValid, DurationMs, CleanKeyframe)
+                : _LiveData->_TimestampRequalification.Observe(NowMs, CadenceValid, CleanKeyframe);
+            if (Requalified) {
                 auto Retry = _LiveData->_TimestampRequalification;
                 Retry.Recover();
                 // Re-anchor at the new random-access packet, never splice clocks

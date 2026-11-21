@@ -162,6 +162,8 @@ test('dashboard canvas: spotlight promotion never changes the mounted camera set
     await Vue.nextTick()
     assert.equal(state.slots.value.get(12).tileId, 's')
     assert.deepEqual(state.resolved.value.mounted, mounted)
+    assert.equal(state.namePrefixFor(12), 'AUTO', 'spotlight cameras label themselves')
+    assert.equal(state.namePrefixFor(10), undefined, 'fixed cameras do not')
     f.cameras[1].motionActive = false
     await Vue.nextTick()
     t.mock.timers.tick(1000)
@@ -206,5 +208,87 @@ test('dashboard camera cards: double-click maximises, tile stream preference yie
     state.onDoubleClick()
     assert.deepEqual(f.events.at(-1), ['toggleMaximize', 12])
     assert.equal(f.settings.fullscreenMode, true, 'double-click no longer exits fullscreen on dashboards')
+  } finally { globalThis.MediaSource = previousMediaSource; f.close() }
+})
+
+test('seamless stream switch keeps the visible player until the new one presents a frame', async t => {
+  const f = fixture()
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  const previousMediaSource = globalThis.MediaSource
+  globalThis.MediaSource = { isTypeSupported: () => true }
+  const camera = Vue.reactive({ id: 12, name: 'Fixture', status: 'Connected', codec: 'h264', hasSubStream: true, subCodec: 'h264' })
+  try {
+    const props = Vue.reactive({ camera, layoutMode: true, tileStream: 'main', seamlessSwitch: true })
+    const state = f.setup(await component('CameraCard'), props)
+    const original = state.activePlayer.value.key
+    assert.equal(state.players.value.length, 1)
+    props.tileStream = 'sub'; await Vue.nextTick()
+    assert.equal(state.players.value.length, 2, 'new stream prepared alongside the visible one')
+    assert.equal(state.activePlayer.value.key, original, 'visible player untouched while preparing')
+    assert.equal(state.players.value[1].useSub, true)
+    state.onPlayerReady(original) // the old player re-reporting must not swap anything
+    assert.equal(state.players.value.length, 2)
+    state.onPlayerReady(state.players.value[1].key)
+    assert.equal(state.players.value.length, 1)
+    assert.equal(state.activePlayer.value.useSub, true, 'swapped once the new stream showed a frame')
+    // A stream that never presents a frame is cut over after the timeout.
+    props.tileStream = 'main'; await Vue.nextTick()
+    assert.equal(state.players.value.length, 2)
+    t.mock.timers.tick(8000)
+    assert.equal(state.players.value.length, 1)
+    assert.equal(state.activePlayer.value.useSub, false)
+    // Without seamless switching (or when hidden) the change is immediate.
+    props.seamlessSwitch = false
+    props.tileStream = 'sub'; await Vue.nextTick()
+    assert.equal(state.players.value.length, 1)
+    assert.equal(state.activePlayer.value.useSub, true)
+  } finally { globalThis.MediaSource = previousMediaSource; f.close(); t.mock.timers.reset() }
+})
+
+test('dashboard canvas picks sub-streams for small and parked tiles, main for large ones', async () => {
+  const f = fixture()
+  globalThis.__fullscreenVue.inject = () => undefined
+  globalThis.window.devicePixelRatio = 1
+  for (const camera of f.cameras) Object.assign(camera, { hasSubStream: true, subWidth: 640, subHeight: 360, width: 1920, height: 1080 })
+  const big = layoutFunctions.defaultTile('camera', 'a', { x: 0, y: 0, w: 36, h: 36 }, 10)
+  const small = layoutFunctions.defaultTile('camera', 'b', { x: 36, y: 0, w: 12, h: 12 }, 12)
+  const props = Vue.reactive({ document: canvasDocument([big, small]) })
+  const state = f.setup(await component('DashboardCanvas'), props)
+  try {
+    state.canvasSize.value = { width: 1920, height: 1080 }
+    assert.equal(state.streamFor(10), 'main', '1440×810 tile needs the main stream')
+    assert.equal(state.streamFor(12), 'sub', '480×270 tile uses the sub-stream')
+    props.document.tiles[0].stream = 'sub'
+    assert.equal(state.streamFor(10), 'sub', 'pinned sub wins')
+    props.document.behavior.mainStreams = 1
+    props.document.tiles[0].stream = 'auto'
+    props.document.tiles[1].stream = 'main'
+    assert.equal(state.streamFor(12), 'main', 'pinned main kept')
+    assert.equal(state.streamFor(10), 'sub', 'budget of one is spent by the pinned tile')
+  } finally { f.close() }
+})
+
+test('unplayable main streams fall back to a playable sub-stream unless Main is pinned on the device', async () => {
+  const f = fixture()
+  const previousMediaSource = globalThis.MediaSource
+  // A wall display without HEVC: only H.264 decodes.
+  globalThis.MediaSource = { isTypeSupported: mime => !/hev1|hvc1/.test(mime) }
+  const camera = Vue.reactive({ id: 12, name: 'Fixture', status: 'Connected', codec: 'hevc', hasSubStream: true, subCodec: 'h264' })
+  try {
+    const props = Vue.reactive({ camera, layoutMode: true, tileStream: 'main' })
+    const state = f.setup(await component('CameraCard'), props)
+    assert.equal(state.useSubStream.value, true, 'dashboard asking for Main still degrades to the H.264 sub-stream')
+    assert.equal(state.effectiveModeWithFallback.value, 'mse')
+    f.settings.cameraStreamChoice = 'main'
+    assert.equal(state.useSubStream.value, false, 'an explicit per-device Main pin is honoured')
+    assert.equal(state.effectiveModeWithFallback.value, 'unsupported')
+    f.settings.cameraStreamChoice = 'auto'
+    // Runtime rejection of an H.264 main stream also drops to the sub-stream.
+    camera.codec = 'h264'; await Vue.nextTick()
+    assert.equal(state.useSubStream.value, false)
+    state.hlsPlayerRef.value = { codecUnsupported: true }
+    await Vue.nextTick()
+    assert.equal(state.useSubStream.value, true)
+    assert.equal(state.codecFallback.value, false)
   } finally { globalThis.MediaSource = previousMediaSource; f.close() }
 })
