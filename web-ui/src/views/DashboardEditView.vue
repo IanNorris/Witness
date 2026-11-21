@@ -826,7 +826,6 @@ const remoteChanged = computed(() => {
             </label>
             <label class="check"><input type="checkbox" :checked="selectedTile.borrowPlaced" @change="updateTile(selectedTile.id, { borrowPlaced: ($event.target as HTMLInputElement).checked })"> May show cameras that have their own tile</label>
             <label class="check" title="Keeps hidden sources connected so they appear instantly. Each costs a decoder."><input type="checkbox" :checked="selectedTile.warm" @change="updateTile(selectedTile.id, { warm: ($event.target as HTMLInputElement).checked })"> Keep sources warm (instant switch)</label>
-            <label class="check"><input type="checkbox" :checked="selectedTile.label" @change="updateTile(selectedTile.id, { label: ($event.target as HTMLInputElement).checked })"> Show label</label>
           </template>
 
           <template v-else-if="selectedTile.type === 'activity' || selectedTile.type === 'timeline' || selectedTile.type === 'detection'">

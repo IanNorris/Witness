@@ -232,13 +232,6 @@ function activityOrientation(tile: DashboardTile) {
   if (tile.type === 'activity' && tile.direction !== 'auto') return tile.direction
   return tileAspect(tile) >= 1 ? 'horizontal' : 'vertical'
 }
-// Spotlight cameras carry "AUTO"/"ROTATE" in their own name label.
-function namePrefixFor(id: number): string | undefined {
-  const slot = slots.value.get(id)
-  const tile = slot?.spotlight ? tileById.value.get(slot.tileId) : undefined
-  if (tile?.type !== 'spotlight' || !tile.label) return undefined
-  return tile.trigger === 'rotate' ? 'ROTATE' : 'AUTO'
-}
 // Widget tiles render as their own elements; camera pixels come from the
 // mounted camera layer above, so camera tiles only draw placeholders here.
 const widgetTiles = computed(() => maximized.value !== null ? [] : doc.value.tiles)
@@ -328,7 +321,7 @@ defineExpose({ resolved, slots, maximized, selectedControls, streamPlan, streamF
       <TileBoundary>
         <CameraCard :camera="camera" layout-mode :kiosk="kiosk" :dashboard-hidden="!slots.has(camera.id)"
           :controls-selected="selectedControls === camera.id" :fullscreen-controls-visible="chromeVisible"
-          :tile-stream="streamFor(camera.id)" seamless-switch :name-prefix="namePrefixFor(camera.id)" :hide-name="hideName(camera.id)"
+          :tile-stream="streamFor(camera.id)" seamless-switch :hide-name="hideName(camera.id)"
           :no-playback-bar="cameraTileFor(camera.id)?.playback === false" double-click-maximizes
           @toggle-maximize="toggleMaximize" @dismiss-controls="selectedControls = null"
           @open-stream="router.push(`/live/${$event}`)" @open-clips="router.push(`/clips/${$event}`)" />

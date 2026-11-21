@@ -162,8 +162,6 @@ test('dashboard canvas: spotlight promotion never changes the mounted camera set
     await Vue.nextTick()
     assert.equal(state.slots.value.get(12).tileId, 's')
     assert.deepEqual(state.resolved.value.mounted, mounted)
-    assert.equal(state.namePrefixFor(12), 'AUTO', 'spotlight cameras label themselves')
-    assert.equal(state.namePrefixFor(10), undefined, 'fixed cameras do not')
     f.cameras[1].motionActive = false
     await Vue.nextTick()
     t.mock.timers.tick(1000)

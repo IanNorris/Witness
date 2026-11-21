@@ -30,8 +30,6 @@ const props = defineProps<{
   // Prepare a changed stream in a hidden second player and swap it in once
   // its first frame is presented, instead of tearing down the visible one.
   seamlessSwitch?: boolean
-  // Dashboards v2: shown before the camera name, e.g. "AUTO" in a spotlight.
-  namePrefix?: string
 }>()
 
 const emit = defineEmits<{
@@ -315,8 +313,8 @@ onUnmounted(() => {
         </div>
 
         <!-- Camera name overlay in fullscreen -->
-        <div v-if="canvasMode && (!hideName || namePrefix)" class="camera-name-overlay">
-          <span v-if="namePrefix" class="camera-name-prefix">{{ namePrefix }}</span><template v-if="namePrefix && !hideName"> · </template><template v-if="!hideName">{{ camera.name }}</template>
+        <div v-if="canvasMode && !hideName" class="camera-name-overlay">
+          {{ camera.name }}
         </div>
         <button v-if="canvasMode && controlsSelected" class="control-selection-label"
           @click.stop="emit('dismissControls')" title="Dismiss camera controls (Esc)">
@@ -459,7 +457,6 @@ onUnmounted(() => {
    audio/detection/PTZ buttons sit one row above them when they appear. */
 .camera-card-fullscreen.has-playback-bar :is(.audio-toggle, .motion-audio-toggle, .detection-toggle, .ptz-toggle) { bottom: calc(var(--camera-playback-height, 82px) + 40px); }
 .camera-card-fullscreen.has-playback-bar .camera-name-overlay { bottom: calc(var(--camera-playback-height, 82px) + 8px); }
-.camera-name-prefix { color: #9fd0f7; font-size: .68rem; font-weight: 700; letter-spacing: .06em; }
 .camera-card-fullscreen.has-playback-bar.playback-idle .camera-name-overlay { bottom: 8px; }
 .camera-card-fullscreen.reviewing .camera-preview { height: calc(100% - var(--camera-playback-height, 82px)); }
 .dashboard-replay-badge { position: absolute; top: 38px; left: 8px; z-index: 15; background: #142235ee; color: #f5d791; border-radius: 4px; padding: 3px 6px; font-size: 11px; pointer-events: none; }
